@@ -195,6 +195,10 @@
   .daylog-saved{ color: var(--teal); font-size:11px; letter-spacing:0; text-transform:none; opacity:0; transition: opacity .3s ease; }
   .daylog-saved.show{ opacity:1; }
 
+  .account-box{ display:flex; align-items:center; gap:9px; }
+  .account-email{ font-family: var(--mono); font-size:11px; color: var(--text-muted); max-width:190px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .account-btn{ font-family: var(--mono); font-size:11px; padding:6px 10px; border-radius:7px; cursor:pointer; border:1px solid var(--hairline); background: var(--panel); color: var(--text-muted); }
+  .account-btn:hover{ border-color: var(--amber); color: var(--amber); }
   footer.storage-note{ margin-top:32px; text-align:center; font-family: var(--mono); font-size:11px; color: var(--text-dim); line-height:1.8; }
   footer.storage-note .storage-state{ color: var(--teal); }
   footer.storage-note .storage-state.off{ color: var(--amber); }
@@ -293,6 +297,11 @@
       <div class="brand-title">工作排程確認系統</div>
     </div>
     <div style="display:flex; align-items:center; gap:14px;">
+      <div class="account-box" id="accountBox" style="display:none;">
+        <span class="account-email" id="accountEmail"></span>
+        <button class="account-btn" id="btnAdmin" type="button" style="display:none;">帳號管理</button>
+        <button class="account-btn" id="btnLogout" type="button">登出</button>
+      </div>
       <button id="bellBtn" title="查看今日待辦提醒" style="position:relative; background:var(--panel); border:1px solid var(--hairline); border-radius:10px; width:42px; height:42px; cursor:pointer; color:var(--text-muted); font-size:17px; display:flex; align-items:center; justify-content:center;">
         🔔
         <span id="bellBadge" style="display:none; position:absolute; top:-5px; right:-5px; background:var(--red); color:#fff; font-family:var(--mono); font-size:10px; font-weight:700; border-radius:9px; min-width:18px; height:18px; padding:0 4px; align-items:center; justify-content:center;"></span>
@@ -679,13 +688,24 @@
   let pushTimer = null;
   let pushInFlight = false;
 
+  let currentUserEmail = null;
+
   function readCloudMeta(){
     try{ return JSON.parse(localStorage.getItem(CLOUD_META_KEY) || 'null'); }
     catch(e){ return null; }
   }
   function writeCloudMeta(){
-    try{ localStorage.setItem(CLOUD_META_KEY, JSON.stringify({ updatedAt: cloudUpdatedAt })); }
+    // owner 讓下次載入能判斷這份本地快取屬於誰
+    try{ localStorage.setItem(CLOUD_META_KEY, JSON.stringify({ updatedAt: cloudUpdatedAt, owner: currentUserEmail })); }
     catch(e){ /* 記憶體模式下略過 */ }
+  }
+  function clearLocalData(){
+    try{
+      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(CLOUD_META_KEY);
+    }catch(e){ /* 記憶體模式下略過 */ }
+    majorProjects = []; items = []; ganttProjects = [];
+    dailyLogs = {}; customHolidays = new Set(); selectedGanttProjectId = null;
   }
 
   function setCloudNote(text, cls){
@@ -696,8 +716,13 @@
       : '';
   }
 
+  // session 過期必須導向登入，不能當成「單機模式」靜默降級——
+  // 那會讓使用者以為還在同步，實際上所有變更都只留在這台裝置。
+  function sessionExpired(){ location.href = '/login'; }
+
   async function cloudPull(){
     const r = await fetch(API_STATE, { cache:'no-store' });
+    if(r.status === 401){ sessionExpired(); return null; }
     if(!r.ok) return null;
     return r.json();          // { state, updatedAt }
   }
@@ -712,6 +737,7 @@
         headers:{ 'content-type':'application/json' },
         body: JSON.stringify({ state: snapshot(), baseUpdatedAt: cloudUpdatedAt })
       });
+      if(r.status === 401){ sessionExpired(); return; }
       if(r.status === 409){
         const conflict = await r.json();
         pushInFlight = false;
@@ -759,6 +785,22 @@
     }
   }
 
+  function showAccount(me){
+    const box = document.getElementById('accountBox');
+    if(!box) return;
+    document.getElementById('accountEmail').textContent = me.email;
+    document.getElementById('btnAdmin').style.display = me.role === 'admin' ? '' : 'none';
+    box.style.display = 'flex';
+  }
+
+  document.getElementById('btnAdmin').onclick = ()=>{ location.href = '/admin'; };
+  document.getElementById('btnLogout').onclick = async ()=>{
+    // 登出必須清掉本地快取，否則同一台電腦的下一位使用者會讀到這份資料
+    try{ await fetch('/api/auth/logout', { method:'POST' }); }catch(e){ /* 仍要清並離開 */ }
+    clearLocalData();
+    location.href = '/login';
+  };
+
   async function initCloudSync(localHadData){
     try{
       await runCloudSync(localHadData);
@@ -770,6 +812,27 @@
   }
 
   async function runCloudSync(localHadData){
+    // 先確認身分：沒有這個端點就代表是單機開啟，靜默降級
+    let me = null;
+    try{
+      const r = await fetch('/api/auth/me', { cache:'no-store' });
+      if(r.status === 401){ sessionExpired(); return; }
+      if(r.ok) me = await r.json();
+    }catch(e){ me = null; }
+    if(!me){ cloudEnabled = false; setCloudNote(''); return; }
+
+    showAccount(me);
+
+    // 同一台電腦換人登入時，本地快取仍是前一位使用者的資料。若不清掉，
+    // 衝突對話框可能讓新使用者誤把別人的資料覆蓋到自己的雲端上。
+    const prevMeta = readCloudMeta();
+    if(prevMeta && prevMeta.owner && prevMeta.owner !== me.email){
+      clearLocalData();
+      seed();
+      localHadData = false;
+    }
+    currentUserEmail = me.email;
+
     let remote = null;
     try{ remote = await cloudPull(); }catch(e){ remote = null; }
     if(!remote){ cloudEnabled = false; setCloudNote(''); return; }
