@@ -14,6 +14,11 @@
       "database_id": "c663d046-f5f4-4a4c-b295-24d90f3acf07"
     }
   ],
+  // 付費方案預設允許 30 秒 CPU，失控迴圈會直接燒錢。正常請求最重的是
+  // 登入的 PBKDF2（實測約 74ms），500ms 留足餘裕又能擋住 bug。
+  "limits": {
+    "cpu_ms": 500
+  },
   "observability": {
     "enabled": true
   }
