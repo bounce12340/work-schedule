@@ -7,11 +7,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 前端是**零依賴的單一 HTML 檔** `public/index.html`（約 1450 行，CSS + HTML + JavaScript 全在裡面），可以獨立雙擊開啟運作；後端是 Cloudflare Worker + D1，只在部署後才啟用。
 
 ```
-public/index.html   前端（單檔，可直接開啟）
-src/index.js        Worker 入口與 /api/state
-src/auth.js         Cloudflare Access JWT 驗證
-schema.sql          D1 資料表
-wrangler.jsonc      Worker 設定與綁定
+public/index.html      主應用（單檔，可直接雙擊開啟）
+public/login.html      登入／註冊（含 Turnstile）
+public/admin.html      帳號管理（僅管理者）
+src/index.js           路由與存取控制
+src/crypto.js          PBKDF2 密碼雜湊、token 產生
+src/session.js         session 建立／查詢／銷毀
+src/turnstile.js       Turnstile siteverify
+src/handlers/          auth / state / admin 三組 API
+schema.sql             D1 資料表
+wrangler.jsonc         Worker 設定與綁定
 ```
 
 **前端沒有 build step，也沒有測試框架。** 唯一的前端外部資源是 Google Fonts CDN，離線時退回系統字型但功能不受影響。
@@ -29,7 +34,15 @@ npm run db:init        # 對遠端 D1 建表
 npm run deploy         # 部署
 ```
 
-本機開發需要 `.dev.vars` 內含 `ALLOW_UNAUTHENTICATED=true`（已 gitignore），否則 API 會因缺少 Access 設定而回 500。
+本機開發需要 `.dev.vars`（已 gitignore），內含 Turnstile 官方測試金鑰與測試用 `ADMIN_EMAILS`。
+
+**改完 `.dev.vars` 一定要完整重啟 dev server。** `wrangler dev` 只在啟動時讀一次該檔，而且 TaskStop 之類的終止方式殺不掉 wrangler 的子進程樹——留下的 workerd 孤兒會繼續佔住 port，造成「原始碼熱重載了、環境變數卻停在舊值」這種極難診斷的狀況（開發時實際踩過，繞很久）。重啟前先確認 port 真的空了：
+
+```powershell
+Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like "*wrangler*" -and $_.CommandLine -like "*work-schedule*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+```
+
+殺 workerd 之前要先殺它的 node 父進程，否則會被重新拉起。懷疑環境變數沒進去時，最快的定位法是讓 Worker 暫時回傳 `Object.keys(env)`（只回 key 不回值）。
 
 ### 驗證方式
 
@@ -139,9 +152,40 @@ commit(()=>{ /* 改資料 */ });   // → 重算年份 → 存檔 → renderAll(
 
 ### Worker 端
 
-- `authenticate()` **必須驗證 JWT，不能只依賴 Access 擋人**。有人繞過 Access 直接打 origin 時，沒驗證就等於毫無保護。
-- `TEAM_DOMAIN` / `POLICY_AUD` 未設定時 API 回 500 而非放行——寧可壞掉也不要靜默公開資料。
 - 查無使用者資料時回 `state: null` 而非 404，代表「尚未同步過」，前端應沿用本地資料。
+- 401 在前端代表 session 過期，必須導向 `/login`，**不能當成單機模式靜默降級**——那會讓使用者以為還在同步，實際上變更只留在本機。
+
+### 換人登入的隱私防線
+
+`cloudMeta` 除了版本號還記錄 `owner`。同一台電腦換人登入時，localStorage 仍是前一位使用者的資料；若不比對 owner，衝突對話框會讓新使用者有機會把別人的排程覆蓋進自己的雲端帳號。載入時 owner 不符即清空本地並重新 seed，登出時也一併清除——兩道防線都要保留，不要因為「登出已經清過」就移除 owner 比對（session 過期、cookie 被替換等情況不會經過登出流程）。
+
+## 認證與權限
+
+流程：Turnstile 真人驗證 → email + 密碼 → 管理者核准 → 使用。
+
+| 規則 | 理由 |
+|---|---|
+| `TURNSTILE_SECRET` 未設定時**一律擋下**註冊與登入 | 未設定就放行，等於真人驗證形同虛設 |
+| 密碼用 PBKDF2-SHA256 210,000 迭代，比對走 constant-time | 用 `===` 比字串會提早回傳，洩漏正確前綴長度 |
+| session 在 DB 只存 token 的 SHA-256 | DB 外洩時裡面的值無法直接拿來登入 |
+| 用 DB session 而非無狀態 JWT | 管理者停用帳號要能**立即**生效 |
+| 登入失敗一律回「email 或密碼錯誤」，帳號不存在時仍跑一次雜湊 | 避免被用來列舉哪些 email 有註冊；兩條路徑耗時要接近 |
+| 帳號狀態只在密碼正確後才揭露 | 此時對方已證明是帳號持有人 |
+| 註冊時 email 重複則明說 | 比照登入回模糊訊息會讓使用者卡在「註冊沒反應」 |
+| 未核准帳號登入時**不發 session** | 因此不需要 `/pending` 頁面，對方根本進不了站 |
+| 管理者不能變更自己的角色或狀態 | 避免手滑把自己降級，導致無人能管理系統 |
+| `ADMIN_EMAILS` 名單內的帳號無法從介面停用／降級／刪除 | 系統的最後保險，即使操作者是另一位管理者 |
+| 狀態一旦不是 `approved` 就銷毀該使用者所有 session | 否則對方在下次登入前仍能繼續使用，停用形同虛設 |
+
+### CPU 時間是真實限制
+
+密碼雜湊是純 CPU 運算。PBKDF2 210,000 迭代實測約 74ms，而 Workers **免費方案上限是每請求 10ms**——本專案帳號為 `workers_paid`（上限 30 秒）才能這樣用。
+
+**這個限制只在線上強制，本機開發不強制**，所以本機永遠測不出來。若日後改到免費方案，登入會直接被終止且錯誤訊息模糊。調整迭代次數前先確認方案。`wrangler.jsonc` 的 `limits.cpu_ms = 500` 是成本防護，不是效能上限。
+
+### 外部 script 不加 SRI 是刻意的
+
+Turnstile 的 `api.js` 是 Cloudflare 持續更新的驗證元件，官方要求從固定 URL 取得且不提供 hash，加 SRI 會在其更新當下讓真人驗證整個失效；Google Fonts CSS 也會依 User-Agent 變動。兩者皆來自與本站同源的 Cloudflare 信任域。
 
 ### 兩套互不相干的「專案」概念（極易混淆）
 
