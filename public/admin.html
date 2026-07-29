@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>帳號管理 — 工作排程確認系統</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F6F4EE; --panel:#FFFFFF; --panel-2:#F1EEE5;
+    --hairline:#E4E0D3; --hairline-soft:#ECE8DD;
+    --text:#2A2A26; --text-muted:#71706A; --text-dim:#A2A099;
+    --amber:#C9822E; --amber-dim:rgba(201,130,46,0.12);
+    --teal:#1F8C68; --teal-dim:rgba(31,140,104,0.10);
+    --red:#C74B43; --red-dim:rgba(199,75,67,0.10);
+    --violet:#6C5CE0; --violet-dim:rgba(108,92,224,0.10);
+    --mono:'JetBrains Mono',monospace; --sans:'Noto Sans TC','Inter',sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);padding:28px 20px;}
+  .wrap{max-width:940px;margin:0 auto;}
+  header{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;
+         flex-wrap:wrap;margin-bottom:24px;}
+  .eyebrow{font-family:var(--mono);font-size:10.5px;letter-spacing:.18em;color:var(--text-dim);
+           text-transform:uppercase;margin-bottom:5px;}
+  h1{margin:0;font-size:22px;font-weight:700;}
+  .actions{display:flex;gap:10px;align-items:center;}
+  .btn{font-family:var(--mono);font-size:12px;padding:8px 13px;border-radius:8px;cursor:pointer;
+       border:1px solid var(--hairline);background:var(--panel);color:var(--text-muted);}
+  .btn:hover{border-color:var(--amber);color:var(--amber);}
+  .whoami{font-family:var(--mono);font-size:11px;color:var(--text-dim);}
+  .note{font-family:var(--mono);font-size:11px;color:var(--text-dim);background:var(--panel-2);
+        border:1px solid var(--hairline);border-radius:8px;padding:10px 12px;margin-bottom:18px;line-height:1.8;}
+  .section-label{font-family:var(--mono);font-size:11px;letter-spacing:.1em;color:var(--text-muted);
+                 text-transform:uppercase;margin:22px 0 10px;}
+  .row{background:var(--panel);border:1px solid var(--hairline);border-radius:11px;padding:13px 15px;
+       margin-bottom:9px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+  .row.pending{border-color:rgba(201,130,46,.45);background:#FFFDF8;}
+  .email{font-weight:500;font-size:14px;flex:1;min-width:190px;word-break:break-all;}
+  .badge{font-family:var(--mono);font-size:10.5px;padding:3px 8px;border-radius:5px;letter-spacing:.04em;}
+  .badge.admin{background:var(--violet-dim);color:var(--violet);}
+  .badge.user{background:var(--panel-2);color:var(--text-muted);}
+  .badge.approved{background:var(--teal-dim);color:var(--teal);}
+  .badge.pending{background:var(--amber-dim);color:var(--amber);}
+  .badge.rejected,.badge.suspended{background:var(--red-dim);color:var(--red);}
+  .when{font-family:var(--mono);font-size:10.5px;color:var(--text-dim);}
+  .ops{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto;}
+  .op{font-family:var(--mono);font-size:11px;padding:6px 10px;border-radius:6px;cursor:pointer;
+      border:1px solid var(--hairline);background:transparent;color:var(--text-muted);}
+  .op:hover{background:var(--panel-2);color:var(--text);}
+  .op.approve:hover{color:var(--teal);border-color:var(--teal);}
+  .op.danger:hover{color:var(--red);border-color:var(--red);}
+  .locked{font-family:var(--mono);font-size:10.5px;color:var(--text-dim);}
+  .empty{padding:34px 20px;text-align:center;border:1px dashed #D2CDBB;border-radius:12px;
+         font-family:var(--mono);font-size:12.5px;color:var(--text-dim);background:var(--panel);}
+  .msg{margin-bottom:16px;padding:11px 13px;border-radius:8px;font-size:13px;display:none;}
+  .msg.err{display:block;background:var(--red-dim);border:1px solid rgba(199,75,67,.3);color:var(--red);}
+  .msg.ok{display:block;background:var(--teal-dim);border:1px solid rgba(31,140,104,.3);color:var(--teal);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <div class="eyebrow">Account Administration</div>
+      <h1>帳號管理</h1>
+    </div>
+    <div class="actions">
+      <span class="whoami" id="whoami">—</span>
+      <button class="btn" id="btnBack" type="button">← 回排程</button>
+      <button class="btn" id="btnLogout" type="button">登出</button>
+    </div>
+  </header>
+
+  <div class="note">
+    這裡只管理帳號，看不到任何人的排程內容。<br>
+    停用或拒絕帳號會立即讓對方所有裝置登出，不需等待其重新登入。
+  </div>
+
+  <div class="msg" id="msg"></div>
+  <div id="list"><div class="empty">載入中…</div></div>
+</div>
+
+<script>
+(function(){
+  var listEl = document.getElementById('list');
+  var msgEl = document.getElementById('msg');
+  var me = null;
+
+  function showMsg(t, kind){ msgEl.textContent = t; msgEl.className = 'msg ' + kind;
+    setTimeout(function(){ msgEl.className = 'msg'; }, 4000); }
+
+  function fmt(ts){
+    if (!ts) return '—';
+    var d = new Date(ts);
+    return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' +
+           String(d.getDate()).padStart(2,'0');
+  }
+  var STATUS_LABEL = { pending:'待核准', approved:'已核准', rejected:'已拒絕', suspended:'已停用' };
+  var ROLE_LABEL = { admin:'管理者', user:'使用者' };
+
+  async function api(path, opts){
+    var r = await fetch(path, opts);
+    var d = await r.json().catch(function(){ return {}; });
+    if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+    return d;
+  }
+
+  async function load(){
+    try {
+      me = await api('/api/auth/me');
+      document.getElementById('whoami').textContent = me.email;
+      var data = await api('/api/admin/users');
+      render(data.users || []);
+    } catch (e) {
+      listEl.innerHTML = '';
+      showMsg('讀取失敗：' + e.message, 'err');
+    }
+  }
+
+  function render(users){
+    listEl.innerHTML = '';
+    if (!users.length) { listEl.innerHTML = '<div class="empty">目前沒有任何帳號</div>'; return; }
+
+    var pending = users.filter(function(u){ return u.status === 'pending'; });
+    var others = users.filter(function(u){ return u.status !== 'pending'; });
+
+    if (pending.length) {
+      listEl.appendChild(label('待核准（' + pending.length + '）'));
+      pending.forEach(function(u){ listEl.appendChild(rowFor(u)); });
+    }
+    if (others.length) {
+      listEl.appendChild(label('所有帳號'));
+      others.forEach(function(u){ listEl.appendChild(rowFor(u)); });
+    }
+  }
+
+  function label(text){
+    var d = document.createElement('div');
+    d.className = 'section-label'; d.textContent = text;
+    return d;
+  }
+
+  function rowFor(u){
+    var row = document.createElement('div');
+    row.className = 'row' + (u.status === 'pending' ? ' pending' : '');
+
+    var email = document.createElement('span');
+    email.className = 'email'; email.textContent = u.email;
+    row.appendChild(email);
+
+    row.appendChild(badge(ROLE_LABEL[u.role] || u.role, u.role));
+    row.appendChild(badge(STATUS_LABEL[u.status] || u.status, u.status));
+
+    var when = document.createElement('span');
+    when.className = 'when'; when.textContent = '註冊 ' + fmt(u.created_at);
+    row.appendChild(when);
+
+    var ops = document.createElement('div');
+    ops.className = 'ops';
+
+    if (me && u.id === me.id) {
+      var self = document.createElement('span');
+      self.className = 'locked'; self.textContent = '（你自己，無法變更）';
+      ops.appendChild(self);
+    } else {
+      if (u.status !== 'approved') ops.appendChild(op('核准', 'approve', function(){ patch(u, { status:'approved' }); }));
+      if (u.status === 'pending')  ops.appendChild(op('拒絕', 'danger',  function(){ patch(u, { status:'rejected' }); }));
+      if (u.status === 'approved') ops.appendChild(op('停用', 'danger',  function(){ patch(u, { status:'suspended' }); }));
+      ops.appendChild(op(u.role === 'admin' ? '降為使用者' : '設為管理者', '', function(){
+        patch(u, { role: u.role === 'admin' ? 'user' : 'admin' });
+      }));
+      ops.appendChild(op('刪除', 'danger', function(){ del(u); }));
+    }
+    row.appendChild(ops);
+    return row;
+  }
+
+  function badge(text, kind){
+    var b = document.createElement('span');
+    b.className = 'badge ' + kind; b.textContent = text;
+    return b;
+  }
+
+  function op(text, kind, fn){
+    var b = document.createElement('button');
+    b.className = 'op' + (kind ? ' ' + kind : '');
+    b.textContent = text; b.onclick = fn;
+    return b;
+  }
+
+  async function patch(u, changes){
+    try {
+      await api('/api/admin/users/' + encodeURIComponent(u.id), {
+        method:'PATCH', headers:{'content-type':'application/json'}, body: JSON.stringify(changes)
+      });
+      showMsg(u.email + ' 已更新', 'ok');
+      load();
+    } catch (e) { showMsg('更新失敗：' + e.message, 'err'); }
+  }
+
+  async function del(u){
+    if (!confirm('確定刪除「' + u.email + '」？\n該帳號的排程資料也會一併刪除，此操作無法復原。')) return;
+    try {
+      await api('/api/admin/users/' + encodeURIComponent(u.id), { method:'DELETE' });
+      showMsg(u.email + ' 已刪除', 'ok');
+      load();
+    } catch (e) { showMsg('刪除失敗：' + e.message, 'err'); }
+  }
+
+  document.getElementById('btnBack').onclick = function(){ location.href = '/'; };
+  document.getElementById('btnLogout').onclick = async function(){
+    await fetch('/api/auth/logout', { method:'POST' });
+    location.href = '/login';
+  };
+
+  load();
+})();
+</script>
+</body>
+</html>

@@ -1,5 +1,6 @@
 import { handleRegister, handleLogin, handleLogout, handleMe, json } from './handlers/auth.js';
 import { handleGetState, handlePutState } from './handlers/state.js';
+import { handleListUsers, handleUpdateUser, handleDeleteUser } from './handlers/admin.js';
 import { getSessionUser } from './session.js';
 
 /**
@@ -44,6 +45,21 @@ export default {
       if (request.method === 'GET') return handleGetState(env, user.id);
       if (request.method === 'PUT') return handlePutState(request, env, user.id);
       return methodNotAllowed();
+    }
+
+    if (path.startsWith('/api/admin/')) {
+      if (user.role !== 'admin') return json({ error: '需要管理者權限' }, 403);
+
+      if (path === '/api/admin/users') {
+        return request.method === 'GET' ? handleListUsers(env) : methodNotAllowed();
+      }
+      const m = path.match(/^\/api\/admin\/users\/([^/]+)$/);
+      if (m) {
+        const targetId = decodeURIComponent(m[1]);
+        if (request.method === 'PATCH') return handleUpdateUser(request, env, user, targetId);
+        if (request.method === 'DELETE') return handleDeleteUser(env, user, targetId);
+        return methodNotAllowed();
+      }
     }
 
     return json({ error: 'Not found' }, 404);
