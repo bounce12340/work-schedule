@@ -4,19 +4,44 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 專案性質
 
-單一檔案的純前端應用：`工作排程確認系統.html`（約 1250 行，CSS + HTML + JavaScript 全在一個檔案裡）。
+前端是**零依賴的單一 HTML 檔** `public/index.html`（約 1450 行，CSS + HTML + JavaScript 全在裡面），可以獨立雙擊開啟運作；後端是 Cloudflare Worker + D1，只在部署後才啟用。
 
-**沒有 build、沒有套件管理、沒有測試框架、沒有後端。** 唯一的外部依賴是 Google Fonts CDN（JetBrains Mono + Noto Sans TC），離線時會退回系統字型但功能不受影響。
-
-執行方式：直接用瀏覽器開啟該 HTML 檔。
-
-```bash
-Start-Process "D:\Project\work-schedule\工作排程確認系統.html"
+```
+public/index.html   前端（單檔，可直接開啟）
+src/index.js        Worker 入口與 /api/state
+src/auth.js         Cloudflare Access JWT 驗證
+schema.sql          D1 資料表
+wrangler.jsonc      Worker 設定與綁定
 ```
 
-驗證改動只能靠手動操作瀏覽器 + DevTools console。修改後請實際開啟頁面確認三個頁籤（項目安排／日曆／專案）都還能正常 render，再宣告完成。
+**前端沒有 build step，也沒有測試框架。** 唯一的前端外部資源是 Google Fonts CDN，離線時退回系統字型但功能不受影響。
 
-`工作排程確認系統_專案說明.md` 是給使用者看的功能總覽與交接文件；改動功能時應同步更新它。
+### 不可破壞的前提
+
+**`public/index.html` 必須永遠能單獨雙擊開啟使用。** 雲端同步是漸進增強：偵測不到 `/api/state` 就靜默降級為純 localStorage。任何讓前端「非得有後端才能跑」的改動都違反這個前提。
+
+### 常用指令
+
+```bash
+npm run dev            # wrangler dev，本機起 Worker + 靜態資產
+npm run db:init:local  # 對本機 miniflare D1 建表（--local 的資料庫與遠端各自獨立）
+npm run db:init        # 對遠端 D1 建表
+npm run deploy         # 部署
+```
+
+本機開發需要 `.dev.vars` 內含 `ALLOW_UNAUTHENTICATED=true`（已 gitignore），否則 API 會因缺少 Access 設定而回 500。
+
+### 驗證方式
+
+沒有測試框架，改動一律靠實測：
+
+1. 前端語法檢查——抽出 `<script>` 內容後 `node --check`
+2. `npx wrangler deploy --dry-run` 驗證 wrangler 設定
+3. 起 `npm run dev`，用瀏覽器實際操作三個頁籤，確認 console 無錯誤
+
+**改動同步邏輯時，必須把六個情境都測過**（見下方「雲端同步」章節），因為它們彼此的差異只在啟動時的分支條件，很容易只修好一條路徑。
+
+`工作排程確認系統_專案說明.md` 是給使用者看的功能總覽與交接文件；README.md 含部署步驟。改動功能時兩者都要同步更新。
 
 ## 檔案內部結構
 
@@ -81,10 +106,42 @@ commit(()=>{ /* 改資料 */ });   // → 重算年份 → 存檔 → renderAll(
 - **純檢視切換**（mode tabs、年份／季別／月份選擇、日曆翻月、選日期）直接呼叫 `renderScheduleView()`／`renderCalendar()`——不改資料，不需存檔
 - **高頻輸入**（每日記錄、專案筆記 textarea、甘特任務改名）用 `persistSoon()` 做 400ms debounce，避免每個字元寫一次 localStorage
 
-### 儲存層的兩個設計約束
+### 儲存層的三個設計約束
 
 1. **所有 `localStorage` 存取都必須包 try/catch。** Claude Artifact 的沙盒 iframe 會封鎖 localStorage 並拋 `SecurityError`，沒包就整個 app 當場掛掉。失敗時降級為記憶體模式（footer 會自動改文案），功能全部照常。
 2. **`persist()` 每次都實際嘗試寫入**，不拿 `storageAvailable` 當開關跳過。配額滿是可恢復的錯誤，使用者刪掉資料後應該自動恢復存檔；一次失敗就永久停用會讓存檔靜默死掉。`storageAvailable` 只用來決定 footer 文案。
+3. **`snapshot()` / `applySnapshot()` 是本機與雲端共用的序列化格式。** 新增狀態欄位時只改這兩個函式，否則必定有一邊漏掉。
+
+### applySnapshot 一定要正規化，不能只檢查 version
+
+`applySnapshot()` 收到的資料可能來自舊版存檔、另一台還沒更新的裝置，或已損毀的雲端資料。缺 `date` 的 item 會讓 occurrence 展開時 `parseYMD` 直接拋錯——而雲端載入走 async，錯誤會變成 unhandled rejection：**畫面停在舊狀態、console 沒有明顯線索、使用者完全不知道發生什麼事**（開發時實際踩過）。
+
+因此 `normalizeItems()` / `normalizeGanttProjects()` 會在套用前過濾掉缺少必要欄位的資料並補齊其餘欄位。新增欄位時記得一併更新這兩個函式。
+
+## 雲端同步
+
+只有部署後才啟用。`initCloudSync()` 偵測不到 `/api/state` 就靜默降級，這是前面說的「不可破壞的前提」。
+
+`workSchedule.v1.cloudMeta` 記錄「上次成功同步到的雲端版本」，是判斷衝突的關鍵——沒有它就無法區分「本機比雲端新」和「兩邊都改過」。
+
+啟動時的四條分支（改動時每條都要測）：
+
+| 本機 | 雲端 | 行為 |
+|---|---|---|
+| 空 | 空 | seed 後推上雲端 |
+| 有 | 空 | 推上雲端 |
+| 空 | 有 | 採用雲端（不可重新 seed） |
+| 有 | 有 | `cloudMeta.updatedAt === 遠端` → 本機較新，推上去；否則為**真衝突**，跳對話框讓使用者選 |
+
+加上「本機編輯後 1.5s 自動推送」與「file:// 開啟時完全靜默」，共六個情境。
+
+**衝突絕不能靜默挑邊**——兩台裝置各自編輯過時，任何自動選擇都會讓某一方的資料無聲消失。Worker 端以 `updated_at` 做樂觀鎖，`baseUpdatedAt` 對不上就回 409 並附上遠端資料。
+
+### Worker 端
+
+- `authenticate()` **必須驗證 JWT，不能只依賴 Access 擋人**。有人繞過 Access 直接打 origin 時，沒驗證就等於毫無保護。
+- `TEAM_DOMAIN` / `POLICY_AUD` 未設定時 API 回 500 而非放行——寧可壞掉也不要靜默公開資料。
+- 查無使用者資料時回 `state: null` 而非 404，代表「尚未同步過」，前端應沿用本地資料。
 
 ### 兩套互不相干的「專案」概念（極易混淆）
 
@@ -134,7 +191,7 @@ class 命名沿用 `type-<type>`（列）與 `type-badge <type>`（徽章）；�
 
 ## 已知限制（刻意為之，回報前先確認是否為此）
 
-1. 儲存僅限單一瀏覽器，不跨裝置（要跨裝置需接後端／雲端，`commit()` 就是掛載點）
+1. 未部署時儲存僅限單一瀏覽器；部署後才跨裝置
 2. 假日僅自動判斷週六日，國定假日需使用者手動加進「自訂假日」
 3. 甘特圖長條為靜態百分比定位，不支援拖曳；日期只能透過表格輸入修改
 4. 變更循環頻率會重置該項目的各次完成／覆寫／略過紀錄（見上方 occurrence 引擎章節）
