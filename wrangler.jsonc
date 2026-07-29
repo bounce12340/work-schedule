@@ -7,6 +7,13 @@
     "directory": "./public",
     "binding": "ASSETS"
   },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "work-schedule-db",
+      "database_id": "c663d046-f5f4-4a4c-b295-24d90f3acf07"
+    }
+  ],
   "observability": {
     "enabled": true
   }
