@@ -198,6 +198,7 @@
   footer.storage-note{ margin-top:32px; text-align:center; font-family: var(--mono); font-size:11px; color: var(--text-dim); line-height:1.8; }
   footer.storage-note .storage-state{ color: var(--teal); }
   footer.storage-note .storage-state.off{ color: var(--amber); }
+  footer.storage-note .storage-state.err{ color: var(--red); }
   .btn-danger-ghost{ margin-top:12px; font-family: var(--mono); font-size:11px; color: var(--text-dim); background:transparent; border:1px dashed #D2CDBB; border-radius:6px; padding:6px 12px; cursor:pointer; }
   .btn-danger-ghost:hover{ color: var(--red); border-color: var(--red); }
 
@@ -388,6 +389,7 @@
 
   <footer class="storage-note">
     <span id="storageNoteText">※ 資料儲存狀態偵測中…</span><br>
+    <span id="cloudNoteText"></span>
     「遇假日」判斷以週六、週日為基準，如需計入國定假日，可在新增小項目時使用「自訂假日」清單自行加入日期。<br>
     <button id="btnClearStorage" class="btn-danger-ghost">清除所有資料並重置</button>
   </footer>
@@ -554,22 +556,84 @@
   const STORAGE_VERSION = 1;
   let storageAvailable = true;
 
+  // snapshot / applySnapshot 是本機與雲端共用的序列化格式，
+  // 兩邊必須走同一組函式，否則欄位一加就會有一邊漏掉。
+  function snapshot(){
+    return {
+      version: STORAGE_VERSION,
+      majorProjects, items, ganttProjects, dailyLogs,
+      customHolidays: [...customHolidays],
+      selectedGanttProjectId, availableYears
+    };
+  }
+
+  const isYmd = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+
+  // 存檔與雲端資料都可能來自舊版本、不同裝置或已損毀。缺少 date 這類必要
+  // 欄位的項目會讓 occurrence 展開時 parseYMD 直接拋錯，整個 render 掛掉；
+  // 又因為雲端載入走 async，錯誤會變成 unhandled rejection，畫面停在舊狀態
+  // 而使用者毫無所覺。因此一律在套用前過濾並補齊。
+  function normalizeItems(raw){
+    return (Array.isArray(raw) ? raw : []).filter(it => it && it.id && isYmd(it.date)).map(it => ({
+      id: it.id,
+      title: String(it.title == null ? '' : it.title),
+      type: ['work','meeting','assignment'].includes(it.type) ? it.type : 'work',
+      parentId: it.parentId || null,
+      meetingTime: it.meetingTime || null,
+      date: it.date,
+      recurrence: (it.recurrence && ['monthly','quarterly'].includes(it.recurrence.freq)) ? {
+        freq: it.recurrence.freq,
+        day: Math.max(1, Math.min(31, parseInt(it.recurrence.day) || 1)),
+        holidayRule: ['none','postpone','advance'].includes(it.recurrence.holidayRule) ? it.recurrence.holidayRule : 'none',
+        until: isYmd(it.recurrence.until) ? it.recurrence.until : null
+      } : null,
+      done: !!it.done,
+      doneMap: (it.doneMap && typeof it.doneMap==='object') ? it.doneMap : {},
+      overrides: (it.overrides && typeof it.overrides==='object') ? it.overrides : {},
+      skipped: (it.skipped && typeof it.skipped==='object') ? it.skipped : {}
+    }));
+  }
+
+  function normalizeGanttProjects(raw){
+    return (Array.isArray(raw) ? raw : []).filter(gp => gp && gp.id).map(gp => ({
+      id: gp.id,
+      name: String(gp.name == null ? '' : gp.name),
+      notes: String(gp.notes == null ? '' : gp.notes),
+      tasks: (Array.isArray(gp.tasks) ? gp.tasks : [])
+        .filter(t => t && t.id && isYmd(t.start) && isYmd(t.end))
+        .map(t => ({
+          id: t.id,
+          name: String(t.name == null ? '' : t.name),
+          start: t.start, end: t.end,
+          progress: Math.max(0, Math.min(100, parseInt(t.progress) || 0)),
+          done: !!t.done
+        }))
+    }));
+  }
+
+  function applySnapshot(s){
+    if(!s || s.version !== STORAGE_VERSION) return false;
+    majorProjects = (Array.isArray(s.majorProjects) ? s.majorProjects : [])
+      .filter(mp => mp && mp.id)
+      .map(mp => ({ id: mp.id, name: String(mp.name == null ? '' : mp.name) }));
+    items = normalizeItems(s.items);
+    ganttProjects = normalizeGanttProjects(s.ganttProjects);
+    dailyLogs = (s.dailyLogs && typeof s.dailyLogs==='object') ? s.dailyLogs : {};
+    customHolidays = new Set((Array.isArray(s.customHolidays) ? s.customHolidays : []).filter(isYmd));
+    selectedGanttProjectId = s.selectedGanttProjectId || (ganttProjects[0] ? ganttProjects[0].id : null);
+    if(Array.isArray(s.availableYears) && s.availableYears.length){
+      availableYears = s.availableYears.filter(y => Number.isInteger(y));
+    }
+    return true;
+  }
+
   function loadState(){
     let raw = null;
     try{ raw = localStorage.getItem(STORAGE_KEY); }
     catch(e){ storageAvailable = false; return false; }
     if(!raw) return false;
     try{
-      const s = JSON.parse(raw);
-      if(!s || s.version !== STORAGE_VERSION) return false;
-      majorProjects = Array.isArray(s.majorProjects) ? s.majorProjects : [];
-      items = Array.isArray(s.items) ? s.items : [];
-      ganttProjects = Array.isArray(s.ganttProjects) ? s.ganttProjects : [];
-      dailyLogs = (s.dailyLogs && typeof s.dailyLogs==='object') ? s.dailyLogs : {};
-      customHolidays = new Set(Array.isArray(s.customHolidays) ? s.customHolidays : []);
-      selectedGanttProjectId = s.selectedGanttProjectId || (ganttProjects[0] ? ganttProjects[0].id : null);
-      if(Array.isArray(s.availableYears) && s.availableYears.length) availableYears = s.availableYears;
-      return true;
+      return applySnapshot(JSON.parse(raw));
     }catch(e){
       // 存檔毀損時不阻斷啟動，退回 seed 示範資料
       return false;
@@ -581,12 +645,7 @@
   // 一次失敗就永久停用會讓存檔靜默死掉。storageAvailable 只用來決定 footer 文案。
   function persist(){
     try{
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({
-        version: STORAGE_VERSION,
-        majorProjects, items, ganttProjects, dailyLogs,
-        customHolidays: [...customHolidays],
-        selectedGanttProjectId, availableYears
-      }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot()));
       if(!storageAvailable){ storageAvailable = true; updateStorageNote(); }
     }catch(e){
       if(storageAvailable){ storageAvailable = false; updateStorageNote(); }
@@ -598,6 +657,7 @@
     if(mutate) mutate();
     refreshAvailableYears();
     persist();
+    pushSoon();
     renderAll();
   }
 
@@ -605,7 +665,141 @@
   let persistTimer = null;
   function persistSoon(){
     clearTimeout(persistTimer);
-    persistTimer = setTimeout(persist, 400);
+    persistTimer = setTimeout(()=>{ persist(); pushSoon(); }, 400);
+  }
+
+  // ================= 雲端同步（部署到 Cloudflare 時才啟用）=================
+  // 設計原則：localStorage 仍是主要儲存，畫面永遠即時且離線可用；雲端只在
+  // 背景同步。若直接把 localStorage 換成網路呼叫，這兩個特性都會失去。
+  // 偵測不到 API（例如雙擊本機 HTML 開啟）時完全靜默降級，功能不受影響。
+  const API_STATE = '/api/state';
+  const CLOUD_META_KEY = STORAGE_KEY + '.cloudMeta';
+  let cloudEnabled = false;
+  let cloudUpdatedAt = null;    // 已知的雲端版本，同時是樂觀鎖的 base
+  let pushTimer = null;
+  let pushInFlight = false;
+
+  function readCloudMeta(){
+    try{ return JSON.parse(localStorage.getItem(CLOUD_META_KEY) || 'null'); }
+    catch(e){ return null; }
+  }
+  function writeCloudMeta(){
+    try{ localStorage.setItem(CLOUD_META_KEY, JSON.stringify({ updatedAt: cloudUpdatedAt })); }
+    catch(e){ /* 記憶體模式下略過 */ }
+  }
+
+  function setCloudNote(text, cls){
+    const el = document.getElementById('cloudNoteText');
+    if(!el) return;
+    el.innerHTML = text
+      ? '※ 雲端同步：<span class="storage-state'+(cls?' '+cls:'')+'">'+text+'</span>'
+      : '';
+  }
+
+  async function cloudPull(){
+    const r = await fetch(API_STATE, { cache:'no-store' });
+    if(!r.ok) return null;
+    return r.json();          // { state, updatedAt }
+  }
+
+  async function cloudPush(){
+    if(!cloudEnabled || pushInFlight) return;
+    pushInFlight = true;
+    setCloudNote('同步中…');
+    try{
+      const r = await fetch(API_STATE, {
+        method:'PUT',
+        headers:{ 'content-type':'application/json' },
+        body: JSON.stringify({ state: snapshot(), baseUpdatedAt: cloudUpdatedAt })
+      });
+      if(r.status === 409){
+        const conflict = await r.json();
+        pushInFlight = false;
+        handleConflict(conflict.remote);
+        return;
+      }
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      const d = await r.json();
+      cloudUpdatedAt = d.updatedAt;
+      writeCloudMeta();
+      setCloudNote('已同步');
+    }catch(e){
+      // 斷線不該擋住使用：資料仍在 localStorage，恢復連線後下次變更會補推
+      setCloudNote('離線，變更僅存本機', 'off');
+    }finally{
+      pushInFlight = false;
+    }
+  }
+
+  function pushSoon(){
+    if(!cloudEnabled) return;
+    clearTimeout(pushTimer);
+    pushTimer = setTimeout(cloudPush, 1500);
+  }
+
+  // 兩台裝置各自改過同一份資料時不能靜默挑一邊，否則一定有人的編輯會消失
+  function handleConflict(remote){
+    const useRemote = confirm(
+      '偵測到其他裝置上有更新的資料。\n\n' +
+      '［確定］載入雲端版本（放棄這台裝置尚未同步的變更）\n' +
+      '［取消］以這台裝置的版本覆蓋雲端'
+    );
+    if(useRemote){
+      applySnapshot(remote.state);
+      cloudUpdatedAt = remote.updatedAt;
+      writeCloudMeta();
+      persist();
+      refreshAvailableYears();
+      renderAll();
+      setCloudNote('已載入雲端版本');
+    }else{
+      // 接受遠端版本號後重推，等於明確覆蓋
+      cloudUpdatedAt = remote.updatedAt;
+      cloudPush();
+    }
+  }
+
+  async function initCloudSync(localHadData){
+    try{
+      await runCloudSync(localHadData);
+    }catch(e){
+      // 同步失敗絕不能連累本機使用：資料仍在 localStorage，僅停用雲端
+      cloudEnabled = false;
+      setCloudNote('初始化失敗，僅使用本機資料', 'err');
+    }
+  }
+
+  async function runCloudSync(localHadData){
+    let remote = null;
+    try{ remote = await cloudPull(); }catch(e){ remote = null; }
+    if(!remote){ cloudEnabled = false; setCloudNote(''); return; }
+
+    cloudEnabled = true;
+    const meta = readCloudMeta();
+
+    if(!remote.state){
+      cloudUpdatedAt = null;              // 雲端還沒資料，把本機推上去
+      await cloudPush();
+      return;
+    }
+    if(!localHadData){
+      applySnapshot(remote.state);        // 這台裝置初次開啟，直接採用雲端
+      cloudUpdatedAt = remote.updatedAt;
+      writeCloudMeta();
+      persist();
+      refreshAvailableYears();
+      renderAll();
+      setCloudNote('已載入雲端版本');
+      return;
+    }
+    if(meta && meta.updatedAt === remote.updatedAt){
+      cloudUpdatedAt = remote.updatedAt;  // 本機是基於這個雲端版本改的，本機較新
+      await cloudPush();
+      return;
+    }
+    // 本機有資料、雲端也被改過，且基準對不上 → 真衝突，交給使用者決定
+    cloudUpdatedAt = meta ? meta.updatedAt : null;
+    handleConflict(remote);
   }
 
   function updateStorageNote(){
@@ -1413,7 +1607,10 @@
   // ================= 啟動 =================
   document.getElementById('btnClearStorage').onclick = ()=>{
     if(!confirm('確定清除所有資料？所有項目、專案、每日記錄與自訂假日都會刪除，並還原成示範資料。此操作無法復原。')) return;
-    try{ localStorage.removeItem(STORAGE_KEY); }catch(e){ /* 記憶體模式下本來就沒東西可清 */ }
+    try{
+      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(CLOUD_META_KEY);
+    }catch(e){ /* 記憶體模式下本來就沒東西可清 */ }
     majorProjects=[]; items=[]; ganttProjects=[]; dailyLogs={}; customHolidays=new Set();
     selectedGanttProjectId=null;
     availableYears=[today.getFullYear()-1, today.getFullYear(), today.getFullYear()+1, today.getFullYear()+2];
@@ -1429,6 +1626,7 @@
   if(!loadedFromStorage) persist();   // 首次開啟即建立存檔，之後重整才接得回來
   renderAll();
   setTimeout(showReminderToast, 700);
+  initCloudSync(loadedFromStorage);   // 不 await：雲端偵測不得拖慢啟動
 })();
 </script>
 </body>
