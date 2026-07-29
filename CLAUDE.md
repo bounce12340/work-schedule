@@ -54,6 +54,8 @@ Start-Process "D:\Project\work-schedule\工作排程確認系統.html"
 
 這就是為什麼調整或略過某一次不會影響其他週期。任何新增的 per-occurrence 功能都應遵循同一模式（掛一個新的 `occKey -> value` map 在 item 上），不要為了單次差異而 fork 出新 item。
 
+**但這也是最容易踩的坑**：occKey 的格式跟頻率綁定，頻率一改（每月 ↔ 每季 ↔ 不循環）舊 key 全部對不上。因此 `btnConfirmItem` 在偵測到頻率變更時會清空 `done`／`doneMap`／`overrides`／`skipped`（modal 內有 `#recurChangeWarn` 事先警告）。若未來新增循環頻率，**必須同步更新這段清除邏輯**，否則會留下孤兒資料——症狀是改回原頻率時舊紀錄整批「復活」。
+
 ### 優先順序與邊界
 
 - **覆寫日期優先於假日規則**：`getOccurrencesInRange` 內若存在 `overrides[occKey]`，就直接採用該日期，完全跳過 `adjustForHoliday()`
@@ -63,9 +65,26 @@ Start-Process "D:\Project\work-schedule\工作排程確認系統.html"
 
 ## 狀態與資料模型
 
-所有狀態都是 IIFE 內的 module-scoped `let`，**完全沒有持久化**（程式中沒有任何 `localStorage`／`fetch`／IndexedDB 呼叫）。重新整理即全部重置——這是刻意的免費版限制，不是 bug。
+所有狀態都是 IIFE 內的 module-scoped `let`，透過 `localStorage`（key = `workSchedule.v1`）持久化。
 
-檔案最底部的 `seed()` IIFE 會塞入示範資料（兩個大項目、六個小項目、一個含三項任務的甘特專案）。改動資料模型時記得一併更新 seed，否則開啟頁面就會壞。
+檔案最底部的 `seed()` 會塞入示範資料（兩個大項目、六個小項目、一個含三項任務的甘特專案），**只在沒有存檔時執行**。改動資料模型時記得一併更新 seed 與 `STORAGE_VERSION`，否則舊存檔載入後會壞。
+
+### 唯一的寫入入口：`commit()`
+
+```js
+commit(()=>{ /* 改資料 */ });   // → 重算年份 → 存檔 → renderAll()
+```
+
+**任何會改動資料的操作都必須走 `commit()`**，不要自己呼叫 `persist()` 或各別的 render。漏走一次就是「畫面對了但沒存檔」的靜默 bug。
+
+例外只有兩類，都是刻意的：
+- **純檢視切換**（mode tabs、年份／季別／月份選擇、日曆翻月、選日期）直接呼叫 `renderScheduleView()`／`renderCalendar()`——不改資料，不需存檔
+- **高頻輸入**（每日記錄、專案筆記 textarea、甘特任務改名）用 `persistSoon()` 做 400ms debounce，避免每個字元寫一次 localStorage
+
+### 儲存層的兩個設計約束
+
+1. **所有 `localStorage` 存取都必須包 try/catch。** Claude Artifact 的沙盒 iframe 會封鎖 localStorage 並拋 `SecurityError`，沒包就整個 app 當場掛掉。失敗時降級為記憶體模式（footer 會自動改文案），功能全部照常。
+2. **`persist()` 每次都實際嘗試寫入**，不拿 `storageAvailable` 當開關跳過。配額滿是可恢復的錯誤，使用者刪掉資料後應該自動恢復存檔；一次失敗就永久停用會讓存檔靜默死掉。`storageAvailable` 只用來決定 footer 文案。
 
 ### 兩套互不相干的「專案」概念（極易混淆）
 
@@ -82,20 +101,26 @@ Start-Process "D:\Project\work-schedule\工作排程確認系統.html"
 
 ## Render 模式
 
-全量重繪，沒有任何 diff 機制。
+全量重繪，沒有任何 diff 機制。責任分層固定如下，不要混用：
 
-- `renderScheduleView()` 是主力函式，會連帶重繪 chips、tabs、board、metrics、提醒清單
-- 它同時被當成 `onChange` callback 傳進 `buildOccRow(occ, onChange)`——任何列上的勾選／略過／刪除都直接改資料後呼叫它整片重畫
-- `renderAll()` 依 `currentView` 分派；`renderNav()` 負責切換 `.active` class 並觸發對應頁面的 render
+- `renderAll()` — 唯一的總入口。重繪頂部 metrics ＋ 提醒，再依 `currentView` 分派到當前頁面
+- `renderScheduleView()` — 只管「項目安排」頁自己的區塊（chips／tabs／period／scope／board）
+- `renderNav()` — 切換 `.active` class 後呼叫 `renderAll()`
 
 DOM 建構有兩種寫法，請依情境沿用：
 
 - **互動元素**（列、chip、按鈕）用 `document.createElement` + closure 綁 `.onclick`，例如 `buildOccRow()`
 - **大塊靜態內容**用 `innerHTML` 字串拼接，但**使用者輸入必須先過 `escapeHtml()`**（`renderReminderList()`、`renderMetricList()` 是範例）
 
-### 注意：1Hz 全量重算
+### 時鐘與資料重算已解耦
 
-`tick()` 由 `setInterval(tick, 1000)` 每秒觸發，除了更新時鐘外還會呼叫 `renderMetrics()` 與 `renderReminderList()`，而這兩者都會重新展開當日／當週的所有 occurrence。項目數量放大後這裡會是第一個效能瓶頸；若要加重 occurrence 計算成本，請先處理這個每秒迴圈。
+`tick()` 每秒只更新時鐘文字。metrics 與提醒改由 `commit()` 驅動，另外記 `lastTickYmd` 偵測跨日才觸發一次 `renderAll()`。**不要把資料重算加回 `tick()`**——那等於每秒把所有循環項目展開一次，成本隨項目數線性放大。
+
+### 甘特頁的例外：表格不重建
+
+這是全量重繪策略唯一開的洞，而且是必要的。表格內的名稱／日期／進度欄位若在編輯時重建整張表，正在輸入的 input 會被銷毀，Tab 換欄位和連續輸入都會斷掉。
+
+因此表格內編輯一律呼叫 `refreshGanttChart(gp)`——只替換 `#ganttChartWrap`，表格原地不動；名稱改動則透過 `.gantt-row-label[data-task-id]` 就地更新圖表文字。只有**新增／刪除任務**（行數改變）才走完整的 `commit()` → `renderGanttView()`。
 
 ## 樣式慣例
 
@@ -109,6 +134,14 @@ class 命名沿用 `type-<type>`（列）與 `type-badge <type>`（徽章）；�
 
 ## 已知限制（刻意為之，回報前先確認是否為此）
 
-1. 無持久化儲存，重整即清空
+1. 儲存僅限單一瀏覽器，不跨裝置（要跨裝置需接後端／雲端，`commit()` 就是掛載點）
 2. 假日僅自動判斷週六日，國定假日需使用者手動加進「自訂假日」
 3. 甘特圖長條為靜態百分比定位，不支援拖曳；日期只能透過表格輸入修改
+4. 變更循環頻率會重置該項目的各次完成／覆寫／略過紀錄（見上方 occurrence 引擎章節）
+5. 檢視狀態（目前頁籤、選取的年／季／月）不存檔，重整回到預設；只有資料本身持久化
+
+## 尚未做的重構
+
+760 行 JS 目前仍在單一 IIFE 內，靠區段註解分隔。收攏成 `DateUtil`／`OccurrenceEngine`／`Store`／各 View 的 namespace 物件是合理的下一步，但**沒有測試網的情況下不該和功能修改混在同一批做**——會讓 diff 大到無法人工審查。要做就單獨一個 commit，且不夾帶任何行為變更。
+
+特別值得保護的是：occurrence 引擎目前近乎純函式、零 DOM 依賴，這是全檔最好的設計。模組化時務必維持這個性質。

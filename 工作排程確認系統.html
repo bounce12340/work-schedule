@@ -196,6 +196,10 @@
   .daylog-saved.show{ opacity:1; }
 
   footer.storage-note{ margin-top:32px; text-align:center; font-family: var(--mono); font-size:11px; color: var(--text-dim); line-height:1.8; }
+  footer.storage-note .storage-state{ color: var(--teal); }
+  footer.storage-note .storage-state.off{ color: var(--amber); }
+  .btn-danger-ghost{ margin-top:12px; font-family: var(--mono); font-size:11px; color: var(--text-dim); background:transparent; border:1px dashed #D2CDBB; border-radius:6px; padding:6px 12px; cursor:pointer; }
+  .btn-danger-ghost:hover{ color: var(--red); border-color: var(--red); }
 
   .reminder-toast{ position: fixed; top: 22px; right: 22px; z-index: 60; width: 320px; max-width: calc(100vw - 32px); background: var(--panel); border: 1px solid var(--amber); border-radius: 12px; box-shadow: 0 16px 40px rgba(0,0,0,0.14); opacity:0; transform: translateY(-12px); pointer-events:none; transition: opacity .2s ease, transform .2s ease; }
   .reminder-toast.show{ opacity:1; transform: translateY(0); pointer-events:auto; }
@@ -268,6 +272,7 @@
   .btn-clear:hover{ color: var(--red); border-color: var(--red); }
   .scope-note{ font-family: var(--mono); font-size:11px; color: var(--text-dim); background: var(--panel-2); border:1px solid var(--hairline); border-radius:7px; padding:9px 11px; margin-bottom:16px; }
   .scope-note b{ color: var(--amber); }
+  .recur-warn{ font-family: var(--mono); font-size:11px; color: var(--red); background: var(--red-dim); border:1px solid rgba(199,75,67,0.32); border-radius:7px; padding:9px 11px; margin-bottom:14px; line-height:1.75; }
   .holiday-list-box{ display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
   .holiday-chip{ font-family: var(--mono); font-size:11px; background: var(--panel-2); border:1px solid var(--hairline); border-radius:6px; padding:3px 6px; display:flex; align-items:center; gap:5px; color:var(--text-muted); }
   .holiday-chip button{ background:none; border:none; cursor:pointer; color:var(--text-dim); font-size:11px; }
@@ -382,9 +387,9 @@
   </div>
 
   <footer class="storage-note">
-    ※ 此為免費版介面預覽，資料僅保存在本次對話畫面中，重新整理或關閉後將會重置。<br>
+    <span id="storageNoteText">※ 資料儲存狀態偵測中…</span><br>
     「遇假日」判斷以週六、週日為基準，如需計入國定假日，可在新增小項目時使用「自訂假日」清單自行加入日期。<br>
-    若升級付費方案，同一介面可接上雲端持久化儲存，資料將可跨裝置與跨對話保留。
+    <button id="btnClearStorage" class="btn-danger-ghost">清除所有資料並重置</button>
   </footer>
 </div>
 
@@ -413,6 +418,9 @@
 <div class="overlay" id="itemOverlay">
   <div class="modal">
     <h3><span class="dot"></span><span id="itemModalTitle">新增小項目</span></h3>
+    <div class="recur-warn" id="recurChangeWarn" style="display:none;">
+      ⚠ 你變更了循環頻率。各次的完成紀錄、日期覆寫與略過設定是依「每月／每季」的週期代碼記錄的，變更後將全部重置。
+    </div>
     <div class="field"><label>標題</label><input type="text" id="inputItemTitle" placeholder="例如：確認提案簡報"></div>
     <div class="field">
       <label>類型</label>
@@ -499,8 +507,13 @@
   let dailyLogs = {}; // 'YYYY-MM-DD' -> text
   let ganttProjects = []; // {id,name,tasks:[{id,name,start,end,progress,done}]}
   let selectedGanttProjectId = null;
-  let idSeq = 1;
-  function uid(p){ return p + (idSeq++); }
+  function uid(p){
+    // 不能用遞增計數器：接上持久化後每次重載都會歸零，與已存檔的舊 id 相撞
+    const rand = (typeof crypto!=='undefined' && crypto.randomUUID)
+      ? crypto.randomUUID().slice(0,8)
+      : Math.random().toString(36).slice(2,10);
+    return p + '_' + rand;
+  }
 
   let currentView = 'schedule';
   let mode = 'year';
@@ -533,6 +546,89 @@
     return cur;
   }
   function majorProjectName(pid){ if(!pid) return null; const mp=majorProjects.find(m=>m.id===pid); return mp?mp.name:null; }
+
+  // ================= 持久化（單一儲存層）=================
+  // Claude Artifact 的沙盒 iframe 會封鎖 localStorage，存取時直接拋 SecurityError。
+  // 因此所有存取一律包 try/catch，失敗就降級為純記憶體模式，不能讓整個 app 掛掉。
+  const STORAGE_KEY = 'workSchedule.v1';
+  const STORAGE_VERSION = 1;
+  let storageAvailable = true;
+
+  function loadState(){
+    let raw = null;
+    try{ raw = localStorage.getItem(STORAGE_KEY); }
+    catch(e){ storageAvailable = false; return false; }
+    if(!raw) return false;
+    try{
+      const s = JSON.parse(raw);
+      if(!s || s.version !== STORAGE_VERSION) return false;
+      majorProjects = Array.isArray(s.majorProjects) ? s.majorProjects : [];
+      items = Array.isArray(s.items) ? s.items : [];
+      ganttProjects = Array.isArray(s.ganttProjects) ? s.ganttProjects : [];
+      dailyLogs = (s.dailyLogs && typeof s.dailyLogs==='object') ? s.dailyLogs : {};
+      customHolidays = new Set(Array.isArray(s.customHolidays) ? s.customHolidays : []);
+      selectedGanttProjectId = s.selectedGanttProjectId || (ganttProjects[0] ? ganttProjects[0].id : null);
+      if(Array.isArray(s.availableYears) && s.availableYears.length) availableYears = s.availableYears;
+      return true;
+    }catch(e){
+      // 存檔毀損時不阻斷啟動，退回 seed 示範資料
+      return false;
+    }
+  }
+
+  // 每次都實際嘗試寫入，不拿 storageAvailable 當開關跳過：
+  // 配額滿（QuotaExceededError）是可恢復的，使用者刪掉資料後應該要能自動恢復存檔，
+  // 一次失敗就永久停用會讓存檔靜默死掉。storageAvailable 只用來決定 footer 文案。
+  function persist(){
+    try{
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        version: STORAGE_VERSION,
+        majorProjects, items, ganttProjects, dailyLogs,
+        customHolidays: [...customHolidays],
+        selectedGanttProjectId, availableYears
+      }));
+      if(!storageAvailable){ storageAvailable = true; updateStorageNote(); }
+    }catch(e){
+      if(storageAvailable){ storageAvailable = false; updateStorageNote(); }
+    }
+  }
+
+  // 所有會改動資料的操作都必須走這裡：確保「改資料 → 存檔 → 重繪」三步永遠成套發生。
+  function commit(mutate){
+    if(mutate) mutate();
+    refreshAvailableYears();
+    persist();
+    renderAll();
+  }
+
+  // 供 textarea 這類高頻輸入使用，避免每個字元都寫一次 localStorage
+  let persistTimer = null;
+  function persistSoon(){
+    clearTimeout(persistTimer);
+    persistTimer = setTimeout(persist, 400);
+  }
+
+  function updateStorageNote(){
+    const el = document.getElementById('storageNoteText');
+    if(!el) return;
+    el.innerHTML = storageAvailable
+      ? '※ 資料已自動儲存於此瀏覽器（<span class="storage-state">本機儲存啟用中</span>），重新整理不會遺失；清除瀏覽器資料或換裝置則不會保留。'
+      : '※ 目前環境不允許本機儲存（<span class="storage-state off">記憶體模式</span>），資料僅存在本次畫面中，重新整理將會重置。';
+  }
+
+  // 年份選單必須涵蓋實際有資料的年份，否則範圍外的項目在年度檢視中永遠選不到
+  function refreshAvailableYears(){
+    const years = new Set(availableYears);
+    const t = today.getFullYear();
+    [t-1, t, t+1, t+2].forEach(y=>years.add(y));
+    const addYear = s=>{ if(s) years.add(parseYMD(s).getFullYear()); };
+    items.forEach(it=>{
+      addYear(it.date);
+      if(it.recurrence && it.recurrence.until) addYear(it.recurrence.until);
+      if(it.overrides) Object.keys(it.overrides).forEach(k=>addYear(it.overrides[k]));
+    });
+    availableYears = [...years].sort((a,b)=>a-b);
+  }
 
   // ================= occurrence engine =================
   function getOccurrencesInRange(item, rangeStart, rangeEnd){
@@ -618,8 +714,7 @@
     document.getElementById('viewSchedule').classList.toggle('active', currentView==='schedule');
     document.getElementById('viewCalendar').classList.toggle('active', currentView==='calendar');
     document.getElementById('viewGantt').classList.toggle('active', currentView==='gantt');
-    if(currentView==='calendar') renderCalendar();
-    if(currentView==='gantt') renderGanttView();
+    renderAll();
   }
 
   // ================= metrics =================
@@ -661,7 +756,13 @@
       const editBtn=document.createElement('button'); editBtn.textContent='✎'; editBtn.title='更名';
       editBtn.onclick=()=>openMajorModal(mp); chip.appendChild(editBtn);
       const delBtn=document.createElement('button'); delBtn.textContent='✕'; delBtn.className='chip-del'; delBtn.title='刪除大項目（項目將變為獨立項目）';
-      delBtn.onclick=()=>{ majorProjects=majorProjects.filter(x=>x.id!==mp.id); items.forEach(it=>{ if(it.parentId===mp.id) it.parentId=null; }); renderAll(); };
+      delBtn.onclick=()=>{
+        if(!confirm('確定刪除大項目「'+mp.name+'」？'+(cnt>0?'底下 '+cnt+' 個項目會變成獨立項目（不會被刪除）。':''))) return;
+        commit(()=>{
+          majorProjects = majorProjects.filter(x=>x.id!==mp.id);
+          items.forEach(it=>{ if(it.parentId===mp.id) it.parentId=null; });
+        });
+      };
       chip.appendChild(delBtn); wrap.appendChild(chip);
     });
     const addBtn=document.createElement('button'); addBtn.className='add-chip-btn'; addBtn.textContent='＋ 新增大項目';
@@ -680,10 +781,11 @@
   document.getElementById('btnConfirmMajor').onclick = ()=>{
     const name = document.getElementById('inputMajorName').value.trim();
     if(!name){ document.getElementById('inputMajorName').focus(); return; }
-    if(editingMajorId){ const mp=majorProjects.find(m=>m.id===editingMajorId); if(mp) mp.name=name; }
-    else{ majorProjects.push({ id: uid('mp'), name }); }
     document.getElementById('majorOverlay').classList.remove('show');
-    renderAll();
+    commit(()=>{
+      if(editingMajorId){ const mp=majorProjects.find(m=>m.id===editingMajorId); if(mp) mp.name=name; }
+      else{ majorProjects.push({ id: uid('mp'), name }); }
+    });
   };
 
   // ================= mode tabs / period row =================
@@ -702,7 +804,7 @@
       availableYears.slice().sort((a,b)=>a-b).forEach(y=>{ const o=document.createElement('option'); o.value=y; o.textContent=y+' 年'; if(y===selYear) o.selected=true; sel.appendChild(o); });
       sel.onchange = e=>{ selYear=parseInt(e.target.value); renderScheduleView(); }; el.appendChild(sel);
       const addYearBtn=document.createElement('button'); addYearBtn.className='add-year-btn'; addYearBtn.textContent='＋ 新增年份';
-      addYearBtn.onclick=()=>{ const ny=availableYears.length?Math.max(...availableYears)+1:selYear+1; availableYears.push(ny); selYear=ny; renderScheduleView(); };
+      addYearBtn.onclick=()=>{ const ny=availableYears.length?Math.max(...availableYears)+1:selYear+1; commit(()=>{ availableYears.push(ny); selYear=ny; }); };
       el.appendChild(addYearBtn);
     }
     if(mode==='quarter'){
@@ -732,11 +834,11 @@
   }
 
   // ================= shared occurrence row builder =================
-  function buildOccRow(occ, onChange){
+  function buildOccRow(occ){
     const it = occ.item;
     const row = document.createElement('div'); row.className = 'occ-row type-'+it.type;
     const cb = document.createElement('span'); cb.className='checkbox'+(occ.done?' done':''); cb.textContent=occ.done?'✓':'';
-    cb.onclick=()=>{ setOccurrenceDone(occ, !occ.done); onChange(); }; row.appendChild(cb);
+    cb.onclick=()=> commit(()=> setOccurrenceDone(occ, !occ.done)); row.appendChild(cb);
     const badge=document.createElement('span'); badge.className='type-badge '+it.type; badge.textContent=typeLabels[it.type]; row.appendChild(badge);
     const title=document.createElement('span'); title.className='occ-title'+(occ.done?' done':''); title.textContent=it.title; row.appendChild(title);
     const pname = majorProjectName(it.parentId);
@@ -750,15 +852,19 @@
     const dateEl=document.createElement('span'); dateEl.className='occ-date'; dateEl.textContent=occ.date; row.appendChild(dateEl);
     if(it.recurrence){
       const adjBtn=document.createElement('button'); adjBtn.className='icon-btn'; adjBtn.textContent='📅✎'; adjBtn.title='調整本次日期';
-      adjBtn.onclick=()=>openOccModal(occ, onChange); row.appendChild(adjBtn);
+      adjBtn.onclick=()=>openOccModal(occ); row.appendChild(adjBtn);
       const skipBtn=document.createElement('button'); skipBtn.className='icon-btn skip'; skipBtn.textContent='略過此次'; skipBtn.title='跳過這一次，不影響其他週期';
-      skipBtn.onclick=()=>{ skipOccurrence(occ); onChange(); }; row.appendChild(skipBtn);
+      skipBtn.onclick=()=> commit(()=> skipOccurrence(occ)); row.appendChild(skipBtn);
     }
     const spacer=document.createElement('span'); spacer.className='occ-spacer'; row.appendChild(spacer);
     const editBtn=document.createElement('button'); editBtn.className='icon-btn'; editBtn.textContent='編輯'; editBtn.title='編輯小項目設定';
     editBtn.onclick=()=>openItemModal(it); row.appendChild(editBtn);
     const delBtn=document.createElement('button'); delBtn.className='icon-btn danger'; delBtn.textContent='刪除'; delBtn.title='刪除整個項目（含所有循環）';
-    delBtn.onclick=()=>{ items=items.filter(x=>x.id!==it.id); onChange(); }; row.appendChild(delBtn);
+    delBtn.onclick=()=>{
+      if(!confirm('確定刪除「'+it.title+'」？'+(it.recurrence?'這會一併刪除所有循環週期，':'')+'此操作無法復原。')) return;
+      commit(()=>{ items = items.filter(x=>x.id!==it.id); });
+    };
+    row.appendChild(delBtn);
     return row;
   }
 
@@ -766,12 +872,11 @@
     const board=document.getElementById('board'); board.innerHTML='';
     const list=currentOccurrences();
     if(list.length===0){ board.innerHTML='<div class="empty-state">此範圍尚無項目 — 點選右上角 <span>「＋ 新增小項目」</span> 開始建立工作、會議或作業</div>'; return; }
-    list.forEach(occ=> board.appendChild(buildOccRow(occ, renderScheduleView)) );
+    list.forEach(occ=> board.appendChild(buildOccRow(occ)) );
   }
+  // 只負責「項目安排」頁自己的區塊；頂部 metrics 與跨頁重繪由 renderAll() 統籌
   function renderScheduleView(){
     renderMajorChips(); renderModeTabs(); renderPeriodRow(); renderScopeStrip(); renderBoard();
-    renderMetrics(); renderReminderList();
-    if(currentView==='calendar') renderCalendar();
   }
 
   // ================= calendar view =================
@@ -815,7 +920,7 @@
       tasks.slice(0,MAXW).forEach(o=>{
         const row=document.createElement('div'); row.className='cal-item-row'+(o.item.type==='assignment'?' assignment':'');
         const check=document.createElement('span'); check.className='cal-item-check'+(o.done?' done':''); check.textContent=o.done?'✓':'';
-        check.onclick=(e)=>{ e.stopPropagation(); setOccurrenceDone(o, !o.done); renderCalendar(); renderMetrics(); renderReminderList(); };
+        check.onclick=(e)=>{ e.stopPropagation(); commit(()=> setOccurrenceDone(o, !o.done)); };
         const text=document.createElement('span'); text.className='cal-item-text'+(o.done?' done':''); text.textContent=o.item.title;
         row.appendChild(check); row.appendChild(text); dotsWrap.appendChild(row);
       });
@@ -843,7 +948,7 @@
     const list = (byDate && byDate[calSelectedDate]) ? byDate[calSelectedDate].slice() : getAllOccurrences(d, new Date(d.getFullYear(),d.getMonth(),d.getDate(),23,59,59));
     list.sort((a,b)=>(a.item.meetingTime||'99:99').localeCompare(b.item.meetingTime||'99:99'));
     if(list.length===0){ calBoard.innerHTML='<div class="empty-state">此日期尚無工作項目、會議或作業 — 點選 <span>「＋ 為此日期新增」</span></div>'; }
-    else{ list.forEach(occ=> calBoard.appendChild(buildOccRow(occ, ()=>{ renderCalendar(); renderMetrics(); renderReminderList(); })) ); }
+    else{ list.forEach(occ=> calBoard.appendChild(buildOccRow(occ)) ); }
 
     // 每日記錄：只在此處顯示，不顯示於日曆格子
     daylogBox.style.display='block';
@@ -851,6 +956,7 @@
     ta.value = dailyLogs[calSelectedDate] || '';
     ta.oninput = ()=>{
       dailyLogs[calSelectedDate] = ta.value;
+      persistSoon();
       const savedTag = document.getElementById('daylogSaved');
       savedTag.classList.add('show');
       clearTimeout(ta._saveTimer);
@@ -866,6 +972,7 @@
   const itemOverlay=document.getElementById('itemOverlay');
   let modalType='work';
   let editingItemId=null;
+  let editingOrigFreq=null;   // 編輯前的循環頻率，用來偵測 occKey 命名規則是否即將失效
 
   function refreshParentSelect(){
     const sel=document.getElementById('selectParent'); const cur=sel.value;
@@ -878,13 +985,14 @@
     [...customHolidays].sort().forEach(dateStr=>{
       const chip=document.createElement('span'); chip.className='holiday-chip'; chip.innerHTML='<span>'+dateStr+'</span>';
       const rm=document.createElement('button'); rm.textContent='✕';
-      rm.onclick=()=>{ customHolidays.delete(dateStr); renderHolidayList(); renderAll(); };
+      rm.onclick=()=>{ commit(()=> customHolidays.delete(dateStr)); renderHolidayList(); };
       chip.appendChild(rm); box.appendChild(chip);
     });
   }
   document.getElementById('btnAddHoliday').onclick=()=>{
     const v=document.getElementById('inputCustomHoliday').value; if(!v) return;
-    customHolidays.add(v); document.getElementById('inputCustomHoliday').value=''; renderHolidayList(); renderAll();
+    document.getElementById('inputCustomHoliday').value='';
+    commit(()=> customHolidays.add(v)); renderHolidayList();
   };
 
   function typeBtnStyle(btn, active, colorVar, dimVar){
@@ -907,12 +1015,16 @@
     document.getElementById('recurrenceExtra').style.display = val==='none' ? 'none' : 'block';
     document.getElementById('recurDayLabel').textContent = val==='monthly' ? '每月第幾天' : '每季固定第幾天（每 3 個月一次）';
     document.getElementById('itemDateLabel').textContent = val==='none' ? '日期' : '起始日期';
+    const nextFreq = val==='none' ? null : val;
+    document.getElementById('recurChangeWarn').style.display =
+      (editingItemId && editingOrigFreq !== nextFreq) ? 'block' : 'none';
     renderHolidayList();
   }
   document.getElementById('selectRecurrence').onchange = updateRecurrenceExtra;
 
   function openItemModal(existingItem, defaultDate){
     editingItemId = existingItem ? existingItem.id : null;
+    editingOrigFreq = (existingItem && existingItem.recurrence) ? existingItem.recurrence.freq : null;
     document.getElementById('itemModalTitle').textContent = existingItem ? '編輯小項目' : '新增小項目';
     refreshParentSelect();
     if(existingItem){
@@ -966,23 +1078,34 @@
       holidayRule: document.getElementById('selectHolidayRule').value,
       until: document.getElementById('inputRecurUntil').value || null
     };
-    if(editingItemId){
-      const it=items.find(x=>x.id===editingItemId);
-      if(it){ it.title=title; it.type=modalType; it.parentId=parentId; it.meetingTime=modalType==='meeting'?meetingTime:null; it.date=dateVal; it.recurrence=recurrence; }
-    } else {
-      items.push({ id: uid('item'), title, type: modalType, parentId, meetingTime: modalType==='meeting'?meetingTime:null, date: dateVal, recurrence, done:false, doneMap:{}, overrides:{}, skipped:{} });
-    }
     itemOverlay.classList.remove('show');
-    if(currentView==='calendar'){ const dp=parseYMD(dateVal); calYear=dp.getFullYear(); calMonth=dp.getMonth()+1; calSelectedDate=dateVal; }
-    else{ if(mode==='date') selDate=dateVal; }
-    renderAll();
+    commit(()=>{
+      if(editingItemId){
+        const it=items.find(x=>x.id===editingItemId);
+        if(it){
+          // occKey 的格式與循環頻率綁定（單次='single'、每月='YYYY-MM'、每季='YYYY-QN'）。
+          // 頻率一改，舊 key 全部對不上：不清就變成孤兒資料，改回原頻率時還會整批「復活」。
+          const nextFreq = recurrence ? recurrence.freq : null;
+          if(editingOrigFreq !== nextFreq){
+            it.done=false; it.doneMap={}; it.overrides={}; it.skipped={};
+          }
+          it.title=title; it.type=modalType; it.parentId=parentId;
+          it.meetingTime=modalType==='meeting'?meetingTime:null;
+          it.date=dateVal; it.recurrence=recurrence;
+        }
+      } else {
+        items.push({ id: uid('item'), title, type: modalType, parentId, meetingTime: modalType==='meeting'?meetingTime:null, date: dateVal, recurrence, done:false, doneMap:{}, overrides:{}, skipped:{} });
+      }
+      if(currentView==='calendar'){ const dp=parseYMD(dateVal); calYear=dp.getFullYear(); calMonth=dp.getMonth()+1; calSelectedDate=dateVal; }
+      else{ if(mode==='date') selDate=dateVal; }
+    });
   };
 
   // ================= 單次日期調整 modal =================
   const occOverlay=document.getElementById('occOverlay');
-  let editingOcc=null, editingOccOnChange=null;
-  function openOccModal(occ, onChange){
-    editingOcc=occ; editingOccOnChange=onChange;
+  let editingOcc=null;
+  function openOccModal(occ){
+    editingOcc=occ;
     document.getElementById('occModalItemName').textContent=occ.item.title;
     document.getElementById('occModalPeriod').textContent=occPeriodLabel(occ);
     document.getElementById('inputOccDate').value=occ.date;
@@ -990,13 +1113,15 @@
   }
   document.getElementById('btnConfirmOcc').onclick=()=>{
     const v=document.getElementById('inputOccDate').value; if(!v) return;
-    editingOcc.item.overrides = editingOcc.item.overrides || {};
-    editingOcc.item.overrides[editingOcc.occKey]=v;
-    occOverlay.classList.remove('show'); editingOccOnChange && editingOccOnChange();
+    occOverlay.classList.remove('show');
+    commit(()=>{
+      editingOcc.item.overrides = editingOcc.item.overrides || {};
+      editingOcc.item.overrides[editingOcc.occKey]=v;
+    });
   };
   document.getElementById('btnClearOcc').onclick=()=>{
-    if(editingOcc.item.overrides) delete editingOcc.item.overrides[editingOcc.occKey];
-    occOverlay.classList.remove('show'); editingOccOnChange && editingOccOnChange();
+    occOverlay.classList.remove('show');
+    commit(()=>{ if(editingOcc.item.overrides) delete editingOcc.item.overrides[editingOcc.occKey]; });
   };
   occOverlay.addEventListener('click',(e)=>{ if(e.target===occOverlay) occOverlay.classList.remove('show'); });
 
@@ -1020,11 +1145,15 @@
   document.getElementById('bellBtn').onclick=()=>{ const t=document.getElementById('reminderToast'); if(t.classList.contains('show')) hideReminderToast(); else showReminderToast(); };
 
   // ================= clock =================
+  // 時鐘每秒跳，但資料重算不跟著每秒跑：metrics／提醒改由 commit() 與「跨日」觸發。
+  // 否則每秒都要把所有循環項目展開一次，成本隨項目數線性放大。
+  let lastTickYmd = ymd(new Date());
   function tick(){
     const d=new Date(); const wd=['日','一','二','三','四','五','六'][d.getDay()];
     document.getElementById('nowDate').textContent = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+'（週'+wd+'）';
     document.getElementById('nowTime').textContent = String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')+':'+String(d.getSeconds()).padStart(2,'0');
-    renderMetrics(); renderReminderList();
+    const curYmd = ymd(d);
+    if(curYmd !== lastTickYmd){ lastTickYmd = curYmd; renderAll(); }
   }
   tick(); setInterval(tick, 1000);
 
@@ -1036,11 +1165,18 @@
       const nameSpan=document.createElement('span'); nameSpan.textContent=gp.name;
       const cntSpan=document.createElement('span'); cntSpan.className='cnt'; cntSpan.textContent=gp.tasks.length+' 項';
       chip.appendChild(nameSpan); chip.appendChild(cntSpan);
-      chip.onclick=(e)=>{ if(e.target.tagName==='BUTTON') return; selectedGanttProjectId=gp.id; renderGanttView(); };
+      chip.onclick=(e)=>{ if(e.target.tagName==='BUTTON') return; commit(()=>{ selectedGanttProjectId=gp.id; }); };
       const editBtn=document.createElement('button'); editBtn.textContent='✎'; editBtn.title='更名';
       editBtn.onclick=(e)=>{ e.stopPropagation(); openGanttModal(gp); }; chip.appendChild(editBtn);
       const delBtn=document.createElement('button'); delBtn.textContent='✕'; delBtn.className='chip-del'; delBtn.title='刪除專案';
-      delBtn.onclick=(e)=>{ e.stopPropagation(); ganttProjects=ganttProjects.filter(x=>x.id!==gp.id); if(selectedGanttProjectId===gp.id) selectedGanttProjectId = ganttProjects.length ? ganttProjects[0].id : null; renderGanttView(); };
+      delBtn.onclick=(e)=>{
+        e.stopPropagation();
+        if(!confirm('確定刪除專案「'+gp.name+'」？底下 '+gp.tasks.length+' 項待辦與專案筆記都會一併刪除，此操作無法復原。')) return;
+        commit(()=>{
+          ganttProjects = ganttProjects.filter(x=>x.id!==gp.id);
+          if(selectedGanttProjectId===gp.id) selectedGanttProjectId = ganttProjects.length ? ganttProjects[0].id : null;
+        });
+      };
       chip.appendChild(delBtn); wrap.appendChild(chip);
     });
     const addBtn=document.createElement('button'); addBtn.className='add-chip-btn'; addBtn.textContent='＋ 新增專案';
@@ -1059,10 +1195,11 @@
   document.getElementById('btnConfirmGantt').onclick=()=>{
     const name=document.getElementById('inputGanttName').value.trim();
     if(!name){ document.getElementById('inputGanttName').focus(); return; }
-    if(editingGanttId){ const gp=ganttProjects.find(g=>g.id===editingGanttId); if(gp) gp.name=name; }
-    else{ const gp={ id: uid('gp'), name, tasks: [], notes:'' }; ganttProjects.push(gp); selectedGanttProjectId = gp.id; }
     document.getElementById('ganttOverlay').classList.remove('show');
-    renderGanttView();
+    commit(()=>{
+      if(editingGanttId){ const gp=ganttProjects.find(g=>g.id===editingGanttId); if(gp) gp.name=name; }
+      else{ const gp={ id: uid('gp'), name, tasks: [], notes:'' }; ganttProjects.push(gp); selectedGanttProjectId = gp.id; }
+    });
   };
 
   function renderGanttView(){
@@ -1074,7 +1211,7 @@
       return;
     }
     let gp = ganttProjects.find(g=>g.id===selectedGanttProjectId);
-    if(!gp){ gp = ganttProjects[0]; selectedGanttProjectId = gp.id; renderGanttChips(); }
+    if(!gp){ gp = ganttProjects[0]; selectedGanttProjectId = gp.id; renderGanttChips(); persist(); }
 
     const head = document.createElement('div'); head.className='gantt-project-head';
     head.innerHTML = '<div class="gantt-project-title">'+escapeHtml(gp.name)+'</div>';
@@ -1082,8 +1219,7 @@
     addTaskBtn.onclick = ()=>{
       const s = ymd(new Date());
       const e = new Date(); e.setDate(e.getDate()+7);
-      gp.tasks.push({ id: uid('task'), name:'新任務', start:s, end: ymd(e), progress:0, done:false });
-      renderGanttView();
+      commit(()=>{ gp.tasks.push({ id: uid('task'), name:'新任務', start:s, end: ymd(e), progress:0, done:false }); });
     };
     head.appendChild(addTaskBtn);
     area.appendChild(head);
@@ -1102,6 +1238,7 @@
     ta.value = gp.notes || '';
     ta.oninput = ()=>{
       gp.notes = ta.value;
+      persistSoon();
       const saved = box.querySelector('#ganttNotesSaved');
       saved.classList.add('show');
       clearTimeout(ta._saveTimer);
@@ -1110,8 +1247,14 @@
     return box;
   }
 
+  // 表格內編輯時只換掉圖表，不重建表格：重建會銷毀正在輸入的欄位，Tab 切換與連續輸入都會斷掉
+  function refreshGanttChart(gp){
+    const old = document.getElementById('ganttChartWrap');
+    if(old) old.replaceWith(buildGanttChart(gp));
+  }
+
   function buildGanttChart(gp){
-    const wrap = document.createElement('div'); wrap.className='gantt-wrap';
+    const wrap = document.createElement('div'); wrap.className='gantt-wrap'; wrap.id='ganttChartWrap';
     if(gp.tasks.length===0){
       wrap.innerHTML = '<div style="padding:24px; text-align:center; font-family:var(--mono); font-size:12.5px; color:var(--text-dim);">尚無待辦事項，新增後將顯示甘特圖時間軸</div>';
       return wrap;
@@ -1149,6 +1292,7 @@
     gp.tasks.forEach(t=>{
       const row=document.createElement('div'); row.className='gantt-row';
       const label=document.createElement('div'); label.className='gantt-row-label'; label.textContent=t.name; label.title=t.name;
+      label.dataset.taskId = t.id;   // 供表格改名時就地更新，免整張圖表重畫
       row.appendChild(label);
       const track=document.createElement('div'); track.className='gantt-row-track';
       const ts=parseYMD(t.start), te=parseYMD(t.end);
@@ -1183,32 +1327,49 @@
       const row=document.createElement('div'); row.className='task-row';
 
       const cb=document.createElement('span'); cb.className='task-done-cb'+(t.done?' done':''); cb.textContent=t.done?'✓':''; cb.title='標記完成';
-      cb.onclick=()=>{ t.done=!t.done; if(t.done) t.progress=100; renderGanttView(); };
       row.appendChild(cb);
+      const syncCb=()=>{ cb.className='task-done-cb'+(t.done?' done':''); cb.textContent=t.done?'✓':''; };
 
       const nameInp=document.createElement('input'); nameInp.type='text'; nameInp.value=t.name;
-      nameInp.oninput=()=>{ t.name=nameInp.value; };
-      nameInp.onblur=renderGanttView;
+      nameInp.oninput=()=>{
+        t.name=nameInp.value;
+        const lbl=document.querySelector('.gantt-row-label[data-task-id="'+t.id+'"]');
+        if(lbl){ lbl.textContent=t.name; lbl.title=t.name; }
+        persistSoon();
+      };
       row.appendChild(nameInp);
 
       const startLbl=document.createElement('span'); startLbl.className='task-field-label'; startLbl.textContent='開始'; row.appendChild(startLbl);
       const startInp=document.createElement('input'); startInp.type='date'; startInp.value=t.start;
-      startInp.onchange=()=>{ t.start=startInp.value; renderGanttView(); };
+      startInp.onchange=()=>{ t.start=startInp.value; refreshGanttChart(gp); persist(); };
       row.appendChild(startInp);
 
       const endLbl=document.createElement('span'); endLbl.className='task-field-label'; endLbl.textContent='結束'; row.appendChild(endLbl);
       const endInp=document.createElement('input'); endInp.type='date'; endInp.value=t.end;
-      endInp.onchange=()=>{ t.end=endInp.value; renderGanttView(); };
+      endInp.onchange=()=>{ t.end=endInp.value; refreshGanttChart(gp); persist(); };
       row.appendChild(endInp);
 
       const progLbl=document.createElement('span'); progLbl.className='task-field-label'; progLbl.textContent='進度'; row.appendChild(progLbl);
       const progInp=document.createElement('input'); progInp.type='number'; progInp.className='progress-num'; progInp.min=0; progInp.max=100; progInp.value=t.progress||0;
-      progInp.onchange=()=>{ t.progress=Math.max(0,Math.min(100, parseInt(progInp.value)||0)); if(t.progress===100) t.done=true; renderGanttView(); };
+      progInp.onchange=()=>{
+        t.progress=Math.max(0,Math.min(100, parseInt(progInp.value)||0));
+        progInp.value=t.progress;
+        if(t.progress===100) t.done=true;
+        syncCb(); refreshGanttChart(gp); persist();
+      };
       row.appendChild(progInp);
       const suffix=document.createElement('span'); suffix.className='progress-suffix'; suffix.textContent='%'; row.appendChild(suffix);
 
+      cb.onclick=()=>{
+        t.done=!t.done; if(t.done) t.progress=100;
+        syncCb(); progInp.value=t.progress; refreshGanttChart(gp); persist();
+      };
+
       const delBtn=document.createElement('button'); delBtn.className='icon-btn danger'; delBtn.textContent='刪除'; delBtn.style.marginLeft='auto';
-      delBtn.onclick=()=>{ gp.tasks=gp.tasks.filter(x=>x.id!==t.id); renderGanttView(); };
+      delBtn.onclick=()=>{
+        if(!confirm('確定刪除待辦「'+t.name+'」？此操作無法復原。')) return;
+        commit(()=>{ gp.tasks=gp.tasks.filter(x=>x.id!==t.id); });
+      };
       row.appendChild(delBtn);
 
       table.appendChild(row);
@@ -1217,13 +1378,14 @@
   }
 
   function renderAll(){
-    renderScheduleView();
+    renderMetrics(); renderReminderList();
     if(currentView==='calendar') renderCalendar();
-    if(currentView==='gantt') renderGanttView();
+    else if(currentView==='gantt') renderGanttView();
+    else renderScheduleView();
   }
 
   // ================= seed demo data =================
-  (function seed(){
+  function seed(){
     const t = new Date();
     majorProjects.push({ id: uid('mp'), name:'產品迭代 v2.3' });
     majorProjects.push({ id: uid('mp'), name:'年度策略規劃' });
@@ -1246,9 +1408,26 @@
     gp.tasks.push({ id: uid('task'), name:'需求訪談與規劃', start: ymd(s1), end: ymd(e1), progress:100, done:true });
     gp.tasks.push({ id: uid('task'), name:'視覺與介面設計', start: ymd(s2), end: ymd(e2), progress:60, done:false });
     gp.tasks.push({ id: uid('task'), name:'前端開發與測試', start: ymd(s3), end: ymd(e3), progress:0, done:false });
-  })();
+  }
 
-  renderScheduleView();
+  // ================= 啟動 =================
+  document.getElementById('btnClearStorage').onclick = ()=>{
+    if(!confirm('確定清除所有資料？所有項目、專案、每日記錄與自訂假日都會刪除，並還原成示範資料。此操作無法復原。')) return;
+    try{ localStorage.removeItem(STORAGE_KEY); }catch(e){ /* 記憶體模式下本來就沒東西可清 */ }
+    majorProjects=[]; items=[]; ganttProjects=[]; dailyLogs={}; customHolidays=new Set();
+    selectedGanttProjectId=null;
+    availableYears=[today.getFullYear()-1, today.getFullYear(), today.getFullYear()+1, today.getFullYear()+2];
+    seed();
+    commit();
+  };
+
+  const loadedFromStorage = loadState();
+  if(!loadedFromStorage) seed();
+  updateStorageNote();
+  refreshAvailableYears();
+  if(!availableYears.includes(selYear)) selYear = today.getFullYear();
+  if(!loadedFromStorage) persist();   // 首次開啟即建立存檔，之後重整才接得回來
+  renderAll();
   setTimeout(showReminderToast, 700);
 })();
 </script>
