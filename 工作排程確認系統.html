@@ -1,0 +1,1256 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>工作排程確認系統</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #F6F4EE;
+    --panel: #FFFFFF;
+    --panel-2: #F1EEE5;
+    --hairline: #E4E0D3;
+    --hairline-soft: #ECE8DD;
+    --text: #2A2A26;
+    --text-muted: #71706A;
+    --text-dim: #A2A099;
+    --amber: #C9822E;
+    --amber-dim: rgba(201,130,46,0.12);
+    --teal: #1F8C68;
+    --teal-dim: rgba(31,140,104,0.10);
+    --red: #C74B43;
+    --red-dim: rgba(199,75,67,0.10);
+    --violet: #6C5CE0;
+    --violet-dim: rgba(108,92,224,0.10);
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'Noto Sans TC', 'Inter', sans-serif;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%;}
+  body{
+    background: var(--bg); color: var(--text); font-family: var(--sans); -webkit-font-smoothing: antialiased;
+    background-image: linear-gradient(rgba(0,0,0,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,0.025) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+  ::-webkit-scrollbar{ width:8px; height:8px; }
+  ::-webkit-scrollbar-thumb{ background: #D8D4C6; border-radius:4px; }
+  ::-webkit-scrollbar-track{ background: transparent; }
+  .app{ max-width: 1280px; margin: 0 auto; padding: 24px 20px 70px; }
+
+  header.top{ display:flex; align-items:flex-end; justify-content:space-between; padding-bottom: 18px; margin-bottom: 16px; border-bottom: 1px solid var(--hairline); flex-wrap: wrap; gap:16px; }
+  .brand-eyebrow{ font-family: var(--mono); font-size: 11px; letter-spacing: 3px; color: var(--text-dim); text-transform: uppercase; margin-bottom:8px; }
+  .brand-title{ font-size: 24px; font-weight: 900; letter-spacing: 0.5px; color:#20201C; }
+  .clock-block{ font-family: var(--mono); text-align:right; }
+  .clock-block .now-date{ font-size:13px; color:var(--text-muted); }
+  .clock-block .now-time{ font-size:19px; font-weight:700; color:var(--amber); letter-spacing:1px; }
+
+  .metric-strip{ display:grid; grid-template-columns: repeat(3, 1fr); gap:10px; margin-bottom:22px; }
+  .metric-card{ background: var(--panel); border:1px solid var(--hairline); border-radius:12px; padding: 14px 18px; position:relative; overflow:hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.03); }
+  .metric-card::before{ content:''; position:absolute; left:0; top:0; bottom:0; width:3px; background: var(--amber); }
+  .metric-card.week::before{ background: var(--teal); }
+  .metric-card.meeting::before{ background: var(--violet); }
+  .metric-label{ font-family: var(--mono); font-size:10.5px; letter-spacing:2px; color: var(--text-dim); text-transform:uppercase; margin-bottom:6px; }
+  .metric-value{ font-family: var(--mono); font-size:28px; font-weight:700; color: var(--text); line-height:1; }
+  .metric-value .unit{ font-size:13px; color: var(--text-muted); font-weight:500; margin-left:6px; }
+  .metric-meeting-list, .metric-list{ display:flex; flex-direction:column; gap:4px; max-height:96px; overflow-y:auto; }
+  .metric-meeting-row, .metric-list-row{ display:flex; align-items:baseline; gap:7px; font-family: var(--sans); font-size:12.5px; color: var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .metric-meeting-row .m-time{ font-family: var(--mono); font-size:11.5px; color: var(--violet); flex-shrink:0; }
+  .metric-meeting-empty, .metric-list-empty{ font-family: var(--mono); font-size:12.5px; color: var(--text-dim); }
+  .metric-list-dot{ width:6px; height:6px; border-radius:50%; flex-shrink:0; position:relative; top:-1px; }
+  .metric-list-dot.work{ background: var(--teal); }
+  .metric-list-dot.meeting{ background: var(--violet); }
+  .metric-list-dot.assignment{ background: var(--amber); }
+  .metric-list-more{ font-family: var(--mono); font-size:10.5px; color: var(--text-dim); }
+
+  .layout{ display:flex; gap:20px; align-items:flex-start; }
+  .sidebar{ width: 176px; flex-shrink:0; display:flex; flex-direction:column; gap:6px; position: sticky; top: 20px; }
+  .nav-item{ display:flex; align-items:center; gap:10px; padding: 13px 14px; border-radius:10px; background: var(--panel); border:1px solid var(--hairline); cursor:pointer; color: var(--text-muted); font-weight:700; font-size:14px; transition: all .15s ease; }
+  .nav-item .nav-dot{ width:7px; height:7px; border-radius:50%; background: var(--hairline); flex-shrink:0; }
+  .nav-item:hover{ color: var(--text); border-color:#D6D2C4; }
+  .nav-item.active{ background: var(--amber-dim); border-color: var(--amber); color: var(--amber); }
+  .nav-item.active .nav-dot{ background: var(--amber); }
+
+  .main-panel{ flex:1; min-width:0; }
+  .view{ display:none; }
+  .view.active{ display:block; }
+
+  .major-section{ margin-bottom:20px; }
+  .major-section-label{ font-family: var(--mono); font-size:10.5px; letter-spacing:2px; color: var(--text-dim); text-transform:uppercase; margin-bottom:8px; }
+  .chip-row{ display:flex; flex-wrap:wrap; gap:8px; }
+  .chip{ display:flex; align-items:center; gap:8px; background: var(--panel); border:1px solid var(--hairline); border-radius:20px; padding:7px 8px 7px 14px; font-size:13px; font-weight:600; cursor:pointer; }
+  .chip.selectable:hover{ border-color:#CDC8B8; }
+  .chip.active{ border-color: var(--amber); background: var(--amber-dim); }
+  .chip .cnt{ font-family:var(--mono); font-size:10.5px; color: var(--text-dim); }
+  .chip button{ background:transparent; border:none; cursor:pointer; color: var(--text-dim); font-size:12px; width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center; }
+  .chip button:hover{ background: var(--hairline-soft); color: var(--text); }
+  .chip button.chip-del:hover{ color: var(--red); background: var(--red-dim); }
+  .chip input{ font-family: var(--sans); font-size:13px; border:1px solid var(--amber); border-radius:6px; padding:3px 6px; width:110px; outline:none; }
+  .add-chip-btn{ display:flex; align-items:center; gap:6px; background: var(--panel-2); border:1px dashed #D2CDBB; border-radius:20px; padding:8px 16px; font-size:13px; font-weight:600; color: var(--text-muted); cursor:pointer; }
+  .add-chip-btn:hover{ color: var(--amber); border-color: var(--amber); }
+
+  .mode-tabs{ display:flex; gap:4px; margin-bottom:16px; background: var(--panel); border:1px solid var(--hairline); border-radius:10px; padding:4px; width: fit-content; }
+  .mode-tab{ font-family: var(--mono); font-size:13px; font-weight:600; letter-spacing:1px; padding: 9px 18px; border-radius:7px; cursor:pointer; color: var(--text-muted); border:none; background:transparent; transition: all .15s ease; }
+  .mode-tab:hover{ color: var(--text); }
+  .mode-tab.active{ background: var(--amber); color:#FFFDF9; }
+
+  .period-row{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom: 18px; padding: 14px 16px; background: var(--panel); border:1px solid var(--hairline); border-radius:10px; }
+  .period-label{ font-family: var(--mono); font-size:10px; letter-spacing:2px; color: var(--text-dim); text-transform:uppercase; margin-right:4px; }
+  select, input[type=date], input[type=time], input[type=number], input[type=text]{ font-family: var(--mono); background: var(--panel-2); color: var(--text); border:1px solid var(--hairline); border-radius:6px; padding:7px 10px; font-size:13px; outline:none; }
+  textarea{ font-family: var(--sans); background: var(--panel-2); color: var(--text); border:1px solid var(--hairline); border-radius:8px; padding:10px 12px; font-size:13.5px; outline:none; resize:vertical; width:100%; line-height:1.6; }
+  textarea:focus{ border-color: var(--amber); }
+  select, input[type=date], input[type=time]{ cursor:pointer; }
+  select:focus, input:focus, button:focus-visible{ outline: 2px solid var(--amber); outline-offset:1px; }
+  .qbtn, .mbtn{ font-family: var(--mono); font-size:12.5px; font-weight:600; padding:7px 12px; border-radius:6px; border:1px solid var(--hairline); background: var(--panel-2); color: var(--text-muted); cursor:pointer; }
+  .qbtn.active, .mbtn.active{ background: var(--amber-dim); border-color: var(--amber); color: var(--amber); }
+  .add-year-btn{ font-family: var(--mono); font-size:12px; color: var(--text-dim); background:transparent; border:1px dashed #D2CDBB; border-radius:6px; padding:7px 10px; cursor:pointer; }
+  .add-year-btn:hover{ color: var(--amber); border-color: var(--amber); }
+  .month-grid{ display:flex; gap:6px; flex-wrap:wrap; }
+
+  .scope-strip{ display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; flex-wrap:wrap; gap:12px; }
+  .scope-current{ font-family: var(--mono); font-size:20px; font-weight:700; color: var(--text); display:flex; align-items:baseline; gap:10px; }
+  .scope-current .unit{ font-size:12px; color: var(--text-dim); font-weight:500; letter-spacing:1px;}
+  .stat-pills{ display:flex; gap:8px; flex-wrap:wrap; }
+  .pill{ font-family: var(--mono); font-size:12px; padding:6px 12px; border-radius:20px; border:1px solid var(--hairline); color:var(--text-muted); display:flex; align-items:center; gap:6px; background:var(--panel); }
+  .pill b{ color:var(--text); font-size:13px; }
+  .pill.done b{ color: var(--teal); }
+  .pill.pending b{ color: var(--amber); }
+
+  .add-project-btn{ font-family: var(--sans); font-weight:700; font-size:14px; background: var(--amber); color:#FFFDF9; border:none; border-radius:8px; padding:11px 18px; cursor:pointer; display:flex; align-items:center; gap:8px; box-shadow: 0 2px 0 rgba(0,0,0,0.08); }
+  .add-project-btn:hover{ filter: brightness(1.06); }
+  .add-project-btn:active{ transform: translateY(1px); box-shadow:none; }
+
+  .board{ display:flex; flex-direction:column; gap:10px; }
+  .empty-state{ padding: 46px 20px; text-align:center; color: var(--text-dim); border: 1px dashed #D2CDBB; border-radius:12px; font-family: var(--mono); font-size:13px; line-height:1.9; background:var(--panel); }
+  .empty-state span{ color: var(--amber); }
+
+  .occ-row{ background: var(--panel); border:1px solid var(--hairline); border-radius:12px; padding: 12px 16px; display:flex; align-items:center; gap:12px; flex-wrap:wrap; box-shadow: 0 1px 2px rgba(0,0,0,0.02); }
+  .occ-row.type-work{ border-left:3px solid var(--teal); }
+  .occ-row.type-meeting{ border-left:3px solid var(--violet); }
+  .occ-row.type-assignment{ border-left:3px solid var(--amber); }
+  .checkbox{ width:19px; height:19px; border-radius:5px; border:1.5px solid #C9C4B4; display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; font-size:12px; color:transparent; transition: all .15s ease; }
+  .checkbox.done{ background: var(--teal); border-color: var(--teal); color:#fff; }
+  .occ-row.type-meeting .checkbox.done{ background: var(--violet); border-color: var(--violet); }
+  .occ-row.type-assignment .checkbox.done{ background: var(--amber); border-color: var(--amber); }
+  .occ-title{ font-size:14px; font-weight:600; }
+  .occ-title.done{ color: var(--text-dim); text-decoration: line-through; font-weight:500; }
+  .type-badge{ font-family: var(--mono); font-size:10px; letter-spacing:1.5px; padding:3px 8px; border-radius:5px; text-transform:uppercase; font-weight:700; flex-shrink:0; }
+  .type-badge.work{ background: var(--teal-dim); color: var(--teal); }
+  .type-badge.meeting{ background: var(--violet-dim); color: var(--violet); }
+  .type-badge.assignment{ background: var(--amber-dim); color: var(--amber); }
+  .parent-tag{ font-family: var(--mono); font-size:11px; color: var(--text-muted); background: var(--panel-2); border:1px solid var(--hairline); padding:2px 8px; border-radius:10px; }
+  .recur-badge{ font-family: var(--mono); font-size:11px; color: var(--amber); background: var(--amber-dim); padding:2px 8px; border-radius:6px; white-space:nowrap; }
+  .occ-date{ font-family: var(--mono); font-size:12px; color: var(--text-muted); white-space:nowrap; }
+  .meeting-time{ font-family: var(--mono); font-size:11.5px; color: var(--violet); background: var(--violet-dim); padding:3px 8px; border-radius:5px; flex-shrink:0; }
+  .occ-spacer{ flex:1; }
+  .occ-actions{ display:flex; align-items:center; gap:4px; }
+  .icon-btn{ background:transparent; border:none; cursor:pointer; color: var(--text-dim); font-size:13px; padding:5px 7px; border-radius:6px; }
+  .icon-btn:hover{ background: var(--panel-2); color: var(--text); }
+  .icon-btn.danger:hover{ color: var(--red); background: var(--red-dim); }
+  .icon-btn.skip:hover{ color: var(--amber); background: var(--amber-dim); }
+
+  /* ---- Calendar view ---- */
+  .cal-header{ display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; flex-wrap:wrap; gap:10px; }
+  .cal-title{ font-family: var(--mono); font-size:20px; font-weight:700; }
+  .cal-nav{ display:flex; gap:8px; align-items:center; }
+  .cal-nav button{ font-family: var(--mono); font-size:13px; font-weight:700; background: var(--panel); border:1px solid var(--hairline); color: var(--text-muted); border-radius:7px; padding:8px 12px; cursor:pointer; }
+  .cal-nav button:hover{ color: var(--amber); border-color: var(--amber); }
+  .cal-legend{ display:flex; gap:14px; font-family: var(--mono); font-size:11.5px; color: var(--text-muted); }
+  .cal-legend span{ display:flex; align-items:center; gap:6px; }
+  .legend-dot{ width:8px; height:8px; border-radius:50%; }
+  .legend-dot.work{ background: var(--teal); }
+  .legend-dot.meeting{ background: var(--violet); }
+  .legend-dot.assignment{ background: var(--amber); }
+
+  .cal-grid{ display:grid; grid-template-columns: repeat(7, 1fr); gap:6px; margin-bottom:22px; }
+  .cal-weekday{ font-family: var(--mono); font-size:11px; color: var(--text-dim); text-align:center; padding:6px 0; letter-spacing:1px; }
+  .cal-cell{ background: var(--panel); border:1px solid var(--hairline); border-radius:9px; min-height:92px; padding:8px; cursor:pointer; display:flex; flex-direction:column; gap:5px; transition: border-color .15s ease, background .15s ease; }
+  .cal-cell:hover{ border-color:#CDC8B8; }
+  .cal-cell.blank{ background:transparent; border:none; cursor:default; box-shadow:none; }
+  .cal-cell.today{ background: rgba(201,130,46,0.09); border-color: var(--amber); box-shadow: inset 0 0 0 1px var(--amber); }
+  .cal-cell.today.selected{ background: #F2E1C6; }
+  .cal-cell.selected{ background: var(--panel-2); border-color: var(--amber); }
+  .cal-daynum{ font-family: var(--mono); font-size:12.5px; color: var(--text-muted); }
+  .cal-cell.today .cal-daynum{ color: var(--amber); font-weight:700; }
+  .cal-dots{ display:flex; flex-direction:column; gap:3px; }
+  .cal-meeting-row{ display:flex; align-items:baseline; gap:5px; min-width:0; }
+  .cal-meeting-time{ font-family: var(--mono); font-size:10px; color: var(--violet); flex-shrink:0; }
+  .cal-meeting-subject{ font-family: var(--sans); font-size:10.5px; color: var(--violet); line-height:1.3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; font-weight:600; }
+  .cal-item-row{ display:flex; align-items:center; gap:5px; min-width:0; }
+  .cal-item-check{ width:12px; height:12px; border-radius:3.5px; border:1.3px solid var(--teal); flex-shrink:0; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:8px; color:transparent; transition: all .12s ease; }
+  .cal-item-row.assignment .cal-item-check{ border-color: var(--amber); }
+  .cal-item-check.done{ background: var(--teal); color:#fff; }
+  .cal-item-row.assignment .cal-item-check.done{ background: var(--amber); }
+  .cal-item-text{ font-family: var(--sans); font-size:10.5px; color: var(--teal); line-height:1.3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+  .cal-item-row.assignment .cal-item-text{ color: var(--amber); }
+  .cal-item-text.done{ color: var(--text-dim); text-decoration: line-through; }
+  .cal-more{ font-family: var(--mono); font-size:9.5px; color: var(--text-dim); padding-left:2px; }
+
+  .cal-detail-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; flex-wrap:wrap; gap:10px; }
+  .cal-detail-title{ font-family: var(--mono); font-size:16px; font-weight:700; }
+
+  .daylog-box{ background: var(--panel); border:1px solid var(--hairline); border-radius:12px; padding:16px; margin-top:18px; }
+  .daylog-label{ font-family: var(--mono); font-size:10.5px; letter-spacing:2px; color: var(--text-dim); text-transform:uppercase; margin-bottom:8px; display:flex; align-items:center; gap:8px; }
+  .daylog-saved{ color: var(--teal); font-size:11px; letter-spacing:0; text-transform:none; opacity:0; transition: opacity .3s ease; }
+  .daylog-saved.show{ opacity:1; }
+
+  footer.storage-note{ margin-top:32px; text-align:center; font-family: var(--mono); font-size:11px; color: var(--text-dim); line-height:1.8; }
+
+  .reminder-toast{ position: fixed; top: 22px; right: 22px; z-index: 60; width: 320px; max-width: calc(100vw - 32px); background: var(--panel); border: 1px solid var(--amber); border-radius: 12px; box-shadow: 0 16px 40px rgba(0,0,0,0.14); opacity:0; transform: translateY(-12px); pointer-events:none; transition: opacity .2s ease, transform .2s ease; }
+  .reminder-toast.show{ opacity:1; transform: translateY(0); pointer-events:auto; }
+  .reminder-head{ display:flex; align-items:center; gap:8px; padding: 12px 14px; border-bottom:1px solid var(--hairline); }
+  .reminder-icon{ font-size:15px; }
+  .reminder-title{ font-family: var(--sans); font-weight:700; font-size:14px; color: var(--amber); flex:1; }
+  .reminder-close{ background:transparent; border:none; color: var(--text-dim); font-family: var(--mono); font-size:14px; cursor:pointer; padding:2px 6px; border-radius:5px; }
+  .reminder-close:hover{ color: var(--red); }
+  .reminder-body{ max-height: 260px; overflow-y:auto; padding: 8px 14px 12px; display:flex; flex-direction:column; gap:8px; }
+  .reminder-row{ display:flex; align-items:baseline; gap:8px; font-size:13px; }
+  .reminder-dot{ width:7px; height:7px; border-radius:50%; flex-shrink:0; position:relative; top:-1px; }
+  .reminder-dot.work{ background: var(--teal); }
+  .reminder-dot.meeting{ background: var(--violet); }
+  .reminder-dot.assignment{ background: var(--amber); }
+  .reminder-row-text{ color: var(--text); line-height:1.4; }
+  .reminder-row-text b{ color: var(--text-muted); font-weight:600; }
+
+  /* ---- Gantt / 專案 ---- */
+  .gantt-empty{ padding: 60px 20px; text-align:center; color: var(--text-dim); border: 1px dashed #D2CDBB; border-radius:12px; font-family: var(--mono); font-size:13px; line-height:1.9; background:var(--panel); }
+  .gantt-project-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; flex-wrap:wrap; gap:10px; }
+  .gantt-project-title{ font-size:19px; font-weight:800; }
+  .gantt-wrap{ background: var(--panel); border:1px solid var(--hairline); border-radius:12px; padding:18px 18px 8px; margin-bottom:20px; overflow-x:auto; }
+  .gantt-header-row{ display:flex; margin-bottom:6px; }
+  .gantt-label-col{ width:170px; flex-shrink:0; }
+  .gantt-timeline-col{ flex:1; min-width:360px; position:relative; height:22px; border-bottom:1px solid var(--hairline); }
+  .gantt-month-tick{ position:absolute; top:0; bottom:0; border-left:1px dashed var(--hairline); }
+  .gantt-month-label{ position:absolute; top:0; font-family:var(--mono); font-size:10px; color:var(--text-dim); padding-left:4px; white-space:nowrap; }
+  .gantt-body{ display:flex; flex-direction:column; }
+  .gantt-row{ display:flex; align-items:center; margin-bottom:10px; }
+  .gantt-row-label{ width:170px; flex-shrink:0; font-size:12.5px; font-weight:600; padding-right:10px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .gantt-row-track{ flex:1; min-width:360px; position:relative; height:22px; background: var(--panel-2); border-radius:6px; }
+  .gantt-bar{ position:absolute; top:2px; height:18px; border-radius:5px; background: var(--violet); overflow:hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+  .gantt-bar.done{ background: var(--teal); }
+  .gantt-bar.overdue{ background: var(--red); }
+  .gantt-bar-fill{ position:absolute; left:0; top:0; bottom:0; background: rgba(255,255,255,0.38); }
+  .gantt-bar-label{ position:absolute; left:6px; top:0; font-size:10px; line-height:18px; color:#fff; font-family: var(--sans); font-weight:700; white-space:nowrap; text-shadow: 0 1px 1px rgba(0,0,0,0.15); }
+  .gantt-today-line{ position:absolute; top:-4px; bottom:-4px; width:1.5px; background: var(--amber); }
+
+  .task-table{ display:flex; flex-direction:column; gap:8px; }
+  .task-row{ display:flex; align-items:center; gap:8px; background: var(--panel); border:1px solid var(--hairline); border-radius:10px; padding:10px 12px; flex-wrap:wrap; }
+  .task-row input[type=text]{ flex:1; min-width:130px; font-family: var(--sans); }
+  .task-row input[type=date]{ width:132px; }
+  .task-row .progress-num{ width:56px; text-align:center; }
+  .task-row .progress-suffix{ font-family:var(--mono); font-size:11px; color:var(--text-dim); }
+  .task-row .task-done-cb{ width:19px; height:19px; border-radius:5px; border:1.5px solid #C9C4B4; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:12px; color:transparent; flex-shrink:0; }
+  .task-row .task-done-cb.done{ background: var(--teal); border-color: var(--teal); color:#fff; }
+  .task-field-label{ font-family:var(--mono); font-size:9.5px; color:var(--text-dim); text-transform:uppercase; letter-spacing:1px; margin-right:2px; }
+
+  /* ---- Modal ---- */
+  .overlay{ position:fixed; inset:0; background: rgba(40,36,26,0.32); backdrop-filter: blur(2px); display:none; align-items:center; justify-content:center; z-index:70; padding:20px; }
+  .overlay.show{ display:flex; }
+  .modal{ background: var(--panel); border:1px solid var(--hairline); border-radius:14px; width:100%; max-width:460px; padding:24px; box-shadow: 0 20px 60px rgba(0,0,0,0.18); max-height:88vh; overflow-y:auto; }
+  .modal h3{ font-size:17px; margin-bottom:18px; display:flex; align-items:center; gap:8px;}
+  .modal h3 .dot{ width:8px; height:8px; border-radius:50%; background:var(--amber); }
+  .field{ margin-bottom:14px; }
+  .field label{ display:block; font-family: var(--mono); font-size:10.5px; letter-spacing:1.5px; color: var(--text-dim); text-transform:uppercase; margin-bottom:6px; }
+  .field input, .field select{ width:100%; font-family: var(--sans); font-size:14px; }
+  .field input[type=date], .field input[type=time], .field input[type=number]{ font-family: var(--mono); }
+  .type-toggle{ display:flex; gap:8px; }
+  .type-toggle button{ flex:1; font-family: var(--mono); font-size:12px; font-weight:700; padding:10px 4px; border-radius:7px; border:1px solid var(--hairline); background: var(--panel-2); color: var(--text-muted); cursor:pointer; }
+  .field-row{ display:flex; gap:10px; }
+  .field-row > .field{ flex:1; }
+  .modal-actions{ display:flex; gap:10px; margin-top:20px; }
+  .modal-actions button{ flex:1; padding:11px; border-radius:8px; font-family: var(--sans); font-weight:700; font-size:14px; cursor:pointer; }
+  .btn-cancel{ background: transparent; border:1px solid var(--hairline); color: var(--text-muted); }
+  .btn-cancel:hover{ border-color:#CDC8B8; }
+  .btn-confirm{ background: var(--amber); border:none; color:#FFFDF9; }
+  .btn-confirm:hover{ filter:brightness(1.05); }
+  .btn-clear{ background: transparent; border:1px dashed var(--hairline); color: var(--text-dim); }
+  .btn-clear:hover{ color: var(--red); border-color: var(--red); }
+  .scope-note{ font-family: var(--mono); font-size:11px; color: var(--text-dim); background: var(--panel-2); border:1px solid var(--hairline); border-radius:7px; padding:9px 11px; margin-bottom:16px; }
+  .scope-note b{ color: var(--amber); }
+  .holiday-list-box{ display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  .holiday-chip{ font-family: var(--mono); font-size:11px; background: var(--panel-2); border:1px solid var(--hairline); border-radius:6px; padding:3px 6px; display:flex; align-items:center; gap:5px; color:var(--text-muted); }
+  .holiday-chip button{ background:none; border:none; cursor:pointer; color:var(--text-dim); font-size:11px; }
+  .holiday-chip button:hover{ color:var(--red); }
+
+  @media (prefers-reduced-motion: reduce){ *{ transition: none !important; } }
+  @media (max-width: 820px){ .layout{ flex-direction:column; } .sidebar{ width:100%; flex-direction:row; position:static; } .nav-item{ flex:1; justify-content:center; } }
+  @media (max-width: 560px){ .brand-title{ font-size:19px; } .metric-strip{ grid-template-columns: 1fr; } .cal-grid{ gap:4px; } .cal-cell{ min-height:70px; padding:5px; } .cal-item-text{ font-size:9.5px; } .reminder-toast{ left:16px; right:16px; width:auto; top:16px; } }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header class="top">
+    <div>
+      <div class="brand-eyebrow">SCHEDULE CONTROL BOARD</div>
+      <div class="brand-title">工作排程確認系統</div>
+    </div>
+    <div style="display:flex; align-items:center; gap:14px;">
+      <button id="bellBtn" title="查看今日待辦提醒" style="position:relative; background:var(--panel); border:1px solid var(--hairline); border-radius:10px; width:42px; height:42px; cursor:pointer; color:var(--text-muted); font-size:17px; display:flex; align-items:center; justify-content:center;">
+        🔔
+        <span id="bellBadge" style="display:none; position:absolute; top:-5px; right:-5px; background:var(--red); color:#fff; font-family:var(--mono); font-size:10px; font-weight:700; border-radius:9px; min-width:18px; height:18px; padding:0 4px; align-items:center; justify-content:center;"></span>
+      </button>
+      <div class="clock-block">
+        <div class="now-date" id="nowDate">—</div>
+        <div class="now-time" id="nowTime">--:--:--</div>
+      </div>
+    </div>
+  </header>
+
+  <div class="metric-strip">
+    <div class="metric-card day">
+      <div class="metric-label">當日未完成</div>
+      <div class="metric-list" id="metricDayList"><div class="metric-list-empty">今日已全部完成</div></div>
+    </div>
+    <div class="metric-card week">
+      <div class="metric-label">當週未完成</div>
+      <div class="metric-list" id="metricWeekList"><div class="metric-list-empty">本週已全部完成</div></div>
+    </div>
+    <div class="metric-card meeting">
+      <div class="metric-label">當日會議項目</div>
+      <div class="metric-meeting-list" id="metricMeetingList"><div class="metric-meeting-empty">今日無會議</div></div>
+    </div>
+  </div>
+
+  <div class="layout">
+    <div class="sidebar">
+      <div class="nav-item active" id="navSchedule"><span class="nav-dot"></span>項目安排</div>
+      <div class="nav-item" id="navCalendar"><span class="nav-dot"></span>日曆</div>
+      <div class="nav-item" id="navGantt"><span class="nav-dot"></span>專案</div>
+    </div>
+
+    <div class="main-panel">
+
+      <!-- ================= VIEW 1: 項目安排 ================= -->
+      <div class="view active" id="viewSchedule">
+        <div class="major-section">
+          <div class="major-section-label">大項目（無需日期，可隨時更名）</div>
+          <div class="chip-row" id="majorChips"></div>
+        </div>
+        <div class="mode-tabs" id="modeTabs"></div>
+        <div class="period-row" id="periodRow"></div>
+        <div class="scope-strip">
+          <div class="scope-current" id="scopeCurrent">—</div>
+          <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+            <div class="stat-pills" id="statPills"></div>
+            <button class="add-project-btn" id="openItemModal">＋ 新增小項目</button>
+          </div>
+        </div>
+        <div class="board" id="board"></div>
+      </div>
+
+      <!-- ================= VIEW 2: 日曆 ================= -->
+      <div class="view" id="viewCalendar">
+        <div class="cal-header">
+          <div class="cal-title" id="calTitle">—</div>
+          <div class="cal-nav">
+            <button id="calPrev">‹ 上月</button>
+            <button id="calToday">回到今天</button>
+            <button id="calNext">下月 ›</button>
+          </div>
+          <div class="cal-legend">
+            <span><span class="legend-dot work"></span>工作項目</span>
+            <span><span class="legend-dot meeting"></span>會議安排</span>
+            <span><span class="legend-dot assignment"></span>作業</span>
+          </div>
+        </div>
+        <div class="cal-grid" id="calGrid"></div>
+
+        <div class="cal-detail-head">
+          <div class="cal-detail-title" id="calDetailTitle">選擇日期以查看當日安排</div>
+          <button class="add-project-btn" id="openItemModalFromCal" style="display:none;">＋ 為此日期新增</button>
+        </div>
+        <div class="board" id="calBoard"></div>
+
+        <div class="daylog-box" id="daylogBox" style="display:none;">
+          <div class="daylog-label">每日記錄 <span class="daylog-saved" id="daylogSaved">已儲存</span></div>
+          <textarea id="daylogTextarea" rows="4" placeholder="記錄今天的想法、備忘、心得...（僅顯示於此，不會出現在日曆格子中）"></textarea>
+        </div>
+      </div>
+
+      <!-- ================= VIEW 3: 專案（甘特圖） ================= -->
+      <div class="view" id="viewGantt">
+        <div class="major-section">
+          <div class="major-section-label">專案（大型專案，對應甘特圖與待辦事項）</div>
+          <div class="chip-row" id="ganttChips"></div>
+        </div>
+        <div id="ganttDetailArea"></div>
+      </div>
+
+    </div>
+  </div>
+
+  <footer class="storage-note">
+    ※ 此為免費版介面預覽，資料僅保存在本次對話畫面中，重新整理或關閉後將會重置。<br>
+    「遇假日」判斷以週六、週日為基準，如需計入國定假日，可在新增小項目時使用「自訂假日」清單自行加入日期。<br>
+    若升級付費方案，同一介面可接上雲端持久化儲存，資料將可跨裝置與跨對話保留。
+  </footer>
+</div>
+
+<div id="reminderToast" class="reminder-toast">
+  <div class="reminder-head">
+    <span class="reminder-icon">🔔</span>
+    <span class="reminder-title">今日待完成提醒</span>
+    <button id="reminderClose" class="reminder-close">✕</button>
+  </div>
+  <div id="reminderBody" class="reminder-body"></div>
+</div>
+
+<!-- ========== 大項目 Modal ========== -->
+<div class="overlay" id="majorOverlay">
+  <div class="modal">
+    <h3><span class="dot"></span><span id="majorModalTitle">新增大項目</span></h3>
+    <div class="field"><label>大項目名稱</label><input type="text" id="inputMajorName" placeholder="例如：Q3 產品上線計畫"></div>
+    <div class="modal-actions">
+      <button class="btn-cancel" id="btnCancelMajor">取消</button>
+      <button class="btn-confirm" id="btnConfirmMajor">建立</button>
+    </div>
+  </div>
+</div>
+
+<!-- ========== 小項目 Modal ========== -->
+<div class="overlay" id="itemOverlay">
+  <div class="modal">
+    <h3><span class="dot"></span><span id="itemModalTitle">新增小項目</span></h3>
+    <div class="field"><label>標題</label><input type="text" id="inputItemTitle" placeholder="例如：確認提案簡報"></div>
+    <div class="field">
+      <label>類型</label>
+      <div class="type-toggle">
+        <button class="sel-work active" id="btnTypeWork">工作項目</button>
+        <button class="sel-meeting" id="btnTypeMeeting">會議安排</button>
+        <button class="sel-assignment" id="btnTypeAssignment">作業</button>
+      </div>
+    </div>
+    <div class="field" id="itemMeetingTimeField" style="display:none;"><label>會議時間</label><input type="time" id="inputItemMeetingTime"></div>
+    <div class="field"><label>歸屬大項目</label><select id="selectParent"><option value="">獨立項目（不歸屬任何大項目）</option></select></div>
+    <div class="field"><label id="itemDateLabel">日期</label><input type="date" id="inputItemDate"></div>
+    <div class="field">
+      <label>循環設定</label>
+      <select id="selectRecurrence">
+        <option value="none">不循環</option>
+        <option value="monthly">每月固定</option>
+        <option value="quarterly">每季固定（每 3 個月）</option>
+      </select>
+    </div>
+    <div id="recurrenceExtra" style="display:none;">
+      <div class="field-row">
+        <div class="field"><label id="recurDayLabel">每月第幾天</label><input type="number" id="inputRecurDay" min="1" max="31" value="1"></div>
+        <div class="field">
+          <label>遇假日規則</label>
+          <select id="selectHolidayRule">
+            <option value="none">不調整</option>
+            <option value="postpone">順延下一個工作天</option>
+            <option value="advance">提前至前一個工作天</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label>循環期限（選填，超過此日期將不再產生新的循環）</label>
+        <input type="date" id="inputRecurUntil">
+      </div>
+      <div class="field">
+        <label>自訂假日（選填，除週六日外的額外假日）</label>
+        <div style="display:flex; gap:8px;">
+          <input type="date" id="inputCustomHoliday" style="flex:1;">
+          <button type="button" id="btnAddHoliday" class="add-year-btn" style="white-space:nowrap;">＋ 加入</button>
+        </div>
+        <div class="holiday-list-box" id="holidayListBox"></div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-cancel" id="btnCancelItem">取消</button>
+      <button class="btn-confirm" id="btnConfirmItem">建立</button>
+    </div>
+  </div>
+</div>
+
+<!-- ========== 單次日期調整 Modal ========== -->
+<div class="overlay" id="occOverlay">
+  <div class="modal" style="max-width:380px;">
+    <h3><span class="dot"></span>調整本次日期</h3>
+    <div class="scope-note">項目：<b id="occModalItemName" style="color:var(--amber);">—</b>　週期：<b id="occModalPeriod">—</b></div>
+    <div class="field"><label>本次日期</label><input type="date" id="inputOccDate"></div>
+    <div class="modal-actions">
+      <button class="btn-clear" id="btnClearOcc">清除覆寫（恢復預設）</button>
+      <button class="btn-confirm" id="btnConfirmOcc">儲存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ========== 專案 Modal ========== -->
+<div class="overlay" id="ganttOverlay">
+  <div class="modal" style="max-width:380px;">
+    <h3><span class="dot"></span><span id="ganttModalTitle">新增專案</span></h3>
+    <div class="field"><label>專案名稱</label><input type="text" id="inputGanttName" placeholder="例如：官網改版專案"></div>
+    <div class="modal-actions">
+      <button class="btn-cancel" id="btnCancelGantt">取消</button>
+      <button class="btn-confirm" id="btnConfirmGantt">建立</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  // ================= state =================
+  let majorProjects = [];
+  let items = [];
+  let customHolidays = new Set();
+  let dailyLogs = {}; // 'YYYY-MM-DD' -> text
+  let ganttProjects = []; // {id,name,tasks:[{id,name,start,end,progress,done}]}
+  let selectedGanttProjectId = null;
+  let idSeq = 1;
+  function uid(p){ return p + (idSeq++); }
+
+  let currentView = 'schedule';
+  let mode = 'year';
+  const today = new Date();
+  let selYear = today.getFullYear();
+  let selQuarter = Math.floor(today.getMonth()/3)+1;
+  let selMonth = today.getMonth()+1;
+  let selDate = ymd(today);
+  let availableYears = [selYear-1, selYear, selYear+1, selYear+2];
+
+  let calYear = today.getFullYear();
+  let calMonth = today.getMonth()+1;
+  let calSelectedDate = ymd(today);
+
+  const modeLabels = { year:'年度', quarter:'季度', month:'月份', date:'特定日期' };
+  const typeLabels = { work:'工作', meeting:'會議', assignment:'作業' };
+
+  // ================= date helpers =================
+  function ymd(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+  function parseYMD(s){ const [y,m,d]=s.split('-').map(Number); return new Date(y, m-1, d); }
+  function daysInMonth(y,m){ return new Date(y, m, 0).getDate(); }
+  function startOfWeek(d){ const day=d.getDay(); const diff=(day===0?-6:1)-day; const s=new Date(d); s.setDate(d.getDate()+diff); s.setHours(0,0,0,0); return s; }
+  function endOfWeek(d){ const s=startOfWeek(d); const e=new Date(s); e.setDate(s.getDate()+6); e.setHours(23,59,59,999); return e; }
+  function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function isHoliday(d){ const wd=d.getDay(); if(wd===0||wd===6) return true; return customHolidays.has(ymd(d)); }
+  function adjustForHoliday(d, rule){
+    if(!rule || rule==='none') return d;
+    let cur = new Date(d); const step = rule==='postpone' ? 1 : -1; let guard=0;
+    while(isHoliday(cur) && guard<40){ cur.setDate(cur.getDate()+step); guard++; }
+    return cur;
+  }
+  function majorProjectName(pid){ if(!pid) return null; const mp=majorProjects.find(m=>m.id===pid); return mp?mp.name:null; }
+
+  // ================= occurrence engine =================
+  function getOccurrencesInRange(item, rangeStart, rangeEnd){
+    const results = [];
+    if(!item.recurrence){
+      const d = parseYMD(item.date);
+      if(d>=rangeStart && d<=rangeEnd) results.push({ item, date:item.date, occKey:'single', done: !!item.done });
+      return results;
+    }
+    const anchor = parseYMD(item.date);
+    const untilDate = item.recurrence.until ? parseYMD(item.recurrence.until) : null;
+    const stepMonths = item.recurrence.freq==='monthly' ? 1 : 3;
+    let cursorY = anchor.getFullYear(), cursorM = anchor.getMonth();
+    let guard = 0;
+    while(guard < 800){
+      guard++;
+      const dim = daysInMonth(cursorY, cursorM+1);
+      const day = Math.min(item.recurrence.day, dim);
+      const occDateRaw = new Date(cursorY, cursorM, day);
+      if(untilDate && occDateRaw > untilDate) break;
+      if(occDateRaw >= anchor){
+        if(occDateRaw > rangeEnd) break;
+        const occKey = item.recurrence.freq==='monthly' ? cursorY+'-'+String(cursorM+1).padStart(2,'0') : cursorY+'-Q'+(Math.floor(cursorM/3)+1);
+        const hasOverride = item.overrides && item.overrides[occKey];
+        let finalDate = hasOverride ? parseYMD(item.overrides[occKey]) : adjustForHoliday(occDateRaw, item.recurrence.holidayRule);
+        const skipped = item.skipped && item.skipped[occKey];
+        if(!skipped && finalDate>=rangeStart && finalDate<=rangeEnd){
+          results.push({ item, date: ymd(finalDate), occKey, done: !!(item.doneMap && item.doneMap[occKey]) });
+        }
+      }
+      cursorM += stepMonths;
+      while(cursorM>=12){ cursorM-=12; cursorY++; }
+      if(cursorY > rangeEnd.getFullYear()+2) break;
+    }
+    return results;
+  }
+  function getAllOccurrences(rangeStart, rangeEnd){
+    let all = [];
+    items.forEach(it=>{ all = all.concat(getOccurrencesInRange(it, rangeStart, rangeEnd)); });
+    return all;
+  }
+  function setOccurrenceDone(occ, val){
+    if(occ.occKey==='single'){ occ.item.done = val; }
+    else{ occ.item.doneMap = occ.item.doneMap || {}; occ.item.doneMap[occ.occKey] = val; }
+  }
+  function skipOccurrence(occ){ occ.item.skipped = occ.item.skipped || {}; occ.item.skipped[occ.occKey] = true; }
+  function occPeriodLabel(occ){
+    if(occ.occKey==='single') return '單次';
+    if(occ.item.recurrence.freq==='monthly'){ const [y,m]=occ.occKey.split('-'); return y+'年'+parseInt(m)+'月'; }
+    const [y,q] = occ.occKey.split('-Q'); return y+'年 第'+q+'季';
+  }
+
+  // ================= scope range =================
+  function currentRange(){
+    if(mode==='year') return [ new Date(selYear,0,1), new Date(selYear,11,31,23,59,59) ];
+    if(mode==='quarter'){ const sm=(selQuarter-1)*3; return [ new Date(selYear,sm,1), new Date(selYear,sm+3,0,23,59,59) ]; }
+    if(mode==='month') return [ new Date(selYear,selMonth-1,1), new Date(selYear,selMonth,0,23,59,59) ];
+    if(mode==='date'){ const d=parseYMD(selDate); const e=new Date(d); e.setHours(23,59,59,999); return [d,e]; }
+  }
+  function scopeDisplay(){
+    if(mode==='year') return selYear+' 年';
+    if(mode==='quarter') return selYear+' 年 第 '+selQuarter+' 季';
+    if(mode==='month') return selYear+' 年 '+selMonth+' 月';
+    if(mode==='date'){ const d=parseYMD(selDate); const w=['日','一','二','三','四','五','六'][d.getDay()]; return selDate+'（週'+w+'）'; }
+  }
+  function currentOccurrences(){
+    const [rs,re] = currentRange();
+    return getAllOccurrences(rs,re).sort((a,b)=>{
+      if(a.date!==b.date) return a.date.localeCompare(b.date);
+      const at=a.item.meetingTime||'99:99', bt=b.item.meetingTime||'99:99';
+      return at.localeCompare(bt);
+    });
+  }
+
+  // ================= nav switching =================
+  document.getElementById('navSchedule').onclick = ()=>{ currentView='schedule'; renderNav(); };
+  document.getElementById('navCalendar').onclick = ()=>{ currentView='calendar'; renderNav(); };
+  document.getElementById('navGantt').onclick = ()=>{ currentView='gantt'; renderNav(); };
+  function renderNav(){
+    document.getElementById('navSchedule').classList.toggle('active', currentView==='schedule');
+    document.getElementById('navCalendar').classList.toggle('active', currentView==='calendar');
+    document.getElementById('navGantt').classList.toggle('active', currentView==='gantt');
+    document.getElementById('viewSchedule').classList.toggle('active', currentView==='schedule');
+    document.getElementById('viewCalendar').classList.toggle('active', currentView==='calendar');
+    document.getElementById('viewGantt').classList.toggle('active', currentView==='gantt');
+    if(currentView==='calendar') renderCalendar();
+    if(currentView==='gantt') renderGanttView();
+  }
+
+  // ================= metrics =================
+  function renderMetricList(elId, occList, emptyText){
+    const el = document.getElementById(elId);
+    if(occList.length===0){ el.innerHTML = '<div class="metric-list-empty">'+emptyText+'</div>'; return; }
+    const MAX = 6;
+    let html = occList.slice(0,MAX).map(o=>
+      '<div class="metric-list-row"><span class="metric-list-dot '+o.item.type+'"></span><span>'+
+      (o.item.type==='meeting' && o.item.meetingTime ? '<span class="m-time">'+o.item.meetingTime+'</span> ' : '')+
+      escapeHtml(o.item.title)+'</span></div>'
+    ).join('');
+    if(occList.length>MAX) html += '<div class="metric-list-more">+ 還有 '+(occList.length-MAX)+' 項</div>';
+    el.innerHTML = html;
+  }
+  function renderMetrics(){
+    const now = new Date(); now.setHours(0,0,0,0);
+    const todayEnd = new Date(now); todayEnd.setHours(23,59,59,999);
+    const wStart = startOfWeek(new Date()), wEnd = endOfWeek(new Date());
+    const dayOcc = getAllOccurrences(now, todayEnd);
+    const weekOcc = getAllOccurrences(wStart, wEnd);
+    renderMetricList('metricDayList', dayOcc.filter(o=>!o.done), '今日已全部完成');
+    renderMetricList('metricWeekList', weekOcc.filter(o=>!o.done), '本週已全部完成');
+    const todaysMeetings = dayOcc.filter(o=>o.item.type==='meeting').sort((a,b)=>(a.item.meetingTime||'99:99').localeCompare(b.item.meetingTime||'99:99'));
+    const listEl = document.getElementById('metricMeetingList');
+    listEl.innerHTML = todaysMeetings.length===0 ? '<div class="metric-meeting-empty">今日無會議</div>' :
+      todaysMeetings.map(o=>'<div class="metric-meeting-row"><span class="m-time">'+(o.item.meetingTime||'--:--')+'</span><span>'+escapeHtml(o.item.title)+'</span></div>').join('');
+  }
+
+  // ================= 大項目 chips =================
+  function renderMajorChips(){
+    const wrap = document.getElementById('majorChips'); wrap.innerHTML='';
+    majorProjects.forEach(mp=>{
+      const cnt = items.filter(it=>it.parentId===mp.id).length;
+      const chip = document.createElement('div'); chip.className='chip';
+      const nameSpan=document.createElement('span'); nameSpan.textContent=mp.name;
+      const cntSpan=document.createElement('span'); cntSpan.className='cnt'; cntSpan.textContent=cnt+' 項';
+      chip.appendChild(nameSpan); chip.appendChild(cntSpan);
+      const editBtn=document.createElement('button'); editBtn.textContent='✎'; editBtn.title='更名';
+      editBtn.onclick=()=>openMajorModal(mp); chip.appendChild(editBtn);
+      const delBtn=document.createElement('button'); delBtn.textContent='✕'; delBtn.className='chip-del'; delBtn.title='刪除大項目（項目將變為獨立項目）';
+      delBtn.onclick=()=>{ majorProjects=majorProjects.filter(x=>x.id!==mp.id); items.forEach(it=>{ if(it.parentId===mp.id) it.parentId=null; }); renderAll(); };
+      chip.appendChild(delBtn); wrap.appendChild(chip);
+    });
+    const addBtn=document.createElement('button'); addBtn.className='add-chip-btn'; addBtn.textContent='＋ 新增大項目';
+    addBtn.onclick=()=>openMajorModal(null); wrap.appendChild(addBtn);
+  }
+  let editingMajorId = null;
+  function openMajorModal(mp){
+    editingMajorId = mp ? mp.id : null;
+    document.getElementById('majorModalTitle').textContent = mp ? '編輯大項目名稱' : '新增大項目';
+    document.getElementById('inputMajorName').value = mp ? mp.name : '';
+    document.getElementById('majorOverlay').classList.add('show');
+    setTimeout(()=>document.getElementById('inputMajorName').focus(), 50);
+  }
+  document.getElementById('btnCancelMajor').onclick = ()=> document.getElementById('majorOverlay').classList.remove('show');
+  document.getElementById('majorOverlay').addEventListener('click',(e)=>{ if(e.target.id==='majorOverlay') e.currentTarget.classList.remove('show'); });
+  document.getElementById('btnConfirmMajor').onclick = ()=>{
+    const name = document.getElementById('inputMajorName').value.trim();
+    if(!name){ document.getElementById('inputMajorName').focus(); return; }
+    if(editingMajorId){ const mp=majorProjects.find(m=>m.id===editingMajorId); if(mp) mp.name=name; }
+    else{ majorProjects.push({ id: uid('mp'), name }); }
+    document.getElementById('majorOverlay').classList.remove('show');
+    renderAll();
+  };
+
+  // ================= mode tabs / period row =================
+  function renderModeTabs(){
+    const el = document.getElementById('modeTabs'); el.innerHTML='';
+    Object.keys(modeLabels).forEach(m=>{
+      const b=document.createElement('button'); b.className='mode-tab'+(mode===m?' active':''); b.textContent=modeLabels[m];
+      b.onclick=()=>{ mode=m; renderScheduleView(); }; el.appendChild(b);
+    });
+  }
+  function renderPeriodRow(){
+    const el = document.getElementById('periodRow'); el.innerHTML='';
+    if(mode !== 'date'){
+      const label=document.createElement('span'); label.className='period-label'; label.textContent='年份'; el.appendChild(label);
+      const sel=document.createElement('select');
+      availableYears.slice().sort((a,b)=>a-b).forEach(y=>{ const o=document.createElement('option'); o.value=y; o.textContent=y+' 年'; if(y===selYear) o.selected=true; sel.appendChild(o); });
+      sel.onchange = e=>{ selYear=parseInt(e.target.value); renderScheduleView(); }; el.appendChild(sel);
+      const addYearBtn=document.createElement('button'); addYearBtn.className='add-year-btn'; addYearBtn.textContent='＋ 新增年份';
+      addYearBtn.onclick=()=>{ const ny=availableYears.length?Math.max(...availableYears)+1:selYear+1; availableYears.push(ny); selYear=ny; renderScheduleView(); };
+      el.appendChild(addYearBtn);
+    }
+    if(mode==='quarter'){
+      const label=document.createElement('span'); label.className='period-label'; label.textContent='季別'; el.appendChild(label);
+      [1,2,3,4].forEach(q=>{ const b=document.createElement('button'); b.className='qbtn'+(selQuarter===q?' active':''); b.textContent='Q'+q; b.onclick=()=>{ selQuarter=q; renderScheduleView(); }; el.appendChild(b); });
+    }
+    if(mode==='month'){
+      const label=document.createElement('span'); label.className='period-label'; label.textContent='月份'; el.appendChild(label);
+      const grid=document.createElement('div'); grid.className='month-grid';
+      for(let m=1;m<=12;m++){ const b=document.createElement('button'); b.className='mbtn'+(selMonth===m?' active':''); b.textContent=m+'月'; b.onclick=()=>{ selMonth=m; renderScheduleView(); }; grid.appendChild(b); }
+      el.appendChild(grid);
+    }
+    if(mode==='date'){
+      const label=document.createElement('span'); label.className='period-label'; label.textContent='日期'; el.appendChild(label);
+      const inp=document.createElement('input'); inp.type='date'; inp.value=selDate;
+      inp.onchange=e=>{ selDate=e.target.value; renderScheduleView(); }; el.appendChild(inp);
+    }
+  }
+  function renderScopeStrip(){
+    document.getElementById('scopeCurrent').innerHTML = scopeDisplay()+' <span class="unit">/ '+modeLabels[mode].toUpperCase()+'</span>';
+    const list = currentOccurrences();
+    const doneCount = list.filter(o=>o.done).length;
+    document.getElementById('statPills').innerHTML =
+      '<div class="pill">項目 <b>'+list.length+'</b></div>'+
+      '<div class="pill pending">未完成 <b>'+(list.length-doneCount)+'</b></div>'+
+      '<div class="pill done">已完成 <b>'+doneCount+'</b></div>';
+  }
+
+  // ================= shared occurrence row builder =================
+  function buildOccRow(occ, onChange){
+    const it = occ.item;
+    const row = document.createElement('div'); row.className = 'occ-row type-'+it.type;
+    const cb = document.createElement('span'); cb.className='checkbox'+(occ.done?' done':''); cb.textContent=occ.done?'✓':'';
+    cb.onclick=()=>{ setOccurrenceDone(occ, !occ.done); onChange(); }; row.appendChild(cb);
+    const badge=document.createElement('span'); badge.className='type-badge '+it.type; badge.textContent=typeLabels[it.type]; row.appendChild(badge);
+    const title=document.createElement('span'); title.className='occ-title'+(occ.done?' done':''); title.textContent=it.title; row.appendChild(title);
+    const pname = majorProjectName(it.parentId);
+    if(pname){ const tag=document.createElement('span'); tag.className='parent-tag'; tag.textContent=pname; row.appendChild(tag); }
+    if(it.recurrence){
+      const rb=document.createElement('span'); rb.className='recur-badge';
+      rb.textContent='🔁 '+(it.recurrence.freq==='monthly'?'每月'+it.recurrence.day+'日':'每季固定'+it.recurrence.day+'日')+(it.recurrence.until?'（至'+it.recurrence.until+'）':'');
+      row.appendChild(rb);
+    }
+    if(it.type==='meeting' && it.meetingTime){ const mt=document.createElement('span'); mt.className='meeting-time'; mt.textContent=it.meetingTime; row.appendChild(mt); }
+    const dateEl=document.createElement('span'); dateEl.className='occ-date'; dateEl.textContent=occ.date; row.appendChild(dateEl);
+    if(it.recurrence){
+      const adjBtn=document.createElement('button'); adjBtn.className='icon-btn'; adjBtn.textContent='📅✎'; adjBtn.title='調整本次日期';
+      adjBtn.onclick=()=>openOccModal(occ, onChange); row.appendChild(adjBtn);
+      const skipBtn=document.createElement('button'); skipBtn.className='icon-btn skip'; skipBtn.textContent='略過此次'; skipBtn.title='跳過這一次，不影響其他週期';
+      skipBtn.onclick=()=>{ skipOccurrence(occ); onChange(); }; row.appendChild(skipBtn);
+    }
+    const spacer=document.createElement('span'); spacer.className='occ-spacer'; row.appendChild(spacer);
+    const editBtn=document.createElement('button'); editBtn.className='icon-btn'; editBtn.textContent='編輯'; editBtn.title='編輯小項目設定';
+    editBtn.onclick=()=>openItemModal(it); row.appendChild(editBtn);
+    const delBtn=document.createElement('button'); delBtn.className='icon-btn danger'; delBtn.textContent='刪除'; delBtn.title='刪除整個項目（含所有循環）';
+    delBtn.onclick=()=>{ items=items.filter(x=>x.id!==it.id); onChange(); }; row.appendChild(delBtn);
+    return row;
+  }
+
+  function renderBoard(){
+    const board=document.getElementById('board'); board.innerHTML='';
+    const list=currentOccurrences();
+    if(list.length===0){ board.innerHTML='<div class="empty-state">此範圍尚無項目 — 點選右上角 <span>「＋ 新增小項目」</span> 開始建立工作、會議或作業</div>'; return; }
+    list.forEach(occ=> board.appendChild(buildOccRow(occ, renderScheduleView)) );
+  }
+  function renderScheduleView(){
+    renderMajorChips(); renderModeTabs(); renderPeriodRow(); renderScopeStrip(); renderBoard();
+    renderMetrics(); renderReminderList();
+    if(currentView==='calendar') renderCalendar();
+  }
+
+  // ================= calendar view =================
+  function renderCalendar(){
+    document.getElementById('calTitle').textContent = calYear+' 年 '+calMonth+' 月';
+    const grid=document.getElementById('calGrid'); grid.innerHTML='';
+    ['日','一','二','三','四','五','六'].forEach(w=>{ const d=document.createElement('div'); d.className='cal-weekday'; d.textContent=w; grid.appendChild(d); });
+    const firstDay=new Date(calYear, calMonth-1, 1);
+    const startWeekday=firstDay.getDay();
+    const dim=daysInMonth(calYear, calMonth);
+    const todayStr=ymd(new Date());
+    const rangeStart=new Date(calYear, calMonth-1, 1);
+    const rangeEnd=new Date(calYear, calMonth-1, dim, 23,59,59);
+    const monthOcc=getAllOccurrences(rangeStart, rangeEnd);
+    const byDate={};
+    monthOcc.forEach(o=>{ (byDate[o.date]=byDate[o.date]||[]).push(o); });
+
+    for(let i=0;i<startWeekday;i++){ const blank=document.createElement('div'); blank.className='cal-cell blank'; grid.appendChild(blank); }
+
+    for(let day=1; day<=dim; day++){
+      const dateStr = calYear+'-'+String(calMonth).padStart(2,'0')+'-'+String(day).padStart(2,'0');
+      const dayOcc = byDate[dateStr] || [];
+      const meetings = dayOcc.filter(o=>o.item.type==='meeting').sort((a,b)=>(a.item.meetingTime||'99:99').localeCompare(b.item.meetingTime||'99:99'));
+      const tasks = dayOcc.filter(o=>o.item.type!=='meeting');
+
+      const cell=document.createElement('div');
+      cell.className='cal-cell'+(dateStr===todayStr?' today':'')+(dateStr===calSelectedDate?' selected':'');
+      const daynum=document.createElement('div'); daynum.className='cal-daynum'; daynum.textContent=day; cell.appendChild(daynum);
+
+      const dotsWrap=document.createElement('div'); dotsWrap.className='cal-dots';
+      const MAXM=3;
+      meetings.slice(0,MAXM).forEach(o=>{
+        const row=document.createElement('div'); row.className='cal-meeting-row';
+        const time=document.createElement('span'); time.className='cal-meeting-time'; time.textContent=o.item.meetingTime||'--:--';
+        const subj=document.createElement('span'); subj.className='cal-meeting-subject'; subj.textContent=o.item.title;
+        row.appendChild(time); row.appendChild(subj); dotsWrap.appendChild(row);
+      });
+      if(meetings.length>MAXM){ const more=document.createElement('div'); more.className='cal-more'; more.textContent='+ 還有 '+(meetings.length-MAXM)+' 場會議'; dotsWrap.appendChild(more); }
+
+      const MAXW=3;
+      tasks.slice(0,MAXW).forEach(o=>{
+        const row=document.createElement('div'); row.className='cal-item-row'+(o.item.type==='assignment'?' assignment':'');
+        const check=document.createElement('span'); check.className='cal-item-check'+(o.done?' done':''); check.textContent=o.done?'✓':'';
+        check.onclick=(e)=>{ e.stopPropagation(); setOccurrenceDone(o, !o.done); renderCalendar(); renderMetrics(); renderReminderList(); };
+        const text=document.createElement('span'); text.className='cal-item-text'+(o.done?' done':''); text.textContent=o.item.title;
+        row.appendChild(check); row.appendChild(text); dotsWrap.appendChild(row);
+      });
+      if(tasks.length>MAXW){ const more=document.createElement('div'); more.className='cal-more'; more.textContent='+ 還有 '+(tasks.length-MAXW)+' 項'; dotsWrap.appendChild(more); }
+
+      cell.appendChild(dotsWrap);
+      cell.onclick=()=>{ calSelectedDate=dateStr; renderCalendar(); };
+      grid.appendChild(cell);
+    }
+    renderCalDetail(byDate);
+  }
+
+  function renderCalDetail(byDate){
+    const titleEl=document.getElementById('calDetailTitle');
+    const addBtn=document.getElementById('openItemModalFromCal');
+    const calBoard=document.getElementById('calBoard'); calBoard.innerHTML='';
+    const daylogBox=document.getElementById('daylogBox');
+
+    if(!calSelectedDate){ titleEl.textContent='選擇日期以查看當日安排'; addBtn.style.display='none'; daylogBox.style.display='none'; return; }
+    const d=parseYMD(calSelectedDate);
+    const w=['日','一','二','三','四','五','六'][d.getDay()];
+    titleEl.textContent = calSelectedDate+'（週'+w+'）的安排';
+    addBtn.style.display='flex';
+
+    const list = (byDate && byDate[calSelectedDate]) ? byDate[calSelectedDate].slice() : getAllOccurrences(d, new Date(d.getFullYear(),d.getMonth(),d.getDate(),23,59,59));
+    list.sort((a,b)=>(a.item.meetingTime||'99:99').localeCompare(b.item.meetingTime||'99:99'));
+    if(list.length===0){ calBoard.innerHTML='<div class="empty-state">此日期尚無工作項目、會議或作業 — 點選 <span>「＋ 為此日期新增」</span></div>'; }
+    else{ list.forEach(occ=> calBoard.appendChild(buildOccRow(occ, ()=>{ renderCalendar(); renderMetrics(); renderReminderList(); })) ); }
+
+    // 每日記錄：只在此處顯示，不顯示於日曆格子
+    daylogBox.style.display='block';
+    const ta = document.getElementById('daylogTextarea');
+    ta.value = dailyLogs[calSelectedDate] || '';
+    ta.oninput = ()=>{
+      dailyLogs[calSelectedDate] = ta.value;
+      const savedTag = document.getElementById('daylogSaved');
+      savedTag.classList.add('show');
+      clearTimeout(ta._saveTimer);
+      ta._saveTimer = setTimeout(()=> savedTag.classList.remove('show'), 1200);
+    };
+  }
+
+  document.getElementById('calPrev').onclick=()=>{ calMonth--; if(calMonth<1){calMonth=12; calYear--;} renderCalendar(); };
+  document.getElementById('calNext').onclick=()=>{ calMonth++; if(calMonth>12){calMonth=1; calYear++;} renderCalendar(); };
+  document.getElementById('calToday').onclick=()=>{ const n=new Date(); calYear=n.getFullYear(); calMonth=n.getMonth()+1; calSelectedDate=ymd(n); renderCalendar(); };
+
+  // ================= 小項目 modal =================
+  const itemOverlay=document.getElementById('itemOverlay');
+  let modalType='work';
+  let editingItemId=null;
+
+  function refreshParentSelect(){
+    const sel=document.getElementById('selectParent'); const cur=sel.value;
+    sel.innerHTML='<option value="">獨立項目（不歸屬任何大項目）</option>';
+    majorProjects.forEach(mp=>{ const o=document.createElement('option'); o.value=mp.id; o.textContent=mp.name; sel.appendChild(o); });
+    if([...sel.options].some(o=>o.value===cur)) sel.value=cur;
+  }
+  function renderHolidayList(){
+    const box=document.getElementById('holidayListBox'); box.innerHTML='';
+    [...customHolidays].sort().forEach(dateStr=>{
+      const chip=document.createElement('span'); chip.className='holiday-chip'; chip.innerHTML='<span>'+dateStr+'</span>';
+      const rm=document.createElement('button'); rm.textContent='✕';
+      rm.onclick=()=>{ customHolidays.delete(dateStr); renderHolidayList(); renderAll(); };
+      chip.appendChild(rm); box.appendChild(chip);
+    });
+  }
+  document.getElementById('btnAddHoliday').onclick=()=>{
+    const v=document.getElementById('inputCustomHoliday').value; if(!v) return;
+    customHolidays.add(v); document.getElementById('inputCustomHoliday').value=''; renderHolidayList(); renderAll();
+  };
+
+  function typeBtnStyle(btn, active, colorVar, dimVar){
+    btn.style.background = active ? dimVar : 'var(--panel-2)';
+    btn.style.borderColor = active ? colorVar : 'var(--hairline)';
+    btn.style.color = active ? colorVar : 'var(--text-muted)';
+  }
+  function updateTypeToggle(){
+    typeBtnStyle(document.getElementById('btnTypeWork'), modalType==='work', 'var(--teal)', 'var(--teal-dim)');
+    typeBtnStyle(document.getElementById('btnTypeMeeting'), modalType==='meeting', 'var(--violet)', 'var(--violet-dim)');
+    typeBtnStyle(document.getElementById('btnTypeAssignment'), modalType==='assignment', 'var(--amber)', 'var(--amber-dim)');
+    document.getElementById('itemMeetingTimeField').style.display = modalType==='meeting' ? 'block' : 'none';
+  }
+  document.getElementById('btnTypeWork').onclick=()=>{ modalType='work'; updateTypeToggle(); };
+  document.getElementById('btnTypeMeeting').onclick=()=>{ modalType='meeting'; updateTypeToggle(); };
+  document.getElementById('btnTypeAssignment').onclick=()=>{ modalType='assignment'; updateTypeToggle(); };
+
+  function updateRecurrenceExtra(){
+    const val=document.getElementById('selectRecurrence').value;
+    document.getElementById('recurrenceExtra').style.display = val==='none' ? 'none' : 'block';
+    document.getElementById('recurDayLabel').textContent = val==='monthly' ? '每月第幾天' : '每季固定第幾天（每 3 個月一次）';
+    document.getElementById('itemDateLabel').textContent = val==='none' ? '日期' : '起始日期';
+    renderHolidayList();
+  }
+  document.getElementById('selectRecurrence').onchange = updateRecurrenceExtra;
+
+  function openItemModal(existingItem, defaultDate){
+    editingItemId = existingItem ? existingItem.id : null;
+    document.getElementById('itemModalTitle').textContent = existingItem ? '編輯小項目' : '新增小項目';
+    refreshParentSelect();
+    if(existingItem){
+      document.getElementById('inputItemTitle').value = existingItem.title;
+      modalType = existingItem.type; updateTypeToggle();
+      document.getElementById('inputItemMeetingTime').value = existingItem.meetingTime || '';
+      document.getElementById('selectParent').value = existingItem.parentId || '';
+      document.getElementById('inputItemDate').value = existingItem.date;
+      document.getElementById('selectRecurrence').value = existingItem.recurrence ? existingItem.recurrence.freq : 'none';
+      document.getElementById('inputRecurDay').value = existingItem.recurrence ? existingItem.recurrence.day : (parseYMD(existingItem.date)).getDate();
+      document.getElementById('selectHolidayRule').value = existingItem.recurrence ? (existingItem.recurrence.holidayRule||'none') : 'none';
+      document.getElementById('inputRecurUntil').value = existingItem.recurrence && existingItem.recurrence.until ? existingItem.recurrence.until : '';
+    } else {
+      document.getElementById('inputItemTitle').value='';
+      modalType='work'; updateTypeToggle();
+      document.getElementById('inputItemMeetingTime').value='';
+      document.getElementById('selectParent').value='';
+      document.getElementById('inputItemDate').value = defaultDate || selDate;
+      document.getElementById('selectRecurrence').value='none';
+      document.getElementById('inputRecurDay').value = parseYMD(defaultDate || selDate).getDate();
+      document.getElementById('selectHolidayRule').value='none';
+      document.getElementById('inputRecurUntil').value='';
+    }
+    updateRecurrenceExtra();
+    itemOverlay.classList.add('show');
+    setTimeout(()=>document.getElementById('inputItemTitle').focus(), 50);
+  }
+  document.getElementById('btnCancelItem').onclick=()=>itemOverlay.classList.remove('show');
+  itemOverlay.addEventListener('click',(e)=>{ if(e.target===itemOverlay) itemOverlay.classList.remove('show'); });
+
+  document.getElementById('openItemModal').onclick=()=>{
+    let defDate=selDate;
+    if(mode==='month') defDate = selYear+'-'+String(selMonth).padStart(2,'0')+'-01';
+    if(mode==='quarter') defDate = selYear+'-'+String((selQuarter-1)*3+1).padStart(2,'0')+'-01';
+    if(mode==='year') defDate = (selYear===today.getFullYear()) ? ymd(today) : selYear+'-01-01';
+    openItemModal(null, defDate);
+  };
+  document.getElementById('openItemModalFromCal').onclick=()=>openItemModal(null, calSelectedDate);
+
+  document.getElementById('btnConfirmItem').onclick=()=>{
+    const title=document.getElementById('inputItemTitle').value.trim();
+    const dateVal=document.getElementById('inputItemDate').value;
+    if(!title){ document.getElementById('inputItemTitle').focus(); return; }
+    if(!dateVal){ document.getElementById('inputItemDate').focus(); return; }
+    const parentId=document.getElementById('selectParent').value || null;
+    const meetingTime=document.getElementById('inputItemMeetingTime').value || null;
+    const recurVal=document.getElementById('selectRecurrence').value;
+    const recurrence = recurVal==='none' ? null : {
+      freq: recurVal,
+      day: Math.max(1, Math.min(31, parseInt(document.getElementById('inputRecurDay').value)||1)),
+      holidayRule: document.getElementById('selectHolidayRule').value,
+      until: document.getElementById('inputRecurUntil').value || null
+    };
+    if(editingItemId){
+      const it=items.find(x=>x.id===editingItemId);
+      if(it){ it.title=title; it.type=modalType; it.parentId=parentId; it.meetingTime=modalType==='meeting'?meetingTime:null; it.date=dateVal; it.recurrence=recurrence; }
+    } else {
+      items.push({ id: uid('item'), title, type: modalType, parentId, meetingTime: modalType==='meeting'?meetingTime:null, date: dateVal, recurrence, done:false, doneMap:{}, overrides:{}, skipped:{} });
+    }
+    itemOverlay.classList.remove('show');
+    if(currentView==='calendar'){ const dp=parseYMD(dateVal); calYear=dp.getFullYear(); calMonth=dp.getMonth()+1; calSelectedDate=dateVal; }
+    else{ if(mode==='date') selDate=dateVal; }
+    renderAll();
+  };
+
+  // ================= 單次日期調整 modal =================
+  const occOverlay=document.getElementById('occOverlay');
+  let editingOcc=null, editingOccOnChange=null;
+  function openOccModal(occ, onChange){
+    editingOcc=occ; editingOccOnChange=onChange;
+    document.getElementById('occModalItemName').textContent=occ.item.title;
+    document.getElementById('occModalPeriod').textContent=occPeriodLabel(occ);
+    document.getElementById('inputOccDate').value=occ.date;
+    occOverlay.classList.add('show');
+  }
+  document.getElementById('btnConfirmOcc').onclick=()=>{
+    const v=document.getElementById('inputOccDate').value; if(!v) return;
+    editingOcc.item.overrides = editingOcc.item.overrides || {};
+    editingOcc.item.overrides[editingOcc.occKey]=v;
+    occOverlay.classList.remove('show'); editingOccOnChange && editingOccOnChange();
+  };
+  document.getElementById('btnClearOcc').onclick=()=>{
+    if(editingOcc.item.overrides) delete editingOcc.item.overrides[editingOcc.occKey];
+    occOverlay.classList.remove('show'); editingOccOnChange && editingOccOnChange();
+  };
+  occOverlay.addEventListener('click',(e)=>{ if(e.target===occOverlay) occOverlay.classList.remove('show'); });
+
+  // ================= reminder toast =================
+  function getTodayIncomplete(){
+    const now=new Date(); now.setHours(0,0,0,0); const end=new Date(now); end.setHours(23,59,59,999);
+    return getAllOccurrences(now,end).filter(o=>!o.done).map(o=>({ title:o.item.title, type:o.item.type, projectName: majorProjectName(o.item.parentId) || '獨立項目' }));
+  }
+  function renderReminderList(){
+    const list=getTodayIncomplete();
+    const bellBadge=document.getElementById('bellBadge');
+    if(list.length>0){ bellBadge.style.display='flex'; bellBadge.textContent=list.length; } else { bellBadge.style.display='none'; }
+    const body=document.getElementById('reminderBody');
+    body.innerHTML = list.length===0
+      ? '<div class="reminder-row"><span class="reminder-row-text">今日項目已全部完成，太棒了！</span></div>'
+      : list.map(it=>'<div class="reminder-row"><span class="reminder-dot '+it.type+'"></span><span class="reminder-row-text"><b>'+escapeHtml(it.projectName)+'</b> — '+escapeHtml(it.title)+'</span></div>').join('');
+  }
+  function showReminderToast(){ renderReminderList(); document.getElementById('reminderToast').classList.add('show'); }
+  function hideReminderToast(){ document.getElementById('reminderToast').classList.remove('show'); }
+  document.getElementById('reminderClose').onclick=hideReminderToast;
+  document.getElementById('bellBtn').onclick=()=>{ const t=document.getElementById('reminderToast'); if(t.classList.contains('show')) hideReminderToast(); else showReminderToast(); };
+
+  // ================= clock =================
+  function tick(){
+    const d=new Date(); const wd=['日','一','二','三','四','五','六'][d.getDay()];
+    document.getElementById('nowDate').textContent = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+'（週'+wd+'）';
+    document.getElementById('nowTime').textContent = String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')+':'+String(d.getSeconds()).padStart(2,'0');
+    renderMetrics(); renderReminderList();
+  }
+  tick(); setInterval(tick, 1000);
+
+  // ================= 專案 / 甘特圖 =================
+  function renderGanttChips(){
+    const wrap=document.getElementById('ganttChips'); wrap.innerHTML='';
+    ganttProjects.forEach(gp=>{
+      const chip=document.createElement('div'); chip.className='chip selectable'+(gp.id===selectedGanttProjectId?' active':'');
+      const nameSpan=document.createElement('span'); nameSpan.textContent=gp.name;
+      const cntSpan=document.createElement('span'); cntSpan.className='cnt'; cntSpan.textContent=gp.tasks.length+' 項';
+      chip.appendChild(nameSpan); chip.appendChild(cntSpan);
+      chip.onclick=(e)=>{ if(e.target.tagName==='BUTTON') return; selectedGanttProjectId=gp.id; renderGanttView(); };
+      const editBtn=document.createElement('button'); editBtn.textContent='✎'; editBtn.title='更名';
+      editBtn.onclick=(e)=>{ e.stopPropagation(); openGanttModal(gp); }; chip.appendChild(editBtn);
+      const delBtn=document.createElement('button'); delBtn.textContent='✕'; delBtn.className='chip-del'; delBtn.title='刪除專案';
+      delBtn.onclick=(e)=>{ e.stopPropagation(); ganttProjects=ganttProjects.filter(x=>x.id!==gp.id); if(selectedGanttProjectId===gp.id) selectedGanttProjectId = ganttProjects.length ? ganttProjects[0].id : null; renderGanttView(); };
+      chip.appendChild(delBtn); wrap.appendChild(chip);
+    });
+    const addBtn=document.createElement('button'); addBtn.className='add-chip-btn'; addBtn.textContent='＋ 新增專案';
+    addBtn.onclick=()=>openGanttModal(null); wrap.appendChild(addBtn);
+  }
+  let editingGanttId=null;
+  function openGanttModal(gp){
+    editingGanttId = gp ? gp.id : null;
+    document.getElementById('ganttModalTitle').textContent = gp ? '編輯專案名稱' : '新增專案';
+    document.getElementById('inputGanttName').value = gp ? gp.name : '';
+    document.getElementById('ganttOverlay').classList.add('show');
+    setTimeout(()=>document.getElementById('inputGanttName').focus(), 50);
+  }
+  document.getElementById('btnCancelGantt').onclick=()=>document.getElementById('ganttOverlay').classList.remove('show');
+  document.getElementById('ganttOverlay').addEventListener('click',(e)=>{ if(e.target.id==='ganttOverlay') e.currentTarget.classList.remove('show'); });
+  document.getElementById('btnConfirmGantt').onclick=()=>{
+    const name=document.getElementById('inputGanttName').value.trim();
+    if(!name){ document.getElementById('inputGanttName').focus(); return; }
+    if(editingGanttId){ const gp=ganttProjects.find(g=>g.id===editingGanttId); if(gp) gp.name=name; }
+    else{ const gp={ id: uid('gp'), name, tasks: [], notes:'' }; ganttProjects.push(gp); selectedGanttProjectId = gp.id; }
+    document.getElementById('ganttOverlay').classList.remove('show');
+    renderGanttView();
+  };
+
+  function renderGanttView(){
+    renderGanttChips();
+    const area = document.getElementById('ganttDetailArea');
+    area.innerHTML='';
+    if(ganttProjects.length===0){
+      area.innerHTML = '<div class="gantt-empty">尚未建立任何專案 — 點選上方 <span style="color:var(--amber);">「＋ 新增專案」</span> 開始規劃甘特圖與待辦事項</div>';
+      return;
+    }
+    let gp = ganttProjects.find(g=>g.id===selectedGanttProjectId);
+    if(!gp){ gp = ganttProjects[0]; selectedGanttProjectId = gp.id; renderGanttChips(); }
+
+    const head = document.createElement('div'); head.className='gantt-project-head';
+    head.innerHTML = '<div class="gantt-project-title">'+escapeHtml(gp.name)+'</div>';
+    const addTaskBtn = document.createElement('button'); addTaskBtn.className='add-project-btn'; addTaskBtn.textContent='＋ 新增待辦事項';
+    addTaskBtn.onclick = ()=>{
+      const s = ymd(new Date());
+      const e = new Date(); e.setDate(e.getDate()+7);
+      gp.tasks.push({ id: uid('task'), name:'新任務', start:s, end: ymd(e), progress:0, done:false });
+      renderGanttView();
+    };
+    head.appendChild(addTaskBtn);
+    area.appendChild(head);
+
+    area.appendChild(buildGanttChart(gp));
+    area.appendChild(buildTaskTable(gp));
+    area.appendChild(buildProjectNotes(gp));
+  }
+
+  function buildProjectNotes(gp){
+    const box = document.createElement('div'); box.className='daylog-box'; box.style.marginTop='16px';
+    box.innerHTML =
+      '<div class="daylog-label">專案筆記 <span class="daylog-saved" id="ganttNotesSaved">已儲存</span></div>'+
+      '<textarea id="ganttNotesTextarea" rows="5" placeholder="記錄此專案的會議紀要、風險、決策或任何備忘..."></textarea>';
+    const ta = box.querySelector('#ganttNotesTextarea');
+    ta.value = gp.notes || '';
+    ta.oninput = ()=>{
+      gp.notes = ta.value;
+      const saved = box.querySelector('#ganttNotesSaved');
+      saved.classList.add('show');
+      clearTimeout(ta._saveTimer);
+      ta._saveTimer = setTimeout(()=> saved.classList.remove('show'), 1200);
+    };
+    return box;
+  }
+
+  function buildGanttChart(gp){
+    const wrap = document.createElement('div'); wrap.className='gantt-wrap';
+    if(gp.tasks.length===0){
+      wrap.innerHTML = '<div style="padding:24px; text-align:center; font-family:var(--mono); font-size:12.5px; color:var(--text-dim);">尚無待辦事項，新增後將顯示甘特圖時間軸</div>';
+      return wrap;
+    }
+    const starts = gp.tasks.map(t=>parseYMD(t.start));
+    const ends = gp.tasks.map(t=>parseYMD(t.end));
+    let minDate = new Date(Math.min.apply(null, starts));
+    let maxDate = new Date(Math.max.apply(null, ends));
+    minDate.setDate(minDate.getDate()-2);
+    maxDate.setDate(maxDate.getDate()+2);
+    if(maxDate<=minDate) maxDate = new Date(minDate.getFullYear(), minDate.getMonth(), minDate.getDate()+14);
+    const totalMs = maxDate - minDate;
+
+    const headerRow = document.createElement('div'); headerRow.className='gantt-header-row';
+    const labelCol = document.createElement('div'); labelCol.className='gantt-label-col';
+    headerRow.appendChild(labelCol);
+    const timelineCol = document.createElement('div'); timelineCol.className='gantt-timeline-col';
+    // month ticks
+    let curM = new Date(minDate.getFullYear(), minDate.getMonth(), 1);
+    if(curM < minDate) curM.setMonth(curM.getMonth()+0);
+    while(curM <= maxDate){
+      if(curM >= minDate){
+        const pct = ((curM - minDate) / totalMs) * 100;
+        const tick=document.createElement('div'); tick.className='gantt-month-tick'; tick.style.left=pct+'%'; timelineCol.appendChild(tick);
+        const lbl=document.createElement('div'); lbl.className='gantt-month-label'; lbl.style.left=pct+'%'; lbl.textContent=(curM.getMonth()+1)+'月';
+        timelineCol.appendChild(lbl);
+      }
+      curM = new Date(curM.getFullYear(), curM.getMonth()+1, 1);
+    }
+    headerRow.appendChild(timelineCol);
+    wrap.appendChild(headerRow);
+
+    const body = document.createElement('div'); body.className='gantt-body';
+    const now = new Date(); now.setHours(0,0,0,0);
+    gp.tasks.forEach(t=>{
+      const row=document.createElement('div'); row.className='gantt-row';
+      const label=document.createElement('div'); label.className='gantt-row-label'; label.textContent=t.name; label.title=t.name;
+      row.appendChild(label);
+      const track=document.createElement('div'); track.className='gantt-row-track';
+      const ts=parseYMD(t.start), te=parseYMD(t.end);
+      const leftPct = ((ts-minDate)/totalMs)*100;
+      const widthPct = Math.max(1.2, ((te-ts+86400000)/totalMs)*100);
+      const bar=document.createElement('div'); bar.className='gantt-bar'+(t.done?' done':(te<now && !t.done ? ' overdue':''));
+      bar.style.left=leftPct+'%'; bar.style.width=widthPct+'%';
+      const fill=document.createElement('div'); fill.className='gantt-bar-fill';
+      fill.style.width=(100-Math.max(0,Math.min(100,t.progress||0)))+'%'; fill.style.left=(Math.max(0,Math.min(100,t.progress||0)))+'%';
+      bar.appendChild(fill);
+      const barLabel=document.createElement('div'); barLabel.className='gantt-bar-label'; barLabel.textContent=(t.progress||0)+'%';
+      bar.appendChild(barLabel);
+      track.appendChild(bar);
+      if(now>=minDate && now<=maxDate){
+        const todayPct=((now-minDate)/totalMs)*100;
+        const tl=document.createElement('div'); tl.className='gantt-today-line'; tl.style.left=todayPct+'%'; track.appendChild(tl);
+      }
+      row.appendChild(track);
+      body.appendChild(row);
+    });
+    wrap.appendChild(body);
+    return wrap;
+  }
+
+  function buildTaskTable(gp){
+    const table = document.createElement('div'); table.className='task-table';
+    if(gp.tasks.length===0){
+      table.innerHTML = '<div class="empty-state">尚無待辦事項 — 點選上方 <span>「＋ 新增待辦事項」</span> 開始建立</div>';
+      return table;
+    }
+    gp.tasks.forEach(t=>{
+      const row=document.createElement('div'); row.className='task-row';
+
+      const cb=document.createElement('span'); cb.className='task-done-cb'+(t.done?' done':''); cb.textContent=t.done?'✓':''; cb.title='標記完成';
+      cb.onclick=()=>{ t.done=!t.done; if(t.done) t.progress=100; renderGanttView(); };
+      row.appendChild(cb);
+
+      const nameInp=document.createElement('input'); nameInp.type='text'; nameInp.value=t.name;
+      nameInp.oninput=()=>{ t.name=nameInp.value; };
+      nameInp.onblur=renderGanttView;
+      row.appendChild(nameInp);
+
+      const startLbl=document.createElement('span'); startLbl.className='task-field-label'; startLbl.textContent='開始'; row.appendChild(startLbl);
+      const startInp=document.createElement('input'); startInp.type='date'; startInp.value=t.start;
+      startInp.onchange=()=>{ t.start=startInp.value; renderGanttView(); };
+      row.appendChild(startInp);
+
+      const endLbl=document.createElement('span'); endLbl.className='task-field-label'; endLbl.textContent='結束'; row.appendChild(endLbl);
+      const endInp=document.createElement('input'); endInp.type='date'; endInp.value=t.end;
+      endInp.onchange=()=>{ t.end=endInp.value; renderGanttView(); };
+      row.appendChild(endInp);
+
+      const progLbl=document.createElement('span'); progLbl.className='task-field-label'; progLbl.textContent='進度'; row.appendChild(progLbl);
+      const progInp=document.createElement('input'); progInp.type='number'; progInp.className='progress-num'; progInp.min=0; progInp.max=100; progInp.value=t.progress||0;
+      progInp.onchange=()=>{ t.progress=Math.max(0,Math.min(100, parseInt(progInp.value)||0)); if(t.progress===100) t.done=true; renderGanttView(); };
+      row.appendChild(progInp);
+      const suffix=document.createElement('span'); suffix.className='progress-suffix'; suffix.textContent='%'; row.appendChild(suffix);
+
+      const delBtn=document.createElement('button'); delBtn.className='icon-btn danger'; delBtn.textContent='刪除'; delBtn.style.marginLeft='auto';
+      delBtn.onclick=()=>{ gp.tasks=gp.tasks.filter(x=>x.id!==t.id); renderGanttView(); };
+      row.appendChild(delBtn);
+
+      table.appendChild(row);
+    });
+    return table;
+  }
+
+  function renderAll(){
+    renderScheduleView();
+    if(currentView==='calendar') renderCalendar();
+    if(currentView==='gantt') renderGanttView();
+  }
+
+  // ================= seed demo data =================
+  (function seed(){
+    const t = new Date();
+    majorProjects.push({ id: uid('mp'), name:'產品迭代 v2.3' });
+    majorProjects.push({ id: uid('mp'), name:'年度策略規劃' });
+    const mp1 = majorProjects[0].id, mp2 = majorProjects[1].id;
+
+    items.push({ id: uid('item'), title:'客戶提案會議', type:'meeting', parentId:null, meetingTime:'10:30', date: ymd(t), recurrence:null, done:false, doneMap:{}, overrides:{}, skipped:{} });
+    items.push({ id: uid('item'), title:'需求確認', type:'work', parentId:mp1, meetingTime:null, date: ymd(t), recurrence:null, done:true, doneMap:{}, overrides:{}, skipped:{} });
+    items.push({ id: uid('item'), title:'整理個人學習筆記', type:'assignment', parentId:null, meetingTime:null, date: ymd(t), recurrence:null, done:false, doneMap:{}, overrides:{}, skipped:{} });
+
+    const t3=new Date(t); t3.setDate(t.getDate()+9);
+    items.push({ id: uid('item'), title:'季度營運檢討會議', type:'meeting', parentId:mp2, meetingTime:'14:00', date: ymd(t3), recurrence:{ freq:'quarterly', day:t3.getDate(), holidayRule:'postpone' }, done:false, doneMap:{}, overrides:{}, skipped:{} });
+    items.push({ id: uid('item'), title:'每月部門會議', type:'meeting', parentId:null, meetingTime:'09:00', date: t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-05', recurrence:{ freq:'monthly', day:5, holidayRule:'postpone' }, done:false, doneMap:{}, overrides:{}, skipped:{} });
+    items.push({ id: uid('item'), title:'盤點各部門年度目標', type:'work', parentId:mp2, meetingTime:null, date: t.getFullYear()+'-01-05', recurrence:null, done:true, doneMap:{}, overrides:{}, skipped:{} });
+
+    const gp = { id: uid('gp'), name:'官網改版專案', tasks: [], notes:'' };
+    ganttProjects.push(gp); selectedGanttProjectId = gp.id;
+    const s1=new Date(t); const e1=new Date(t); e1.setDate(e1.getDate()+10);
+    const s2=new Date(e1); const e2=new Date(e1); e2.setDate(e2.getDate()+14);
+    const s3=new Date(e2); const e3=new Date(e2); e3.setDate(e3.getDate()+10);
+    gp.tasks.push({ id: uid('task'), name:'需求訪談與規劃', start: ymd(s1), end: ymd(e1), progress:100, done:true });
+    gp.tasks.push({ id: uid('task'), name:'視覺與介面設計', start: ymd(s2), end: ymd(e2), progress:60, done:false });
+    gp.tasks.push({ id: uid('task'), name:'前端開發與測試', start: ymd(s3), end: ymd(e3), progress:0, done:false });
+  })();
+
+  renderScheduleView();
+  setTimeout(showReminderToast, 700);
+})();
+</script>
+</body>
+</html>
