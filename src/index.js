@@ -14,7 +14,7 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    if (!path.startsWith('/api/')) return env.ASSETS.fetch(request);
+    if (!path.startsWith('/api/')) return servePage(request, env, url, path);
 
     if (path === '/api/health') return json({ ok: true });
 
@@ -52,4 +52,23 @@ export default {
 
 function methodNotAllowed() {
   return json({ error: 'Method not allowed' }, 405);
+}
+
+/**
+ * 靜態頁面的存取控制。只有 wrangler.jsonc 的 run_worker_first 列出的路徑會走到這裡；
+ * /login 刻意不在列表內，因此永遠由靜態資產直接服務。
+ *
+ * 導向只是體驗，不是防線——真正的安全邊界在 API。就算有人直接取得 admin.html，
+ * 那也只是一個沒有資料的空殼，/api/admin/* 仍會擋下他。
+ */
+async function servePage(request, env, url, path) {
+  const user = await getSessionUser(request, env);
+
+  if (!user || user.status !== 'approved') {
+    return Response.redirect(new URL('/login', url).toString(), 302);
+  }
+  if ((path === '/admin' || path === '/admin.html') && user.role !== 'admin') {
+    return Response.redirect(new URL('/', url).toString(), 302);
+  }
+  return env.ASSETS.fetch(request);
 }

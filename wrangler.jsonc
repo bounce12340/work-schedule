@@ -5,7 +5,11 @@
   "compatibility_date": "2026-07-29",
   "assets": {
     "directory": "./public",
-    "binding": "ASSETS"
+    "binding": "ASSETS",
+    // 靜態資產預設優先於 Worker script。不列出這些路徑的話，/ 會直接回
+    // index.html，Worker 根本沒機會檢查 session——等於門沒鎖。
+    // /login 絕不能列入，否則登入頁自己也要 session，會直接死鎖。
+    "run_worker_first": ["/", "/index.html", "/admin", "/admin.html", "/api/*"]
   },
   "d1_databases": [
     {
