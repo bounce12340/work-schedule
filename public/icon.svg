@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="工作排程確認系統">
+  <rect width="512" height="512" rx="96" fill="#C9822E"/>
+  <g fill="none" stroke="#FFFDF9" stroke-width="26" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M150 176 l30 30 l58 -62"/>
+    <path d="M150 288 l30 30 l58 -62"/>
+    <path d="M286 190 h84"/>
+    <path d="M286 302 h84"/>
+    <path d="M150 388 h220"/>
+  </g>
+</svg>

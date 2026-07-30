@@ -174,6 +174,7 @@ export async function handleUpdateShared(request, env, user, shareId) {
   const idx = list.findIndex(r => r && r.id === share.resource_id);
   if (idx < 0) return json({ error: '這個項目已被擁有者刪除' }, 404);
 
+  const before = list[idx];
   list[idx] = resource;
   const now = Date.now();
   await env.DB
@@ -181,5 +182,95 @@ export async function handleUpdateShared(request, env, user, shareId) {
     .bind(JSON.stringify(owned.state), now, share.owner_id)
     .run();
 
+  await recordActivity(env, {
+    ownerId: share.owner_id, actorId: user.id,
+    kind: share.resource_kind, resourceId: share.resource_id,
+    name: resourceName(share.resource_kind, resource),
+    action: describeChange(share.resource_kind, before, resource),
+    now
+  });
+
   return json({ ok: true, updatedAt: now });
+}
+
+function resourceName(kind, resource) {
+  return String((kind === 'item' ? resource.title : resource.name) || '（未命名）').slice(0, 120);
+}
+
+/** 完成數量，同時涵蓋單次（done）與循環（doneMap）兩種形狀 */
+function doneCount(item) {
+  if (!item) return 0;
+  const map = item.doneMap && typeof item.doneMap === 'object' ? item.doneMap : {};
+  return (item.done ? 1 : 0) + Object.values(map).filter(Boolean).length;
+}
+
+function taskDoneCount(project) {
+  const tasks = Array.isArray(project?.tasks) ? project.tasks : [];
+  return tasks.reduce((n, t) => {
+    const todos = Array.isArray(t?.todos) ? t.todos : [];
+    return n + (t?.done ? 1 : 0) + todos.filter(td => td && td.done).length;
+  }, 0);
+}
+
+/**
+ * 由前後兩份資料推出一句人看得懂的描述。
+ *
+ * 刻意在伺服器端算，不採用前端送來的說明字串——那等於讓被分享者自己決定
+ * 記錄裡要寫什麼，記錄就失去意義了。
+ */
+function describeChange(kind, before, after) {
+  const b = kind === 'item' ? doneCount(before) : taskDoneCount(before);
+  const a = kind === 'item' ? doneCount(after) : taskDoneCount(after);
+  if (a > b) return kind === 'item' ? '標記完成' : `勾選了 ${a - b} 項`;
+  if (a < b) return kind === 'item' ? '取消完成' : `取消了 ${b - a} 項`;
+  return '更新內容';
+}
+
+/**
+ * 寫入一筆記錄，順手清掉該擁有者 90 天前的舊資料。
+ * 沒有保留上限的日誌表遲早會變成資料庫裡最大的一張表，而這些記錄的價值
+ * 幾乎只存在於事發後的短期內。
+ */
+async function recordActivity(env, a) {
+  try {
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO share_activity
+           (id, owner_id, actor_id, resource_kind, resource_id, resource_name, action, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(uuid(), a.ownerId, a.actorId, a.kind, a.resourceId, a.name, a.action, a.now),
+      env.DB.prepare('DELETE FROM share_activity WHERE owner_id = ? AND created_at < ?')
+        .bind(a.ownerId, a.now - 90 * 86400000)
+    ]);
+  } catch (e) {
+    // 記錄失敗不該讓已經成功的寫入變成錯誤——資料已經存進去了，
+    // 回 500 會讓使用者以為沒存到而重試。
+    console.warn('share activity log failed', String(e));
+  }
+}
+
+/** 與我有關的操作記錄：我的東西被別人改，或我改了別人的東西 */
+export async function handleListActivity(env, user) {
+  const rows = await env.DB.prepare(
+    `SELECT a.resource_kind, a.resource_name, a.action, a.created_at,
+            a.owner_id, a.actor_id, o.email AS owner_email, k.email AS actor_email
+       FROM share_activity a
+       JOIN users o ON o.id = a.owner_id
+       JOIN users k ON k.id = a.actor_id
+      WHERE a.owner_id = ?1 OR a.actor_id = ?1
+      ORDER BY a.created_at DESC
+      LIMIT 50`
+  ).bind(user.id).all();
+
+  return json({
+    activity: (rows.results || []).map(r => ({
+      kind: r.resource_kind,
+      name: r.resource_name,
+      action: r.action,
+      at: r.created_at,
+      actorEmail: r.actor_email,
+      ownerEmail: r.owner_email,
+      byMe: r.actor_id === user.id
+    }))
+  });
 }

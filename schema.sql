@@ -64,3 +64,22 @@ CREATE TABLE IF NOT EXISTS shares (
 
 CREATE INDEX IF NOT EXISTS idx_shares_target ON shares(target_id);
 CREATE INDEX IF NOT EXISTS idx_shares_owner ON shares(owner_id);
+
+-- 共享資源的操作記錄。只記「被分享者對別人的資源做了什麼」——擁有者改自己的
+-- 東西不需要記錄，那是他自己的資料，記了只會把真正需要注意的事情淹沒。
+--
+-- resource_name 是當下的名稱快照，刻意不正規化：資源被改名或刪除之後，
+-- 記錄仍然要讀得懂「當時動的是哪一個項目」，指過去只會得到一個空值。
+CREATE TABLE IF NOT EXISTS share_activity (
+  id            TEXT PRIMARY KEY,
+  owner_id      TEXT NOT NULL,      -- 資源擁有者
+  actor_id      TEXT NOT NULL,      -- 實際動手的人
+  resource_kind TEXT NOT NULL,
+  resource_id   TEXT NOT NULL,
+  resource_name TEXT NOT NULL,      -- 當下的名稱快照
+  action        TEXT NOT NULL,      -- 人可讀的簡述
+  created_at    INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_activity_owner ON share_activity(owner_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_activity_actor ON share_activity(actor_id, created_at);
