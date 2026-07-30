@@ -3,6 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light dark">
+<script>
+  // 與 index.html 共用同一個偏好鍵，主畫面切成暗色後，登入／管理頁不會突然閃回亮色。
+  (function(){
+    var pref = null;
+    try{ pref = localStorage.getItem('workSchedule.v1.theme'); }catch(e){}
+    var dark = (pref === 'dark') || (pref !== 'light' &&
+      window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  })();
+</script>
 <title>登入 — 工作排程確認系統</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://challenges.cloudflare.com">
@@ -14,7 +25,21 @@
     --amber:#C9822E; --amber-dim:rgba(201,130,46,0.12);
     --teal:#1F8C68; --teal-dim:rgba(31,140,104,0.10);
     --red:#C74B43; --red-dim:rgba(199,75,67,0.10);
+    --on-accent:#FFFDF9;
     --mono:'JetBrains Mono',monospace; --sans:'Noto Sans TC','Inter',sans-serif;
+  }
+
+  /* 暗色版：只覆寫變數，元件樣式不動。<html data-theme> 由 <head> 的開機腳本先寫好。 */
+  :root[data-theme="dark"]{
+    color-scheme:dark;
+    --bg:#1A1917; --panel:#232220; --panel-2:#2B2A27;
+    --hairline:#3A3833; --hairline-soft:#322F2B;
+    --text:#E8E5DC; --text-muted:#A8A49A; --text-dim:#7A766D;
+    --on-accent:#17160F;
+    --amber:#E3A052; --amber-dim:rgba(227,160,82,0.16);
+    --teal:#3FBF92; --teal-dim:rgba(63,191,146,0.14);
+    --red:#E8756B; --red-dim:rgba(232,117,107,0.14);
+    --violet:#9B8CF5; --violet-dim:rgba(155,140,245,0.14);
   }
   *{box-sizing:border-box;}
   body{margin:0;min-height:100vh;background:var(--bg);color:var(--text);font-family:var(--sans);
@@ -38,13 +63,15 @@
   .hint{font-family:var(--mono);font-size:10.5px;color:var(--text-dim);margin-top:5px;}
   #tsBox{margin:18px 0 14px;min-height:65px;display:flex;justify-content:center;}
   button.submit{width:100%;padding:12px;border:none;border-radius:9px;background:var(--amber);
-                color:#fff;font-family:var(--sans);font-size:14.5px;font-weight:700;cursor:pointer;}
+                color:var(--on-accent);font-family:var(--sans);font-size:14.5px;font-weight:700;cursor:pointer;}
   button.submit:disabled{background:var(--text-dim);cursor:not-allowed;}
   .msg{margin-top:16px;padding:11px 13px;border-radius:8px;font-size:13px;line-height:1.65;display:none;}
   .msg.err{display:block;background:var(--red-dim);border:1px solid rgba(199,75,67,.3);color:var(--red);}
   .msg.ok{display:block;background:var(--teal-dim);border:1px solid rgba(31,140,104,.3);color:var(--teal);}
   .foot{margin-top:22px;text-align:center;font-family:var(--mono);font-size:10.5px;
         color:var(--text-dim);line-height:1.8;}
+  .foot .signature{display:inline-block;margin-top:8px;padding-top:8px;border-top:1px solid var(--hairline);
+        font-family:var(--sans);font-size:11px;color:var(--text-muted);letter-spacing:.03em;}
 </style>
 </head>
 <body>
@@ -77,7 +104,8 @@
 
   <div class="foot">
     註冊後需經管理者核准才能使用<br>
-    本頁受 Cloudflare Turnstile 保護
+    本頁受 Cloudflare Turnstile 保護<br>
+    <span class="signature">此系統由劉思妤設計、規劃、製作。</span>
   </div>
 </div>
 

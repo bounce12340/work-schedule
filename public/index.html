@@ -2,20 +2,51 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
 <title>工作排程確認系統</title>
+<script>
+  // 主題必須在畫面繪製前就決定，否則暗色使用者每次載入都會先閃一下亮色。
+  // 這支腳本只做一件事：把偏好寫成 <html data-theme>，讓 CSS 只需要一組選擇器。
+  // 其餘（切換、記憶、跟隨系統）都在主 IIFE 內，這裡不暴露任何全域變數。
+  (function(){
+    var pref = null;
+    try{ pref = localStorage.getItem('workSchedule.v1.theme'); }catch(e){ /* 沙盒環境會擋 */ }
+    var dark = (pref === 'dark') || (pref !== 'light' &&
+      window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  })();
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
 <style>
+  /* 顏色的唯一來源。元件樣式一律只引用變數，不寫死色碼——暗色版才可能只靠
+     覆寫這一個區塊完成，不必逐條改元件。 */
   :root{
+    color-scheme: light;
     --bg: #F6F4EE;
     --panel: #FFFFFF;
     --panel-2: #F1EEE5;
     --hairline: #E4E0D3;
     --hairline-soft: #ECE8DD;
+    --hairline-strong: #CDC8B8;
+    --dash: #D2CDBB;
+    --scroll-thumb: #D8D4C6;
+    --grid-line: rgba(0,0,0,0.025);
     --text: #2A2A26;
+    --text-strong: #20201C;
     --text-muted: #71706A;
     --text-dim: #A2A099;
+    --on-accent: #FFFDF9;
+    --checkbox-border: #C9C4B4;
+    --overlay-bg: rgba(40,36,26,0.32);
+    --today-bg: rgba(201,130,46,0.09);
+    --today-selected-bg: #F2E1C6;
+    --shadow-xs: 0 1px 2px rgba(0,0,0,0.02);
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.03);
+    --shadow-btn: 0 2px 0 rgba(0,0,0,0.08);
+    --shadow-md: 0 16px 40px rgba(0,0,0,0.14);
+    --shadow-lg: 0 20px 60px rgba(0,0,0,0.18);
     --amber: #C9822E;
     --amber-dim: rgba(201,130,46,0.12);
     --teal: #1F8C68;
@@ -27,27 +58,66 @@
     --mono: 'JetBrains Mono', monospace;
     --sans: 'Noto Sans TC', 'Inter', sans-serif;
   }
+
+  /* 暗色版。<html data-theme> 由 <head> 內的開機腳本在畫面繪製前就寫好，
+     所以這裡只需要一個選擇器，不必把整份調色盤在 prefers-color-scheme 再抄一次
+     （抄兩份必然會走鐘）。強調色在深底上一律提高明度，否則對比不足；
+     --on-accent 反轉成深色，因為亮色強調底上的白字讀不出來。 */
+  :root[data-theme="dark"]{
+    color-scheme: dark;
+    --bg: #1A1917;
+    --panel: #232220;
+    --panel-2: #2B2A27;
+    --hairline: #3A3833;
+    --hairline-soft: #322F2B;
+    --hairline-strong: #4A4740;
+    --dash: #4A4740;
+    --scroll-thumb: #45423B;
+    --grid-line: rgba(255,255,255,0.022);
+    --text: #E8E5DC;
+    --text-strong: #F4F1E8;
+    --text-muted: #A8A49A;
+    --text-dim: #7A766D;
+    --on-accent: #17160F;
+    --checkbox-border: #55524A;
+    --overlay-bg: rgba(0,0,0,0.55);
+    --today-bg: rgba(227,160,82,0.13);
+    --today-selected-bg: #4A3A22;
+    --shadow-xs: 0 1px 2px rgba(0,0,0,0.30);
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.35);
+    --shadow-btn: 0 2px 0 rgba(0,0,0,0.40);
+    --shadow-md: 0 16px 40px rgba(0,0,0,0.50);
+    --shadow-lg: 0 20px 60px rgba(0,0,0,0.60);
+    --amber: #E3A052;
+    --amber-dim: rgba(227,160,82,0.16);
+    --teal: #3FBF92;
+    --teal-dim: rgba(63,191,146,0.14);
+    --red: #E8756B;
+    --red-dim: rgba(232,117,107,0.14);
+    --violet: #9B8CF5;
+    --violet-dim: rgba(155,140,245,0.14);
+  }
   *{box-sizing:border-box; margin:0; padding:0;}
   html,body{height:100%;}
   body{
     background: var(--bg); color: var(--text); font-family: var(--sans); -webkit-font-smoothing: antialiased;
-    background-image: linear-gradient(rgba(0,0,0,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,0.025) 1px, transparent 1px);
+    background-image: linear-gradient(var(--grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
     background-size: 32px 32px;
   }
   ::-webkit-scrollbar{ width:8px; height:8px; }
-  ::-webkit-scrollbar-thumb{ background: #D8D4C6; border-radius:4px; }
+  ::-webkit-scrollbar-thumb{ background: var(--scroll-thumb); border-radius:4px; }
   ::-webkit-scrollbar-track{ background: transparent; }
   .app{ max-width: 1280px; margin: 0 auto; padding: 24px 20px 70px; }
 
   header.top{ display:flex; align-items:flex-end; justify-content:space-between; padding-bottom: 18px; margin-bottom: 16px; border-bottom: 1px solid var(--hairline); flex-wrap: wrap; gap:16px; }
   .brand-eyebrow{ font-family: var(--mono); font-size: 11px; letter-spacing: 3px; color: var(--text-dim); text-transform: uppercase; margin-bottom:8px; }
-  .brand-title{ font-size: 24px; font-weight: 900; letter-spacing: 0.5px; color:#20201C; }
+  .brand-title{ font-size: 24px; font-weight: 900; letter-spacing: 0.5px; color:var(--text-strong); }
   .clock-block{ font-family: var(--mono); text-align:right; }
   .clock-block .now-date{ font-size:13px; color:var(--text-muted); }
   .clock-block .now-time{ font-size:19px; font-weight:700; color:var(--amber); letter-spacing:1px; }
 
   .metric-strip{ display:grid; grid-template-columns: repeat(3, 1fr); gap:10px; margin-bottom:22px; }
-  .metric-card{ background: var(--panel); border:1px solid var(--hairline); border-radius:12px; padding: 14px 18px; position:relative; overflow:hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.03); }
+  .metric-card{ background: var(--panel); border:1px solid var(--hairline); border-radius:12px; padding: 14px 18px; position:relative; overflow:hidden; box-shadow: var(--shadow-sm); }
   .metric-card::before{ content:''; position:absolute; left:0; top:0; bottom:0; width:3px; background: var(--amber); }
   .metric-card.week::before{ background: var(--teal); }
   .metric-card.meeting::before{ background: var(--violet); }
@@ -68,7 +138,7 @@
   .sidebar{ width: 176px; flex-shrink:0; display:flex; flex-direction:column; gap:6px; position: sticky; top: 20px; }
   .nav-item{ display:flex; align-items:center; gap:10px; padding: 13px 14px; border-radius:10px; background: var(--panel); border:1px solid var(--hairline); cursor:pointer; color: var(--text-muted); font-weight:700; font-size:14px; transition: all .15s ease; }
   .nav-item .nav-dot{ width:7px; height:7px; border-radius:50%; background: var(--hairline); flex-shrink:0; }
-  .nav-item:hover{ color: var(--text); border-color:#D6D2C4; }
+  .nav-item:hover{ color: var(--text); border-color:var(--hairline-strong); }
   .nav-item.active{ background: var(--amber-dim); border-color: var(--amber); color: var(--amber); }
   .nav-item.active .nav-dot{ background: var(--amber); }
 
@@ -80,20 +150,20 @@
   .major-section-label{ font-family: var(--mono); font-size:10.5px; letter-spacing:2px; color: var(--text-dim); text-transform:uppercase; margin-bottom:8px; }
   .chip-row{ display:flex; flex-wrap:wrap; gap:8px; }
   .chip{ display:flex; align-items:center; gap:8px; background: var(--panel); border:1px solid var(--hairline); border-radius:20px; padding:7px 8px 7px 14px; font-size:13px; font-weight:600; cursor:pointer; }
-  .chip.selectable:hover{ border-color:#CDC8B8; }
+  .chip.selectable:hover{ border-color:var(--hairline-strong); }
   .chip.active{ border-color: var(--amber); background: var(--amber-dim); }
   .chip .cnt{ font-family:var(--mono); font-size:10.5px; color: var(--text-dim); }
   .chip button{ background:transparent; border:none; cursor:pointer; color: var(--text-dim); font-size:12px; width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center; }
   .chip button:hover{ background: var(--hairline-soft); color: var(--text); }
   .chip button.chip-del:hover{ color: var(--red); background: var(--red-dim); }
   .chip input{ font-family: var(--sans); font-size:13px; border:1px solid var(--amber); border-radius:6px; padding:3px 6px; width:110px; outline:none; }
-  .add-chip-btn{ display:flex; align-items:center; gap:6px; background: var(--panel-2); border:1px dashed #D2CDBB; border-radius:20px; padding:8px 16px; font-size:13px; font-weight:600; color: var(--text-muted); cursor:pointer; }
+  .add-chip-btn{ display:flex; align-items:center; gap:6px; background: var(--panel-2); border:1px dashed var(--dash); border-radius:20px; padding:8px 16px; font-size:13px; font-weight:600; color: var(--text-muted); cursor:pointer; }
   .add-chip-btn:hover{ color: var(--amber); border-color: var(--amber); }
 
   .mode-tabs{ display:flex; gap:4px; margin-bottom:16px; background: var(--panel); border:1px solid var(--hairline); border-radius:10px; padding:4px; width: fit-content; }
   .mode-tab{ font-family: var(--mono); font-size:13px; font-weight:600; letter-spacing:1px; padding: 9px 18px; border-radius:7px; cursor:pointer; color: var(--text-muted); border:none; background:transparent; transition: all .15s ease; }
   .mode-tab:hover{ color: var(--text); }
-  .mode-tab.active{ background: var(--amber); color:#FFFDF9; }
+  .mode-tab.active{ background: var(--amber); color:var(--on-accent); }
 
   .period-row{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom: 18px; padding: 14px 16px; background: var(--panel); border:1px solid var(--hairline); border-radius:10px; }
   .period-label{ font-family: var(--mono); font-size:10px; letter-spacing:2px; color: var(--text-dim); text-transform:uppercase; margin-right:4px; }
@@ -104,7 +174,7 @@
   select:focus, input:focus, button:focus-visible{ outline: 2px solid var(--amber); outline-offset:1px; }
   .qbtn, .mbtn{ font-family: var(--mono); font-size:12.5px; font-weight:600; padding:7px 12px; border-radius:6px; border:1px solid var(--hairline); background: var(--panel-2); color: var(--text-muted); cursor:pointer; }
   .qbtn.active, .mbtn.active{ background: var(--amber-dim); border-color: var(--amber); color: var(--amber); }
-  .add-year-btn{ font-family: var(--mono); font-size:12px; color: var(--text-dim); background:transparent; border:1px dashed #D2CDBB; border-radius:6px; padding:7px 10px; cursor:pointer; }
+  .add-year-btn{ font-family: var(--mono); font-size:12px; color: var(--text-dim); background:transparent; border:1px dashed var(--dash); border-radius:6px; padding:7px 10px; cursor:pointer; }
   .add-year-btn:hover{ color: var(--amber); border-color: var(--amber); }
   .month-grid{ display:flex; gap:6px; flex-wrap:wrap; }
 
@@ -117,20 +187,20 @@
   .pill.done b{ color: var(--teal); }
   .pill.pending b{ color: var(--amber); }
 
-  .add-project-btn{ font-family: var(--sans); font-weight:700; font-size:14px; background: var(--amber); color:#FFFDF9; border:none; border-radius:8px; padding:11px 18px; cursor:pointer; display:flex; align-items:center; gap:8px; box-shadow: 0 2px 0 rgba(0,0,0,0.08); }
+  .add-project-btn{ font-family: var(--sans); font-weight:700; font-size:14px; background: var(--amber); color:var(--on-accent); border:none; border-radius:8px; padding:11px 18px; cursor:pointer; display:flex; align-items:center; gap:8px; box-shadow: var(--shadow-btn); }
   .add-project-btn:hover{ filter: brightness(1.06); }
   .add-project-btn:active{ transform: translateY(1px); box-shadow:none; }
 
   .board{ display:flex; flex-direction:column; gap:10px; }
-  .empty-state{ padding: 46px 20px; text-align:center; color: var(--text-dim); border: 1px dashed #D2CDBB; border-radius:12px; font-family: var(--mono); font-size:13px; line-height:1.9; background:var(--panel); }
+  .empty-state{ padding: 46px 20px; text-align:center; color: var(--text-dim); border: 1px dashed var(--dash); border-radius:12px; font-family: var(--mono); font-size:13px; line-height:1.9; background:var(--panel); }
   .empty-state span{ color: var(--amber); }
 
-  .occ-row{ background: var(--panel); border:1px solid var(--hairline); border-radius:12px; padding: 12px 16px; display:flex; align-items:center; gap:12px; flex-wrap:wrap; box-shadow: 0 1px 2px rgba(0,0,0,0.02); }
+  .occ-row{ background: var(--panel); border:1px solid var(--hairline); border-radius:12px; padding: 12px 16px; display:flex; align-items:center; gap:12px; flex-wrap:wrap; box-shadow: var(--shadow-xs); }
   .occ-row.type-work{ border-left:3px solid var(--teal); }
   .occ-row.type-meeting{ border-left:3px solid var(--violet); }
   .occ-row.type-assignment{ border-left:3px solid var(--amber); }
-  .checkbox{ width:19px; height:19px; border-radius:5px; border:1.5px solid #C9C4B4; display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; font-size:12px; color:transparent; transition: all .15s ease; }
-  .checkbox.done{ background: var(--teal); border-color: var(--teal); color:#fff; }
+  .checkbox{ width:19px; height:19px; border-radius:5px; border:1.5px solid var(--checkbox-border); display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; font-size:12px; color:transparent; transition: all .15s ease; }
+  .checkbox.done{ background: var(--teal); border-color: var(--teal); color:var(--on-accent); }
   .occ-row.type-meeting .checkbox.done{ background: var(--violet); border-color: var(--violet); }
   .occ-row.type-assignment .checkbox.done{ background: var(--amber); border-color: var(--amber); }
   .occ-title{ font-size:14px; font-weight:600; }
@@ -166,10 +236,10 @@
   .cal-grid{ display:grid; grid-template-columns: repeat(7, 1fr); gap:6px; margin-bottom:22px; }
   .cal-weekday{ font-family: var(--mono); font-size:11px; color: var(--text-dim); text-align:center; padding:6px 0; letter-spacing:1px; }
   .cal-cell{ background: var(--panel); border:1px solid var(--hairline); border-radius:9px; min-height:92px; padding:8px; cursor:pointer; display:flex; flex-direction:column; gap:5px; transition: border-color .15s ease, background .15s ease; }
-  .cal-cell:hover{ border-color:#CDC8B8; }
+  .cal-cell:hover{ border-color:var(--hairline-strong); }
   .cal-cell.blank{ background:transparent; border:none; cursor:default; box-shadow:none; }
-  .cal-cell.today{ background: rgba(201,130,46,0.09); border-color: var(--amber); box-shadow: inset 0 0 0 1px var(--amber); }
-  .cal-cell.today.selected{ background: #F2E1C6; }
+  .cal-cell.today{ background: var(--today-bg); border-color: var(--amber); box-shadow: inset 0 0 0 1px var(--amber); }
+  .cal-cell.today.selected{ background: var(--today-selected-bg); }
   .cal-cell.selected{ background: var(--panel-2); border-color: var(--amber); }
   .cal-daynum{ font-family: var(--mono); font-size:12.5px; color: var(--text-muted); }
   .cal-cell.today .cal-daynum{ color: var(--amber); font-weight:700; }
@@ -180,7 +250,7 @@
   .cal-item-row{ display:flex; align-items:center; gap:5px; min-width:0; }
   .cal-item-check{ width:12px; height:12px; border-radius:3.5px; border:1.3px solid var(--teal); flex-shrink:0; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:8px; color:transparent; transition: all .12s ease; }
   .cal-item-row.assignment .cal-item-check{ border-color: var(--amber); }
-  .cal-item-check.done{ background: var(--teal); color:#fff; }
+  .cal-item-check.done{ background: var(--teal); color:var(--on-accent); }
   .cal-item-row.assignment .cal-item-check.done{ background: var(--amber); }
   .cal-item-text{ font-family: var(--sans); font-size:10.5px; color: var(--teal); line-height:1.3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
   .cal-item-row.assignment .cal-item-text{ color: var(--amber); }
@@ -199,14 +269,16 @@
   .account-email{ font-family: var(--mono); font-size:11px; color: var(--text-muted); max-width:190px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .account-btn{ font-family: var(--mono); font-size:11px; padding:6px 10px; border-radius:7px; cursor:pointer; border:1px solid var(--hairline); background: var(--panel); color: var(--text-muted); }
   .account-btn:hover{ border-color: var(--amber); color: var(--amber); }
+  .icon-square{ background: var(--panel); border:1px solid var(--hairline); border-radius:10px; width:42px; height:42px; flex-shrink:0; cursor:pointer; color: var(--text-muted); font-size:17px; display:flex; align-items:center; justify-content:center; }
+  .icon-square:hover{ border-color: var(--amber); color: var(--amber); }
   footer.storage-note{ margin-top:32px; text-align:center; font-family: var(--mono); font-size:11px; color: var(--text-dim); line-height:1.8; }
   footer.storage-note .storage-state{ color: var(--teal); }
   footer.storage-note .storage-state.off{ color: var(--amber); }
   footer.storage-note .storage-state.err{ color: var(--red); }
-  .btn-danger-ghost{ margin-top:12px; font-family: var(--mono); font-size:11px; color: var(--text-dim); background:transparent; border:1px dashed #D2CDBB; border-radius:6px; padding:6px 12px; cursor:pointer; }
-  .btn-danger-ghost:hover{ color: var(--red); border-color: var(--red); }
+  footer.storage-note #cloudNoteText:empty{ display:none; }
+  footer.storage-note .signature{ margin-top:14px; padding-top:12px; border-top:1px solid var(--hairline); font-family: var(--sans); font-size:11.5px; color: var(--text-muted); letter-spacing:0.5px; }
 
-  .reminder-toast{ position: fixed; top: 22px; right: 22px; z-index: 60; width: 320px; max-width: calc(100vw - 32px); background: var(--panel); border: 1px solid var(--amber); border-radius: 12px; box-shadow: 0 16px 40px rgba(0,0,0,0.14); opacity:0; transform: translateY(-12px); pointer-events:none; transition: opacity .2s ease, transform .2s ease; }
+  .reminder-toast{ position: fixed; top: 22px; right: 22px; z-index: 60; width: 320px; max-width: calc(100vw - 32px); background: var(--panel); border: 1px solid var(--amber); border-radius: 12px; box-shadow: var(--shadow-md); opacity:0; transform: translateY(-12px); pointer-events:none; transition: opacity .2s ease, transform .2s ease; }
   .reminder-toast.show{ opacity:1; transform: translateY(0); pointer-events:auto; }
   .reminder-head{ display:flex; align-items:center; gap:8px; padding: 12px 14px; border-bottom:1px solid var(--hairline); }
   .reminder-icon{ font-size:15px; }
@@ -223,7 +295,7 @@
   .reminder-row-text b{ color: var(--text-muted); font-weight:600; }
 
   /* ---- Gantt / 專案 ---- */
-  .gantt-empty{ padding: 60px 20px; text-align:center; color: var(--text-dim); border: 1px dashed #D2CDBB; border-radius:12px; font-family: var(--mono); font-size:13px; line-height:1.9; background:var(--panel); }
+  .gantt-empty{ padding: 60px 20px; text-align:center; color: var(--text-dim); border: 1px dashed var(--dash); border-radius:12px; font-family: var(--mono); font-size:13px; line-height:1.9; background:var(--panel); }
   .gantt-project-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; flex-wrap:wrap; gap:10px; }
   .gantt-project-title{ font-size:19px; font-weight:800; }
   .gantt-wrap{ background: var(--panel); border:1px solid var(--hairline); border-radius:12px; padding:18px 18px 8px; margin-bottom:20px; overflow-x:auto; }
@@ -236,11 +308,11 @@
   .gantt-row{ display:flex; align-items:center; margin-bottom:10px; }
   .gantt-row-label{ width:170px; flex-shrink:0; font-size:12.5px; font-weight:600; padding-right:10px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .gantt-row-track{ flex:1; min-width:360px; position:relative; height:22px; background: var(--panel-2); border-radius:6px; }
-  .gantt-bar{ position:absolute; top:2px; height:18px; border-radius:5px; background: var(--violet); overflow:hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+  .gantt-bar{ position:absolute; top:2px; height:18px; border-radius:5px; background: var(--violet); overflow:hidden; box-shadow: var(--shadow-xs); }
   .gantt-bar.done{ background: var(--teal); }
   .gantt-bar.overdue{ background: var(--red); }
   .gantt-bar-fill{ position:absolute; left:0; top:0; bottom:0; background: rgba(255,255,255,0.38); }
-  .gantt-bar-label{ position:absolute; left:6px; top:0; font-size:10px; line-height:18px; color:#fff; font-family: var(--sans); font-weight:700; white-space:nowrap; text-shadow: 0 1px 1px rgba(0,0,0,0.15); }
+  .gantt-bar-label{ position:absolute; left:6px; top:0; font-size:10px; line-height:18px; color:var(--on-accent); font-family: var(--sans); font-weight:700; white-space:nowrap; text-shadow: 0 1px 1px rgba(0,0,0,0.15); }
   .gantt-today-line{ position:absolute; top:-4px; bottom:-4px; width:1.5px; background: var(--amber); }
 
   .task-table{ display:flex; flex-direction:column; gap:8px; }
@@ -249,14 +321,14 @@
   .task-row input[type=date]{ width:132px; }
   .task-row .progress-num{ width:56px; text-align:center; }
   .task-row .progress-suffix{ font-family:var(--mono); font-size:11px; color:var(--text-dim); }
-  .task-row .task-done-cb{ width:19px; height:19px; border-radius:5px; border:1.5px solid #C9C4B4; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:12px; color:transparent; flex-shrink:0; }
-  .task-row .task-done-cb.done{ background: var(--teal); border-color: var(--teal); color:#fff; }
+  .task-row .task-done-cb{ width:19px; height:19px; border-radius:5px; border:1.5px solid var(--checkbox-border); display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:12px; color:transparent; flex-shrink:0; }
+  .task-row .task-done-cb.done{ background: var(--teal); border-color: var(--teal); color:var(--on-accent); }
   .task-field-label{ font-family:var(--mono); font-size:9.5px; color:var(--text-dim); text-transform:uppercase; letter-spacing:1px; margin-right:2px; }
 
   /* ---- Modal ---- */
-  .overlay{ position:fixed; inset:0; background: rgba(40,36,26,0.32); backdrop-filter: blur(2px); display:none; align-items:center; justify-content:center; z-index:70; padding:20px; }
+  .overlay{ position:fixed; inset:0; background: var(--overlay-bg); backdrop-filter: blur(2px); display:none; align-items:center; justify-content:center; z-index:70; padding:20px; }
   .overlay.show{ display:flex; }
-  .modal{ background: var(--panel); border:1px solid var(--hairline); border-radius:14px; width:100%; max-width:460px; padding:24px; box-shadow: 0 20px 60px rgba(0,0,0,0.18); max-height:88vh; overflow-y:auto; }
+  .modal{ background: var(--panel); border:1px solid var(--hairline); border-radius:14px; width:100%; max-width:460px; padding:24px; box-shadow: var(--shadow-lg); max-height:88vh; overflow-y:auto; }
   .modal h3{ font-size:17px; margin-bottom:18px; display:flex; align-items:center; gap:8px;}
   .modal h3 .dot{ width:8px; height:8px; border-radius:50%; background:var(--amber); }
   .field{ margin-bottom:14px; }
@@ -270,8 +342,8 @@
   .modal-actions{ display:flex; gap:10px; margin-top:20px; }
   .modal-actions button{ flex:1; padding:11px; border-radius:8px; font-family: var(--sans); font-weight:700; font-size:14px; cursor:pointer; }
   .btn-cancel{ background: transparent; border:1px solid var(--hairline); color: var(--text-muted); }
-  .btn-cancel:hover{ border-color:#CDC8B8; }
-  .btn-confirm{ background: var(--amber); border:none; color:#FFFDF9; }
+  .btn-cancel:hover{ border-color:var(--hairline-strong); }
+  .btn-confirm{ background: var(--amber); border:none; color:var(--on-accent); }
   .btn-confirm:hover{ filter:brightness(1.05); }
   .btn-clear{ background: transparent; border:1px dashed var(--hairline); color: var(--text-dim); }
   .btn-clear:hover{ color: var(--red); border-color: var(--red); }
@@ -284,8 +356,92 @@
   .holiday-chip button:hover{ color:var(--red); }
 
   @media (prefers-reduced-motion: reduce){ *{ transition: none !important; } }
-  @media (max-width: 820px){ .layout{ flex-direction:column; } .sidebar{ width:100%; flex-direction:row; position:static; } .nav-item{ flex:1; justify-content:center; } }
-  @media (max-width: 560px){ .brand-title{ font-size:19px; } .metric-strip{ grid-template-columns: 1fr; } .cal-grid{ gap:4px; } .cal-cell{ min-height:70px; padding:5px; } .cal-item-text{ font-size:9.5px; } .reminder-toast{ left:16px; right:16px; width:auto; top:16px; } }
+
+  /* ---- 平板：側欄轉成橫排 ---- */
+  @media (max-width: 820px){
+    .layout{ flex-direction:column; }
+    .sidebar{ width:100%; flex-direction:row; position:static; }
+    .nav-item{ flex:1; justify-content:center; }
+  }
+
+  /* ---- 手機 ----
+     三個關鍵處理，缺一個就會「畫面縮小了但還是不能用」：
+     1. 導覽列固定在底部，拇指構得到；.app 補上等高的 padding 避免內容被蓋住
+     2. 表單控制項一律 16px——iOS Safari 對小於 16px 的輸入框會在聚焦時自動放大
+        整個頁面，且不會縮回去，是手機上最惱人的一種破版
+     3. modal 改成從底部升起的 sheet，小螢幕上置中對話框會被鍵盤擠掉 */
+  @media (max-width: 640px){
+    .app{ padding: 16px 14px calc(86px + env(safe-area-inset-bottom)); }
+
+    header.top{ align-items:flex-start; gap:12px; padding-bottom:14px; }
+    .brand-title{ font-size:19px; }
+    .brand-eyebrow{ font-size:10px; letter-spacing:2px; }
+    header.top > div:last-child{ width:100%; justify-content:space-between; gap:10px !important; }
+    .account-email{ max-width:110px; }
+    .clock-block .now-time{ font-size:16px; }
+    .clock-block .now-date{ font-size:11.5px; }
+
+    .metric-strip{ grid-template-columns: 1fr; gap:8px; margin-bottom:18px; }
+    .metric-card{ padding:12px 14px; }
+
+    /* 底部固定導覽列 */
+    .sidebar{
+      /* top:auto 必要：基礎樣式為了 sticky 設了 top:20px，fixed 元素同時有 top 與
+         bottom 時會被拉伸成整個畫面高，等於一張看不見的板子蓋住全頁擋掉所有點擊。 */
+      position:fixed; top:auto; left:0; right:0; bottom:0; z-index:50; width:auto;
+      gap:0; padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+      background: var(--panel); border-top:1px solid var(--hairline);
+      box-shadow: 0 -2px 12px rgba(0,0,0,0.06);
+    }
+    .nav-item{ flex-direction:column; gap:4px; padding:8px 4px; font-size:12px; border:none; background:transparent; border-radius:8px; }
+    .nav-item.active{ background: var(--amber-dim); }
+    .nav-item .nav-dot{ width:6px; height:6px; }
+
+    /* 表單控制項：16px 以避免 iOS 聚焦時自動放大 */
+    select, input[type=date], input[type=time], input[type=number], input[type=text], textarea{ font-size:16px; padding:9px 10px; }
+    .field input, .field select{ font-size:16px; }
+    .task-row .progress-num{ width:64px; }
+
+    .mode-tabs{ width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+    .mode-tab{ padding:9px 14px; white-space:nowrap; }
+    .period-row{ padding:12px; gap:8px; }
+    .scope-strip{ align-items:stretch; }
+    .scope-current{ font-size:17px; }
+    .add-project-btn{ width:100%; justify-content:center; padding:13px 18px; }
+
+    /* 列：標題獨佔一行，避免徽章與日期把它擠成一個字一行 */
+    .occ-row{ padding:12px 13px; gap:9px; }
+    .occ-title{ flex:1 1 100%; order:-1; font-size:15px; }
+    .occ-spacer{ display:none; }
+    .occ-actions{ margin-left:auto; }
+    .checkbox{ width:24px; height:24px; }
+    .icon-btn{ padding:8px 10px; font-size:15px; }
+
+    .cal-grid{ gap:4px; }
+    .cal-cell{ min-height:64px; padding:5px; border-radius:7px; }
+    .cal-item-text, .cal-meeting-subject{ font-size:9.5px; }
+    .cal-nav{ width:100%; }
+    .cal-nav button{ flex:1; padding:10px 8px; }
+    .cal-legend{ gap:10px; font-size:10.5px; }
+
+    /* 甘特圖：表格欄位改為堆疊，圖表本身維持橫向捲動 */
+    .gantt-label-col, .gantt-row-label{ width:104px; }
+    .gantt-timeline-col, .gantt-row-track{ min-width:280px; }
+    .gantt-wrap{ padding:14px 12px 6px; }
+    .task-row{ gap:7px; }
+    .task-row input[type=text]{ flex:1 1 100%; min-width:0; }
+    .task-row input[type=date]{ flex:1; width:auto; min-width:0; }
+
+    /* modal 改成底部 sheet */
+    .overlay{ align-items:flex-end; padding:0; }
+    .modal{ max-width:none; border-radius:16px 16px 0 0; max-height:92vh; padding: 22px 18px calc(20px + env(safe-area-inset-bottom)); }
+    .modal-actions button{ padding:14px; }
+    .field-row{ flex-wrap:wrap; }
+    .field-row > .field{ min-width:130px; }
+
+    .reminder-toast{ left:12px; right:12px; width:auto; top:12px; }
+    footer.storage-note{ margin-top:24px; }
+  }
 </style>
 </head>
 <body>
@@ -302,9 +458,10 @@
         <button class="account-btn" id="btnAdmin" type="button" style="display:none;">帳號管理</button>
         <button class="account-btn" id="btnLogout" type="button">登出</button>
       </div>
-      <button id="bellBtn" title="查看今日待辦提醒" style="position:relative; background:var(--panel); border:1px solid var(--hairline); border-radius:10px; width:42px; height:42px; cursor:pointer; color:var(--text-muted); font-size:17px; display:flex; align-items:center; justify-content:center;">
+      <button id="themeBtn" class="icon-square" type="button" title="切換亮色／暗色" aria-label="切換亮色／暗色">🌙</button>
+      <button id="bellBtn" class="icon-square" title="查看今日待辦提醒" style="position:relative;">
         🔔
-        <span id="bellBadge" style="display:none; position:absolute; top:-5px; right:-5px; background:var(--red); color:#fff; font-family:var(--mono); font-size:10px; font-weight:700; border-radius:9px; min-width:18px; height:18px; padding:0 4px; align-items:center; justify-content:center;"></span>
+        <span id="bellBadge" style="display:none; position:absolute; top:-5px; right:-5px; background:var(--red); color:var(--on-accent); font-family:var(--mono); font-size:10px; font-weight:700; border-radius:9px; min-width:18px; height:18px; padding:0 4px; align-items:center; justify-content:center;"></span>
       </button>
       <div class="clock-block">
         <div class="now-date" id="nowDate">—</div>
@@ -397,10 +554,10 @@
   </div>
 
   <footer class="storage-note">
-    <span id="storageNoteText">※ 資料儲存狀態偵測中…</span><br>
-    <span id="cloudNoteText"></span>
-    「遇假日」判斷以週六、週日為基準，如需計入國定假日，可在新增小項目時使用「自訂假日」清單自行加入日期。<br>
-    <button id="btnClearStorage" class="btn-danger-ghost">清除所有資料並重置</button>
+    <div id="storageNoteText">※ 資料儲存狀態偵測中…</div>
+    <div id="cloudNoteText"></div>
+    <div>「遇假日」判斷以週六、週日為基準，如需計入國定假日，可在新增小項目時使用「自訂假日」清單自行加入日期。</div>
+    <div class="signature">此系統由劉思妤設計、規劃、製作。</div>
   </footer>
 </div>
 
@@ -808,6 +965,7 @@
       // 同步失敗絕不能連累本機使用：資料仍在 localStorage，僅停用雲端
       cloudEnabled = false;
       setCloudNote('初始化失敗，僅使用本機資料', 'err');
+      updateStorageNote();
     }
   }
 
@@ -819,7 +977,7 @@
       if(r.status === 401){ sessionExpired(); return; }
       if(r.ok) me = await r.json();
     }catch(e){ me = null; }
-    if(!me){ cloudEnabled = false; setCloudNote(''); return; }
+    if(!me){ cloudEnabled = false; setCloudNote(''); updateStorageNote(); return; }
 
     showAccount(me);
 
@@ -835,9 +993,10 @@
 
     let remote = null;
     try{ remote = await cloudPull(); }catch(e){ remote = null; }
-    if(!remote){ cloudEnabled = false; setCloudNote(''); return; }
+    if(!remote){ cloudEnabled = false; setCloudNote(''); updateStorageNote(); return; }
 
     cloudEnabled = true;
+    updateStorageNote();   // 文案要從「單機」改成「雲端同步」
     const meta = readCloudMeta();
 
     if(!remote.state){
@@ -868,8 +1027,14 @@
   function updateStorageNote(){
     const el = document.getElementById('storageNoteText');
     if(!el) return;
+    // 有帳號時資料的權威來源是雲端，本機只是離線快取。此時仍寫「儲存於此瀏覽器、
+    // 換裝置不保留」會讓使用者誤以為資料綁在這台機器上，與實際行為相反。
+    if(cloudEnabled){
+      el.innerHTML = '※ 資料儲存在你的帳號中（<span class="storage-state">雲端同步啟用中</span>），在任何裝置以同一組帳號登入都會看到相同內容。';
+      return;
+    }
     el.innerHTML = storageAvailable
-      ? '※ 資料已自動儲存於此瀏覽器（<span class="storage-state">本機儲存啟用中</span>），重新整理不會遺失；清除瀏覽器資料或換裝置則不會保留。'
+      ? '※ 目前為單機模式，資料儲存在這個瀏覽器中，重新整理不會遺失；登入帳號後即可跨裝置同步。'
       : '※ 目前環境不允許本機儲存（<span class="storage-state off">記憶體模式</span>），資料僅存在本次畫面中，重新整理將會重置。';
   }
 
@@ -1401,6 +1566,33 @@
   document.getElementById('reminderClose').onclick=hideReminderToast;
   document.getElementById('bellBtn').onclick=()=>{ const t=document.getElementById('reminderToast'); if(t.classList.contains('show')) hideReminderToast(); else showReminderToast(); };
 
+  // ================= 亮色／暗色主題 =================
+  // 主題不進 snapshot()：它是這台裝置的顯示偏好，不是排程資料。跟著雲端同步走的話，
+  // 在桌機切成暗色會連手機一起變，反而不合理。
+  const THEME_KEY = STORAGE_KEY + '.theme';
+  const themeBtn = document.getElementById('themeBtn');
+  const systemDark = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+
+  function currentTheme(){ return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light'; }
+  function readThemePref(){
+    try{ return localStorage.getItem(THEME_KEY); }catch(e){ return null; }
+  }
+  function applyTheme(theme){
+    document.documentElement.setAttribute('data-theme', theme);
+    themeBtn.textContent = theme === 'dark' ? '☀️' : '🌙';
+    themeBtn.title = theme === 'dark' ? '切換為亮色' : '切換為暗色';
+  }
+  themeBtn.onclick = ()=>{
+    const next = currentTheme() === 'dark' ? 'light' : 'dark';
+    applyTheme(next);
+    try{ localStorage.setItem(THEME_KEY, next); }catch(e){ /* 記憶體模式下切換仍有效，只是不記住 */ }
+  };
+  // 使用者尚未手動選過時才跟隨系統；選過之後系統再怎麼切都以使用者的決定為準
+  if(systemDark && systemDark.addEventListener){
+    systemDark.addEventListener('change', e=>{ if(!readThemePref()) applyTheme(e.matches ? 'dark' : 'light'); });
+  }
+  applyTheme(currentTheme());   // 同步按鈕圖示與 <head> 開機腳本已經寫好的狀態
+
   // ================= clock =================
   // 時鐘每秒跳，但資料重算不跟著每秒跑：metrics／提醒改由 commit() 與「跨日」觸發。
   // 否則每秒都要把所有循環項目展開一次，成本隨項目數線性放大。
@@ -1668,19 +1860,6 @@
   }
 
   // ================= 啟動 =================
-  document.getElementById('btnClearStorage').onclick = ()=>{
-    if(!confirm('確定清除所有資料？所有項目、專案、每日記錄與自訂假日都會刪除，並還原成示範資料。此操作無法復原。')) return;
-    try{
-      localStorage.removeItem(STORAGE_KEY);
-      localStorage.removeItem(CLOUD_META_KEY);
-    }catch(e){ /* 記憶體模式下本來就沒東西可清 */ }
-    majorProjects=[]; items=[]; ganttProjects=[]; dailyLogs={}; customHolidays=new Set();
-    selectedGanttProjectId=null;
-    availableYears=[today.getFullYear()-1, today.getFullYear(), today.getFullYear()+1, today.getFullYear()+2];
-    seed();
-    commit();
-  };
-
   const loadedFromStorage = loadState();
   if(!loadedFromStorage) seed();
   updateStorageNote();
