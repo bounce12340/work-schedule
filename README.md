@@ -119,7 +119,9 @@ npm run deploy
 ## 技術說明
 
 - 前端是零依賴的單一 HTML 檔（HTML + CSS + Vanilla JavaScript），可獨立運作
-- 唯一外部資源為 Google Fonts CDN（JetBrains Mono + Noto Sans TC），離線時自動退回系統字型
+- 唯一外部資源為 Google Fonts CDN（JetBrains Mono + Noto Sans TC），**採非阻擋方式載入**：字型還沒到、或根本連不上時先用系統字型把畫面畫出來，不會卡在白畫面
+- 勾選完成會立刻反應，存檔與雲端同步在背景進行
+- 雲端寫入以資料庫層的比較並寫入（compare-and-swap）做樂觀鎖，兩邊同時寫時不會有人的變更被無聲蓋掉
 - 循環項目採用「occurrence 引擎」設計：只儲存錨點日期與規則，每次顯示時即時展開，單次調整以 `occKey` 記錄在母項目上
 - 後端為 Cloudflare Worker + D1，自建 email/密碼認證，session 存於資料庫（僅存 token 雜湊）以便即時撤銷
 
@@ -134,7 +136,7 @@ src/turnstile.js       Turnstile siteverify
 src/handlers/          auth / state / admin / share 四組 API
 schema.sql             D1 資料表
 wrangler.jsonc         Worker 設定與綁定
-tests/                 occurrence 引擎測試（node:test，零相依，npm test）
+tests/                 occurrence 引擎、三方合併、樂觀鎖測試（node:test，零相依，npm test）
 tools/                 解析官方辦公日曆表的腳本（每年更新國定假日用）
 public/sw.js           service worker（加到主畫面／離線可用）
 ```

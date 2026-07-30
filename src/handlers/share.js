@@ -157,7 +157,7 @@ export async function handleDeleteShare(env, user, shareId) {
  * 另外驗證送回來的 id 與分享指定的一致，避免有人拿一張合法的分享單去改
  * 擁有者的其他資源。
  */
-export async function handleUpdateShared(request, env, user, shareId) {
+export async function handleUpdateShared(request, env, user, shareId, ctx) {
   let body;
   try { body = await request.json(); } catch { return json({ error: '請求格式錯誤' }, 400); }
   const resource = body?.resource;
@@ -174,41 +174,60 @@ export async function handleUpdateShared(request, env, user, shareId) {
   }
   if (share.resource_kind === 'major' && !resource.id) return json({ error: '缺少項目識別碼' }, 400);
 
-  const owned = await loadState(env, share.owner_id);
-  if (!owned) return json({ error: '擁有者的資料已不存在' }, 404);
-
-  // 大項目分享的寫回對象是「底下的某一個小項目」：resource.id 是子項目 id，
-  // 授權依據是它此刻真的隸屬於被分享的大項目——擁有者把項目移出大項目後，
-  // 這條授權立即失效。
   const isMajor = share.resource_kind === 'major';
-  const listKey = isMajor ? 'items' : KINDS[share.resource_kind];
-  const list = Array.isArray(owned.state[listKey]) ? owned.state[listKey] : null;
-  if (!list) return json({ error: '擁有者的資料格式不符' }, 409);
-  const idx = isMajor
-    ? list.findIndex(r => r && r.id === resource.id && r.parentId === share.resource_id)
-    : list.findIndex(r => r && r.id === share.resource_id);
-  if (idx < 0) return json({ error: '這個項目已被擁有者刪除或移出分享範圍' }, 404);
+  const mergeKind = isMajor ? 'item' : share.resource_kind;
 
-  const before = list[idx];
-  // 白名單合併，不整包替換。UI 沒有提供改名、改日期等操作，但那只是前端沒畫
-  // 按鈕——若這裡直接採用送來的整個物件，拿著 edit 權限打 API 就能改掉擁有者
-  // 的任何欄位（標題、日期、循環規則、甚至清空子代辦）。權限的邊界必須由
-  // 伺服器保證，因此只取出「可操作」允許的欄位，其餘一律以擁有者現有的為準。
-  const merged = mergeSharedEdit(isMajor ? 'item' : share.resource_kind, before, resource);
-  list[idx] = merged;
-  const now = Date.now();
-  await env.DB
-    .prepare('UPDATE user_state SET state = ?, updated_at = ? WHERE user_id = ?')
-    .bind(JSON.stringify(owned.state), now, share.owner_id)
-    .run();
+  // 讀出擁有者的 state → 白名單合併 → 寫回，這三步之間擁有者可能剛好推送過
+  // 一次。無條件的 UPDATE 會把他那次編輯無聲吃掉，而且他的前端已經收到 200、
+  // 也已經把它記成新的合併基準，不會再推一次去救——那份變更就真的不見了。
+  //
+  // 因此寫入帶 updated_at 條件，沒改到就重讀重算。白名單合併只取被分享者可動
+  // 的欄位、且以擁有者當下的資料為基底，重算是冪等的，重試安全。
+  let before = null, merged = null, now = 0, ok = false;
+  for (let attempt = 0; attempt < 3 && !ok; attempt++) {
+    const owned = await loadState(env, share.owner_id);
+    if (!owned) return json({ error: '擁有者的資料已不存在' }, 404);
 
-  await recordActivity(env, {
+    // 大項目分享的寫回對象是「底下的某一個小項目」：resource.id 是子項目 id，
+    // 授權依據是它此刻真的隸屬於被分享的大項目——擁有者把項目移出大項目後，
+    // 這條授權立即失效。每次重試都重新驗一遍，不沿用上一輪的結果。
+    const listKey = isMajor ? 'items' : KINDS[share.resource_kind];
+    const list = Array.isArray(owned.state[listKey]) ? owned.state[listKey] : null;
+    if (!list) return json({ error: '擁有者的資料格式不符' }, 409);
+    const idx = isMajor
+      ? list.findIndex(r => r && r.id === resource.id && r.parentId === share.resource_id)
+      : list.findIndex(r => r && r.id === share.resource_id);
+    if (idx < 0) return json({ error: '這個項目已被擁有者刪除或移出分享範圍' }, 404);
+
+    before = list[idx];
+    // 白名單合併，不整包替換。UI 沒有提供改名、改日期等操作，但那只是前端沒畫
+    // 按鈕——若這裡直接採用送來的整個物件，拿著 edit 權限打 API 就能改掉擁有者
+    // 的任何欄位（標題、日期、循環規則、甚至清空子代辦）。權限的邊界必須由
+    // 伺服器保證，因此只取出「可操作」允許的欄位，其餘一律以擁有者現有的為準。
+    merged = mergeSharedEdit(mergeKind, before, resource);
+    list[idx] = merged;
+    now = Date.now();
+    const upd = await env.DB
+      .prepare('UPDATE user_state SET state = ?, updated_at = ? WHERE user_id = ? AND updated_at = ?')
+      .bind(JSON.stringify(owned.state), now, share.owner_id, owned.updatedAt)
+      .run();
+    ok = upd.meta.changes === 1;
+  }
+  // 連續三次都被搶先＝擁有者正在密集寫入。回 409 讓對方重試，比硬寫進去好。
+  if (!ok) return json({ error: '擁有者的資料正在被更新，請再試一次' }, 409);
+
+  const activity = recordActivity(env, {
     ownerId: share.owner_id, actorId: user.id,
     kind: share.resource_kind, resourceId: share.resource_id,
-    name: resourceName(isMajor ? 'item' : share.resource_kind, merged),
-    action: describeChange(isMajor ? 'item' : share.resource_kind, before, merged),
+    name: resourceName(mergeKind, merged),
+    action: describeChange(mergeKind, before, merged),
     now
   });
+  // 記錄失敗本來就只 console.warn，不影響回應內容（見 recordActivity）。
+  // 既然結果不取決於它，就不該讓被分享者每勾一次都多等一次 D1 往返——
+  // 交給 waitUntil 在回應送出後繼續跑完。
+  if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(activity);
+  else await activity;
 
   return json({ ok: true, updatedAt: now });
 }

@@ -13,9 +13,9 @@ import { getSessionUser } from './session.js';
  * public/ 的路徑才會落到這裡。保護靜態頁面需要 run_worker_first（下一步處理）。
  */
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     try {
-      return await route(request, env);
+      return await route(request, env, ctx);
     } catch (err) {
       // 例外若直接往上拋，Cloudflare 會回一頁 HTML 錯誤頁（Error 1101）。前端對
       // /api/* 一律走 res.json()，解析失敗就只剩「發生錯誤，請稍後再試」——真正的
@@ -28,7 +28,7 @@ export default {
   }
 };
 
-async function route(request, env) {
+async function route(request, env, ctx) {
   const url = new URL(request.url);
   const path = url.pathname;
 
@@ -67,7 +67,8 @@ async function route(request, env) {
   }
 
   if (path === '/api/state') {
-    if (request.method === 'GET') return handleGetState(env, user.id);
+    // GET 收下整個 user：它順帶回傳身分，讓前端啟動時不必再打一次 /api/auth/me
+    if (request.method === 'GET') return handleGetState(env, user);
     if (request.method === 'PUT') return handlePutState(request, env, user.id);
     return methodNotAllowed();
   }
@@ -111,7 +112,7 @@ async function route(request, env) {
     const m = path.match(/^\/api\/shared\/([^/]+)$/);
     if (m) {
       return request.method === 'PUT'
-        ? handleUpdateShared(request, env, user, decodeURIComponent(m[1]))
+        ? handleUpdateShared(request, env, user, decodeURIComponent(m[1]), ctx)
         : methodNotAllowed();
     }
   }
@@ -152,7 +153,15 @@ function methodNotAllowed() {
  * 那也只是一個沒有資料的空殼，/api/admin/* 仍會擋下他。
  */
 async function servePage(request, env, url, path) {
-  const user = await getSessionUser(request, env);
+  // 授權查詢與取出靜態資產彼此沒有依賴，串行做等於讓一次 D1 往返擋在 HTML
+  // 的第一個位元組前面——而 run_worker_first 讓 / 一定要經過這裡，所以每次
+  // 開啟都在付這筆錢。同時發、未授權時把拿到的資產丟掉即可：擋下來的東西
+  // 完全一樣，只是不再排隊。多花的是未授權訪客的一次資產子請求（邊緣快取，
+  // 極便宜），換到的是所有正常開啟都少一段等待。
+  const [user, asset] = await Promise.all([
+    getSessionUser(request, env),
+    env.ASSETS.fetch(request)
+  ]);
 
   if (!user || user.status !== 'approved') {
     return Response.redirect(new URL('/login', url).toString(), 302);
@@ -160,5 +169,5 @@ async function servePage(request, env, url, path) {
   if ((path === '/admin' || path === '/admin.html') && user.role !== 'admin') {
     return Response.redirect(new URL('/', url).toString(), 302);
   }
-  return env.ASSETS.fetch(request);
+  return asset;
 }

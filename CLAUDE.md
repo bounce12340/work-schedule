@@ -17,7 +17,7 @@ src/turnstile.js       Turnstile siteverify
 src/handlers/          auth / state / admin / share 四組 API
 schema.sql             D1 資料表
 wrangler.jsonc         Worker 設定與綁定
-tests/                 occurrence 引擎的測試（node:test，零相依）
+tests/                 occurrence 引擎、三方合併、雲端寫入樂觀鎖的測試（node:test，零相依）
 tools/                 開發用腳本（解析官方辦公日曆表）
 public/sw.js           service worker（加到主畫面／離線可用）
 public/manifest.webmanifest, public/icon*.png|svg
@@ -25,7 +25,17 @@ public/manifest.webmanifest, public/icon*.png|svg
 
 **前端沒有 build step。** 唯一的前端外部資源是 Google Fonts CDN，離線時退回系統字型但功能不受影響。
 
-測試只涵蓋 occurrence 引擎（`npm test`），其餘一律靠實測——挑它是因為它同時是最容易改壞、也最容易測的部分（近乎純函式、零 DOM 依賴）。
+測試涵蓋三塊（`npm test`），其餘一律靠實測：
+
+| 檔案 | 涵蓋 | 抽取方式 |
+|---|---|---|
+| `tests/occurrence.test.mjs` | occurrence 引擎 | 從 `index.html` 抽真正的原始碼求值 |
+| `tests/merge.test.mjs` | 三方合併 | 同上 |
+| `tests/state.test.mjs` | `handlePutState` / `handleUpdateShared` 的樂觀鎖 | 直接 import Worker 端模組 |
+
+挑這三塊是因為它們同時是最容易改壞、也最容易測的部分。前兩者近乎純函式、零 DOM 依賴；第三者是**競態**——靠併發碰運氣測不到，但可以把空窗做成確定性的。
+
+`tests/d1.mjs` 用 **Node 內建的 `node:sqlite`**（不是相依套件）搭出 D1 相容外殼，讓 handler 跑真正的 SQL。不自己造假的 DB 物件是刻意的：要驗的正是「帶條件的 UPDATE 有沒有改到一列」，那是 SQL 的語意，假物件等於把答案寫成期望值，測起來永遠會過。
 
 ### 不可破壞的前提
 
@@ -173,6 +183,21 @@ commit(()=>{ /* 改資料 */ });   // → 重算年份 → 存檔 → renderAll(
 
 - 查無使用者資料時回 `state: null` 而非 404，代表「尚未同步過」，前端應沿用本地資料。
 - 401 在前端代表 session 過期，必須導向 `/login`，**不能當成單機模式靜默降級**——那會讓使用者以為還在同步，實際上變更只留在本機。
+- `GET /api/state` **順帶回傳 `user`**。前端啟動時本來就得先知道「是誰」才能決定要不要清掉別人留下的本地快取；這個端點本來就需要有效 session 才進得來，401 傳達的就是 `/api/auth/me` 要問的事。分兩次打等於兩次串行往返、兩次 session 查詢。`/api/auth/me` 仍然保留給 `admin.html` 等其他呼叫端。
+
+#### 樂觀鎖必須是單句 SQL
+
+`handlePutState` 與 `handleUpdateShared` 都以帶條件的 `UPDATE ... WHERE updated_at = ?` 寫入，用 `meta.changes` 判斷有沒有改到那一列。
+
+**不可以退回「先 SELECT 版本 → 比對 → 再 UPDATE」的三步寫法。** 讀完到寫入之間有一段空窗，另一條路徑（擁有者的 `PUT /api/state` 與被分享者的 `PUT /api/shared/:id` 會改同一列）剛好落在裡面時，後寫的那一方會把對方無聲蓋掉——而被蓋掉的一方已經收到 200、也已經把它記成新的三方合併基準，不會再推一次去救。樂觀鎖擋得住看得見的衝突，擋不住自己製造出來的競態。
+
+被分享者那一側改不到就**重讀重算並重試**（最多三次）而不是回錯誤：白名單合併只取被授權的欄位、且以擁有者當下的資料為基底，重算是冪等的。
+
+`tests/state.test.mjs` 用 `withRaceBeforeFirstUpdate` 在 UPDATE 執行前注入一次別人的寫入，讓那個空窗百分之百重現。**這兩個測試對舊的三步寫法會失敗**——加測試時請確認新測試真的抓得到舊 bug，否則它只是在複述現況。
+
+#### 授權查詢不該擋住 HTML
+
+`run_worker_first` 讓 `/` 一定要經過 Worker，所以每次開啟都要先問一次 D1。但取靜態資產與查 session 沒有依賴關係，`servePage` 以 `Promise.all` 同時發，未授權時把拿到的資產丟掉改回 302——擋下來的東西完全一樣，只是不再排隊。代價是未授權訪客多一次資產子請求（邊緣快取，極便宜）。
 
 ### 換人登入的隱私防線
 
@@ -328,6 +353,19 @@ DOM 建構有兩種寫法，請依情境沿用：
 - **互動元素**（列、chip、按鈕）用 `document.createElement` + closure 綁 `.onclick`，例如 `buildOccRow()`
 - **大塊靜態內容**用 `innerHTML` 字串拼接，但**使用者輸入必須先過 `escapeHtml()`**（`renderReminderList()`、`renderMetricList()` 是範例）
 
+### 勾選走樂觀回饋，是全量重繪唯一的緩衝
+
+`commit()` 是同步的完整重繪，成本隨項目數成長（300 項時一次勾選約 52ms）。若打勾符號要等它整段跑完才出現，資料一多就變成「按了沒反應」。
+
+因此核取方塊一律走 `toggleOccDone(occ, checkEl, labelEl)`：先就地把那一列切成新狀態（它已經在 DOM 裡，改 class 是 O(1)），再把 `commit()` 排到下一個 frame。項目安排列與日曆格子共用這一個函式。
+
+兩個容易改錯的地方：
+
+- **必須用兩層 `requestAnimationFrame`。** rAF 的 callback 跑在「下次繪製之前」，只包一層會和剛才的視覺變更擠在同一個 frame，等於完全沒有延後。
+- **`occ.done` 要一起就地更新。** 否則延後的那幾十毫秒內再點一次會讀到舊值，兩次算出同一個 `next`。真正的資料仍由 `commit()` 內的 `setOccurrenceDone` 寫入。
+
+這是全量重繪策略的緩衝，不是例外：資料流沒有變，只是把視覺回饋提前。**不要因此把其他操作也改成延後**——其餘操作的視覺結果無法只靠切一個 class 表達，延後只會讓畫面短暫地與資料不一致。
+
 ### 時鐘與資料重算已解耦
 
 `tick()` 每秒只更新時鐘文字。metrics 與提醒改由 `commit()` 驅動，另外記 `lastTickYmd` 偵測跨日才觸發一次 `renderAll()`。**不要把資料重算加回 `tick()`**——那等於每秒把所有循環項目展開一次，成本隨項目數線性放大。
@@ -337,6 +375,33 @@ DOM 建構有兩種寫法，請依情境沿用：
 這是全量重繪策略唯一開的洞，而且是必要的。表格內的名稱／日期／進度欄位若在編輯時重建整張表，正在輸入的 input 會被銷毀，Tab 換欄位和連續輸入都會斷掉。
 
 因此表格內編輯一律呼叫 `refreshGanttChart(gp)`——只替換 `#ganttChartWrap`，表格原地不動；名稱改動則透過 `.gantt-row-label[data-task-id]` 就地更新圖表文字。只有**新增／刪除任務**（行數改變）才走完整的 `commit()` → `renderGanttView()`。
+
+## 響應速度：量過的數字與排除掉的方向
+
+改效能之前先量。以下是實測結果，**不要憑直覺重做已經排除的項目**。
+
+### 已排除（量過，不值得動）
+
+| 曾經懷疑 | 實測 | 結論 |
+|---|---|---|
+| `commit()` 每次序列化整份 state | 300 項時 `JSON.stringify` 1.10ms ＋ `setItem` 0.40ms | 佔不到勾選成本的 3% |
+| 傳輸量太大 | 197KB 的 `index.html` 經 brotli 約 50KB，`content-encoding: br` 已生效 | 已是最佳 |
+| `getSessionUser` 查兩次 | 本來就是單一 JOIN | 沒有浪費 |
+| D1 讀取複本 | 資料庫在 APAC、使用者也在台灣 | 開複本只幫得到遠端使用者，目前沒有 |
+
+### 字型不阻擋首次繪製
+
+一般的 `<link rel="stylesheet">` 是 render-blocking：CDN 慢的時候整頁一個字都不畫（實測延遲 1.5s 會讓 FCP 從 536ms 變成 2060ms）。而網址裡本來就有 `display=swap`——擋住首次繪製換不到任何東西。
+
+三個 HTML 都改用 `media="print"` + `onload` 切回 `all`，並補上 `fonts.gstatic.com` 的 `preconnect crossorigin`（CSS 在 googleapis，實際的 woff2 在 gstatic，只指前者仍要重新握手）。改完後 FCP 與「完全沒有字型 link」的下限相同。
+
+**這裡的 inline `onload` 是允許的例外**：它只碰 `this`，不需要存取 IIFE 內的東西，與「不能用 inline onclick」那條規則的理由不衝突。
+
+### 還沒做、但量過確實有收益的
+
+- **五次重複的 occurrence 展開**：`renderAll()` 在項目安排頁會展開全部項目五次（今天、本週、逾期 90 天、提醒清單、board），其中提醒清單那次與第一次完全重複。收斂成單次記憶化可望把勾選成本再砍一半。
+- **board 逐列 append**：300 項時 1264 列一列一列插進活的 DOM，改用 `DocumentFragment` 約省 15–25ms。
+- **service worker 導覽改 stale-while-revalidate**：快取裡有完好的 app shell 卻每次都等網路。收益最大，但**代價是部署後要多開一次才看得到新版**——目前刻意維持 network-first，要改必須是明確的決定，不能順手。
 
 ## 樣式慣例
 
