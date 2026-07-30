@@ -54,6 +54,11 @@ npm run deploy
 
 本機開發不需要真的金鑰，`.dev.vars` 已使用 Cloudflare 官方測試金鑰（該檔已 gitignore）。
 
+### 部署疑難排解
+
+**註冊或登入回 Error 1101（Worker threw exception）**——Workers 正式環境的 PBKDF2 迭代次數上限是 100,000，超過會丟 `NotSupportedError`，而**本機 workerd 不強制這條規則**，因此本機測不出來。完整的症狀、排查過程與修正見
+[事故紀錄：線上註冊必定回 Error 1101](docs/postmortems/2026-07-30-register-error-1101.md)。
+
 ## 功能
 
 ### 📋 項目安排

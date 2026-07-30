@@ -193,6 +193,8 @@ NotSupportedError: Pbkdf2 failed: iteration counts above 100000 are not supporte
 
 `wrangler.jsonc` 的 `limits.cpu_ms = 500` 是成本防護，不是效能上限；帳號的 `default_usage_model` 為 `standard`，CPU 時間本身不是這裡的瓶頸。
 
+完整的排查過程記在 `docs/postmortems/2026-07-30-register-error-1101.md`。
+
 ### 外部 script 不加 SRI 是刻意的
 
 Turnstile 的 `api.js` 是 Cloudflare 持續更新的驗證元件，官方要求從固定 URL 取得且不提供 hash，加 SRI 會在其更新當下讓真人驗證整個失效；Google Fonts CSS 也會依 User-Agent 變動。兩者皆來自與本站同源的 Cloudflare 信任域。
