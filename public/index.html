@@ -390,6 +390,9 @@
   .backup-row{ display:flex; gap:8px; justify-content:center; margin-top:12px; }
   .ghost-btn{ font-family: var(--mono); font-size:11px; color: var(--text-dim); background:transparent; border:1px dashed var(--dash); border-radius:6px; padding:7px 12px; cursor:pointer; }
   .ghost-btn:hover{ color: var(--amber); border-color: var(--amber); }
+  .builtin-holiday{ margin-top:8px; display:flex; flex-direction:column; gap:6px; }
+  .builtin-holiday .source-note{ font-family:var(--mono); font-size:10.5px; color:var(--text-dim); line-height:1.6; }
+  .builtin-holiday button:disabled{ opacity:.55; cursor:default; }
   .holiday-bulk{ margin-top:8px; display:flex; flex-direction:column; gap:6px; }
   .holiday-bulk textarea{ font-family: var(--mono); font-size:12px; }
   .holiday-bulk .add-year-btn{ align-self:flex-start; }
@@ -758,6 +761,7 @@
           <input type="date" id="inputCustomHoliday" style="flex:1;">
           <button type="button" id="btnAddHoliday" class="add-year-btn" style="white-space:nowrap;">＋ 加入</button>
         </div>
+        <div class="builtin-holiday" id="builtinHolidayRow"></div>
         <div class="holiday-bulk">
           <textarea id="inputHolidayBulk" rows="2" placeholder="也可以一次貼上多個日期，例如：&#10;2027-01-01, 2027-02-16 2027-02-17&#10;2027-04-04"></textarea>
           <button type="button" id="btnAddHolidayBulk" class="add-year-btn">＋ 批次加入</button>
@@ -1676,6 +1680,53 @@
     majorProjects.forEach(mp=>{ const o=document.createElement('option'); o.value=mp.id; o.textContent=mp.name; sel.appendChild(o); });
     if([...sel.options].some(o=>o.value===cur)) sel.value=cur;
   }
+  /**
+   * 內建的國定假日清單。
+   *
+   * 來源：行政院人事行政總處「政府行政機關辦公日曆表」，以 tools/parse-gov-calendar.py
+   * 從官方 xlsx 解析而來（那份檔案的放假日只用粉紅底色標示，沒有文字標籤）。
+   *
+   * **只放已經正式公布的年度。** 假日每年由行政院公布，且會因調整放假與補假而變動；
+   * 自己推算或沿用去年的日期，會讓「遇假日順延」算出看似合理但錯誤的日期——
+   * 那比沒有這個功能更糟，因為使用者不會發現。新的年度公布後，重跑那支腳本再補上即可。
+   *
+   * 也因為同樣的理由，這裡不做「執行時去抓官網」：跨網域會被 CORS 擋、離線就失效，
+   * 而且會讓「單檔可獨立開啟、零外部相依」的前提破功。
+   */
+  const BUILTIN_HOLIDAYS = {
+    2026: [
+      '2026-01-01', '2026-02-16', '2026-02-17', '2026-02-18',
+      '2026-02-19', '2026-02-20', '2026-02-27', '2026-04-03',
+      '2026-04-06', '2026-05-01', '2026-06-19', '2026-09-25',
+      '2026-09-28', '2026-10-09', '2026-10-26', '2026-12-25'
+    ]
+  };
+
+  function renderBuiltinHolidays(){
+    const box=document.getElementById('builtinHolidayRow');
+    if(!box) return;
+    box.innerHTML='';
+    Object.keys(BUILTIN_HOLIDAYS).sort().forEach(year=>{
+      const list=BUILTIN_HOLIDAYS[year];
+      const missing=list.filter(d=>!customHolidays.has(d));
+      const btn=document.createElement('button');
+      btn.type='button'; btn.className='add-year-btn';
+      btn.textContent = missing.length
+        ? '＋ 載入 '+year+' 年國定假日（'+missing.length+' 天）'
+        : year+' 年國定假日已全部加入';
+      btn.disabled = !missing.length;
+      btn.onclick=()=>{
+        commit(()=> missing.forEach(d=>customHolidays.add(d)));
+        renderHolidayList();
+      };
+      box.appendChild(btn);
+    });
+    const note=document.createElement('div');
+    note.className='source-note';
+    note.textContent='資料來源：行政院人事行政總處「政府行政機關辦公日曆表」。加入後可在下方清單逐筆檢視或移除；其他年度請用底下的批次貼上。';
+    box.appendChild(note);
+  }
+
   function renderHolidayList(){
     const box=document.getElementById('holidayListBox'); box.innerHTML='';
     [...customHolidays].sort().forEach(dateStr=>{
@@ -1684,6 +1735,7 @@
       rm.onclick=()=>{ commit(()=> customHolidays.delete(dateStr)); renderHolidayList(); };
       chip.appendChild(rm); box.appendChild(chip);
     });
+    renderBuiltinHolidays();   // 已加入的天數會影響按鈕文字，必須一起更新
   }
   // 國定假日每年不同、且一次就是十幾天。逐日點選要按二十幾次，貼上則是一次的事。
   // 刻意不內建一份假日清單：日期每年由行政院公布、且會因補班而調整，寫死一份
