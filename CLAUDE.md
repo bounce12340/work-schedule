@@ -166,7 +166,7 @@ commit(()=>{ /* 改資料 */ });   // → 重算年份 → 存檔 → renderAll(
 | 規則 | 理由 |
 |---|---|
 | `TURNSTILE_SECRET` 未設定時**一律擋下**註冊與登入 | 未設定就放行，等於真人驗證形同虛設 |
-| 密碼用 PBKDF2-SHA256 210,000 迭代，比對走 constant-time | 用 `===` 比字串會提早回傳，洩漏正確前綴長度 |
+| 密碼用 PBKDF2-SHA256 100,000 迭代，比對走 constant-time | 用 `===` 比字串會提早回傳，洩漏正確前綴長度；100,000 是 Workers 的硬上限，見下方章節 |
 | session 在 DB 只存 token 的 SHA-256 | DB 外洩時裡面的值無法直接拿來登入 |
 | 用 DB session 而非無狀態 JWT | 管理者停用帳號要能**立即**生效 |
 | 登入失敗一律回「email 或密碼錯誤」，帳號不存在時仍跑一次雜湊 | 避免被用來列舉哪些 email 有註冊；兩條路徑耗時要接近 |
@@ -177,11 +177,21 @@ commit(()=>{ /* 改資料 */ });   // → 重算年份 → 存檔 → renderAll(
 | `ADMIN_EMAILS` 名單內的帳號無法從介面停用／降級／刪除 | 系統的最後保險，即使操作者是另一位管理者 |
 | 狀態一旦不是 `approved` 就銷毀該使用者所有 session | 否則對方在下次登入前仍能繼續使用，停用形同虛設 |
 
-### CPU 時間是真實限制
+### PBKDF2 迭代次數有平台硬上限（本機測不出來）
 
-密碼雜湊是純 CPU 運算。PBKDF2 210,000 迭代實測約 74ms，而 Workers **免費方案上限是每請求 10ms**——本專案帳號為 `workers_paid`（上限 30 秒）才能這樣用。
+`crypto.subtle.deriveBits` 在 Workers **正式環境**最多接受 **100,000** 次迭代，超過直接丟：
 
-**這個限制只在線上強制，本機開發不強制**，所以本機永遠測不出來。若日後改到免費方案，登入會直接被終止且錯誤訊息模糊。調整迭代次數前先確認方案。`wrangler.jsonc` 的 `limits.cpu_ms = 500` 是成本防護，不是效能上限。
+```
+NotSupportedError: Pbkdf2 failed: iteration counts above 100000 are not supported (requested 210000).
+```
+
+**本機 workerd 不強制這條規則**，所以這是一個本機百分之百測得過、線上百分之百失敗的坑，實際踩過：迭代次數照 OWASP 建議設成 210,000，本機從註冊到登入全綠，線上註冊卻每次回 Error 1101。難以診斷的原因是它**完全不像雜湊的問題**——例外在雜湊開始算之前就丟出來，該次請求 CPU 只有 3～5ms（正常跑完 PBKDF2 要 ~74ms），DB 一筆都沒寫進去，看起來就像整個 Worker 壞掉。
+
+診斷這類「只在線上壞」的問題時，GraphQL analytics 的 `workersInvocationsAdaptive` 很有用：`dimensions.status` 能區分 `scriptThrewException`（程式丟例外）與 `exceededCpu`（CPU 超限），兩者的處理方向完全不同。
+
+`src/crypto.js` 的 `MAX_ITERATIONS` 同時用於產生與驗證：儲存格式帶著迭代次數，所以平台哪天放寬上限，只要調高常數，舊密碼仍然驗得過。反之，超過上限的既有雜湊（只可能來自本機）在線上會被當成驗證失敗並留下 `console.warn`，而不是讓請求 500。
+
+`wrangler.jsonc` 的 `limits.cpu_ms = 500` 是成本防護，不是效能上限；帳號的 `default_usage_model` 為 `standard`，CPU 時間本身不是這裡的瓶頸。
 
 ### 外部 script 不加 SRI 是刻意的
 
