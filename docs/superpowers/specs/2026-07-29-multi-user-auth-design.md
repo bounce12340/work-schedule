@@ -1,7 +1,7 @@
 # 多使用者認證與權限設計
 
 日期：2026-07-29
-狀態：已核准，實作中
+狀態：**已實作完成**（Step 7–12）。與本文件的差異記於下方「實作與設計的差異」。
 
 ## 目標
 
@@ -49,7 +49,7 @@ user_state
 | 路徑 | 誰能到 | 說明 |
 |---|---|---|
 | `/login` | 公開 | 登入 + 註冊，Turnstile 掛此頁 |
-| `/pending` | 已登入未核准 | 等待核准說明 |
+| ~~`/pending`~~ | — | **未實作**，見下方「實作與設計的差異」 |
 | `/` | approved | 主應用 |
 | `/admin` | admin | 帳號管理 |
 | `POST /api/auth/register`、`/login` | 公開 | 需通過 Turnstile |
@@ -97,11 +97,27 @@ Workers 預設「靜態資產優先於 Worker」。不設定的話 `/` 會直接
 
 ## 施工順序（每步一 commit）
 
-1. schema 擴充 + 密碼雜湊與 session 工具
-2. Turnstile 驗證 + 註冊／登入／登出 API
-3. 授權中介層 + 路由改造 + `/api/state` 改用 session
-4. 登入頁與待核准頁
-5. 管理者介面 + `/api/admin/*`
-6. 主應用整合（顯示登入者、登出、admin 入口）
-7. 文件更新
-8. 部署與線上驗證
+| # | 內容 | 狀態 |
+|---|---|---|
+| 1 | schema 擴充 + 密碼雜湊與 session 工具 | ✅ Step 7 |
+| 2 | Turnstile 驗證 + 註冊／登入／登出 API | ✅ Step 8 |
+| 3 | 授權中介層 + 路由改造 + `/api/state` 改用 session | ✅ Step 9 |
+| 4 | 登入頁與待核准頁 | ✅ Step 9（待核准頁未實作，見下） |
+| 5 | 管理者介面 + `/api/admin/*` | ✅ Step 10 |
+| 6 | 主應用整合（顯示登入者、登出、admin 入口） | ✅ Step 11 |
+| 7 | 文件更新 | ✅ Step 12 |
+| 8 | 部署與線上驗證 | ⬜ 待執行（需先設定兩個 secret） |
+
+## 實作與設計的差異
+
+### `/pending` 頁面沒有實作，也不需要
+
+設計時假設「已登入但未核准」是一個需要落地頁的狀態。實作時改成**未核准帳號登入不發 session**（`handleLogin` 在 status 非 `approved` 時直接回錯誤訊息），因此這個狀態根本不存在——沒有 session 就進不了 `/`，會被 `servePage()` 導回 `/login`，狀態說明直接顯示在登入頁上。
+
+保留 `/pending` 反而會多出一個永遠到不了的路由。若日後改成「未核准也發 session」，這頁才需要補回來。
+
+`/api/auth/me` 仍允許未核准帳號查自己的身分（`src/index.js` 的 status 檢查排在 `/api/auth/me` 之後），這是為了讓前端能顯示原因，不影響上述結論。
+
+### 認證改自建後 `jose` 不再需要
+
+`jose` 是 Cloudflare Access 階段（Step 3）驗證 Access JWT 用的。改成自建 email/密碼 + DB session 後全 repo 已無任何 import，相依已移除。

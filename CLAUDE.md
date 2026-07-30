@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 專案性質
 
-前端是**零依賴的單一 HTML 檔** `public/index.html`（約 1450 行，CSS + HTML + JavaScript 全在裡面），可以獨立雙擊開啟運作；後端是 Cloudflare Worker + D1，只在部署後才啟用。
+前端是**零依賴的單一 HTML 檔** `public/index.html`（約 1700 行，CSS + HTML + JavaScript 全在裡面），可以獨立雙擊開啟運作；後端是 Cloudflare Worker + D1，只在部署後才啟用。
 
 ```
 public/index.html      主應用（單檔，可直接雙擊開啟）
@@ -60,9 +60,9 @@ Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.Comm
 
 | 行數範圍 | 內容 |
 |---|---|
-| 10–290 | `<style>`。`:root` 的 CSS 變數是所有顏色的唯一來源 |
-| 292–491 | `<body>` 靜態骨架。**所有 modal 都預先寫死在 markup 裡**，靠 `.overlay` 的 class 切換顯示 |
-| 493–1253 | 單一 `<script>`，整段包在一個 IIFE 內 |
+| 9–289 | `<style>`。`:root` 的 CSS 變數是所有顏色的唯一來源 |
+| 291–511 | `<body>` 靜態骨架。**所有 modal 都預先寫死在 markup 裡**，靠 `.overlay` 的 class 切換顯示 |
+| 512–1694 | 單一 `<script>`，整段包在一個 IIFE 內 |
 
 因為全部包在 IIFE 裡，**沒有任何東西暴露在 global scope**——所以不能用 inline `onclick="..."` 屬性，事件一律在 JS 內用 `.onclick = fn` 綁定。新增 UI 時請沿用此模式。
 
@@ -243,6 +243,6 @@ class 命名沿用 `type-<type>`（列）與 `type-badge <type>`（徽章）；�
 
 ## 尚未做的重構
 
-760 行 JS 目前仍在單一 IIFE 內，靠區段註解分隔。收攏成 `DateUtil`／`OccurrenceEngine`／`Store`／各 View 的 namespace 物件是合理的下一步，但**沒有測試網的情況下不該和功能修改混在同一批做**——會讓 diff 大到無法人工審查。要做就單獨一個 commit，且不夾帶任何行為變更。
+約 1180 行 JS 目前仍在單一 IIFE 內，靠區段註解分隔。收攏成 `DateUtil`／`OccurrenceEngine`／`Store`／各 View 的 namespace 物件是合理的下一步，但**沒有測試網的情況下不該和功能修改混在同一批做**——會讓 diff 大到無法人工審查。要做就單獨一個 commit，且不夾帶任何行為變更。
 
 特別值得保護的是：occurrence 引擎目前近乎純函式、零 DOM 依賴，這是全檔最好的設計。模組化時務必維持這個性質。
