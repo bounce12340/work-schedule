@@ -376,6 +376,31 @@
   .holiday-chip button{ background:none; border:none; cursor:pointer; color:var(--text-dim); font-size:11px; }
   .holiday-chip button:hover{ color:var(--red); }
 
+  /* ---- 分享 ---- */
+  .shared-toolbar{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+  .shared-hint{ font-family:var(--mono); font-size:11.5px; color:var(--text-dim); }
+  .shared-hint.ok{ color:var(--teal); }
+  .shared-hint.err{ color:var(--red); }
+  .share-card{ background:var(--panel); border:1px solid var(--hairline); border-radius:12px; padding:14px 16px; margin-bottom:12px; box-shadow: var(--shadow-xs); }
+  .share-card.readonly{ border-left:3px solid var(--text-dim); }
+  .share-card.editable{ border-left:3px solid var(--teal); }
+  .share-card-head{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
+  .share-card-title{ font-size:15px; font-weight:700; }
+  .share-owner{ font-family:var(--mono); font-size:11px; color:var(--text-muted); background:var(--panel-2); border:1px solid var(--hairline); padding:2px 8px; border-radius:10px; }
+  .perm-badge{ font-family:var(--mono); font-size:10px; letter-spacing:1.5px; padding:3px 8px; border-radius:5px; font-weight:700; }
+  .perm-badge.view{ background:var(--panel-2); color:var(--text-muted); border:1px solid var(--hairline); }
+  .perm-badge.edit{ background:var(--teal-dim); color:var(--teal); }
+  .share-gone{ font-family:var(--mono); font-size:12px; color:var(--text-dim); }
+  .share-occ{ display:flex; align-items:center; gap:10px; padding:7px 0; border-top:1px dashed var(--hairline-soft); flex-wrap:wrap; }
+  .share-occ:first-child{ border-top:none; }
+  .share-existing{ display:flex; flex-direction:column; gap:6px; margin-bottom:12px; }
+  .share-existing-row{ display:flex; align-items:center; gap:8px; font-family:var(--mono); font-size:11.5px; color:var(--text-muted); background:var(--panel-2); border:1px solid var(--hairline); border-radius:7px; padding:6px 9px; }
+  .share-existing-row .who{ flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .share-perm-hint{ font-family:var(--mono); font-size:11px; color:var(--text-dim); margin-top:7px; line-height:1.7; }
+  .msg-inline{ display:none; font-size:12.5px; line-height:1.6; padding:9px 11px; border-radius:7px; margin-bottom:4px; }
+  .msg-inline.err{ display:block; background:var(--red-dim); border:1px solid var(--red); color:var(--red); }
+  .msg-inline.ok{ display:block; background:var(--teal-dim); border:1px solid var(--teal); color:var(--teal); }
+
   @media (prefers-reduced-motion: reduce){ *{ transition: none !important; } }
 
   /* ---- 平板：側欄轉成橫排 ---- */
@@ -397,8 +422,11 @@
     header.top{ align-items:flex-start; gap:12px; padding-bottom:14px; }
     .brand-title{ font-size:19px; }
     .brand-eyebrow{ font-size:10px; letter-spacing:2px; }
-    header.top > div:last-child{ width:100%; justify-content:space-between; gap:10px !important; }
-    .account-email{ max-width:110px; }
+    /* 帳號列（email + 兩顆按鈕）與時鐘擠在同一行會超過 390px，把整個版面視窗
+       撐寬 6px。讓帳號列自己佔一行，其餘維持一行。 */
+    header.top > div:last-child{ width:100%; justify-content:space-between; gap:10px !important; flex-wrap:wrap; }
+    .account-box{ flex:1 1 100%; min-width:0; }
+    .account-email{ flex:1; max-width:none; }
     .clock-block .now-time{ font-size:16px; }
     .clock-block .now-date{ font-size:11.5px; }
 
@@ -414,7 +442,7 @@
       background: var(--panel); border-top:1px solid var(--hairline);
       box-shadow: 0 -2px 12px rgba(0,0,0,0.06);
     }
-    .nav-item{ flex-direction:column; gap:4px; padding:8px 4px; font-size:12px; border:none; background:transparent; border-radius:8px; }
+    .nav-item{ flex-direction:column; gap:4px; padding:8px 2px; font-size:11.5px; border:none; background:transparent; border-radius:8px; }
     .nav-item.active{ background: var(--amber-dim); }
     .nav-item .nav-dot{ width:6px; height:6px; }
 
@@ -450,9 +478,10 @@
     .gantt-timeline-col, .gantt-row-track{ min-width:280px; }
     /* 光有 overflow-x:auto 不夠：行動版瀏覽器的 shrink-to-fit 會以文件的最小內容
        寬度決定版面視窗，甘特圖的固定欄寬因此把整頁撐寬（實測 390 → 425，全站
-       跟著縮小）。給一個明確上限，橫向捲動就會關在這個容器裡。
-       28px = .app 的左右 padding 14×2。 */
-    .gantt-wrap{ padding:14px 12px 6px; max-width: calc(100vw - 28px); }
+       跟著縮小）。contain:inline-size 明確切斷「內容決定寬度」這條路，橫向捲動
+       就關在容器內；它不像 calc(100vw - …) 那樣要人工扣掉每一層祖先的內距，
+       共享頁把同一張圖表包在 .share-card 裡時也才會正確。 */
+    .gantt-wrap{ padding:14px 12px 6px; max-width:100%; contain: inline-size; }
     .task-row{ gap:7px; }
     .task-row input[type=text]{ flex:1 1 100%; min-width:0; }
     /* flex-basis 要給明確值：basis:0 的話日期欄不會觸發換行，而是被壓到
@@ -520,6 +549,7 @@
       <div class="nav-item active" id="navSchedule"><span class="nav-dot"></span>項目安排</div>
       <div class="nav-item" id="navCalendar"><span class="nav-dot"></span>日曆</div>
       <div class="nav-item" id="navGantt"><span class="nav-dot"></span>專案</div>
+      <div class="nav-item" id="navShared"><span class="nav-dot"></span>共享</div>
     </div>
 
     <div class="main-panel">
@@ -571,6 +601,9 @@
         </div>
       </div>
 
+      <!-- ================= VIEW 4: 共享 ================= -->
+      <!-- 放在最後，但 markup 順序不影響顯示：view 靠 .active class 切換 -->
+
       <!-- ================= VIEW 3: 專案（甘特圖） ================= -->
       <div class="view" id="viewGantt">
         <div class="major-section">
@@ -578,6 +611,22 @@
           <div class="gantt-picker" id="ganttPicker"></div>
         </div>
         <div id="ganttDetailArea"></div>
+      </div>
+
+      <div class="view" id="viewShared">
+        <div class="major-section">
+          <div class="major-section-label">別人分享給我的（資料仍在對方帳號中，這裡看到的永遠是最新版本）</div>
+          <div class="shared-toolbar">
+            <button class="qbtn" id="btnReloadShares">↻ 重新整理</button>
+            <span class="shared-hint" id="sharedHint"></span>
+          </div>
+        </div>
+        <div id="sharedIncoming"></div>
+
+        <div class="major-section" style="margin-top:26px;">
+          <div class="major-section-label">我分享出去的</div>
+        </div>
+        <div id="sharedOutgoing"></div>
       </div>
 
     </div>
@@ -692,6 +741,31 @@
     <div class="modal-actions">
       <button class="btn-cancel" id="btnCancelGantt">取消</button>
       <button class="btn-confirm" id="btnConfirmGantt">建立</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="shareOverlay">
+  <div class="modal" style="max-width:420px;">
+    <h3><span class="dot"></span>分享給其他帳號</h3>
+    <div class="scope-note" id="shareScopeNote">—</div>
+    <div class="field">
+      <label>對方的帳號 email</label>
+      <input type="email" id="inputShareEmail" placeholder="對方註冊時使用的 email" autocomplete="off">
+    </div>
+    <div class="field">
+      <label>權限</label>
+      <div class="type-toggle">
+        <button type="button" id="btnPermView">可檢視</button>
+        <button type="button" id="btnPermEdit">可操作</button>
+      </div>
+      <div class="share-perm-hint" id="sharePermHint"></div>
+    </div>
+    <div class="share-existing" id="shareExisting"></div>
+    <div class="msg-inline" id="shareMsg"></div>
+    <div class="modal-actions">
+      <button class="btn-cancel" id="btnCancelShare">關閉</button>
+      <button class="btn-confirm" id="btnConfirmShare">分享</button>
     </div>
   </div>
 </div>
@@ -1024,8 +1098,7 @@
     const prevMeta = readCloudMeta();
     if(prevMeta && prevMeta.owner && prevMeta.owner !== me.email){
       clearLocalData();
-      seed();
-      localHadData = false;
+      localHadData = false;   // 不再塞示範資料：每個帳號從空白開始
     }
     currentUserEmail = me.email;
 
@@ -1035,11 +1108,24 @@
 
     cloudEnabled = true;
     updateStorageNote();   // 文案要從「單機」改成「雲端同步」
+    // 分享清單與 state 各自獨立，不 await：它慢或失敗都不該拖住主資料的同步
+    fetchShares().then(()=>{ if(currentView==='shared') renderAll(); });
     const meta = readCloudMeta();
 
     if(!remote.state){
-      cloudUpdatedAt = null;              // 雲端還沒資料，把本機推上去
+      // 雲端還沒有資料。若本機這份只是啟動時塞的示範資料（localHadData 為 false），
+      // 不該把它變成這個帳號的初始內容——新帳號應該看到空白的介面，
+      // 否則每個人第一次登入都會拿到一份不是自己的假資料，還得逐筆刪掉。
+      if(!localHadData){
+        majorProjects=[]; items=[]; ganttProjects=[];
+        dailyLogs={}; customHolidays=new Set(); selectedGanttProjectId=null;
+        refreshAvailableYears();
+        persist();
+        renderAll();
+      }
+      cloudUpdatedAt = null;
       await cloudPush();
+      fetchShares().then(()=>{ if(currentView==='shared') renderAll(); });
       return;
     }
     if(!localHadData){
@@ -1167,13 +1253,14 @@
   document.getElementById('navSchedule').onclick = ()=>{ currentView='schedule'; renderNav(); };
   document.getElementById('navCalendar').onclick = ()=>{ currentView='calendar'; renderNav(); };
   document.getElementById('navGantt').onclick = ()=>{ currentView='gantt'; renderNav(); };
+  document.getElementById('navShared').onclick = ()=>{ currentView='shared'; renderNav(); };
+  const VIEWS = [['schedule','navSchedule','viewSchedule'], ['calendar','navCalendar','viewCalendar'],
+                 ['gantt','navGantt','viewGantt'], ['shared','navShared','viewShared']];
   function renderNav(){
-    document.getElementById('navSchedule').classList.toggle('active', currentView==='schedule');
-    document.getElementById('navCalendar').classList.toggle('active', currentView==='calendar');
-    document.getElementById('navGantt').classList.toggle('active', currentView==='gantt');
-    document.getElementById('viewSchedule').classList.toggle('active', currentView==='schedule');
-    document.getElementById('viewCalendar').classList.toggle('active', currentView==='calendar');
-    document.getElementById('viewGantt').classList.toggle('active', currentView==='gantt');
+    VIEWS.forEach(([name, navId, viewId])=>{
+      document.getElementById(navId).classList.toggle('active', currentView===name);
+      document.getElementById(viewId).classList.toggle('active', currentView===name);
+    });
     renderAll();
   }
 
@@ -1317,6 +1404,11 @@
       skipBtn.onclick=()=> commit(()=> skipOccurrence(occ)); row.appendChild(skipBtn);
     }
     const spacer=document.createElement('span'); spacer.className='occ-spacer'; row.appendChild(spacer);
+    if(cloudEnabled){
+      const shareBtn=document.createElement('button'); shareBtn.className='icon-btn'; shareBtn.textContent='🔗';
+      shareBtn.title='分享給其他帳號';
+      shareBtn.onclick=()=>openShareModal('item', it.id, it.title); row.appendChild(shareBtn);
+    }
     const editBtn=document.createElement('button'); editBtn.className='icon-btn'; editBtn.textContent='編輯'; editBtn.title='編輯小項目設定';
     editBtn.onclick=()=>openItemModal(it); row.appendChild(editBtn);
     const delBtn=document.createElement('button'); delBtn.className='icon-btn danger'; delBtn.textContent='刪除'; delBtn.title='刪除整個項目（含所有循環）';
@@ -1730,6 +1822,10 @@
       const e = new Date(); e.setDate(e.getDate()+7);
       commit(()=>{ gp.tasks.push({ id: uid('task'), name:'新任務', start:s, end: ymd(e), progress:0, done:false, todos:[] }); });
     };
+    if(cloudEnabled){
+      const shareBtn=document.createElement('button'); shareBtn.className='qbtn'; shareBtn.textContent='🔗 分享此專案';
+      shareBtn.onclick=()=>openShareModal('gantt', gp.id, gp.name); head.appendChild(shareBtn);
+    }
     head.appendChild(addTaskBtn);
     area.appendChild(head);
 
@@ -1956,8 +2052,328 @@
     renderMetrics(); renderReminderList();
     if(currentView==='calendar') renderCalendar();
     else if(currentView==='gantt') renderGanttView();
+    else if(currentView==='shared') renderSharedView();
     else renderScheduleView();
   }
+
+  // ================= 分享 =================
+  // 分享的資源不進 snapshot()，也不寫進 localStorage：它們的權威來源是對方的
+  // 帳號。若在本地留一份快取，離線編輯後會與對方的版本無聲分歧——而分享的
+  // 語意就是雙方看的是同一個東西，所以寧可離線時直接顯示為不可用。
+  const API_SHARES = '/api/shares';
+  let shares = { outgoing: [], incoming: [] };
+  let shareCtx = null;          // 目前 modal 正在處理的資源
+  let sharePerm = 'view';
+
+  function setSharedHint(text, cls){
+    const el=document.getElementById('sharedHint');
+    if(el){ el.textContent=text||''; el.className='shared-hint'+(cls?' '+cls:''); }
+  }
+
+  async function fetchShares(){
+    if(!cloudEnabled) return;
+    try{
+      const r = await fetch(API_SHARES, { cache:'no-store' });
+      if(r.status===401){ sessionExpired(); return; }
+      if(!r.ok) return;
+      shares = await r.json();
+    }catch(e){ /* 離線：沿用上一次讀到的內容，不清空畫面 */ }
+  }
+
+  /** 只把單一資源寫回擁有者。成功與否都要讓使用者看得到——這條路徑沒有本機備份 */
+  async function pushSharedResource(share){
+    try{
+      const r = await fetch('/api/shared/'+encodeURIComponent(share.id), {
+        method:'PUT', headers:{'content-type':'application/json'},
+        body: JSON.stringify({ resource: share.resource })
+      });
+      if(r.status===401){ sessionExpired(); return false; }
+      if(!r.ok){
+        const d = await r.json().catch(()=>({}));
+        setSharedHint(d.error || ('儲存失敗（HTTP '+r.status+'）'), 'err');
+        return false;
+      }
+      setSharedHint('已儲存到 '+share.ownerEmail+' 的帳號', 'ok');
+      return true;
+    }catch(e){
+      setSharedHint('目前離線，這次變更沒有存到對方帳號', 'err');
+      return false;
+    }
+  }
+
+  function shareResourceName(kind, resourceId){
+    if(kind==='item'){ const it=items.find(x=>x.id===resourceId); return it?it.title:'（已刪除的項目）'; }
+    const gp=ganttProjects.find(x=>x.id===resourceId); return gp?gp.name:'（已刪除的專案）';
+  }
+
+  // ---- 分享 modal ----
+  const shareOverlay=document.getElementById('shareOverlay');
+  function updatePermToggle(){
+    typeBtnStyle(document.getElementById('btnPermView'), sharePerm==='view', 'var(--text-muted)', 'var(--panel-2)');
+    typeBtnStyle(document.getElementById('btnPermEdit'), sharePerm==='edit', 'var(--teal)', 'var(--teal-dim)');
+    document.getElementById('sharePermHint').textContent = sharePerm==='view'
+      ? '對方只能看到內容，不能做任何變更。'
+      : '對方可以勾選完成、編輯代辦項目與進度。重新命名、改日期與刪除仍然只有你能做。';
+  }
+  document.getElementById('btnPermView').onclick=()=>{ sharePerm='view'; updatePermToggle(); };
+  document.getElementById('btnPermEdit').onclick=()=>{ sharePerm='edit'; updatePermToggle(); };
+
+  function setShareMsg(text, cls){
+    const el=document.getElementById('shareMsg');
+    el.textContent=text||''; el.className='msg-inline'+(text?' '+cls:'');
+  }
+
+  function renderShareExisting(){
+    const box=document.getElementById('shareExisting'); box.innerHTML='';
+    if(!shareCtx) return;
+    const mine=shares.outgoing.filter(s=>s.kind===shareCtx.kind && s.resourceId===shareCtx.resourceId);
+    if(!mine.length) return;
+    mine.forEach(s=>{
+      const row=document.createElement('div'); row.className='share-existing-row';
+      const who=document.createElement('span'); who.className='who'; who.textContent=s.targetEmail;
+      const badge=document.createElement('span'); badge.className='perm-badge '+s.permission;
+      badge.textContent = s.permission==='edit' ? '可操作' : '可檢視';
+      const rm=document.createElement('button'); rm.className='icon-btn danger'; rm.textContent='取消分享';
+      rm.onclick=async ()=>{
+        rm.disabled=true;
+        try{
+          const r=await fetch(API_SHARES+'/'+encodeURIComponent(s.id), { method:'DELETE' });
+          if(r.status===401){ sessionExpired(); return; }
+          if(!r.ok){ setShareMsg('取消失敗，請稍後再試','err'); rm.disabled=false; return; }
+          await fetchShares(); renderShareExisting(); renderAll();
+          setShareMsg('已取消對 '+s.targetEmail+' 的分享','ok');
+        }catch(e){ setShareMsg('目前離線，無法取消分享','err'); rm.disabled=false; }
+      };
+      row.appendChild(who); row.appendChild(badge); row.appendChild(rm);
+      box.appendChild(row);
+    });
+  }
+
+  async function openShareModal(kind, resourceId, name){
+    if(!cloudEnabled){ alert('分享需要登入帳號後才能使用。'); return; }
+    shareCtx={ kind, resourceId, name };
+    sharePerm='view'; updatePermToggle();
+    document.getElementById('shareScopeNote').innerHTML =
+      '分享的對象：<b>'+escapeHtml(name)+'</b>（'+(kind==='item'?'小項目':'專案')+'）';
+    document.getElementById('inputShareEmail').value='';
+    setShareMsg('');
+    shareOverlay.classList.add('show');
+    await fetchShares(); renderShareExisting();
+    setTimeout(()=>document.getElementById('inputShareEmail').focus(), 50);
+  }
+  document.getElementById('btnCancelShare').onclick=()=>shareOverlay.classList.remove('show');
+  shareOverlay.addEventListener('click',(e)=>{ if(e.target.id==='shareOverlay') e.currentTarget.classList.remove('show'); });
+
+  document.getElementById('btnConfirmShare').onclick=async ()=>{
+    if(!shareCtx) return;
+    const email=document.getElementById('inputShareEmail').value.trim();
+    if(!email){ document.getElementById('inputShareEmail').focus(); return; }
+    const btn=document.getElementById('btnConfirmShare');
+    btn.disabled=true; setShareMsg('');
+    // 伺服器會確認資源存在於雲端的 state，剛建立還沒推上去的話會被擋下，
+    // 因此先強制推一次，避免使用者遇到莫名其妙的「找不到要分享的項目」
+    await cloudPush();
+    try{
+      const r=await fetch(API_SHARES, {
+        method:'POST', headers:{'content-type':'application/json'},
+        body: JSON.stringify({ email, kind: shareCtx.kind, resourceId: shareCtx.resourceId, permission: sharePerm })
+      });
+      if(r.status===401){ sessionExpired(); return; }
+      const d=await r.json().catch(()=>({}));
+      if(!r.ok){ setShareMsg(d.error || ('分享失敗（HTTP '+r.status+'）'), 'err'); btn.disabled=false; return; }
+      document.getElementById('inputShareEmail').value='';
+      await fetchShares(); renderShareExisting(); renderAll();
+      setShareMsg('已分享給 '+d.targetEmail+'（'+(d.permission==='edit'?'可操作':'可檢視')+'）', 'ok');
+    }catch(e){ setShareMsg('目前離線，無法建立分享','err'); }
+    btn.disabled=false;
+  };
+
+  // ---- 共享頁 ----
+  function renderSharedView(){
+    const inc=document.getElementById('sharedIncoming');
+    const out=document.getElementById('sharedOutgoing');
+    inc.innerHTML=''; out.innerHTML='';
+    if(!cloudEnabled){
+      inc.innerHTML='<div class="empty-state">分享需要登入帳號後才能使用。<br>目前是單機模式，資料只存在這個瀏覽器。</div>';
+      return;
+    }
+    if(!shares.incoming.length){
+      inc.innerHTML='<div class="empty-state">目前沒有人分享項目給你</div>';
+    } else {
+      shares.incoming.forEach(sh=> inc.appendChild(buildIncomingCard(sh)));
+    }
+    if(!shares.outgoing.length){
+      out.innerHTML='<div class="empty-state">還沒有分享任何項目出去 — 在項目或專案上按 <span>🔗</span> 即可分享</div>';
+    } else {
+      shares.outgoing.forEach(s=>{
+        const card=document.createElement('div'); card.className='share-card';
+        const head=document.createElement('div'); head.className='share-card-head';
+        const title=document.createElement('span'); title.className='share-card-title';
+        title.textContent=shareResourceName(s.kind, s.resourceId);
+        const kindTag=document.createElement('span'); kindTag.className='share-owner';
+        kindTag.textContent = s.kind==='item' ? '小項目' : '專案';
+        const who=document.createElement('span'); who.className='share-owner'; who.textContent='→ '+s.targetEmail;
+        const badge=document.createElement('span'); badge.className='perm-badge '+s.permission;
+        badge.textContent = s.permission==='edit' ? '可操作' : '可檢視';
+        const rm=document.createElement('button'); rm.className='icon-btn danger'; rm.style.marginLeft='auto';
+        rm.textContent='取消分享';
+        rm.onclick=async ()=>{
+          if(!confirm('取消對 '+s.targetEmail+' 的分享？對方將不再看得到這個項目。')) return;
+          try{
+            const r=await fetch(API_SHARES+'/'+encodeURIComponent(s.id), { method:'DELETE' });
+            if(r.status===401){ sessionExpired(); return; }
+            await fetchShares(); renderAll();
+          }catch(e){ setSharedHint('目前離線，無法取消分享','err'); }
+        };
+        head.appendChild(title); head.appendChild(kindTag); head.appendChild(who); head.appendChild(badge); head.appendChild(rm);
+        card.appendChild(head); out.appendChild(card);
+      });
+    }
+  }
+
+  function buildIncomingCard(sh){
+    const card=document.createElement('div');
+    card.className='share-card '+(sh.permission==='edit'?'editable':'readonly');
+    const head=document.createElement('div'); head.className='share-card-head';
+    const title=document.createElement('span'); title.className='share-card-title';
+    title.textContent = sh.resource ? (sh.kind==='item' ? sh.resource.title : sh.resource.name) : '（已被移除）';
+    const owner=document.createElement('span'); owner.className='share-owner'; owner.textContent='來自 '+sh.ownerEmail;
+    const badge=document.createElement('span'); badge.className='perm-badge '+sh.permission;
+    badge.textContent = sh.permission==='edit' ? '可操作' : '可檢視';
+    const rm=document.createElement('button'); rm.className='icon-btn danger'; rm.style.marginLeft='auto';
+    rm.textContent='從我的畫面移除';
+    rm.onclick=async ()=>{
+      if(!confirm('把這個分享從你的畫面移除？不會影響對方的資料，但要重新看到必須請對方再分享一次。')) return;
+      try{
+        const r=await fetch(API_SHARES+'/'+encodeURIComponent(sh.id), { method:'DELETE' });
+        if(r.status===401){ sessionExpired(); return; }
+        await fetchShares(); renderAll();
+      }catch(e){ setSharedHint('目前離線，無法移除','err'); }
+    };
+    head.appendChild(title); head.appendChild(owner); head.appendChild(badge); head.appendChild(rm);
+    card.appendChild(head);
+
+    if(!sh.resource){
+      const gone=document.createElement('div'); gone.className='share-gone';
+      gone.textContent='對方已經刪除這個項目，內容不再存在。';
+      card.appendChild(gone); return card;
+    }
+    if(sh.kind==='item') buildSharedItemBody(card, sh);
+    else buildSharedGanttBody(card, sh);
+    return card;
+  }
+
+  /**
+   * 分享過來的小項目。occurrence 引擎是純函式，直接餵對方的 item 物件即可展開，
+   * 不必把它混進本機的 items[]——混進去的話每一條 render 與寫入路徑都要再判斷
+   * 一次「這是不是別人的」，而 commit() 會把它一起推進我自己的雲端資料。
+   */
+  function buildSharedItemBody(card, sh){
+    const it=sh.resource;
+    const start=new Date(); start.setHours(0,0,0,0); start.setMonth(start.getMonth()-1);
+    const end=new Date(); end.setHours(23,59,59,999); end.setMonth(end.getMonth()+3);
+    let occs=[];
+    try{ occs=getOccurrencesInRange(it, start, end); }catch(e){ occs=[]; }
+
+    if(!occs.length){
+      const none=document.createElement('div'); none.className='share-gone';
+      none.textContent='最近三個月內沒有安排（日期：'+(it.date||'—')+'）';
+      card.appendChild(none); return;
+    }
+    occs.forEach(occ=>{
+      const row=document.createElement('div'); row.className='share-occ';
+      const cb=document.createElement('span'); cb.className='checkbox'+(occ.done?' done':''); cb.textContent=occ.done?'✓':'';
+      if(sh.permission==='edit'){
+        cb.onclick=async ()=>{
+          const next=!occ.done;
+          setOccurrenceDone(occ, next);
+          occ.done=next; cb.className='checkbox'+(next?' done':''); cb.textContent=next?'✓':'';
+          const ok=await pushSharedResource(sh);
+          if(!ok){   // 寫不進去就把畫面改回來，別讓使用者以為已經存了
+            setOccurrenceDone(occ, !next); occ.done=!next;
+            cb.className='checkbox'+(!next?' done':''); cb.textContent=!next?'✓':'';
+          }
+        };
+      } else {
+        cb.style.cursor='default'; cb.title='你只有檢視權限';
+      }
+      const badge=document.createElement('span'); badge.className='type-badge '+it.type; badge.textContent=typeLabels[it.type];
+      const t=document.createElement('span'); t.className='occ-title'+(occ.done?' done':''); t.textContent=it.title;
+      const d=document.createElement('span'); d.className='occ-date'; d.textContent=occ.date;
+      row.appendChild(cb); row.appendChild(badge); row.appendChild(t);
+      if(it.meetingTime){ const mt=document.createElement('span'); mt.className='meeting-time'; mt.textContent=it.meetingTime; row.appendChild(mt); }
+      row.appendChild(d);
+      card.appendChild(row);
+    });
+  }
+
+  /** 分享過來的專案：圖表沿用 buildGanttChart（純繪製），可操作時開放勾選子代辦 */
+  function buildSharedGanttBody(card, sh){
+    const gp=sh.resource;
+    gp.tasks=Array.isArray(gp.tasks)?gp.tasks:[];
+    try{ card.appendChild(buildGanttChart(gp)); }catch(e){ /* 日期異常時略過圖表，下面的列表仍可用 */ }
+
+    gp.tasks.forEach(t=>{
+      if(!Array.isArray(t.todos)) t.todos=[];
+      const row=document.createElement('div'); row.className='share-occ';
+      const cb=document.createElement('span'); cb.className='checkbox'+(t.done?' done':''); cb.textContent=t.done?'✓':'';
+      const name=document.createElement('span'); name.className='occ-title'+(t.done?' done':''); name.textContent=t.name;
+      const prog=document.createElement('span'); prog.className='todo-progress';
+      const syncProg=()=>{
+        prog.innerHTML = t.todos.length
+          ? '<b>'+t.progress+'%</b>（'+t.todos.filter(td=>td.done).length+'／'+t.todos.length+'）'
+          : '<b>'+(t.progress||0)+'%</b>';
+        cb.className='checkbox'+(t.done?' done':''); cb.textContent=t.done?'✓':'';
+        name.className='occ-title'+(t.done?' done':'');
+      };
+      const dates=document.createElement('span'); dates.className='occ-date'; dates.textContent=t.start+' → '+t.end;
+      row.appendChild(cb); row.appendChild(name); row.appendChild(prog); row.appendChild(dates);
+      card.appendChild(row);
+
+      if(t.todos.length){
+        const box=document.createElement('div'); box.className='todo-list';
+        t.todos.forEach(td=>{
+          const tr=document.createElement('div'); tr.className='todo-row';
+          const tcb=document.createElement('span'); tcb.className='todo-cb'+(td.done?' done':''); tcb.textContent=td.done?'✓':'';
+          const label=document.createElement('span'); label.style.flex='1'; label.style.fontSize='13px';
+          label.textContent=td.text || '（未命名）';
+          if(td.done){ label.style.color='var(--text-dim)'; label.style.textDecoration='line-through'; }
+          if(sh.permission==='edit'){
+            tcb.onclick=async ()=>{
+              const prev=td.done;
+              td.done=!td.done; syncTaskFromTodos(t);
+              tcb.className='todo-cb'+(td.done?' done':''); tcb.textContent=td.done?'✓':'';
+              syncProg(); refreshGanttChart(gp);
+              const ok=await pushSharedResource(sh);
+              if(!ok){ td.done=prev; syncTaskFromTodos(t);
+                tcb.className='todo-cb'+(td.done?' done':''); tcb.textContent=td.done?'✓':'';
+                syncProg(); refreshGanttChart(gp); }
+            };
+          } else { tcb.style.cursor='default'; tcb.title='你只有檢視權限'; }
+          tr.appendChild(tcb); tr.appendChild(label); box.appendChild(tr);
+        });
+        card.appendChild(box);
+      }
+      if(sh.permission==='edit' && !t.todos.length){
+        cb.onclick=async ()=>{
+          const prev=t.done;
+          t.done=!t.done; t.progress=t.done?100:0; syncProg(); refreshGanttChart(gp);
+          const ok=await pushSharedResource(sh);
+          if(!ok){ t.done=prev; t.progress=prev?100:0; syncProg(); refreshGanttChart(gp); }
+        };
+      } else if(sh.permission!=='edit'){
+        cb.style.cursor='default'; cb.title='你只有檢視權限';
+      }
+      syncProg();
+    });
+  }
+
+  document.getElementById('btnReloadShares').onclick=async ()=>{
+    setSharedHint('讀取中…');
+    await fetchShares();
+    setSharedHint('已更新','ok');
+    renderAll();
+  };
 
   // ================= seed demo data =================
   function seed(){
