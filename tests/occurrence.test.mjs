@@ -85,6 +85,30 @@ test('非循環項目不套用假日調整——日期原樣使用', () => {
   assert.deepEqual(dates(occs), ['2026-03-07']);
 });
 
+// ---------------------------------------------------------------- 跨多天（endDate）
+
+test('跨多天事項：檢視區間落在期間中段也會出現', () => {
+  const it = item({ date: '2026-08-22', endDate: '2026-08-26' });
+  // 只看 8/24 一天（出國期間的中段）
+  const occs = E.getOccurrencesInRange(it, d('2026-08-24'), d('2026-08-24'));
+  assert.equal(occs.length, 1);
+  assert.equal(occs[0].occKey, 'single');
+});
+
+test('跨多天事項：區間完全在期間之外時不出現', () => {
+  const it = item({ date: '2026-08-22', endDate: '2026-08-26' });
+  assert.equal(E.getOccurrencesInRange(it, d('2026-08-27'), d('2026-08-31')).length, 0);
+  assert.equal(E.getOccurrencesInRange(it, d('2026-08-01'), d('2026-08-21')).length, 0);
+});
+
+test('跨多天事項：整段只有一筆、一個完成狀態', () => {
+  const it = item({ date: '2026-08-22', endDate: '2026-08-26', done: false });
+  const occs = E.getOccurrencesInRange(it, d('2026-08-01'), d('2026-08-31'));
+  assert.equal(occs.length, 1, '月檢視中只出現一列，不是五列');
+  E.setOccurrenceDone(occs[0], true);
+  assert.equal(it.done, true);
+});
+
 // ---------------------------------------------------------------- 每月循環
 
 test('每月循環在區間內逐月展開，occKey 為 YYYY-MM', () => {
