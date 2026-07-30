@@ -759,7 +759,10 @@
     <div class="field" id="itemMeetingTimeField"><label>時間（選填）</label><input type="time" id="inputItemMeetingTime"></div>
     <div class="field"><label>連結（選填，例如會議連結或文件）</label><input type="url" id="inputItemLink" placeholder="https://…"></div>
     <div class="field"><label>歸屬大項目</label><select id="selectParent"><option value="">獨立項目（不歸屬任何大項目）</option></select></div>
-    <div class="field"><label id="itemDateLabel">日期</label><input type="date" id="inputItemDate"></div>
+    <div class="field-row">
+      <div class="field"><label id="itemDateLabel">日期</label><input type="date" id="inputItemDate"></div>
+      <div class="field" id="itemEndDateField"><label>結束日期（選填，跨多天）</label><input type="date" id="inputItemEndDate"></div>
+    </div>
     <div class="field">
       <label>循環設定</label>
       <select id="selectRecurrence">
@@ -1042,6 +1045,9 @@
       parentId: it.parentId || null,
       meetingTime: it.meetingTime || null,
       link: (typeof it.link==='string' && /^https?:\/\//.test(it.link)) ? it.link.slice(0,500) : null,
+      // 結束日期只對非循環項目有意義，且必須晚於開始日；循環＋區間的組合複雜度
+      // 爆炸（每一次都要有自己的區間），不支援
+      endDate: (!it.recurrence && isYmd(it.endDate) && it.endDate > it.date) ? it.endDate : null,
       date: it.date,
       recurrence: normalizeRecurrence(it.recurrence),
       done: !!it.done,
@@ -1549,8 +1555,12 @@
   function getOccurrencesInRange(item, rangeStart, rangeEnd){
     const results = [];
     if(!item.recurrence){
-      const d = parseYMD(item.date);
-      if(d>=rangeStart && d<=rangeEnd) results.push({ item, date:item.date, occKey:'single', done: !!item.done });
+      // 跨多天事項（endDate）：與檢視區間**重疊**就出現，而不是只看開始日。
+      // 只回傳一筆（occKey 仍為 'single'）——完成狀態整段共用，出國五天是
+      // 「一件事」，不是五件。日曆逐日鋪排由 renderCalendar 自行處理。
+      const s0 = parseYMD(item.date);
+      const e0 = item.endDate ? parseYMD(item.endDate) : s0;
+      if(s0<=rangeEnd && e0>=rangeStart) results.push({ item, date:item.date, occKey:'single', done: !!item.done });
       return results;
     }
     const rec = item.recurrence;
@@ -1746,7 +1756,9 @@
     // 隨項目數與歷史長度成長，而 90 天前還沒勾的項目，實務上已經不是「待辦」。
     const odStart = new Date(now); odStart.setDate(odStart.getDate()-90);
     const odEnd = new Date(now); odEnd.setMilliseconds(-1);   // 昨天 23:59:59.999
-    const overdue = getAllOccurrences(odStart, odEnd).filter(o=>!o.done)
+    const todayStr = ymd(now);
+    const overdue = getAllOccurrences(odStart, odEnd)
+      .filter(o=>!o.done && (o.item.endDate || o.date) < todayStr)   // 進行中的跨多天事項不算逾期
       .sort((a,b)=> a.date.localeCompare(b.date));
     const odEl = document.getElementById('metricOverdueList');
     if(!overdue.length){
@@ -1902,8 +1914,10 @@
       a.onclick=(e)=>e.stopPropagation();
       row.appendChild(a);
     }
-    const dateEl=document.createElement('span'); dateEl.className='occ-date'; dateEl.textContent=occ.date;
-    if(!occ.done && occ.date < ymd(new Date())){ dateEl.classList.add('overdue'); dateEl.title='已逾期'; }
+    const dateEl=document.createElement('span'); dateEl.className='occ-date';
+    dateEl.textContent = it.endDate ? occ.date+' → '+it.endDate : occ.date;
+    // 跨多天事項要整段結束後才算逾期，期間進行中不是
+    if(!occ.done && (it.endDate || occ.date) < ymd(new Date())){ dateEl.classList.add('overdue'); dateEl.title='已逾期'; }
     row.appendChild(dateEl);
     if(it.recurrence){
       const adjBtn=document.createElement('button'); adjBtn.className='icon-btn'; adjBtn.textContent='📅✎'; adjBtn.title='調整本次日期';
@@ -1998,7 +2012,19 @@
     const rangeEnd=new Date(calYear, calMonth-1, dim, 23,59,59);
     const monthOcc=getAllOccurrences(rangeStart, rangeEnd);
     const byDate={};
-    monthOcc.forEach(o=>{ (byDate[o.date]=byDate[o.date]||[]).push(o); });
+    monthOcc.forEach(o=>{
+      // 跨多天事項：期間內（且落在本月內）的每一天都要出現，不只開始日。
+      // 引擎只回一筆（完成狀態整段共用），逐日鋪排是日曆自己的顯示邏輯。
+      if(o.item.endDate && o.occKey==='single'){
+        const from = parseYMD(o.date) < rangeStart ? new Date(rangeStart) : parseYMD(o.date);
+        const to = parseYMD(o.item.endDate) > rangeEnd ? new Date(rangeEnd) : parseYMD(o.item.endDate);
+        for(let d=new Date(from); d<=to; d.setDate(d.getDate()+1)){
+          (byDate[ymd(d)]=byDate[ymd(d)]||[]).push(o);
+        }
+        return;
+      }
+      (byDate[o.date]=byDate[o.date]||[]).push(o);
+    });
 
     for(let i=0;i<startWeekday;i++){ const blank=document.createElement('div'); blank.className='cal-cell blank'; grid.appendChild(blank); }
 
@@ -2256,6 +2282,8 @@
     document.getElementById('recurDayField').style.display = (byWeek || nthMode || val==='yearly') ? 'none' : '';
     document.getElementById('recurDayLabel').textContent = val==='monthly' ? '每月第幾天' : '每季固定第幾天（每 3 個月一次）';
     document.getElementById('itemDateLabel').textContent = val==='none' ? '日期' : '起始日期';
+    // 跨多天與循環互斥：每一次循環都要有自己的區間會讓 occKey 與完成語意複雜化
+    document.getElementById('itemEndDateField').style.display = val==='none' ? '' : 'none';
     const nextFreq = val==='none' ? null : val;
     document.getElementById('recurChangeWarn').style.display =
       (editingItemId && editingOrigFreq !== nextFreq) ? 'block' : 'none';
@@ -2276,6 +2304,7 @@
       document.getElementById('inputItemLink').value = existingItem.link || '';
       document.getElementById('selectParent').value = existingItem.parentId || '';
       document.getElementById('inputItemDate').value = existingItem.date;
+      document.getElementById('inputItemEndDate').value = existingItem.endDate || '';
       document.getElementById('selectRecurrence').value = existingItem.recurrence ? existingItem.recurrence.freq : 'none';
       document.getElementById('inputRecurDay').value = existingItem.recurrence ? existingItem.recurrence.day : (parseYMD(existingItem.date)).getDate();
       document.getElementById('selectHolidayRule').value = existingItem.recurrence ? (existingItem.recurrence.holidayRule||'none') : 'none';
@@ -2293,6 +2322,7 @@
       document.getElementById('inputItemLink').value='';
       document.getElementById('selectParent').value='';
       document.getElementById('inputItemDate').value = defaultDate || selDate;
+      document.getElementById('inputItemEndDate').value='';
       document.getElementById('selectRecurrence').value='none';
       document.getElementById('inputRecurDay').value = parseYMD(defaultDate || selDate).getDate();
       document.getElementById('selectHolidayRule').value='none';
@@ -2326,6 +2356,7 @@
     if(!dateVal){ document.getElementById('inputItemDate').focus(); return; }
     const parentId=document.getElementById('selectParent').value || null;
     const meetingTime=document.getElementById('inputItemMeetingTime').value || null;
+    const endRaw=document.getElementById('inputItemEndDate').value || null;
     const linkRaw=document.getElementById('inputItemLink').value.trim();
     // 只收 http(s)：javascript: 這類 scheme 進了 href 就是 XSS
     const link=/^https?:\/\//.test(linkRaw) ? linkRaw.slice(0,500) : null;
@@ -2343,6 +2374,11 @@
       nth: parseInt(document.getElementById('selectNth').value),
       weekday: parseInt(document.getElementById('selectNthWeekday').value)
     });
+    const recurNone = recurVal==='none';
+    if(recurNone && endRaw && endRaw <= dateVal){
+      alert('結束日期需要晚於開始日期。'); return;
+    }
+    const endDate = (recurNone && endRaw) ? endRaw : null;
     itemOverlay.classList.remove('show');
     commit(()=>{
       if(editingItemId){
@@ -2356,10 +2392,10 @@
           }
           it.title=title; it.type=modalType; it.parentId=parentId;
           it.meetingTime=meetingTime; it.link=link;
-          it.date=dateVal; it.recurrence=recurrence;
+          it.date=dateVal; it.endDate=endDate; it.recurrence=recurrence;
         }
       } else {
-        items.push({ id: uid('item'), title, type: modalType, parentId, meetingTime, link, date: dateVal, recurrence, done:false, doneMap:{}, overrides:{}, skipped:{} });
+        items.push({ id: uid('item'), title, type: modalType, parentId, meetingTime, link, date: dateVal, endDate, recurrence, done:false, doneMap:{}, overrides:{}, skipped:{} });
       }
       if(currentView==='calendar'){ const dp=parseYMD(dateVal); calYear=dp.getFullYear(); calMonth=dp.getMonth()+1; calSelectedDate=dateVal; }
       else{ if(mode==='date') selDate=dateVal; }
@@ -3057,7 +3093,8 @@
       }
       const badge=document.createElement('span'); badge.className='type-badge '+it.type; badge.textContent=typeLabels[it.type];
       const t=document.createElement('span'); t.className='occ-title'+(occ.done?' done':''); t.textContent=it.title;
-      const d=document.createElement('span'); d.className='occ-date'; d.textContent=occ.date;
+      const d=document.createElement('span'); d.className='occ-date';
+      d.textContent = it.endDate ? occ.date+' → '+it.endDate : occ.date;
       row.appendChild(cb); row.appendChild(badge); row.appendChild(t);
       if(it.meetingTime){ const mt=document.createElement('span'); mt.className='meeting-time'; mt.textContent=it.meetingTime; row.appendChild(mt); }
     if(it.link){
@@ -3204,7 +3241,12 @@
       L.push('UID:'+o.item.id+'-'+o.occKey+'@work-schedule');
       L.push('DTSTAMP:'+stamp);
       L.push('SUMMARY:'+icsEscape((o.done?'✓ ':'')+o.item.title));
-      if(o.item.meetingTime){
+      if(o.item.endDate && o.occKey==='single'){
+        // 跨多天：全天區間事件（DTEND 為「不含」的次日）
+        const e=parseYMD(o.item.endDate); e.setDate(e.getDate()+1);
+        L.push('DTSTART;VALUE=DATE:'+icsDate(o.date));
+        L.push('DTEND;VALUE=DATE:'+icsDate(ymd(e)));
+      } else if(o.item.meetingTime){
         const hm = o.item.meetingTime.replace(':','');
         L.push('DTSTART;TZID=Asia/Taipei:'+icsDate(o.date)+'T'+hm+'00');
         // 預設一小時：ICS 需要結束時間，而系統本來就不記錄會議長度
