@@ -12,59 +12,73 @@ import { getSessionUser } from './session.js';
  */
 export default {
   async fetch(request, env) {
-    const url = new URL(request.url);
-    const path = url.pathname;
-
-    if (!path.startsWith('/api/')) return servePage(request, env, url, path);
-
-    if (path === '/api/health') return json({ ok: true });
-
-    // 公開端點：登入前必須能打，否則沒有人進得來
-    if (path === '/api/auth/register') {
-      return request.method === 'POST' ? handleRegister(request, env) : methodNotAllowed();
+    try {
+      return await route(request, env);
+    } catch (err) {
+      // 例外若直接往上拋，Cloudflare 會回一頁 HTML 錯誤頁（Error 1101）。前端對
+      // /api/* 一律走 res.json()，解析失敗就只剩「發生錯誤，請稍後再試」——真正的
+      // 原因在瀏覽器這端完全看不到。因此這裡一律轉成 JSON，並附上 Ray ID，
+      // 好讓畫面上的錯誤能直接對到 Workers Logs 裡的那一筆。
+      const ref = request.headers.get('cf-ray') || 'local';
+      console.error('unhandled exception', ref, request.method, new URL(request.url).pathname, err?.stack || String(err));
+      return json({ error: '伺服器發生錯誤，請稍後再試', ref }, 500);
     }
-    if (path === '/api/auth/login') {
-      return request.method === 'POST' ? handleLogin(request, env) : methodNotAllowed();
-    }
-    if (path === '/api/auth/logout') {
-      return request.method === 'POST' ? handleLogout(request, env) : methodNotAllowed();
-    }
-
-    // 以下都需要有效 session
-    const user = await getSessionUser(request, env);
-    if (!user) return json({ error: '尚未登入' }, 401);
-
-    if (path === '/api/auth/me') return handleMe(user);
-
-    // 未核准的帳號可以查自己的身分（前端據此顯示等待畫面），但碰不到任何資料
-    if (user.status !== 'approved') {
-      return json({ error: '帳號尚未核准', status: user.status }, 403);
-    }
-
-    if (path === '/api/state') {
-      if (request.method === 'GET') return handleGetState(env, user.id);
-      if (request.method === 'PUT') return handlePutState(request, env, user.id);
-      return methodNotAllowed();
-    }
-
-    if (path.startsWith('/api/admin/')) {
-      if (user.role !== 'admin') return json({ error: '需要管理者權限' }, 403);
-
-      if (path === '/api/admin/users') {
-        return request.method === 'GET' ? handleListUsers(env) : methodNotAllowed();
-      }
-      const m = path.match(/^\/api\/admin\/users\/([^/]+)$/);
-      if (m) {
-        const targetId = decodeURIComponent(m[1]);
-        if (request.method === 'PATCH') return handleUpdateUser(request, env, user, targetId);
-        if (request.method === 'DELETE') return handleDeleteUser(env, user, targetId);
-        return methodNotAllowed();
-      }
-    }
-
-    return json({ error: 'Not found' }, 404);
   }
 };
+
+async function route(request, env) {
+  const url = new URL(request.url);
+  const path = url.pathname;
+
+  if (!path.startsWith('/api/')) return servePage(request, env, url, path);
+
+  if (path === '/api/health') return json({ ok: true });
+
+  // 公開端點：登入前必須能打，否則沒有人進得來
+  if (path === '/api/auth/register') {
+    return request.method === 'POST' ? handleRegister(request, env) : methodNotAllowed();
+  }
+  if (path === '/api/auth/login') {
+    return request.method === 'POST' ? handleLogin(request, env) : methodNotAllowed();
+  }
+  if (path === '/api/auth/logout') {
+    return request.method === 'POST' ? handleLogout(request, env) : methodNotAllowed();
+  }
+
+  // 以下都需要有效 session
+  const user = await getSessionUser(request, env);
+  if (!user) return json({ error: '尚未登入' }, 401);
+
+  if (path === '/api/auth/me') return handleMe(user);
+
+  // 未核准的帳號可以查自己的身分（前端據此顯示等待畫面），但碰不到任何資料
+  if (user.status !== 'approved') {
+    return json({ error: '帳號尚未核准', status: user.status }, 403);
+  }
+
+  if (path === '/api/state') {
+    if (request.method === 'GET') return handleGetState(env, user.id);
+    if (request.method === 'PUT') return handlePutState(request, env, user.id);
+    return methodNotAllowed();
+  }
+
+  if (path.startsWith('/api/admin/')) {
+    if (user.role !== 'admin') return json({ error: '需要管理者權限' }, 403);
+
+    if (path === '/api/admin/users') {
+      return request.method === 'GET' ? handleListUsers(env) : methodNotAllowed();
+    }
+    const m = path.match(/^\/api\/admin\/users\/([^/]+)$/);
+    if (m) {
+      const targetId = decodeURIComponent(m[1]);
+      if (request.method === 'PATCH') return handleUpdateUser(request, env, user, targetId);
+      if (request.method === 'DELETE') return handleDeleteUser(env, user, targetId);
+      return methodNotAllowed();
+    }
+  }
+
+  return json({ error: 'Not found' }, 404);
+}
 
 function methodNotAllowed() {
   return json({ error: 'Method not allowed' }, 405);

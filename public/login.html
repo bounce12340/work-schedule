@@ -150,7 +150,11 @@
         if (data.status === 'approved') setMode('login');
         else form.reset();
       } else {
-        showMsg(data.error || '發生錯誤，請稍後再試', 'err');
+        // 回應不是 JSON 時（例如 Worker 丟例外，Cloudflare 直接回一頁 HTML 錯誤頁）
+        // data 會是空物件。此時至少要把狀態碼顯示出來，否則畫面上看不出任何線索。
+        showMsg(data.error
+          ? data.error + (data.ref ? '（代碼 ' + data.ref + '）' : '')
+          : '伺服器發生錯誤（HTTP ' + res.status + '），請稍後再試', 'err');
       }
     } catch (err) {
       showMsg('無法連線到伺服器，請檢查網路後再試', 'err');
