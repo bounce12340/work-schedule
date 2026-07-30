@@ -32,9 +32,10 @@ function section(name) {
  * 在乾淨的作用域內建立引擎。customHolidays / items / majorProjects 是引擎在
  * 主程式裡依賴的 module-scoped 變數，這裡以同樣的形狀提供。
  */
-function makeEngine(holidays = []) {
-  const build = new Function('initialHolidays', `
+function makeEngine(holidays = [], workdays = []) {
+  const build = new Function('initialHolidays', 'initialWorkdays', `
     let customHolidays = new Set(initialHolidays);
+    let customWorkdays = new Set(initialWorkdays);
     let majorProjects = [];
     let items = [];
     ${section('date helpers')}
@@ -43,10 +44,11 @@ function makeEngine(holidays = []) {
       getOccurrencesInRange, getAllOccurrences, setOccurrenceDone, skipOccurrence,
       occPeriodLabel, adjustForHoliday, isHoliday, ymd, parseYMD,
       setHolidays(list){ customHolidays = new Set(list); },
+      setWorkdays(list){ customWorkdays = new Set(list); },
       setItems(list){ items = list; }
     };
   `);
-  return build(holidays);
+  return build(holidays, workdays);
 }
 
 const E = makeEngine();
@@ -207,6 +209,96 @@ test('每週：緊鄰區間起點之前、被順延推進區間內的那一次�
   const occs = E.getOccurrencesInRange(it, d('2026-08-03'), d('2026-08-31'));
   assert.ok(occs.some(o => o.date === '2026-08-03'),
     '8/01（週六）那次順延後落在 8/03，位於區間內，必須算得到');
+});
+
+// ---------------------------------------------------------------- 新循環規則
+
+test('每週多天：週一三五', () => {
+  // 2026-08-03 是週一
+  const it = item({ date: '2026-08-03', recurrence: { freq: 'weekly', day: 1, holidayRule: 'none', until: null, weekdays: [1,3,5] } });
+  const occs = E.getOccurrencesInRange(it, d('2026-08-03'), d('2026-08-14'));
+  assert.deepEqual(dates(occs), ['2026-08-03','2026-08-05','2026-08-07','2026-08-10','2026-08-12','2026-08-14']);
+});
+
+test('每週多天：錨點之前的同週日子不產生', () => {
+  // 錨點 2026-08-05（週三），weekdays 含週一——同一週的週一(8/03)在錨點前，不該出現
+  const it = item({ date: '2026-08-05', recurrence: { freq: 'weekly', day: 1, holidayRule: 'none', until: null, weekdays: [1,3] } });
+  const occs = E.getOccurrencesInRange(it, d('2026-08-01'), d('2026-08-12'));
+  assert.deepEqual(dates(occs), ['2026-08-05','2026-08-10','2026-08-12']);
+});
+
+test('每兩週多天：隔週的週二四', () => {
+  // 2026-08-04 是週二
+  const it = item({ date: '2026-08-04', recurrence: { freq: 'biweekly', day: 1, holidayRule: 'none', until: null, weekdays: [2,4] } });
+  const occs = E.getOccurrencesInRange(it, d('2026-08-01'), d('2026-09-05'));
+  assert.deepEqual(dates(occs), ['2026-08-04','2026-08-06','2026-08-18','2026-08-20','2026-09-01','2026-09-03']);
+});
+
+test('每月第 N 個週 X：第二個週三', () => {
+  const it = item({ date: '2026-01-01', recurrence: { freq: 'monthly', day: 1, holidayRule: 'none', until: null, mode: 'nthWeekday', nth: 2, weekday: 3 } });
+  const occs = E.getOccurrencesInRange(it, d('2026-01-01'), d('2026-04-30'));
+  // 2026：1 月第二個週三=1/14、2 月=2/11、3 月=3/11、4 月=4/8
+  assert.deepEqual(dates(occs), ['2026-01-14','2026-02-11','2026-03-11','2026-04-08']);
+  assert.deepEqual(keys(occs), ['2026-01','2026-02','2026-03','2026-04'], 'occKey 沿用 YYYY-MM，與固定日期模式互通');
+});
+
+test('每月最後一個週五（nth=-1）', () => {
+  const it = item({ date: '2026-01-01', recurrence: { freq: 'monthly', day: 1, holidayRule: 'none', until: null, mode: 'nthWeekday', nth: -1, weekday: 5 } });
+  const occs = E.getOccurrencesInRange(it, d('2026-01-01'), d('2026-03-31'));
+  assert.deepEqual(dates(occs), ['2026-01-30','2026-02-27','2026-03-27']);
+});
+
+test('每月第 5 個週一：只在真的有第 5 個的月份出現', () => {
+  const it = item({ date: '2026-01-01', recurrence: { freq: 'monthly', day: 1, holidayRule: 'none', until: null, mode: 'nthWeekday', nth: 5, weekday: 1 } });
+  const occs = E.getOccurrencesInRange(it, d('2026-01-01'), d('2026-06-30'));
+  // 2026 上半年有第 5 個週一的月份：3 月（3/30）、6 月（6/29）
+  assert.deepEqual(dates(occs), ['2026-03-30','2026-06-29']);
+});
+
+test('每年循環：occKey 為 Y+年份', () => {
+  const it = item({ date: '2026-03-15', recurrence: { freq: 'yearly', day: 15, holidayRule: 'none', until: null } });
+  const occs = E.getOccurrencesInRange(it, d('2026-01-01'), d('2028-12-31'));
+  assert.deepEqual(dates(occs), ['2026-03-15','2027-03-15','2028-03-15']);
+  assert.deepEqual(keys(occs), ['Y2026','Y2027','Y2028']);
+});
+
+test('count：每月循環第 N 次後停止', () => {
+  const it = item({ date: '2026-01-10', recurrence: { freq: 'monthly', day: 10, holidayRule: 'none', until: null, count: 3 } });
+  assert.deepEqual(dates(E.getOccurrencesInRange(it, d('2026-01-01'), d('2026-12-31'))),
+    ['2026-01-10','2026-02-10','2026-03-10']);
+});
+
+test('count：略過其中一次不會讓循環多出一次（count 數的是排程次數）', () => {
+  const it = item({ date: '2026-01-10',
+    recurrence: { freq: 'monthly', day: 10, holidayRule: 'none', until: null, count: 3 },
+    skipped: { '2026-02': true } });
+  assert.deepEqual(dates(E.getOccurrencesInRange(it, d('2026-01-01'), d('2026-12-31'))),
+    ['2026-01-10','2026-03-10'], '第 3 次仍是 3 月，不會遞補出 4 月');
+});
+
+test('count：每週多天時逐「次」計數，且從錨點數起（檢視區間在後面也正確）', () => {
+  const it = item({ date: '2026-08-03', recurrence: { freq: 'weekly', day: 1, holidayRule: 'none', until: null, weekdays: [1,3], count: 5 } });
+  // 5 次 = 8/03(一) 8/05(三) 8/10(一) 8/12(三) 8/17(一)
+  const all = E.getOccurrencesInRange(it, d('2026-08-01'), d('2026-12-31'));
+  assert.deepEqual(dates(all), ['2026-08-03','2026-08-05','2026-08-10','2026-08-12','2026-08-17']);
+  const later = E.getOccurrencesInRange(it, d('2026-08-11'), d('2026-12-31'));
+  assert.deepEqual(dates(later), ['2026-08-12','2026-08-17'], '從後段區間看也只剩排程內的次數');
+});
+
+// ---------------------------------------------------------------- 補班日
+
+test('補班日：週六被指定補班時不再視為假日，循環不順延', () => {
+  // 2026-08-15 是週六
+  const eng = makeEngine([], ['2026-08-15']);
+  assert.equal(eng.isHoliday(eng.parseYMD('2026-08-15')), false);
+  const it = item({ date: '2026-08-15', recurrence: { freq: 'monthly', day: 15, holidayRule: 'postpone', until: null } });
+  assert.deepEqual(eng.getOccurrencesInRange(it, eng.parseYMD('2026-08-01'), eng.parseYMD('2026-08-31')).map(o=>o.date),
+    ['2026-08-15'], '補班日不該被順延');
+});
+
+test('補班日優先於自訂假日清單', () => {
+  const eng = makeEngine(['2026-08-14'], ['2026-08-14']);   // 同一天又是假日又是補班 → 補班贏
+  assert.equal(eng.isHoliday(eng.parseYMD('2026-08-14')), false);
 });
 
 // ---------------------------------------------------------------- 假日調整
