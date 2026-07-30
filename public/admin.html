@@ -3,6 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light dark">
+<script>
+  // 與 index.html 共用同一個偏好鍵，主畫面切成暗色後，登入／管理頁不會突然閃回亮色。
+  (function(){
+    var pref = null;
+    try{ pref = localStorage.getItem('workSchedule.v1.theme'); }catch(e){}
+    var dark = (pref === 'dark') || (pref !== 'light' &&
+      window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  })();
+</script>
 <title>帳號管理 — 工作排程確認系統</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
@@ -15,10 +26,26 @@
     --teal:#1F8C68; --teal-dim:rgba(31,140,104,0.10);
     --red:#C74B43; --red-dim:rgba(199,75,67,0.10);
     --violet:#6C5CE0; --violet-dim:rgba(108,92,224,0.10);
+    --on-accent:#FFFDF9;
     --mono:'JetBrains Mono',monospace; --sans:'Noto Sans TC','Inter',sans-serif;
+  }
+
+  /* 暗色版：只覆寫變數，元件樣式不動。<html data-theme> 由 <head> 的開機腳本先寫好。 */
+  :root[data-theme="dark"]{
+    color-scheme:dark;
+    --bg:#1A1917; --panel:#232220; --panel-2:#2B2A27;
+    --hairline:#3A3833; --hairline-soft:#322F2B;
+    --text:#E8E5DC; --text-muted:#A8A49A; --text-dim:#7A766D;
+    --on-accent:#17160F;
+    --amber:#E3A052; --amber-dim:rgba(227,160,82,0.16);
+    --teal:#3FBF92; --teal-dim:rgba(63,191,146,0.14);
+    --red:#E8756B; --red-dim:rgba(232,117,107,0.14);
+    --violet:#9B8CF5; --violet-dim:rgba(155,140,245,0.14);
   }
   *{box-sizing:border-box;}
   body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);padding:28px 20px;}
+  .signature{margin-top:26px;padding-top:14px;border-top:1px solid var(--hairline);text-align:center;
+        font-family:var(--sans);font-size:11.5px;color:var(--text-muted);letter-spacing:.03em;}
   .wrap{max-width:940px;margin:0 auto;}
   header{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;
          flex-wrap:wrap;margin-bottom:24px;}
@@ -80,6 +107,7 @@
 
   <div class="msg" id="msg"></div>
   <div id="list"><div class="empty">載入中…</div></div>
+  <div class="signature">此系統由劉思妤設計、規劃、製作。</div>
 </div>
 
 <script>
