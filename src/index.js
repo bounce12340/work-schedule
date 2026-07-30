@@ -2,6 +2,7 @@ import { handleRegister, handleLogin, handleLogout, handleMe, handleChangePasswo
 import { handleGetState, handlePutState } from './handlers/state.js';
 import { handleListUsers, handleUpdateUser, handleDeleteUser, handleResetPassword } from './handlers/admin.js';
 import { handleListShares, handleCreateShare, handleDeleteShare, handleUpdateShared, handleListActivity } from './handlers/share.js';
+import { handleIcsStatus, handleIcsEnable, handleIcsDisable, handleIcsPut, handleIcsFeed } from './handlers/ics.js';
 import { getSessionUser } from './session.js';
 
 /**
@@ -30,6 +31,14 @@ export default {
 async function route(request, env) {
   const url = new URL(request.url);
   const path = url.pathname;
+
+  {
+    // 行事曆訂閱的公開端點：token 即憑證，行事曆軟體不會有 session
+    const m = path.match(/^\/ics\/([A-Za-z0-9_-]{20,64})$/);
+    if (m) {
+      return request.method === 'GET' ? handleIcsFeed(env, m[1]) : methodNotAllowed();
+    }
+  }
 
   if (!path.startsWith('/api/')) return servePage(request, env, url, path);
 
@@ -65,6 +74,18 @@ async function route(request, env) {
 
   if (path === '/api/auth/password') {
     return request.method === 'POST' ? handleChangePassword(request, env, user) : methodNotAllowed();
+  }
+
+  if (path === '/api/ics/status') {
+    return request.method === 'GET' ? handleIcsStatus(env, user) : methodNotAllowed();
+  }
+  if (path === '/api/ics/enable') {
+    return request.method === 'POST' ? handleIcsEnable(request, env, user) : methodNotAllowed();
+  }
+  if (path === '/api/ics') {
+    if (request.method === 'PUT') return handleIcsPut(request, env, user);
+    if (request.method === 'DELETE') return handleIcsDisable(env, user);
+    return methodNotAllowed();
   }
 
   if (path === '/api/activity') {

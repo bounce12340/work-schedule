@@ -83,3 +83,20 @@ CREATE TABLE IF NOT EXISTS share_activity (
 
 CREATE INDEX IF NOT EXISTS idx_activity_owner ON share_activity(owner_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_activity_actor ON share_activity(actor_id, created_at);
+
+-- 行事曆訂閱（ICS feed）。內容由前端產生、同步時推上來，伺服器只負責保存與供應。
+--
+-- 這樣做的原因：occurrence 引擎（含假日順延）只存在於前端單檔內，Workers 端
+-- 重新實作一份等於維護兩套必然分歧的邏輯；而且順延規則本來就無法用 RRULE 表達，
+-- 展開成靜態事件才是正確的。代價是使用者一段時間沒開啟 app，feed 會停在最後
+-- 一次同步的內容——對行事曆訂閱來說可以接受。
+--
+-- token 只存雜湊：feed URL 等同於長期有效的唯讀憑證，DB 外洩時不能直接拿來訂閱。
+CREATE TABLE IF NOT EXISTS ics_feed (
+  user_id    TEXT PRIMARY KEY,
+  token_hash TEXT NOT NULL,
+  ics        TEXT NOT NULL DEFAULT '',
+  updated_at INTEGER NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ics_token ON ics_feed(token_hash);

@@ -132,6 +132,8 @@
   .metric-card.overdue::before{ background: var(--red); }
   .metric-list-row .od-date{ font-family: var(--mono); font-size:11px; color: var(--red); flex-shrink:0; }
   .occ-date.overdue{ color: var(--red); font-weight:700; }
+  .item-link{ font-family:var(--mono); font-size:11px; color:var(--violet); text-decoration:none; background:var(--violet-dim); padding:3px 8px; border-radius:5px; white-space:nowrap; }
+  .item-link:hover{ text-decoration:underline; }
   .metric-label{ font-family: var(--mono); font-size:10.5px; letter-spacing:2px; color: var(--text-dim); text-transform:uppercase; margin-bottom:6px; }
   .metric-value{ font-family: var(--mono); font-size:28px; font-weight:700; color: var(--text); line-height:1; }
   .metric-value .unit{ font-size:13px; color: var(--text-muted); font-weight:500; margin-left:6px; }
@@ -152,6 +154,8 @@
   .nav-item:hover{ color: var(--text); border-color:var(--hairline-strong); }
   .nav-item.active{ background: var(--amber-dim); border-color: var(--amber); color: var(--amber); }
   .nav-item.active .nav-dot{ background: var(--amber); }
+  .nav-item{ position:relative; }
+  .nav-badge{ position:absolute; top:6px; right:8px; background:var(--red); color:var(--on-accent); font-family:var(--mono); font-size:10px; font-weight:700; border-radius:9px; min-width:17px; height:17px; padding:0 4px; display:flex; align-items:center; justify-content:center; }
 
   .main-panel{ flex:1; min-width:0; }
   .view{ display:none; }
@@ -703,6 +707,7 @@
     <div class="backup-row">
       <button id="btnExport" class="ghost-btn" type="button">⤓ 匯出備份</button>
       <button id="btnImport" class="ghost-btn" type="button">⤒ 匯入備份</button>
+      <button id="btnIcs" class="ghost-btn" type="button" style="display:none;">📅 行事曆訂閱</button>
       <input type="file" id="importFile" accept="application/json,.json" style="display:none;">
     </div>
     <div class="signature">此系統由劉思妤設計、規劃、製作。</div>
@@ -752,6 +757,7 @@
       </div>
     </div>
     <div class="field" id="itemMeetingTimeField"><label>時間（選填）</label><input type="time" id="inputItemMeetingTime"></div>
+    <div class="field"><label>連結（選填，例如會議連結或文件）</label><input type="url" id="inputItemLink" placeholder="https://…"></div>
     <div class="field"><label>歸屬大項目</label><select id="selectParent"><option value="">獨立項目（不歸屬任何大項目）</option></select></div>
     <div class="field"><label id="itemDateLabel">日期</label><input type="date" id="inputItemDate"></div>
     <div class="field">
@@ -866,6 +872,20 @@
     <div class="modal-actions">
       <button class="btn-cancel" id="btnCancelGantt">取消</button>
       <button class="btn-confirm" id="btnConfirmGantt">建立</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="icsOverlay">
+  <div class="modal" style="max-width:460px;">
+    <h3><span class="dot"></span>行事曆訂閱</h3>
+    <div class="scope-note">把排程訂閱進 Google／Apple 行事曆：會議帶時間、其他項目為全天事件，
+      內容涵蓋過去一個月到未來一年，並在每次同步後自動更新。<b>知道連結的人就能看到你的排程標題</b>，請妥善保管。</div>
+    <div id="icsStatusBox" class="share-existing"></div>
+    <div class="msg-inline" id="icsMsg"></div>
+    <div class="modal-actions">
+      <button class="btn-cancel" id="btnCancelIcs">關閉</button>
+      <button class="btn-confirm" id="btnEnableIcs">產生訂閱連結</button>
     </div>
   </div>
 </div>
@@ -1021,6 +1041,7 @@
       type: ['work','meeting','assignment'].includes(it.type) ? it.type : 'work',
       parentId: it.parentId || null,
       meetingTime: it.meetingTime || null,
+      link: (typeof it.link==='string' && /^https?:\/\//.test(it.link)) ? it.link.slice(0,500) : null,
       date: it.date,
       recurrence: normalizeRecurrence(it.recurrence),
       done: !!it.done,
@@ -1307,6 +1328,7 @@
       cloudUpdatedAt = d.updatedAt;
       writeCloudMeta(snap);
       setCloudNote('已同步');
+      pushIcsSoon();
     }catch(e){
       // 斷線不該擋住使用：資料仍在 localStorage，恢復連線後下次變更會補推
       setCloudNote('離線，變更僅存本機', 'off');
@@ -1452,6 +1474,9 @@
 
     cloudEnabled = true;
     updateStorageNote();   // 文案要從「單機」改成「雲端同步」
+    document.getElementById('btnIcs').style.display='';
+    fetch('/api/ics/status',{cache:'no-store'}).then(r=>r.ok?r.json():null)
+      .then(d=>{ if(d){ icsEnabled=d.enabled; } }).catch(()=>{});
     // 分享清單與 state 各自獨立，不 await：它慢或失敗都不該拖住主資料的同步
     fetchShares().then(()=>{ if(currentView==='shared') renderAll(); });
     const meta = readCloudMeta();
@@ -1773,6 +1798,11 @@
       chip.appendChild(nameSpan); chip.appendChild(cntSpan);
       const editBtn=document.createElement('button'); editBtn.textContent='✎'; editBtn.title='更名';
       editBtn.onclick=()=>openMajorModal(mp); chip.appendChild(editBtn);
+      if(cloudEnabled){
+        const shareBtn=document.createElement('button'); shareBtn.textContent='🔗'; shareBtn.title='分享這個大項目（含底下所有項目）';
+        shareBtn.onclick=()=>openShareModal('major', mp.id, mp.name);
+        chip.appendChild(shareBtn);
+      }
       const delBtn=document.createElement('button'); delBtn.textContent='✕'; delBtn.className='chip-del'; delBtn.title='刪除大項目（項目將變為獨立項目）';
       delBtn.onclick=()=>{
         deleteWithUndo('大項目：'+mp.name, ()=>{
@@ -1866,6 +1896,12 @@
       row.appendChild(rb);
     }
     if(it.meetingTime){ const mt=document.createElement('span'); mt.className='meeting-time'; mt.textContent=it.meetingTime; row.appendChild(mt); }
+    if(it.link){
+      const a=document.createElement('a'); a.className='item-link'; a.textContent='🔗 連結';
+      a.href=it.link; a.target='_blank'; a.rel='noopener noreferrer';
+      a.onclick=(e)=>e.stopPropagation();
+      row.appendChild(a);
+    }
     const dateEl=document.createElement('span'); dateEl.className='occ-date'; dateEl.textContent=occ.date;
     if(!occ.done && occ.date < ymd(new Date())){ dateEl.classList.add('overdue'); dateEl.title='已逾期'; }
     row.appendChild(dateEl);
@@ -2237,6 +2273,7 @@
       document.getElementById('inputItemTitle').value = existingItem.title;
       modalType = existingItem.type; updateTypeToggle();
       document.getElementById('inputItemMeetingTime').value = existingItem.meetingTime || '';
+      document.getElementById('inputItemLink').value = existingItem.link || '';
       document.getElementById('selectParent').value = existingItem.parentId || '';
       document.getElementById('inputItemDate').value = existingItem.date;
       document.getElementById('selectRecurrence').value = existingItem.recurrence ? existingItem.recurrence.freq : 'none';
@@ -2253,6 +2290,7 @@
       document.getElementById('inputItemTitle').value='';
       modalType='work'; updateTypeToggle();
       document.getElementById('inputItemMeetingTime').value='';
+      document.getElementById('inputItemLink').value='';
       document.getElementById('selectParent').value='';
       document.getElementById('inputItemDate').value = defaultDate || selDate;
       document.getElementById('selectRecurrence').value='none';
@@ -2288,6 +2326,9 @@
     if(!dateVal){ document.getElementById('inputItemDate').focus(); return; }
     const parentId=document.getElementById('selectParent').value || null;
     const meetingTime=document.getElementById('inputItemMeetingTime').value || null;
+    const linkRaw=document.getElementById('inputItemLink').value.trim();
+    // 只收 http(s)：javascript: 這類 scheme 進了 href 就是 XSS
+    const link=/^https?:\/\//.test(linkRaw) ? linkRaw.slice(0,500) : null;
     const recurVal=document.getElementById('selectRecurrence').value;
     // 一律經過 normalizeRecurrence：與 applySnapshot 產出完全相同的形狀，
     // 三方合併的比對才不會把欄位集差異誤判成「兩邊都改過」
@@ -2314,11 +2355,11 @@
             it.done=false; it.doneMap={}; it.overrides={}; it.skipped={};
           }
           it.title=title; it.type=modalType; it.parentId=parentId;
-          it.meetingTime=meetingTime;
+          it.meetingTime=meetingTime; it.link=link;
           it.date=dateVal; it.recurrence=recurrence;
         }
       } else {
-        items.push({ id: uid('item'), title, type: modalType, parentId, meetingTime, date: dateVal, recurrence, done:false, doneMap:{}, overrides:{}, skipped:{} });
+        items.push({ id: uid('item'), title, type: modalType, parentId, meetingTime, link, date: dateVal, recurrence, done:false, doneMap:{}, overrides:{}, skipped:{} });
       }
       if(currentView==='calendar'){ const dp=parseYMD(dateVal); calYear=dp.getFullYear(); calMonth=dp.getMonth()+1; calSelectedDate=dateVal; }
       else{ if(mode==='date') selDate=dateVal; }
@@ -2753,6 +2794,7 @@
       const r = await fetch('/api/activity', { cache:'no-store' });
       if(r.ok) activity = (await r.json()).activity || [];
     }catch(e){ /* 沿用舊資料 */ }
+    updateSharedBadge();
   }
 
   function fmtActivityTime(ms){
@@ -2791,11 +2833,11 @@
   }
 
   /** 只把單一資源寫回擁有者。成功與否都要讓使用者看得到——這條路徑沒有本機備份 */
-  async function pushSharedResource(share){
+  async function pushSharedResource(share, resource){
     try{
       const r = await fetch('/api/shared/'+encodeURIComponent(share.id), {
         method:'PUT', headers:{'content-type':'application/json'},
-        body: JSON.stringify({ resource: share.resource })
+        body: JSON.stringify({ resource: resource || share.resource })
       });
       if(r.status===401){ sessionExpired(); return false; }
       if(!r.ok){
@@ -2814,6 +2856,7 @@
 
   function shareResourceName(kind, resourceId){
     if(kind==='item'){ const it=items.find(x=>x.id===resourceId); return it?it.title:'（已刪除的項目）'; }
+    if(kind==='major'){ const mp=majorProjects.find(x=>x.id===resourceId); return mp?mp.name:'（已刪除的大項目）'; }
     const gp=ganttProjects.find(x=>x.id===resourceId); return gp?gp.name:'（已刪除的專案）';
   }
 
@@ -2865,7 +2908,7 @@
     shareCtx={ kind, resourceId, name };
     sharePerm='view'; updatePermToggle();
     document.getElementById('shareScopeNote').innerHTML =
-      '分享的對象：<b>'+escapeHtml(name)+'</b>（'+(kind==='item'?'小項目':'專案')+'）';
+      '分享的對象：<b>'+escapeHtml(name)+'</b>（'+(kind==='item'?'小項目':kind==='major'?'大項目，含底下所有項目':'專案')+'）';
     document.getElementById('inputShareEmail').value='';
     setShareMsg('');
     shareOverlay.classList.add('show');
@@ -2901,6 +2944,7 @@
 
   // ---- 共享頁 ----
   function renderSharedView(){
+    markActivitySeen();
     const inc=document.getElementById('sharedIncoming');
     const out=document.getElementById('sharedOutgoing');
     inc.innerHTML=''; out.innerHTML='';
@@ -2924,7 +2968,7 @@
         const title=document.createElement('span'); title.className='share-card-title';
         title.textContent=shareResourceName(s.kind, s.resourceId);
         const kindTag=document.createElement('span'); kindTag.className='share-owner';
-        kindTag.textContent = s.kind==='item' ? '小項目' : '專案';
+        kindTag.textContent = s.kind==='item' ? '小項目' : s.kind==='major' ? '大項目' : '專案';
         const who=document.createElement('span'); who.className='share-owner'; who.textContent='→ '+s.targetEmail;
         const badge=document.createElement('span'); badge.className='perm-badge '+s.permission;
         badge.textContent = s.permission==='edit' ? '可操作' : '可檢視';
@@ -2971,7 +3015,8 @@
       gone.textContent='對方已經刪除這個項目，內容不再存在。';
       card.appendChild(gone); return card;
     }
-    if(sh.kind==='item') buildSharedItemBody(card, sh);
+    if(sh.kind==='item') buildSharedItemBody(card, sh, sh.resource);
+    else if(sh.kind==='major') buildSharedMajorBody(card, sh);
     else buildSharedGanttBody(card, sh);
     return card;
   }
@@ -2981,8 +3026,8 @@
    * 不必把它混進本機的 items[]——混進去的話每一條 render 與寫入路徑都要再判斷
    * 一次「這是不是別人的」，而 commit() 會把它一起推進我自己的雲端資料。
    */
-  function buildSharedItemBody(card, sh){
-    const it=sh.resource;
+  function buildSharedItemBody(card, sh, it){
+    it = it || sh.resource;
     const start=new Date(); start.setHours(0,0,0,0); start.setMonth(start.getMonth()-1);
     const end=new Date(); end.setHours(23,59,59,999); end.setMonth(end.getMonth()+3);
     let occs=[];
@@ -3001,7 +3046,7 @@
           const next=!occ.done;
           setOccurrenceDone(occ, next);
           occ.done=next; cb.className='checkbox'+(next?' done':''); cb.textContent=next?'✓':'';
-          const ok=await pushSharedResource(sh);
+          const ok=await pushSharedResource(sh, it);
           if(!ok){   // 寫不進去就把畫面改回來，別讓使用者以為已經存了
             setOccurrenceDone(occ, !next); occ.done=!next;
             cb.className='checkbox'+(!next?' done':''); cb.textContent=!next?'✓':'';
@@ -3015,9 +3060,26 @@
       const d=document.createElement('span'); d.className='occ-date'; d.textContent=occ.date;
       row.appendChild(cb); row.appendChild(badge); row.appendChild(t);
       if(it.meetingTime){ const mt=document.createElement('span'); mt.className='meeting-time'; mt.textContent=it.meetingTime; row.appendChild(mt); }
+    if(it.link){
+      const a=document.createElement('a'); a.className='item-link'; a.textContent='🔗 連結';
+      a.href=it.link; a.target='_blank'; a.rel='noopener noreferrer';
+      a.onclick=(e)=>e.stopPropagation();
+      row.appendChild(a);
+    }
       row.appendChild(d);
       card.appendChild(row);
     });
+  }
+
+  /** 分享過來的大項目：底下每個小項目各自展開 occurrence，逐一可勾選 */
+  function buildSharedMajorBody(card, sh){
+    const children = Array.isArray(sh.resource.items) ? sh.resource.items : [];
+    if(!children.length){
+      const none=document.createElement('div'); none.className='share-gone';
+      none.textContent='這個大項目底下目前沒有任何項目。';
+      card.appendChild(none); return;
+    }
+    children.forEach(it=> buildSharedItemBody(card, sh, it));
   }
 
   /** 分享過來的專案：圖表沿用 buildGanttChart（純繪製），可操作時開放勾選子代辦 */
@@ -3057,7 +3119,7 @@
               td.done=!td.done; syncTaskFromTodos(t);
               tcb.className='todo-cb'+(td.done?' done':''); tcb.textContent=td.done?'✓':'';
               syncProg(); refreshGanttChart(gp);
-              const ok=await pushSharedResource(sh);
+              const ok=await pushSharedResource(sh, gp);
               if(!ok){ td.done=prev; syncTaskFromTodos(t);
                 tcb.className='todo-cb'+(td.done?' done':''); tcb.textContent=td.done?'✓':'';
                 syncProg(); refreshGanttChart(gp); }
@@ -3071,7 +3133,7 @@
         cb.onclick=async ()=>{
           const prev=t.done;
           t.done=!t.done; t.progress=t.done?100:0; syncProg(); refreshGanttChart(gp);
-          const ok=await pushSharedResource(sh);
+          const ok=await pushSharedResource(sh, gp);
           if(!ok){ t.done=prev; t.progress=prev?100:0; syncProg(); refreshGanttChart(gp); }
         };
       } else if(sh.permission!=='edit'){
@@ -3086,6 +3148,164 @@
     await fetchShares();
     setSharedHint('已更新','ok');
     renderAll();
+  };
+
+  // ---- 未讀標記與背景更新 ----
+  // 「看過沒」是這台裝置的狀態，不進 snapshot()——換一台裝置本來就該重新提示
+  const ACTIVITY_SEEN_KEY = STORAGE_KEY + '.activitySeen';
+  function readActivitySeen(){ try{ return parseInt(localStorage.getItem(ACTIVITY_SEEN_KEY))||0; }catch(e){ return 0; } }
+  function markActivitySeen(){
+    const latest = activity.reduce((m,a)=>Math.max(m,a.at), 0);
+    if(latest){ try{ localStorage.setItem(ACTIVITY_SEEN_KEY, String(latest)); }catch(e){} }
+    updateSharedBadge();
+  }
+  function updateSharedBadge(){
+    const nav=document.getElementById('navShared');
+    let badge=nav.querySelector('.nav-badge');
+    const seen=readActivitySeen();
+    const unread=activity.filter(a=>!a.byMe && a.at>seen).length;
+    if(unread){
+      if(!badge){ badge=document.createElement('span'); badge.className='nav-badge'; nav.appendChild(badge); }
+      badge.textContent = unread>9 ? '9+' : String(unread);
+    } else if(badge){ badge.remove(); }
+  }
+
+  // 共享頁開著時每 60 秒背景更新一次（分頁隱藏時不打）。60 秒是輪詢，不是即時
+  // ——共享的權威資料在對方帳號，本來就沒有本機的即時性可言，別讓輪詢變 DoS。
+  setInterval(async ()=>{
+    if(!cloudEnabled || document.visibilityState!=='visible') return;
+    await fetchShares();
+    if(currentView==='shared'){ renderSharedView(); }
+  }, 60000);
+
+  // ================= 行事曆訂閱（ICS）=================
+  // 內容在前端產生：occurrence 引擎（含假日順延）只存在這裡，Worker 重新實作
+  // 等於維護兩套必然分歧的邏輯；順延規則也本來就無法用 RRULE 表達，展開成
+  // 靜態事件才是正確的。代價是 feed 停在最後一次同步——對訂閱可接受。
+  let icsEnabled = false;
+
+  function icsEscape(t){ return String(t).replace(/\\/g,'\\\\').replace(/;/g,'\\;').replace(/,/g,'\\,').replace(/\n/g,'\\n'); }
+  function icsDate(s){ return s.replace(/-/g,''); }
+
+  function buildICS(){
+    const now = new Date();
+    const start = new Date(now); start.setMonth(start.getMonth()-1); start.setHours(0,0,0,0);
+    const end = new Date(now); end.setFullYear(end.getFullYear()+1); end.setHours(23,59,59,999);
+    const stamp = now.toISOString().replace(/[-:]/g,'').replace(/\..+/,'Z');
+    const L = [
+      'BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//work-schedule//zh-Hant',
+      'CALSCALE:GREGORIAN','X-WR-CALNAME:工作排程確認系統',
+      // 台灣自 1980 年起無夏令時間，固定 +0800
+      'BEGIN:VTIMEZONE','TZID:Asia/Taipei','BEGIN:STANDARD','DTSTART:19800101T000000',
+      'TZOFFSETFROM:+0800','TZOFFSETTO:+0800','TZNAME:CST','END:STANDARD','END:VTIMEZONE'
+    ];
+    getAllOccurrences(start, end).forEach(o=>{
+      L.push('BEGIN:VEVENT');
+      L.push('UID:'+o.item.id+'-'+o.occKey+'@work-schedule');
+      L.push('DTSTAMP:'+stamp);
+      L.push('SUMMARY:'+icsEscape((o.done?'✓ ':'')+o.item.title));
+      if(o.item.meetingTime){
+        const hm = o.item.meetingTime.replace(':','');
+        L.push('DTSTART;TZID=Asia/Taipei:'+icsDate(o.date)+'T'+hm+'00');
+        // 預設一小時：ICS 需要結束時間，而系統本來就不記錄會議長度
+        const [h,m] = o.item.meetingTime.split(':').map(Number);
+        const endH = String(Math.min(23,h+1)).padStart(2,'0');
+        L.push('DTEND;TZID=Asia/Taipei:'+icsDate(o.date)+'T'+endH+String(m).padStart(2,'0')+'00');
+      } else {
+        L.push('DTSTART;VALUE=DATE:'+icsDate(o.date));
+      }
+      if(o.item.link) L.push('URL:'+icsEscape(o.item.link));
+      L.push('END:VEVENT');
+    });
+    ganttProjects.forEach(gp=> (gp.tasks||[]).forEach(t=>{
+      if(!isYmd(t.start) || !isYmd(t.end)) return;
+      const te=parseYMD(t.end);
+      if(parseYMD(t.start) > end || te < start) return;
+      const dtEnd = new Date(te); dtEnd.setDate(dtEnd.getDate()+1);   // DTEND 全天事件為「不含」當天
+      L.push('BEGIN:VEVENT');
+      L.push('UID:'+t.id+'@work-schedule');
+      L.push('DTSTAMP:'+stamp);
+      L.push('SUMMARY:'+icsEscape('［'+gp.name+'］'+t.name+(t.done?'（已完成）':'')));
+      L.push('DTSTART;VALUE=DATE:'+icsDate(t.start));
+      L.push('DTEND;VALUE=DATE:'+icsDate(ymd(dtEnd)));
+      L.push('END:VEVENT');
+    }));
+    L.push('END:VCALENDAR');
+    return L.join('\r\n');
+  }
+
+  let icsPushTimer=null;
+  function pushIcsSoon(){
+    if(!cloudEnabled || !icsEnabled) return;
+    clearTimeout(icsPushTimer);
+    icsPushTimer = setTimeout(async ()=>{
+      try{
+        await fetch('/api/ics', { method:'PUT', headers:{'content-type':'application/json'},
+          body: JSON.stringify({ ics: buildICS() }) });
+      }catch(e){ /* 下次同步再補 */ }
+    }, 3000);
+  }
+
+  const icsOverlay=document.getElementById('icsOverlay');
+  function setIcsMsg(t,cls){ const el=document.getElementById('icsMsg'); el.textContent=t||''; el.className='msg-inline'+(t?' '+cls:''); }
+  function renderIcsStatus(url){
+    const box=document.getElementById('icsStatusBox'); box.innerHTML='';
+    if(url){
+      const row=document.createElement('div'); row.className='share-existing-row';
+      const inp=document.createElement('input'); inp.type='text'; inp.readOnly=true; inp.value=url;
+      inp.style.flex='1'; inp.style.fontFamily='var(--mono)'; inp.style.fontSize='11px';
+      inp.onclick=()=>inp.select();
+      const copy=document.createElement('button'); copy.className='qbtn'; copy.textContent='複製';
+      copy.onclick=async ()=>{ try{ await navigator.clipboard.writeText(url); copy.textContent='已複製'; setTimeout(()=>copy.textContent='複製',1500);}catch(e){ inp.select(); } };
+      row.appendChild(inp); row.appendChild(copy); box.appendChild(row);
+      const note=document.createElement('div'); note.className='shared-hint';
+      note.textContent='這個連結只顯示這一次。重新產生會讓舊連結立即失效。';
+      box.appendChild(note);
+    } else if(icsEnabled){
+      const note=document.createElement('div'); note.className='shared-hint';
+      note.textContent='訂閱已啟用。連結只在產生當下顯示；遺失了就重新產生（舊連結會失效）。';
+      box.appendChild(note);
+    } else {
+      const note=document.createElement('div'); note.className='shared-hint';
+      note.textContent='尚未啟用。';
+      box.appendChild(note);
+    }
+    document.getElementById('btnEnableIcs').textContent = icsEnabled ? '重新產生連結' : '產生訂閱連結';
+    let del=document.getElementById('btnDisableIcs');
+    if(icsEnabled && !del){
+      del=document.createElement('button'); del.id='btnDisableIcs'; del.className='btn-clear'; del.textContent='停用訂閱';
+      del.onclick=async ()=>{
+        try{
+          const r=await fetch('/api/ics',{method:'DELETE'});
+          if(r.ok){ icsEnabled=false; renderIcsStatus(null); setIcsMsg('已停用，所有訂閱連結立即失效','ok'); }
+        }catch(e){ setIcsMsg('目前離線，無法停用','err'); }
+      };
+      document.querySelector('#icsOverlay .modal-actions').prepend(del);
+    } else if(!icsEnabled && del){ del.remove(); }
+  }
+  document.getElementById('btnIcs').onclick=async ()=>{
+    setIcsMsg('');
+    try{
+      const r=await fetch('/api/ics/status',{cache:'no-store'});
+      if(r.ok){ icsEnabled=(await r.json()).enabled; }
+    }catch(e){}
+    renderIcsStatus(null);
+    icsOverlay.classList.add('show');
+  };
+  document.getElementById('btnCancelIcs').onclick=()=>icsOverlay.classList.remove('show');
+  icsOverlay.addEventListener('click',(e)=>{ if(e.target.id==='icsOverlay') e.currentTarget.classList.remove('show'); });
+  document.getElementById('btnEnableIcs').onclick=async ()=>{
+    setIcsMsg('');
+    try{
+      const r=await fetch('/api/ics/enable',{method:'POST'});
+      if(r.status===401){ sessionExpired(); return; }
+      const d=await r.json().catch(()=>({}));
+      if(!r.ok){ setIcsMsg(d.error||('失敗（HTTP '+r.status+'）'),'err'); return; }
+      icsEnabled=true;
+      renderIcsStatus(d.url);
+      setIcsMsg('已產生。到行事曆軟體選「以 URL 訂閱」貼上這個連結即可。','ok');
+      pushIcsSoon();
+    }catch(e){ setIcsMsg('目前離線，無法產生','err'); }
   };
 
   // ================= seed demo data =================
