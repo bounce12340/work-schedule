@@ -175,7 +175,12 @@ export async function handleUpdateShared(request, env, user, shareId) {
   if (idx < 0) return json({ error: '這個項目已被擁有者刪除' }, 404);
 
   const before = list[idx];
-  list[idx] = resource;
+  // 白名單合併，不整包替換。UI 沒有提供改名、改日期等操作，但那只是前端沒畫
+  // 按鈕——若這裡直接採用送來的整個物件，拿著 edit 權限打 API 就能改掉擁有者
+  // 的任何欄位（標題、日期、循環規則、甚至清空子代辦）。權限的邊界必須由
+  // 伺服器保證，因此只取出「可操作」允許的欄位，其餘一律以擁有者現有的為準。
+  const merged = mergeSharedEdit(share.resource_kind, before, resource);
+  list[idx] = merged;
   const now = Date.now();
   await env.DB
     .prepare('UPDATE user_state SET state = ?, updated_at = ? WHERE user_id = ?')
@@ -185,12 +190,54 @@ export async function handleUpdateShared(request, env, user, shareId) {
   await recordActivity(env, {
     ownerId: share.owner_id, actorId: user.id,
     kind: share.resource_kind, resourceId: share.resource_id,
-    name: resourceName(share.resource_kind, resource),
-    action: describeChange(share.resource_kind, before, resource),
+    name: resourceName(share.resource_kind, merged),
+    action: describeChange(share.resource_kind, before, merged),
     now
   });
 
   return json({ ok: true, updatedAt: now });
+}
+
+/**
+ * 「可操作」權限實際允許的欄位：完成狀態、任務進度、子代辦勾選。
+ * 任務與子代辦以擁有者的清單為準——被分享者不能增刪，送來多的忽略、少的保留。
+ * doneMap 的 key 有長度與數量上限：它會寫進擁有者的 state，不設限等於允許
+ * 別人灌爆你的儲存空間。
+ */
+function mergeSharedEdit(kind, current, incoming) {
+  if (kind !== 'gantt') {   // 'item' 與（整組分享時的）子項目共用同一套規則
+    return { ...current, done: !!incoming.done, doneMap: sanitizeDoneMap(incoming.doneMap) };
+  }
+  const incTasks = new Map((Array.isArray(incoming.tasks) ? incoming.tasks : [])
+    .filter(t => t && t.id).map(t => [t.id, t]));
+  const tasks = (Array.isArray(current.tasks) ? current.tasks : []).map(t => {
+    const inc = incTasks.get(t.id);
+    if (!inc) return t;
+    const curTodos = Array.isArray(t.todos) ? t.todos : [];
+    const incTodos = new Map((Array.isArray(inc.todos) ? inc.todos : [])
+      .filter(td => td && td.id).map(td => [td.id, td]));
+    const todos = curTodos.map(td => {
+      const i = incTodos.get(td.id);
+      return i ? { ...td, done: !!i.done } : td;
+    });
+    // 有子代辦時進度是算出來的，不採信對方送來的數字——與前端維持同一條不變量
+    const doneCnt = todos.filter(td => td.done).length;
+    const progress = todos.length
+      ? Math.round(doneCnt / todos.length * 100)
+      : Math.max(0, Math.min(100, parseInt(inc.progress) || 0));
+    const done = todos.length ? (doneCnt === todos.length && todos.length > 0) : !!inc.done;
+    return { ...t, todos, progress, done };
+  });
+  return { ...current, tasks };
+}
+
+function sanitizeDoneMap(m) {
+  const out = {};
+  if (!m || typeof m !== 'object') return out;
+  for (const k of Object.keys(m).slice(0, 1500)) {
+    if (m[k]) out[String(k).slice(0, 16)] = true;
+  }
+  return out;
 }
 
 function resourceName(kind, resource) {
