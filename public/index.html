@@ -394,6 +394,9 @@
   .holiday-chip{ font-family: var(--mono); font-size:11px; background: var(--panel-2); border:1px solid var(--hairline); border-radius:6px; padding:3px 6px; display:flex; align-items:center; gap:5px; color:var(--text-muted); }
   .holiday-chip button{ background:none; border:none; cursor:pointer; color:var(--text-dim); font-size:11px; }
   .holiday-chip button:hover{ color:var(--red); }
+  .weekday-row{ display:flex; gap:6px; flex-wrap:wrap; }
+  .weekday-row button{ font-family:var(--mono); font-size:13px; font-weight:700; width:40px; height:36px; border-radius:8px; border:1px solid var(--hairline); background:var(--panel-2); color:var(--text-muted); cursor:pointer; }
+  .weekday-row button.active{ background:var(--amber-dim); border-color:var(--amber); color:var(--amber); }
 
   .filter-bar{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:14px; }
   .filter-bar input[type=search]{ flex:1; min-width:170px; font-family: var(--sans); font-size:13.5px; }
@@ -759,10 +762,38 @@
         <option value="biweekly">每兩週</option>
         <option value="monthly">每月固定</option>
         <option value="quarterly">每季固定（每 3 個月）</option>
+        <option value="yearly">每年（同月同日）</option>
       </select>
     </div>
     <div id="recurrenceExtra" style="display:none;">
-      <div class="scope-note" id="recurWeekNote" style="display:none;">每週／每兩週的<b>星期幾由上方的起始日期決定</b>，不需要另外指定。</div>
+      <div class="field" id="weekdayField" style="display:none;">
+        <label>星期幾（可複選）</label>
+        <div class="weekday-row" id="weekdayBoxes"></div>
+      </div>
+      <div class="field" id="monthlyModeField" style="display:none;">
+        <label>每月方式</label>
+        <select id="selectMonthlyMode">
+          <option value="day">固定日期（每月第幾天）</option>
+          <option value="nthWeekday">第 N 個星期幾（例如：第二個週三）</option>
+        </select>
+      </div>
+      <div class="field-row" id="nthWeekdayRow" style="display:none;">
+        <div class="field"><label>第幾個</label>
+          <select id="selectNth">
+            <option value="1">第一個</option><option value="2">第二個</option>
+            <option value="3">第三個</option><option value="4">第四個</option>
+            <option value="-1">最後一個</option>
+          </select>
+        </div>
+        <div class="field"><label>星期幾</label>
+          <select id="selectNthWeekday">
+            <option value="1">週一</option><option value="2">週二</option><option value="3">週三</option>
+            <option value="4">週四</option><option value="5">週五</option><option value="6">週六</option>
+            <option value="0">週日</option>
+          </select>
+        </div>
+      </div>
+      <div class="scope-note" id="recurYearNote" style="display:none;">每年於<b>起始日期的同月同日</b>重複。</div>
       <div class="field-row">
         <div class="field" id="recurDayField"><label id="recurDayLabel">每月第幾天</label><input type="number" id="inputRecurDay" min="1" max="31" value="1"></div>
         <div class="field">
@@ -774,9 +805,15 @@
           </select>
         </div>
       </div>
-      <div class="field">
-        <label>循環期限（選填，超過此日期將不再產生新的循環）</label>
-        <input type="date" id="inputRecurUntil">
+      <div class="field-row">
+        <div class="field">
+          <label>循環期限（選填）</label>
+          <input type="date" id="inputRecurUntil">
+        </div>
+        <div class="field">
+          <label>重複次數（選填）</label>
+          <input type="number" id="inputRecurCount" min="1" max="500" placeholder="不限">
+        </div>
       </div>
       <div class="field">
         <label>自訂假日（選填，除週六日外的額外假日）</label>
@@ -791,6 +828,14 @@
           <div class="holiday-bulk-msg" id="holidayBulkMsg"></div>
         </div>
         <div class="holiday-list-box" id="holidayListBox"></div>
+      </div>
+      <div class="field">
+        <label>補班日（選填，週六日但要上班的日子，循環不會被順延跳過）</label>
+        <div style="display:flex; gap:8px;">
+          <input type="date" id="inputCustomWorkday" style="flex:1;">
+          <button type="button" id="btnAddWorkday" class="add-year-btn" style="white-space:nowrap;">＋ 加入</button>
+        </div>
+        <div class="holiday-list-box" id="workdayListBox"></div>
       </div>
     </div>
     <div class="modal-actions">
@@ -870,6 +915,7 @@
   let majorProjects = [];
   let items = [];
   let customHolidays = new Set();
+  let customWorkdays = new Set();   // 補班日：週六日但要上班
   let dailyLogs = {}; // 'YYYY-MM-DD' -> text
   let ganttProjects = []; // {id,name,tasks:[{id,name,start,end,progress,done}]}
   let selectedGanttProjectId = null;
@@ -904,7 +950,12 @@
   function startOfWeek(d){ const day=d.getDay(); const diff=(day===0?-6:1)-day; const s=new Date(d); s.setDate(d.getDate()+diff); s.setHours(0,0,0,0); return s; }
   function endOfWeek(d){ const s=startOfWeek(d); const e=new Date(s); e.setDate(s.getDate()+6); e.setHours(23,59,59,999); return e; }
   function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-  function isHoliday(d){ const wd=d.getDay(); if(wd===0||wd===6) return true; return customHolidays.has(ymd(d)); }
+  function isHoliday(d){
+    // 補班日優先：那天雖是週末但要上班，循環不該被順延跳過它
+    if(customWorkdays.has(ymd(d))) return false;
+    const wd=d.getDay(); if(wd===0||wd===6) return true;
+    return customHolidays.has(ymd(d));
+  }
   function adjustForHoliday(d, rule){
     if(!rule || rule==='none') return d;
     let cur = new Date(d); const step = rule==='postpone' ? 1 : -1; let guard=0;
@@ -927,6 +978,7 @@
       version: STORAGE_VERSION,
       majorProjects, items, ganttProjects, dailyLogs,
       customHolidays: [...customHolidays],
+      customWorkdays: [...customWorkdays],
       selectedGanttProjectId, availableYears
     };
   }
@@ -937,6 +989,31 @@
   // 欄位的項目會讓 occurrence 展開時 parseYMD 直接拋錯，整個 render 掛掉；
   // 又因為雲端載入走 async，錯誤會變成 unhandled rejection，畫面停在舊狀態
   // 而使用者毫無所覺。因此一律在套用前過濾並補齊。
+  /**
+   * 循環設定的唯一正規化入口。modal 儲存與 applySnapshot 都走這裡，確保同一筆
+   * 設定不論來自哪條路徑都是完全相同的形狀——三方合併用 stableStringify 比對，
+   * 欄位集不一致會把「沒改過」誤判成「兩邊都改過」。
+   */
+  function normalizeRecurrence(r){
+    if(!r || !['monthly','quarterly','weekly','biweekly','yearly'].includes(r.freq)) return null;
+    const byWeek = (r.freq==='weekly' || r.freq==='biweekly');
+    const nthMode = (r.freq==='monthly' && r.mode==='nthWeekday');
+    const c = parseInt(r.count);
+    return {
+      freq: r.freq,
+      day: Math.max(1, Math.min(31, parseInt(r.day) || 1)),
+      holidayRule: ['none','postpone','advance'].includes(r.holidayRule) ? r.holidayRule : 'none',
+      until: isYmd(r.until) ? r.until : null,
+      count: (Number.isInteger(c) && c>=1) ? Math.min(500, c) : null,
+      weekdays: byWeek && Array.isArray(r.weekdays) && r.weekdays.length
+        ? [...new Set(r.weekdays.map(Number).filter(d=>Number.isInteger(d)&&d>=0&&d<=6))].sort()
+        : null,
+      mode: nthMode ? 'nthWeekday' : 'day',
+      nth: nthMode ? (r.nth===-1 ? -1 : Math.max(1, Math.min(5, parseInt(r.nth)||1))) : null,
+      weekday: nthMode ? Math.max(0, Math.min(6, parseInt(r.weekday)||0)) : null
+    };
+  }
+
   function normalizeItems(raw){
     return (Array.isArray(raw) ? raw : []).filter(it => it && it.id && isYmd(it.date)).map(it => ({
       id: it.id,
@@ -945,12 +1022,7 @@
       parentId: it.parentId || null,
       meetingTime: it.meetingTime || null,
       date: it.date,
-      recurrence: (it.recurrence && ['monthly','quarterly','weekly','biweekly'].includes(it.recurrence.freq)) ? {
-        freq: it.recurrence.freq,
-        day: Math.max(1, Math.min(31, parseInt(it.recurrence.day) || 1)),
-        holidayRule: ['none','postpone','advance'].includes(it.recurrence.holidayRule) ? it.recurrence.holidayRule : 'none',
-        until: isYmd(it.recurrence.until) ? it.recurrence.until : null
-      } : null,
+      recurrence: normalizeRecurrence(it.recurrence),
       done: !!it.done,
       doneMap: (it.doneMap && typeof it.doneMap==='object') ? it.doneMap : {},
       overrides: (it.overrides && typeof it.overrides==='object') ? it.overrides : {},
@@ -992,6 +1064,7 @@
     ganttProjects = normalizeGanttProjects(s.ganttProjects);
     dailyLogs = (s.dailyLogs && typeof s.dailyLogs==='object') ? s.dailyLogs : {};
     customHolidays = new Set((Array.isArray(s.customHolidays) ? s.customHolidays : []).filter(isYmd));
+    customWorkdays = new Set((Array.isArray(s.customWorkdays) ? s.customWorkdays : []).filter(isYmd));
     selectedGanttProjectId = s.selectedGanttProjectId || (ganttProjects[0] ? ganttProjects[0].id : null);
     if(Array.isArray(s.availableYears) && s.availableYears.length){
       availableYears = s.availableYears.filter(y => Number.isInteger(y));
@@ -1134,6 +1207,7 @@
       majorProjects: majors.merged,
       dailyLogs: logs.merged,
       customHolidays: tmMergeSets(base.customHolidays, local.customHolidays, remote.customHolidays),
+      customWorkdays: tmMergeSets(base.customWorkdays, local.customWorkdays, remote.customWorkdays),
       availableYears: [...new Set([...(local.availableYears||[]), ...(remote.availableYears||[])])].sort((a,b)=>a-b)
     };
     return { merged, conflicts };
@@ -1188,7 +1262,7 @@
       localStorage.removeItem(CLOUD_META_KEY);
     }catch(e){ /* 記憶體模式下略過 */ }
     majorProjects = []; items = []; ganttProjects = [];
-    dailyLogs = {}; customHolidays = new Set(); selectedGanttProjectId = null;
+    dailyLogs = {}; customHolidays = new Set(); customWorkdays = new Set(); selectedGanttProjectId = null;
   }
 
   function setCloudNote(text, cls){
@@ -1388,7 +1462,7 @@
       // 否則每個人第一次登入都會拿到一份不是自己的假資料，還得逐筆刪掉。
       if(!localHadData){
         majorProjects=[]; items=[]; ganttProjects=[];
-        dailyLogs={}; customHolidays=new Set(); selectedGanttProjectId=null;
+        dailyLogs={}; customHolidays=new Set(); customWorkdays=new Set(); selectedGanttProjectId=null;
         refreshAvailableYears();
         persist();
         renderAll();
@@ -1454,56 +1528,78 @@
       if(d>=rangeStart && d<=rangeEnd) results.push({ item, date:item.date, occKey:'single', done: !!item.done });
       return results;
     }
+    const rec = item.recurrence;
     const anchor = parseYMD(item.date);
-    const untilDate = item.recurrence.until ? parseYMD(item.recurrence.until) : null;
+    const untilDate = rec.until ? parseYMD(rec.until) : null;
+    // count＝排程上的第 N 次後停止。數的是「產生出來的次數」，與是否被略過、
+    // 是否落在檢視區間無關——否則略過一次會讓整條循環多出一次，語意變成浮動的
+    const maxCount = (Number.isInteger(rec.count) && rec.count >= 1) ? rec.count : null;
+    let made = 0;
 
-    // 每週／每兩週以「日」為單位前進，星期幾由起始日期決定，不需要「第幾天」欄位。
-    // occKey 用**未經假日調整**的日期：順延與否都不改變這一次的身分，否則同一次
-    // 在使用者新增自訂假日後會換一個 key，先前的完成／覆寫紀錄整批對不上。
-    if(item.recurrence.freq==='weekly' || item.recurrence.freq==='biweekly'){
-      const stepDays = item.recurrence.freq==='weekly' ? 7 : 14;
-      const cursor = new Date(anchor);
-      // 錨點遠早於檢視區間時先跳過去，否則 guard 會在還沒進入區間前就用完，
-      // 症狀是「幾年前開始的每週項目在今年完全不顯示」。退一步保留餘裕，
-      // 讓緊鄰區間前、可能被順延推進區間內的那一次仍算得到。
-      if(cursor < rangeStart){
-        const steps = Math.floor((rangeStart - cursor) / 86400000 / stepDays);
-        if(steps > 1) cursor.setDate(cursor.getDate() + (steps-1)*stepDays);
+    // occKey 一律用**未經假日調整**的日期或週期代碼：順延與否不改變這一次的
+    // 身分，否則使用者新增自訂假日後同一次會換 key，完成／覆寫紀錄整批對不上
+    const pushOcc = (occDateRaw, occKey) => {
+      const hasOverride = item.overrides && item.overrides[occKey];
+      const finalDate = hasOverride ? parseYMD(item.overrides[occKey]) : adjustForHoliday(occDateRaw, rec.holidayRule);
+      if(!(item.skipped && item.skipped[occKey]) && finalDate>=rangeStart && finalDate<=rangeEnd){
+        results.push({ item, date: ymd(finalDate), occKey, done: !!(item.doneMap && item.doneMap[occKey]) });
+      }
+    };
+
+    if(rec.freq==='weekly' || rec.freq==='biweekly'){
+      const stepDays = rec.freq==='weekly' ? 7 : 14;
+      // 一週可複選多天；未指定（舊資料）時沿用錨點的星期幾
+      const weekdays = (Array.isArray(rec.weekdays) && rec.weekdays.length)
+        ? [...new Set(rec.weekdays)].filter(d=>d>=0&&d<=6).sort()
+        : [anchor.getDay()];
+      // 以錨點所在週的週日為週期起點；biweekly 的隔週節奏由此推算
+      const week = new Date(anchor); week.setDate(anchor.getDate() - anchor.getDay());
+      // 錨點遠早於檢視區間時先快轉，否則 guard 在進入區間前就用完（症狀是幾年前
+      // 開始的每週項目在今年完全不顯示）。有 count 時不能快轉——次數必須從頭數。
+      if(!maxCount && week < rangeStart){
+        const steps = Math.floor((rangeStart - week) / 86400000 / stepDays);
+        if(steps > 1) week.setDate(week.getDate() + (steps-1)*stepDays);
       }
       let guard = 0;
-      while(guard < 800){
+      outer: while(guard < 800){
         guard++;
-        if(untilDate && cursor > untilDate) break;
-        if(cursor > rangeEnd) break;
-        const occDateRaw = new Date(cursor);
-        const occKey = 'W' + ymd(occDateRaw);
-        const hasOverride = item.overrides && item.overrides[occKey];
-        const finalDate = hasOverride ? parseYMD(item.overrides[occKey]) : adjustForHoliday(occDateRaw, item.recurrence.holidayRule);
-        if(!(item.skipped && item.skipped[occKey]) && finalDate>=rangeStart && finalDate<=rangeEnd){
-          results.push({ item, date: ymd(finalDate), occKey, done: !!(item.doneMap && item.doneMap[occKey]) });
+        for(const wd of weekdays){
+          const occDateRaw = new Date(week); occDateRaw.setDate(week.getDate() + wd);
+          if(occDateRaw < anchor) continue;
+          if(untilDate && occDateRaw > untilDate) break outer;
+          if(occDateRaw > rangeEnd) break outer;
+          if(maxCount && ++made > maxCount) break outer;
+          pushOcc(occDateRaw, 'W' + ymd(occDateRaw));
         }
-        cursor.setDate(cursor.getDate() + stepDays);
+        week.setDate(week.getDate() + stepDays);
+        if(week.getFullYear() > rangeEnd.getFullYear()+2) break;
       }
       return results;
     }
 
-    const stepMonths = item.recurrence.freq==='monthly' ? 1 : 3;
+    // monthly / quarterly / yearly：以月為步進
+    const stepMonths = rec.freq==='monthly' ? 1 : rec.freq==='quarterly' ? 3 : 12;
     let cursorY = anchor.getFullYear(), cursorM = anchor.getMonth();
     let guard = 0;
     while(guard < 800){
       guard++;
-      const dim = daysInMonth(cursorY, cursorM+1);
-      const day = Math.min(item.recurrence.day, dim);
-      const occDateRaw = new Date(cursorY, cursorM, day);
-      if(untilDate && occDateRaw > untilDate) break;
-      if(occDateRaw >= anchor){
-        if(occDateRaw > rangeEnd) break;
-        const occKey = item.recurrence.freq==='monthly' ? cursorY+'-'+String(cursorM+1).padStart(2,'0') : cursorY+'-Q'+(Math.floor(cursorM/3)+1);
-        const hasOverride = item.overrides && item.overrides[occKey];
-        let finalDate = hasOverride ? parseYMD(item.overrides[occKey]) : adjustForHoliday(occDateRaw, item.recurrence.holidayRule);
-        const skipped = item.skipped && item.skipped[occKey];
-        if(!skipped && finalDate>=rangeStart && finalDate<=rangeEnd){
-          results.push({ item, date: ymd(finalDate), occKey, done: !!(item.doneMap && item.doneMap[occKey]) });
+      let occDateRaw;
+      if(rec.freq==='monthly' && rec.mode==='nthWeekday'){
+        // 「每月第 N 個週 X」。第 5 個不存在的月份整月沒有這一次（也不計入 count）
+        occDateRaw = nthWeekdayOfMonth(cursorY, cursorM, rec.weekday, rec.nth);
+      } else {
+        const dim = daysInMonth(cursorY, cursorM+1);
+        occDateRaw = new Date(cursorY, cursorM, Math.min(rec.day, dim));
+      }
+      if(occDateRaw){
+        if(untilDate && occDateRaw > untilDate) break;
+        if(occDateRaw >= anchor){
+          if(occDateRaw > rangeEnd) break;
+          if(maxCount && ++made > maxCount) break;
+          const occKey = rec.freq==='monthly' ? cursorY+'-'+String(cursorM+1).padStart(2,'0')
+                       : rec.freq==='quarterly' ? cursorY+'-Q'+(Math.floor(cursorM/3)+1)
+                       : 'Y'+cursorY;
+          pushOcc(occDateRaw, occKey);
         }
       }
       cursorM += stepMonths;
@@ -1511,6 +1607,20 @@
       if(cursorY > rangeEnd.getFullYear()+2) break;
     }
     return results;
+  }
+  /** 每月第 nth 個 weekday（nth=-1 代表最後一個）。不存在（第 5 個）時回 null。 */
+  function nthWeekdayOfMonth(y, m0, weekday, nth){
+    const dim = daysInMonth(y, m0+1);
+    if(nth === -1){
+      for(let d=dim; d>=1; d--){ const dt=new Date(y,m0,d); if(dt.getDay()===weekday) return dt; }
+      return null;
+    }
+    let cnt=0;
+    for(let d=1; d<=dim; d++){
+      const dt=new Date(y,m0,d);
+      if(dt.getDay()===weekday && ++cnt===nth) return dt;
+    }
+    return null;
   }
   function getAllOccurrences(rangeStart, rangeEnd){
     let all = [];
@@ -1527,13 +1637,24 @@
   function recurrenceLabel(it){
     const r = it.recurrence;
     if(!r) return '';
-    if(r.freq==='weekly') return '每週'+WEEKDAYS[parseYMD(it.date).getDay()];
-    if(r.freq==='biweekly') return '每兩週（'+weekdayLabel(it.date)+'）';
-    return r.freq==='monthly' ? '每月'+r.day+'日' : '每季固定'+r.day+'日';
+    const wds = (Array.isArray(r.weekdays) && r.weekdays.length)
+      ? r.weekdays : [parseYMD(it.date).getDay()];
+    const wdText = wds.map(d=>WEEKDAYS[d]).join('・');
+    let label;
+    if(r.freq==='weekly') label = '每週'+wdText;
+    else if(r.freq==='biweekly') label = '每兩週（週'+wdText+'）';
+    else if(r.freq==='yearly'){ const d=parseYMD(it.date); label = '每年'+(d.getMonth()+1)+'月'+d.getDate()+'日'; }
+    else if(r.freq==='monthly' && r.mode==='nthWeekday'){
+      label = '每月'+(r.nth===-1?'最後一個':'第'+r.nth+'個')+'週'+WEEKDAYS[r.weekday];
+    }
+    else label = r.freq==='monthly' ? '每月'+r.day+'日' : '每季固定'+r.day+'日';
+    if(r.count) label += '×'+r.count+'次';
+    return label;
   }
   function occPeriodLabel(occ){
     if(occ.occKey==='single') return '單次';
     if(occ.occKey.charAt(0)==='W') return occ.occKey.slice(1)+' 那一次';
+    if(occ.occKey.charAt(0)==='Y') return occ.occKey.slice(1)+'年';
     if(occ.item.recurrence.freq==='monthly'){ const [y,m]=occ.occKey.split('-'); return y+'年'+parseInt(m)+'月'; }
     const [y,q] = occ.occKey.split('-Q'); return y+'年 第'+q+'季';
   }
@@ -1988,6 +2109,7 @@
       chip.appendChild(rm); box.appendChild(chip);
     });
     renderBuiltinHolidays();   // 已加入的天數會影響按鈕文字，必須一起更新
+    renderWorkdayList();
   }
   // 國定假日每年不同、且一次就是十幾天。逐日點選要按二十幾次，貼上則是一次的事。
   // 刻意不內建一份假日清單：日期每年由行政院公布、且會因補班而調整，寫死一份
@@ -2019,6 +2141,24 @@
     ].filter(Boolean).join('；');
   };
 
+  function renderWorkdayList(){
+    const box=document.getElementById('workdayListBox'); box.innerHTML='';
+    [...customWorkdays].sort().forEach(dateStr=>{
+      const chip=document.createElement('span'); chip.className='holiday-chip';
+      chip.innerHTML='<span>'+dateStr+'（'+weekdayLabel(dateStr)+'）</span>';
+      const rm=document.createElement('button'); rm.textContent='✕';
+      rm.onclick=()=>{ commit(()=> customWorkdays.delete(dateStr)); renderWorkdayList(); };
+      chip.appendChild(rm); box.appendChild(chip);
+    });
+  }
+  document.getElementById('btnAddWorkday').onclick=()=>{
+    const v=document.getElementById('inputCustomWorkday').value; if(!v) return;
+    const wd=parseYMD(v).getDay();
+    if(wd!==0 && wd!==6){ alert(v+' 是平日，本來就是工作日，不需要加入補班日。'); return; }
+    document.getElementById('inputCustomWorkday').value='';
+    commit(()=> customWorkdays.add(v)); renderWorkdayList();
+  };
+
   document.getElementById('btnAddHoliday').onclick=()=>{
     const v=document.getElementById('inputCustomHoliday').value; if(!v) return;
     document.getElementById('inputCustomHoliday').value='';
@@ -2039,13 +2179,45 @@
   document.getElementById('btnTypeMeeting').onclick=()=>{ modalType='meeting'; updateTypeToggle(); };
   document.getElementById('btnTypeAssignment').onclick=()=>{ modalType='assignment'; updateTypeToggle(); };
 
+  // 星期複選的狀態（modal 開啟時初始化）
+  let modalWeekdays = new Set();
+  function renderWeekdayBoxes(){
+    const box=document.getElementById('weekdayBoxes'); box.innerHTML='';
+    [1,2,3,4,5,6,0].forEach(d=>{
+      const b=document.createElement('button'); b.type='button';
+      b.textContent=WEEKDAYS[d];
+      b.className=modalWeekdays.has(d)?'active':'';
+      b.onclick=()=>{
+        if(modalWeekdays.has(d)){
+          if(modalWeekdays.size<=1) return;   // 至少留一天，否則循環沒有意義
+          modalWeekdays.delete(d);
+        } else modalWeekdays.add(d);
+        renderWeekdayBoxes();
+      };
+      box.appendChild(b);
+    });
+  }
+
   function updateRecurrenceExtra(){
     const val=document.getElementById('selectRecurrence').value;
     document.getElementById('recurrenceExtra').style.display = val==='none' ? 'none' : 'block';
     const byWeek = (val==='weekly' || val==='biweekly');
-    // 每週類的星期幾由起始日期決定，留著「第幾天」欄位只會讓人以為它有作用
-    document.getElementById('recurDayField').style.display = byWeek ? 'none' : '';
-    document.getElementById('recurWeekNote').style.display = byWeek ? 'block' : 'none';
+    const monthly = val==='monthly';
+    const nthMode = monthly && document.getElementById('selectMonthlyMode').value==='nthWeekday';
+    document.getElementById('weekdayField').style.display = byWeek ? 'block' : 'none';
+    if(byWeek){
+      // 尚未選任何一天時，預設起始日期的星期幾
+      if(!modalWeekdays.size){
+        const dv=document.getElementById('inputItemDate').value;
+        modalWeekdays.add(dv ? parseYMD(dv).getDay() : new Date().getDay());
+      }
+      renderWeekdayBoxes();
+    }
+    document.getElementById('monthlyModeField').style.display = monthly ? 'block' : 'none';
+    document.getElementById('nthWeekdayRow').style.display = nthMode ? 'flex' : 'none';
+    document.getElementById('recurYearNote').style.display = val==='yearly' ? 'block' : 'none';
+    // 「第幾天」欄位只在固定日期模式有意義
+    document.getElementById('recurDayField').style.display = (byWeek || nthMode || val==='yearly') ? 'none' : '';
     document.getElementById('recurDayLabel').textContent = val==='monthly' ? '每月第幾天' : '每季固定第幾天（每 3 個月一次）';
     document.getElementById('itemDateLabel').textContent = val==='none' ? '日期' : '起始日期';
     const nextFreq = val==='none' ? null : val;
@@ -2053,6 +2225,7 @@
       (editingItemId && editingOrigFreq !== nextFreq) ? 'block' : 'none';
     renderHolidayList();
   }
+  document.getElementById('selectMonthlyMode').onchange = updateRecurrenceExtra;
   document.getElementById('selectRecurrence').onchange = updateRecurrenceExtra;
 
   function openItemModal(existingItem, defaultDate){
@@ -2070,6 +2243,12 @@
       document.getElementById('inputRecurDay').value = existingItem.recurrence ? existingItem.recurrence.day : (parseYMD(existingItem.date)).getDate();
       document.getElementById('selectHolidayRule').value = existingItem.recurrence ? (existingItem.recurrence.holidayRule||'none') : 'none';
       document.getElementById('inputRecurUntil').value = existingItem.recurrence && existingItem.recurrence.until ? existingItem.recurrence.until : '';
+      document.getElementById('inputRecurCount').value = existingItem.recurrence && existingItem.recurrence.count ? existingItem.recurrence.count : '';
+      const r = existingItem.recurrence;
+      modalWeekdays = new Set(r && Array.isArray(r.weekdays) && r.weekdays.length ? r.weekdays : [parseYMD(existingItem.date).getDay()]);
+      document.getElementById('selectMonthlyMode').value = (r && r.mode==='nthWeekday') ? 'nthWeekday' : 'day';
+      document.getElementById('selectNth').value = (r && r.nth!=null) ? String(r.nth) : '1';
+      document.getElementById('selectNthWeekday').value = (r && r.weekday!=null) ? String(r.weekday) : '1';
     } else {
       document.getElementById('inputItemTitle').value='';
       modalType='work'; updateTypeToggle();
@@ -2080,6 +2259,11 @@
       document.getElementById('inputRecurDay').value = parseYMD(defaultDate || selDate).getDate();
       document.getElementById('selectHolidayRule').value='none';
       document.getElementById('inputRecurUntil').value='';
+      document.getElementById('inputRecurCount').value='';
+      modalWeekdays = new Set();
+      document.getElementById('selectMonthlyMode').value='day';
+      document.getElementById('selectNth').value='1';
+      document.getElementById('selectNthWeekday').value='1';
     }
     updateRecurrenceExtra();
     itemOverlay.classList.add('show');
@@ -2105,12 +2289,19 @@
     const parentId=document.getElementById('selectParent').value || null;
     const meetingTime=document.getElementById('inputItemMeetingTime').value || null;
     const recurVal=document.getElementById('selectRecurrence').value;
-    const recurrence = recurVal==='none' ? null : {
+    // 一律經過 normalizeRecurrence：與 applySnapshot 產出完全相同的形狀，
+    // 三方合併的比對才不會把欄位集差異誤判成「兩邊都改過」
+    const recurrence = recurVal==='none' ? null : normalizeRecurrence({
       freq: recurVal,
-      day: Math.max(1, Math.min(31, parseInt(document.getElementById('inputRecurDay').value)||1)),
+      day: parseInt(document.getElementById('inputRecurDay').value)||1,
       holidayRule: document.getElementById('selectHolidayRule').value,
-      until: document.getElementById('inputRecurUntil').value || null
-    };
+      until: document.getElementById('inputRecurUntil').value || null,
+      count: document.getElementById('inputRecurCount').value || null,
+      weekdays: [...modalWeekdays],
+      mode: document.getElementById('selectMonthlyMode').value,
+      nth: parseInt(document.getElementById('selectNth').value),
+      weekday: parseInt(document.getElementById('selectNthWeekday').value)
+    });
     itemOverlay.classList.remove('show');
     commit(()=>{
       if(editingItemId){
