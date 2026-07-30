@@ -1,5 +1,5 @@
 import { hashPassword, verifyPassword, uuid } from '../crypto.js';
-import { createSession, destroySession, sessionCookie, clearCookie, readCookie, COOKIE_NAME } from '../session.js';
+import { createSession, destroySession, destroyOtherSessions, sessionCookie, clearCookie, readCookie, COOKIE_NAME } from '../session.js';
 import { verifyTurnstile } from '../turnstile.js';
 
 const MIN_PASSWORD = 10;
@@ -81,6 +81,33 @@ export async function handleLogin(request, env) {
     200,
     { 'Set-Cookie': sessionCookie(token, expiresAt) }
   );
+}
+
+export async function handleChangePassword(request, env, user) {
+  const body = await readJson(request);
+  if (!body) return json({ error: '請求格式錯誤' }, 400);
+
+  const oldPassword = String(body.oldPassword || '');
+  const newPassword = String(body.newPassword || '');
+  if (newPassword.length < MIN_PASSWORD) {
+    return json({ error: `新密碼至少需要 ${MIN_PASSWORD} 個字元` }, 400);
+  }
+
+  const row = await env.DB.prepare('SELECT password_hash FROM users WHERE id = ?')
+    .bind(user.id).first();
+  if (!row || !(await verifyPassword(oldPassword, row.password_hash))) {
+    return json({ error: '目前密碼不正確' }, 403);
+  }
+
+  await env.DB.prepare('UPDATE users SET password_hash = ? WHERE id = ?')
+    .bind(await hashPassword(newPassword), user.id).run();
+
+  // 換密碼通常代表擔心密碼外洩：讓其他裝置全部登出，只保留目前這個 session
+  const token = readCookie(request, COOKIE_NAME);
+  if (token) {
+    await destroyOtherSessions(env, user.id, token);
+  }
+  return json({ ok: true });
 }
 
 export async function handleLogout(request, env) {

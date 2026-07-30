@@ -1,6 +1,6 @@
-import { handleRegister, handleLogin, handleLogout, handleMe, json } from './handlers/auth.js';
+import { handleRegister, handleLogin, handleLogout, handleMe, handleChangePassword, json } from './handlers/auth.js';
 import { handleGetState, handlePutState } from './handlers/state.js';
-import { handleListUsers, handleUpdateUser, handleDeleteUser } from './handlers/admin.js';
+import { handleListUsers, handleUpdateUser, handleDeleteUser, handleResetPassword } from './handlers/admin.js';
 import { handleListShares, handleCreateShare, handleDeleteShare, handleUpdateShared, handleListActivity } from './handlers/share.js';
 import { getSessionUser } from './session.js';
 
@@ -63,6 +63,10 @@ async function route(request, env) {
     return methodNotAllowed();
   }
 
+  if (path === '/api/auth/password') {
+    return request.method === 'POST' ? handleChangePassword(request, env, user) : methodNotAllowed();
+  }
+
   if (path === '/api/activity') {
     return request.method === 'GET' ? handleListActivity(env, user) : methodNotAllowed();
   }
@@ -96,6 +100,12 @@ async function route(request, env) {
 
     if (path === '/api/admin/users') {
       return request.method === 'GET' ? handleListUsers(env) : methodNotAllowed();
+    }
+    const mr = path.match(/^\/api\/admin\/users\/([^/]+)\/reset-password$/);
+    if (mr) {
+      return request.method === 'POST'
+        ? handleResetPassword(env, user, decodeURIComponent(mr[1]))
+        : methodNotAllowed();
     }
     const m = path.match(/^\/api\/admin\/users\/([^/]+)$/);
     if (m) {

@@ -123,11 +123,15 @@
   .clock-block .now-date{ font-size:13px; color:var(--text-muted); }
   .clock-block .now-time{ font-size:19px; font-weight:700; color:var(--amber); letter-spacing:1px; }
 
-  .metric-strip{ display:grid; grid-template-columns: repeat(3, 1fr); gap:10px; margin-bottom:22px; }
+  .metric-strip{ display:grid; grid-template-columns: repeat(4, 1fr); gap:10px; margin-bottom:22px; }
+  @media (max-width: 980px){ .metric-strip{ grid-template-columns: repeat(2, 1fr); } }
   .metric-card{ background: var(--panel); border:1px solid var(--hairline); border-radius:12px; padding: 14px 18px; position:relative; overflow:hidden; box-shadow: var(--shadow-sm); }
   .metric-card::before{ content:''; position:absolute; left:0; top:0; bottom:0; width:3px; background: var(--amber); }
   .metric-card.week::before{ background: var(--teal); }
   .metric-card.meeting::before{ background: var(--violet); }
+  .metric-card.overdue::before{ background: var(--red); }
+  .metric-list-row .od-date{ font-family: var(--mono); font-size:11px; color: var(--red); flex-shrink:0; }
+  .occ-date.overdue{ color: var(--red); font-weight:700; }
   .metric-label{ font-family: var(--mono); font-size:10.5px; letter-spacing:2px; color: var(--text-dim); text-transform:uppercase; margin-bottom:6px; }
   .metric-value{ font-family: var(--mono); font-size:28px; font-weight:700; color: var(--text); line-height:1; }
   .metric-value .unit{ font-size:13px; color: var(--text-muted); font-weight:500; margin-left:6px; }
@@ -288,6 +292,14 @@
   footer.storage-note .storage-state.err{ color: var(--red); }
   footer.storage-note #cloudNoteText:empty{ display:none; }
   footer.storage-note .signature{ margin-top:14px; padding-top:12px; border-top:1px solid var(--hairline); font-family: var(--sans); font-size:11.5px; color: var(--text-muted); letter-spacing:0.5px; }
+
+  .undo-toast{ position:fixed; left:50%; bottom:24px; transform:translate(-50%, 16px); z-index:80;
+    display:flex; align-items:center; gap:14px; background:var(--text); color:var(--bg);
+    border-radius:10px; padding:11px 16px; font-size:13.5px; box-shadow:var(--shadow-md);
+    opacity:0; pointer-events:none; transition:opacity .2s ease, transform .2s ease; max-width:calc(100vw - 32px); }
+  .undo-toast.show{ opacity:1; transform:translate(-50%,0); pointer-events:auto; }
+  .undo-toast span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .undo-toast button{ background:transparent; border:none; color:var(--amber); font-weight:700; font-size:13.5px; cursor:pointer; flex-shrink:0; padding:2px 4px; }
 
   .reminder-toast{ position: fixed; top: 22px; right: 22px; z-index: 60; width: 320px; max-width: calc(100vw - 32px); background: var(--panel); border: 1px solid var(--amber); border-radius: 12px; box-shadow: var(--shadow-md); opacity:0; transform: translateY(-12px); pointer-events:none; transition: opacity .2s ease, transform .2s ease; }
   .reminder-toast.show{ opacity:1; transform: translateY(0); pointer-events:auto; }
@@ -531,6 +543,7 @@
     .field-row > .field{ min-width:130px; }
 
     .reminder-toast{ left:12px; right:12px; width:auto; top:12px; }
+    .undo-toast{ bottom: calc(78px + env(safe-area-inset-bottom)); }
     footer.storage-note{ margin-top:24px; }
   }
 </style>
@@ -547,6 +560,7 @@
       <div class="account-box" id="accountBox" style="display:none;">
         <span class="account-email" id="accountEmail"></span>
         <button class="account-btn" id="btnAdmin" type="button" style="display:none;">帳號管理</button>
+        <button class="account-btn" id="btnChangePw" type="button">變更密碼</button>
         <button class="account-btn" id="btnLogout" type="button">登出</button>
       </div>
       <button id="themeBtn" class="icon-square" type="button" title="切換亮色／暗色" aria-label="切換亮色／暗色">🌙</button>
@@ -573,6 +587,10 @@
     <div class="metric-card meeting">
       <div class="metric-label">當日會議項目</div>
       <div class="metric-meeting-list" id="metricMeetingList"><div class="metric-meeting-empty">今日無會議</div></div>
+    </div>
+    <div class="metric-card overdue">
+      <div class="metric-label">逾期未完成</div>
+      <div class="metric-list" id="metricOverdueList"><div class="metric-list-empty">沒有逾期項目</div></div>
     </div>
   </div>
 
@@ -688,6 +706,11 @@
   </footer>
 </div>
 
+<div id="undoToast" class="undo-toast">
+  <span id="undoText"></span>
+  <button id="undoBtn" type="button">復原</button>
+</div>
+
 <div id="reminderToast" class="reminder-toast">
   <div class="reminder-head">
     <span class="reminder-icon">🔔</span>
@@ -798,6 +821,20 @@
     <div class="modal-actions">
       <button class="btn-cancel" id="btnCancelGantt">取消</button>
       <button class="btn-confirm" id="btnConfirmGantt">建立</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="pwOverlay">
+  <div class="modal" style="max-width:400px;">
+    <h3><span class="dot"></span>變更密碼</h3>
+    <div class="field"><label>目前密碼</label><input type="password" id="inputPwOld" autocomplete="current-password"></div>
+    <div class="field"><label>新密碼（至少 10 個字元）</label><input type="password" id="inputPwNew" autocomplete="new-password"></div>
+    <div class="field"><label>確認新密碼</label><input type="password" id="inputPwNew2" autocomplete="new-password"></div>
+    <div class="msg-inline" id="pwMsg"></div>
+    <div class="modal-actions">
+      <button class="btn-cancel" id="btnCancelPw">取消</button>
+      <button class="btn-confirm" id="btnConfirmPw">變更</button>
     </div>
   </div>
 </div>
@@ -1120,6 +1157,35 @@
   }
 
   document.getElementById('btnAdmin').onclick = ()=>{ location.href = '/admin'; };
+
+  const pwOverlay=document.getElementById('pwOverlay');
+  function setPwMsg(t,cls){ const el=document.getElementById('pwMsg'); el.textContent=t||''; el.className='msg-inline'+(t?' '+cls:''); }
+  document.getElementById('btnChangePw').onclick=()=>{
+    ['inputPwOld','inputPwNew','inputPwNew2'].forEach(id=>document.getElementById(id).value='');
+    setPwMsg('');
+    pwOverlay.classList.add('show');
+    setTimeout(()=>document.getElementById('inputPwOld').focus(), 50);
+  };
+  document.getElementById('btnCancelPw').onclick=()=>pwOverlay.classList.remove('show');
+  pwOverlay.addEventListener('click',(e)=>{ if(e.target.id==='pwOverlay') e.currentTarget.classList.remove('show'); });
+  document.getElementById('btnConfirmPw').onclick=async ()=>{
+    const oldPw=document.getElementById('inputPwOld').value;
+    const nw=document.getElementById('inputPwNew').value;
+    const nw2=document.getElementById('inputPwNew2').value;
+    if(nw.length<10){ setPwMsg('新密碼至少需要 10 個字元','err'); return; }
+    if(nw!==nw2){ setPwMsg('兩次輸入的新密碼不一致','err'); return; }
+    const btn=document.getElementById('btnConfirmPw'); btn.disabled=true;
+    try{
+      const r=await fetch('/api/auth/password',{ method:'POST', headers:{'content-type':'application/json'},
+        body: JSON.stringify({ oldPassword: oldPw, newPassword: nw }) });
+      if(r.status===401){ sessionExpired(); return; }
+      const d=await r.json().catch(()=>({}));
+      if(!r.ok){ setPwMsg(d.error||('變更失敗（HTTP '+r.status+'）'),'err'); btn.disabled=false; return; }
+      setPwMsg('密碼已更新。為了安全，其他裝置已全部登出。','ok');
+      setTimeout(()=>pwOverlay.classList.remove('show'), 1600);
+    }catch(e){ setPwMsg('目前離線，無法變更密碼','err'); }
+    btn.disabled=false;
+  };
   document.getElementById('btnLogout').onclick = async ()=>{
     // 登出必須清掉本地快取，否則同一台電腦的下一位使用者會讀到這份資料
     try{ await fetch('/api/auth/logout', { method:'POST' }); }catch(e){ /* 仍要清並離開 */ }
@@ -1383,11 +1449,50 @@
     const weekOcc = getAllOccurrences(wStart, wEnd);
     renderMetricList('metricDayList', dayOcc.filter(o=>!o.done), '今日已全部完成');
     renderMetricList('metricWeekList', weekOcc.filter(o=>!o.done), '本週已全部完成');
+    // 逾期＝過去 90 天內、日期已過且未完成。回看窗口有限是刻意的：全展開的成本
+    // 隨項目數與歷史長度成長，而 90 天前還沒勾的項目，實務上已經不是「待辦」。
+    const odStart = new Date(now); odStart.setDate(odStart.getDate()-90);
+    const odEnd = new Date(now); odEnd.setMilliseconds(-1);   // 昨天 23:59:59.999
+    const overdue = getAllOccurrences(odStart, odEnd).filter(o=>!o.done)
+      .sort((a,b)=> a.date.localeCompare(b.date));
+    const odEl = document.getElementById('metricOverdueList');
+    if(!overdue.length){
+      odEl.innerHTML = '<div class="metric-list-empty">沒有逾期項目</div>';
+    } else {
+      const MAXO = 6;
+      odEl.innerHTML = overdue.slice(0,MAXO).map(o=>
+        '<div class="metric-list-row"><span class="od-date">'+o.date.slice(5)+'</span><span>'+escapeHtml(o.item.title)+'</span></div>'
+      ).join('') + (overdue.length>MAXO ? '<div class="metric-list-more">+ 還有 '+(overdue.length-MAXO)+' 項</div>' : '');
+    }
+
     const todaysMeetings = dayOcc.filter(o=>o.item.type==='meeting').sort((a,b)=>(a.item.meetingTime||'99:99').localeCompare(b.item.meetingTime||'99:99'));
     const listEl = document.getElementById('metricMeetingList');
     listEl.innerHTML = todaysMeetings.length===0 ? '<div class="metric-meeting-empty">今日無會議</div>' :
       todaysMeetings.map(o=>'<div class="metric-meeting-row"><span class="m-time">'+(o.item.meetingTime||'--:--')+'</span><span>'+escapeHtml(o.item.title)+'</span></div>').join('');
   }
+
+  // ================= 刪除的單步復原 =================
+  // 刪除不再用 confirm() 攔一次——攔截式對話框擋不住「按太快」，事後復原才擋得住。
+  // 作法是刪除前拍下整份 snapshot，復原＝整份套回去。逐項還原的閉包版本更精緻，
+  // 但整份還原用的是既有且測過的 applySnapshot 機制，簡單得多；代價是復原也會
+  // 撤銷這幾秒內的其他小變更，以刪除到復原的間隔而言可以接受。
+  let undoState=null, undoTimer=null;
+  function hideUndo(){ document.getElementById('undoToast').classList.remove('show'); undoState=null; }
+  function deleteWithUndo(desc, mutate){
+    const before = snapshot();
+    commit(mutate);
+    undoState = before;
+    document.getElementById('undoText').textContent = '已刪除「'+desc+'」';
+    document.getElementById('undoToast').classList.add('show');
+    clearTimeout(undoTimer);
+    undoTimer = setTimeout(hideUndo, 6000);
+  }
+  document.getElementById('undoBtn').onclick=()=>{
+    if(!undoState) return;
+    const st = undoState;
+    hideUndo();
+    commit(()=> applySnapshot(st));
+  };
 
   // ================= 大項目 chips =================
   function renderMajorChips(){
@@ -1402,8 +1507,7 @@
       editBtn.onclick=()=>openMajorModal(mp); chip.appendChild(editBtn);
       const delBtn=document.createElement('button'); delBtn.textContent='✕'; delBtn.className='chip-del'; delBtn.title='刪除大項目（項目將變為獨立項目）';
       delBtn.onclick=()=>{
-        if(!confirm('確定刪除大項目「'+mp.name+'」？'+(cnt>0?'底下 '+cnt+' 個項目會變成獨立項目（不會被刪除）。':''))) return;
-        commit(()=>{
+        deleteWithUndo('大項目：'+mp.name, ()=>{
           majorProjects = majorProjects.filter(x=>x.id!==mp.id);
           items.forEach(it=>{ if(it.parentId===mp.id) it.parentId=null; });
         });
@@ -1494,7 +1598,9 @@
       row.appendChild(rb);
     }
     if(it.meetingTime){ const mt=document.createElement('span'); mt.className='meeting-time'; mt.textContent=it.meetingTime; row.appendChild(mt); }
-    const dateEl=document.createElement('span'); dateEl.className='occ-date'; dateEl.textContent=occ.date; row.appendChild(dateEl);
+    const dateEl=document.createElement('span'); dateEl.className='occ-date'; dateEl.textContent=occ.date;
+    if(!occ.done && occ.date < ymd(new Date())){ dateEl.classList.add('overdue'); dateEl.title='已逾期'; }
+    row.appendChild(dateEl);
     if(it.recurrence){
       const adjBtn=document.createElement('button'); adjBtn.className='icon-btn'; adjBtn.textContent='📅✎'; adjBtn.title='調整本次日期';
       adjBtn.onclick=()=>openOccModal(occ); row.appendChild(adjBtn);
@@ -1511,8 +1617,7 @@
     editBtn.onclick=()=>openItemModal(it); row.appendChild(editBtn);
     const delBtn=document.createElement('button'); delBtn.className='icon-btn danger'; delBtn.textContent='刪除'; delBtn.title='刪除整個項目（含所有循環）';
     delBtn.onclick=()=>{
-      if(!confirm('確定刪除「'+it.title+'」？'+(it.recurrence?'這會一併刪除所有循環週期，':'')+'此操作無法復原。')) return;
-      commit(()=>{ items = items.filter(x=>x.id!==it.id); });
+      deleteWithUndo(it.title, ()=>{ items = items.filter(x=>x.id!==it.id); });
     };
     row.appendChild(delBtn);
     return row;
@@ -1999,8 +2104,7 @@
       editBtn.onclick=()=>openGanttModal(gpNow); wrap.appendChild(editBtn);
       const delBtn=document.createElement('button'); delBtn.className='qbtn'; delBtn.textContent='✕ 刪除';
       delBtn.onclick=()=>{
-        if(!confirm('確定刪除專案「'+gpNow.name+'」？底下 '+gpNow.tasks.length+' 項待辦與專案筆記都會一併刪除，此操作無法復原。')) return;
-        commit(()=>{
+        deleteWithUndo('專案：'+gpNow.name, ()=>{
           ganttProjects = ganttProjects.filter(x=>x.id!==gpNow.id);
           if(selectedGanttProjectId===gpNow.id) selectedGanttProjectId = ganttProjects.length ? ganttProjects[0].id : null;
         });
@@ -2224,8 +2328,7 @@
 
       const delBtn=document.createElement('button'); delBtn.className='icon-btn danger'; delBtn.textContent='刪除'; delBtn.style.marginLeft='auto';
       delBtn.onclick=()=>{
-        if(!confirm('確定刪除待辦「'+t.name+'」？'+(t.todos.length?'底下 '+t.todos.length+' 個代辦項目也會一併刪除。':'')+'此操作無法復原。')) return;
-        commit(()=>{ gp.tasks=gp.tasks.filter(x=>x.id!==t.id); });
+        deleteWithUndo('待辦：'+t.name, ()=>{ gp.tasks=gp.tasks.filter(x=>x.id!==t.id); });
       };
       row.appendChild(delBtn);
       block.appendChild(row);
@@ -2250,8 +2353,8 @@
           };
           const rm=document.createElement('button'); rm.className='icon-btn danger'; rm.textContent='✕'; rm.title='刪除此代辦項目';
           rm.onclick=()=>{
-            // 行數改變，照既有慣例走完整 commit()
-            commit(()=>{ t.todos=t.todos.filter(x=>x.id!==td.id); syncTaskFromTodos(t); });
+            // 行數改變，照既有慣例走完整 commit()（deleteWithUndo 內部就是 commit）
+            deleteWithUndo('代辦項目：'+(td.text||'未命名'), ()=>{ t.todos=t.todos.filter(x=>x.id!==td.id); syncTaskFromTodos(t); });
           };
           tr.appendChild(tcb); tr.appendChild(inp); tr.appendChild(rm);
           todoBox.appendChild(tr);

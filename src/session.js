@@ -42,6 +42,12 @@ export async function destroySession(env, token) {
     .bind(await sha256(token)).run();
 }
 
+/** 改密碼時呼叫：其他裝置全部登出，保留目前這個 session */
+export async function destroyOtherSessions(env, userId, keepToken) {
+  await env.DB.prepare('DELETE FROM sessions WHERE user_id = ? AND token_hash != ?')
+    .bind(userId, await sha256(keepToken)).run();
+}
+
 /** 停用或刪除帳號時呼叫，讓該使用者所有裝置立即登出 */
 export async function destroyAllSessions(env, userId) {
   await env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(userId).run();

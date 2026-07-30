@@ -1,4 +1,5 @@
 import { json, adminEmails } from './auth.js';
+import { hashPassword, generateToken } from '../crypto.js';
 import { destroyAllSessions } from '../session.js';
 
 const VALID_STATUS = ['pending', 'approved', 'rejected', 'suspended'];
@@ -70,6 +71,34 @@ export async function handleUpdateUser(request, env, actingUser, targetId) {
     .prepare('SELECT id, email, role, status, created_at, approved_at FROM users WHERE id = ?')
     .bind(targetId).first();
   return json({ ok: true, user: updated });
+}
+
+/**
+ * 管理者重設密碼：產生一次性臨時密碼，只在回應中出現一次，之後無從再查。
+ *
+ * 沒有這條路徑的話，使用者忘記密碼＝帳號報廢——連管理者都救不了，只能刪帳號
+ * 重註冊，雲端排程資料就跟著消失。不做 email 寄信重設是刻意的：系統沒有寄信
+ * 基礎設施，臨時密碼由管理者透過既有的聯絡管道轉交即可。
+ *
+ * 不能重設自己（自己用改密碼），也不能重設 ADMIN_EMAILS 名單內的帳號——
+ * 重設密碼等於接管帳號，最後保險不能有這個洞。
+ */
+export async function handleResetPassword(env, actingUser, targetId) {
+  const target = await env.DB
+    .prepare('SELECT id, email FROM users WHERE id = ?').bind(targetId).first();
+  if (!target) return json({ error: '找不到這個帳號' }, 404);
+  if (target.id === actingUser.id) return json({ error: '請改用「變更密碼」功能' }, 400);
+  if (adminEmails(env).includes(target.email)) {
+    return json({ error: '這是設定檔指定的管理者，無法重設其密碼' }, 403);
+  }
+
+  // 12 碼、去掉易混淆字元。generateToken 的熵遠超需求，取前段即可
+  const tempPassword = generateToken().replace(/[-_]/g, '').slice(0, 12);
+  await env.DB.prepare('UPDATE users SET password_hash = ? WHERE id = ?')
+    .bind(await hashPassword(tempPassword), targetId).run();
+  await destroyAllSessions(env, targetId);
+
+  return json({ ok: true, tempPassword, email: target.email });
 }
 
 export async function handleDeleteUser(env, actingUser, targetId) {

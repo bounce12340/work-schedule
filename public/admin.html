@@ -116,8 +116,13 @@
   var msgEl = document.getElementById('msg');
   var me = null;
 
-  function showMsg(t, kind){ msgEl.textContent = t; msgEl.className = 'msg ' + kind;
-    setTimeout(function(){ msgEl.className = 'msg'; }, 4000); }
+  var msgTimer = null;
+  function showMsg(t, kind, sticky){
+    msgEl.textContent = t; msgEl.className = 'msg ' + kind;
+    clearTimeout(msgTimer);
+    // 臨時密碼這類「只顯示一次」的訊息不能 4 秒就消失，抄都來不及
+    if (!sticky) msgTimer = setTimeout(function(){ msgEl.className = 'msg'; }, 4000);
+  }
 
   function fmt(ts){
     if (!ts) return '—';
@@ -199,6 +204,7 @@
       ops.appendChild(op(u.role === 'admin' ? '降為使用者' : '設為管理者', '', function(){
         patch(u, { role: u.role === 'admin' ? 'user' : 'admin' });
       }));
+      ops.appendChild(op('重設密碼', '', function(){ resetPw(u); }));
       ops.appendChild(op('刪除', 'danger', function(){ del(u); }));
     }
     row.appendChild(ops);
@@ -235,6 +241,14 @@
       showMsg(u.email + ' 已刪除', 'ok');
       load();
     } catch (e) { showMsg('刪除失敗：' + e.message, 'err'); }
+  }
+
+  async function resetPw(u){
+    if (!confirm('重設 ' + u.email + ' 的密碼？\n\n對方所有裝置會立即登出，舊密碼立刻失效。\n新的臨時密碼只會顯示一次，請抄下後轉交對方，並提醒登入後立即變更。')) return;
+    try {
+      var d = await api('/api/admin/users/' + encodeURIComponent(u.id) + '/reset-password', { method:'POST' });
+      showMsg(d.email + ' 的臨時密碼：' + d.tempPassword + '（只顯示這一次，請立即抄下）', 'ok', true);
+    } catch (e) { showMsg('重設失敗：' + e.message, 'err'); }
   }
 
   document.getElementById('btnBack').onclick = function(){ location.href = '/'; };
