@@ -40,3 +40,27 @@ CREATE TABLE IF NOT EXISTS user_state (
   updated_at INTEGER NOT NULL,        -- epoch 毫秒；同時作為樂觀鎖的版本號
   created_at INTEGER NOT NULL
 );
+
+-- 分享。一列＝「擁有者把某一個資源分享給某一位使用者」。
+--
+-- 刻意不複製資源內容，只記指標（kind + resource_id）：資源本身仍然只有一份，
+-- 存在擁有者的 user_state 裡。複製一份給對方的話，兩邊會立刻各自漂移，
+-- 而「分享」的語意就是雙方看到同一個東西。
+--
+-- resource_id 沒有外鍵可指——資源在 JSON blob 裡而不是獨立表格。因此建立分享時
+-- 由 API 負責確認該資源真的存在於擁有者的 state，避免留下永遠解析不到的孤兒列。
+--
+-- UNIQUE 讓「重複分享給同一人」變成更新權限而非新增一列。
+CREATE TABLE IF NOT EXISTS shares (
+  id            TEXT PRIMARY KEY,
+  owner_id      TEXT NOT NULL,
+  target_id     TEXT NOT NULL,
+  resource_kind TEXT NOT NULL,        -- 'item'（小項目）| 'gantt'（專案）
+  resource_id   TEXT NOT NULL,
+  permission    TEXT NOT NULL,        -- 'view'（唯讀）| 'edit'（可操作）
+  created_at    INTEGER NOT NULL,
+  UNIQUE(owner_id, resource_kind, resource_id, target_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_shares_target ON shares(target_id);
+CREATE INDEX IF NOT EXISTS idx_shares_owner ON shares(owner_id);

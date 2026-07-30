@@ -1,6 +1,7 @@
 import { handleRegister, handleLogin, handleLogout, handleMe, json } from './handlers/auth.js';
 import { handleGetState, handlePutState } from './handlers/state.js';
 import { handleListUsers, handleUpdateUser, handleDeleteUser } from './handlers/admin.js';
+import { handleListShares, handleCreateShare, handleDeleteShare, handleUpdateShared } from './handlers/share.js';
 import { getSessionUser } from './session.js';
 
 /**
@@ -60,6 +61,30 @@ async function route(request, env) {
     if (request.method === 'GET') return handleGetState(env, user.id);
     if (request.method === 'PUT') return handlePutState(request, env, user.id);
     return methodNotAllowed();
+  }
+
+  if (path === '/api/shares') {
+    if (request.method === 'GET') return handleListShares(env, user);
+    if (request.method === 'POST') return handleCreateShare(request, env, user);
+    return methodNotAllowed();
+  }
+  {
+    const m = path.match(/^\/api\/shares\/([^/]+)$/);
+    if (m) {
+      return request.method === 'DELETE'
+        ? handleDeleteShare(env, user, decodeURIComponent(m[1]))
+        : methodNotAllowed();
+    }
+  }
+  {
+    // 路徑帶的是分享單 id，不是資源 id：可寫的目標與權限都由那筆分享決定，
+    // 用資源 id 直接定位的話，任何人只要猜到 id 就能寫別人的資料。
+    const m = path.match(/^\/api\/shared\/([^/]+)$/);
+    if (m) {
+      return request.method === 'PUT'
+        ? handleUpdateShared(request, env, user, decodeURIComponent(m[1]))
+        : methodNotAllowed();
+    }
   }
 
   if (path.startsWith('/api/admin/')) {
