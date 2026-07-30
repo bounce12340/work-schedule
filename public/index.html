@@ -4,6 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#F6F4EE" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1A1917" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="工作排程">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
 <title>工作排程確認系統</title>
 <script>
   // 主題必須在畫面繪製前就決定，否則暗色使用者每次載入都會先閃一下亮色。
@@ -376,6 +383,28 @@
   .holiday-chip button{ background:none; border:none; cursor:pointer; color:var(--text-dim); font-size:11px; }
   .holiday-chip button:hover{ color:var(--red); }
 
+  .filter-bar{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:14px; }
+  .filter-bar input[type=search]{ flex:1; min-width:170px; font-family: var(--sans); font-size:13.5px; }
+  .filter-types{ display:flex; gap:6px; }
+  .filter-count{ font-family: var(--mono); font-size:11.5px; color: var(--text-dim); margin-left:auto; }
+  .backup-row{ display:flex; gap:8px; justify-content:center; margin-top:12px; }
+  .ghost-btn{ font-family: var(--mono); font-size:11px; color: var(--text-dim); background:transparent; border:1px dashed var(--dash); border-radius:6px; padding:7px 12px; cursor:pointer; }
+  .ghost-btn:hover{ color: var(--amber); border-color: var(--amber); }
+  .holiday-bulk{ margin-top:8px; display:flex; flex-direction:column; gap:6px; }
+  .holiday-bulk textarea{ font-family: var(--mono); font-size:12px; }
+  .holiday-bulk .add-year-btn{ align-self:flex-start; }
+  .holiday-bulk-msg{ font-family: var(--mono); font-size:11px; color: var(--text-dim); line-height:1.6; }
+  .holiday-bulk-msg.err{ color: var(--red); }
+
+  .activity-list{ background:var(--panel); border:1px solid var(--hairline); border-radius:12px; padding:6px 16px; }
+  .activity-row{ display:flex; align-items:baseline; gap:10px; padding:9px 0; border-top:1px solid var(--hairline-soft); flex-wrap:wrap; font-size:13px; }
+  .activity-row:first-child{ border-top:none; }
+  .activity-time{ font-family:var(--mono); font-size:11px; color:var(--text-dim); flex-shrink:0; }
+  .activity-actor{ font-family:var(--mono); font-size:11.5px; color:var(--text-muted); }
+  .activity-actor.me{ color:var(--amber); }
+  .activity-name{ font-weight:600; }
+  .activity-action{ font-family:var(--mono); font-size:11.5px; color:var(--teal); }
+
   /* ---- 分享 ---- */
   .shared-toolbar{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
   .shared-hint{ font-family:var(--mono); font-size:11.5px; color:var(--text-dim); }
@@ -569,6 +598,12 @@
             <button class="add-project-btn" id="openItemModal">＋ 新增小項目</button>
           </div>
         </div>
+        <div class="filter-bar">
+          <input type="search" id="inputSearch" placeholder="搜尋標題或大項目…" autocomplete="off">
+          <div class="filter-types" id="filterTypes"></div>
+          <button class="qbtn" id="btnHideDone" type="button">只看未完成</button>
+          <span class="filter-count" id="filterCount"></span>
+        </div>
         <div class="board" id="board"></div>
       </div>
 
@@ -627,6 +662,11 @@
           <div class="major-section-label">我分享出去的</div>
         </div>
         <div id="sharedOutgoing"></div>
+
+        <div class="major-section" style="margin-top:26px;">
+          <div class="major-section-label">最近的變更（只記錄共享項目，保留 90 天）</div>
+        </div>
+        <div id="sharedActivity"></div>
       </div>
 
     </div>
@@ -636,6 +676,11 @@
     <div id="storageNoteText">※ 資料儲存狀態偵測中…</div>
     <div id="cloudNoteText"></div>
     <div>「遇假日」判斷以週六、週日為基準，如需計入國定假日，可在新增小項目時使用「自訂假日」清單自行加入日期。</div>
+    <div class="backup-row">
+      <button id="btnExport" class="ghost-btn" type="button">⤓ 匯出備份</button>
+      <button id="btnImport" class="ghost-btn" type="button">⤒ 匯入備份</button>
+      <input type="file" id="importFile" accept="application/json,.json" style="display:none;">
+    </div>
     <div class="signature">此系統由劉思妤設計、規劃、製作。</div>
   </footer>
 </div>
@@ -666,7 +711,7 @@
   <div class="modal">
     <h3><span class="dot"></span><span id="itemModalTitle">新增小項目</span></h3>
     <div class="recur-warn" id="recurChangeWarn" style="display:none;">
-      ⚠ 你變更了循環頻率。各次的完成紀錄、日期覆寫與略過設定是依「每月／每季」的週期代碼記錄的，變更後將全部重置。
+      ⚠ 你變更了循環頻率。各次的完成紀錄、日期覆寫與略過設定是依週期代碼記錄的（每週類記日期、每月記年月、每季記年季），變更後將全部重置。
     </div>
     <div class="field"><label>標題</label><input type="text" id="inputItemTitle" placeholder="例如：確認提案簡報"></div>
     <div class="field">
@@ -684,13 +729,16 @@
       <label>循環設定</label>
       <select id="selectRecurrence">
         <option value="none">不循環</option>
+        <option value="weekly">每週</option>
+        <option value="biweekly">每兩週</option>
         <option value="monthly">每月固定</option>
         <option value="quarterly">每季固定（每 3 個月）</option>
       </select>
     </div>
     <div id="recurrenceExtra" style="display:none;">
+      <div class="scope-note" id="recurWeekNote" style="display:none;">每週／每兩週的<b>星期幾由上方的起始日期決定</b>，不需要另外指定。</div>
       <div class="field-row">
-        <div class="field"><label id="recurDayLabel">每月第幾天</label><input type="number" id="inputRecurDay" min="1" max="31" value="1"></div>
+        <div class="field" id="recurDayField"><label id="recurDayLabel">每月第幾天</label><input type="number" id="inputRecurDay" min="1" max="31" value="1"></div>
         <div class="field">
           <label>遇假日規則</label>
           <select id="selectHolidayRule">
@@ -709,6 +757,11 @@
         <div style="display:flex; gap:8px;">
           <input type="date" id="inputCustomHoliday" style="flex:1;">
           <button type="button" id="btnAddHoliday" class="add-year-btn" style="white-space:nowrap;">＋ 加入</button>
+        </div>
+        <div class="holiday-bulk">
+          <textarea id="inputHolidayBulk" rows="2" placeholder="也可以一次貼上多個日期，例如：&#10;2027-01-01, 2027-02-16 2027-02-17&#10;2027-04-04"></textarea>
+          <button type="button" id="btnAddHolidayBulk" class="add-year-btn">＋ 批次加入</button>
+          <div class="holiday-bulk-msg" id="holidayBulkMsg"></div>
         </div>
         <div class="holiday-list-box" id="holidayListBox"></div>
       </div>
@@ -851,7 +904,7 @@
       parentId: it.parentId || null,
       meetingTime: it.meetingTime || null,
       date: it.date,
-      recurrence: (it.recurrence && ['monthly','quarterly'].includes(it.recurrence.freq)) ? {
+      recurrence: (it.recurrence && ['monthly','quarterly','weekly','biweekly'].includes(it.recurrence.freq)) ? {
         freq: it.recurrence.freq,
         day: Math.max(1, Math.min(31, parseInt(it.recurrence.day) || 1)),
         holidayRule: ['none','postpone','advance'].includes(it.recurrence.holidayRule) ? it.recurrence.holidayRule : 'none',
@@ -1186,6 +1239,37 @@
     }
     const anchor = parseYMD(item.date);
     const untilDate = item.recurrence.until ? parseYMD(item.recurrence.until) : null;
+
+    // 每週／每兩週以「日」為單位前進，星期幾由起始日期決定，不需要「第幾天」欄位。
+    // occKey 用**未經假日調整**的日期：順延與否都不改變這一次的身分，否則同一次
+    // 在使用者新增自訂假日後會換一個 key，先前的完成／覆寫紀錄整批對不上。
+    if(item.recurrence.freq==='weekly' || item.recurrence.freq==='biweekly'){
+      const stepDays = item.recurrence.freq==='weekly' ? 7 : 14;
+      const cursor = new Date(anchor);
+      // 錨點遠早於檢視區間時先跳過去，否則 guard 會在還沒進入區間前就用完，
+      // 症狀是「幾年前開始的每週項目在今年完全不顯示」。退一步保留餘裕，
+      // 讓緊鄰區間前、可能被順延推進區間內的那一次仍算得到。
+      if(cursor < rangeStart){
+        const steps = Math.floor((rangeStart - cursor) / 86400000 / stepDays);
+        if(steps > 1) cursor.setDate(cursor.getDate() + (steps-1)*stepDays);
+      }
+      let guard = 0;
+      while(guard < 800){
+        guard++;
+        if(untilDate && cursor > untilDate) break;
+        if(cursor > rangeEnd) break;
+        const occDateRaw = new Date(cursor);
+        const occKey = 'W' + ymd(occDateRaw);
+        const hasOverride = item.overrides && item.overrides[occKey];
+        const finalDate = hasOverride ? parseYMD(item.overrides[occKey]) : adjustForHoliday(occDateRaw, item.recurrence.holidayRule);
+        if(!(item.skipped && item.skipped[occKey]) && finalDate>=rangeStart && finalDate<=rangeEnd){
+          results.push({ item, date: ymd(finalDate), occKey, done: !!(item.doneMap && item.doneMap[occKey]) });
+        }
+        cursor.setDate(cursor.getDate() + stepDays);
+      }
+      return results;
+    }
+
     const stepMonths = item.recurrence.freq==='monthly' ? 1 : 3;
     let cursorY = anchor.getFullYear(), cursorM = anchor.getMonth();
     let guard = 0;
@@ -1221,8 +1305,18 @@
     else{ occ.item.doneMap = occ.item.doneMap || {}; occ.item.doneMap[occ.occKey] = val; }
   }
   function skipOccurrence(occ){ occ.item.skipped = occ.item.skipped || {}; occ.item.skipped[occ.occKey] = true; }
+  const WEEKDAYS = ['日','一','二','三','四','五','六'];
+  function weekdayLabel(dateStr){ return '週'+WEEKDAYS[parseYMD(dateStr).getDay()]; }
+  function recurrenceLabel(it){
+    const r = it.recurrence;
+    if(!r) return '';
+    if(r.freq==='weekly') return '每週'+WEEKDAYS[parseYMD(it.date).getDay()];
+    if(r.freq==='biweekly') return '每兩週（'+weekdayLabel(it.date)+'）';
+    return r.freq==='monthly' ? '每月'+r.day+'日' : '每季固定'+r.day+'日';
+  }
   function occPeriodLabel(occ){
     if(occ.occKey==='single') return '單次';
+    if(occ.occKey.charAt(0)==='W') return occ.occKey.slice(1)+' 那一次';
     if(occ.item.recurrence.freq==='monthly'){ const [y,m]=occ.occKey.split('-'); return y+'年'+parseInt(m)+'月'; }
     const [y,q] = occ.occKey.split('-Q'); return y+'年 第'+q+'季';
   }
@@ -1392,7 +1486,7 @@
     if(pname){ const tag=document.createElement('span'); tag.className='parent-tag'; tag.textContent=pname; row.appendChild(tag); }
     if(it.recurrence){
       const rb=document.createElement('span'); rb.className='recur-badge';
-      rb.textContent='🔁 '+(it.recurrence.freq==='monthly'?'每月'+it.recurrence.day+'日':'每季固定'+it.recurrence.day+'日')+(it.recurrence.until?'（至'+it.recurrence.until+'）':'');
+      rb.textContent='🔁 '+recurrenceLabel(it)+(it.recurrence.until?'（至'+it.recurrence.until+'）':'');
       row.appendChild(rb);
     }
     if(it.meetingTime){ const mt=document.createElement('span'); mt.className='meeting-time'; mt.textContent=it.meetingTime; row.appendChild(mt); }
@@ -1420,16 +1514,63 @@
     return row;
   }
 
+  // 篩選條件屬於檢視狀態，與年份／頁籤同一類：不進 snapshot()、不存檔，
+  // 重整後回到預設。存起來的話，使用者下次打開會看到一份被篩選過的清單卻
+  // 不知道為什麼有些項目不見了。
+  let searchText = '';
+  let typeFilter = new Set();     // 空集合代表不限類型
+  let hideDone = false;
+
+  function matchesFilter(occ){
+    if(typeFilter.size && !typeFilter.has(occ.item.type)) return false;
+    if(hideDone && occ.done) return false;
+    if(searchText){
+      const q = searchText.toLowerCase();
+      const parent = (majorProjectName(occ.item.parentId) || '').toLowerCase();
+      if(!occ.item.title.toLowerCase().includes(q) && !parent.includes(q)) return false;
+    }
+    return true;
+  }
+  function filterActive(){ return !!searchText || typeFilter.size > 0 || hideDone; }
+
+  function renderFilterBar(){
+    const wrap=document.getElementById('filterTypes'); wrap.innerHTML='';
+    ['work','meeting','assignment'].forEach(t=>{
+      const b=document.createElement('button');
+      b.className='qbtn'+(typeFilter.has(t)?' active':'');
+      b.type='button'; b.textContent=typeLabels[t];
+      b.onclick=()=>{
+        if(typeFilter.has(t)) typeFilter.delete(t); else typeFilter.add(t);
+        renderScheduleView();          // 純檢視變更，不走 commit()
+      };
+      wrap.appendChild(b);
+    });
+    document.getElementById('btnHideDone').classList.toggle('active', hideDone);
+  }
+
   function renderBoard(){
     const board=document.getElementById('board'); board.innerHTML='';
-    const list=currentOccurrences();
-    if(list.length===0){ board.innerHTML='<div class="empty-state">此範圍尚無項目 — 點選右上角 <span>「＋ 新增小項目」</span> 開始建立工作、會議或作業</div>'; return; }
+    const all=currentOccurrences();
+    const list=all.filter(matchesFilter);
+    document.getElementById('filterCount').textContent =
+      filterActive() ? '符合 '+list.length+' / '+all.length+' 項' : '';
+    if(all.length===0){
+      board.innerHTML='<div class="empty-state">此範圍尚無項目 — 點選右上角 <span>「＋ 新增小項目」</span> 開始建立工作、會議或作業</div>';
+      return;
+    }
+    if(list.length===0){
+      board.innerHTML='<div class="empty-state">此範圍有 <span>'+all.length+'</span> 項，但沒有符合目前篩選條件的項目</div>';
+      return;
+    }
     list.forEach(occ=> board.appendChild(buildOccRow(occ)) );
   }
   // 只負責「項目安排」頁自己的區塊；頂部 metrics 與跨頁重繪由 renderAll() 統籌
   function renderScheduleView(){
-    renderMajorChips(); renderModeTabs(); renderPeriodRow(); renderScopeStrip(); renderBoard();
+    renderMajorChips(); renderModeTabs(); renderPeriodRow(); renderScopeStrip(); renderFilterBar(); renderBoard();
   }
+
+  document.getElementById('inputSearch').oninput = (e)=>{ searchText = e.target.value.trim(); renderBoard(); };
+  document.getElementById('btnHideDone').onclick = ()=>{ hideDone = !hideDone; renderScheduleView(); };
 
   // ================= calendar view =================
   function renderCalendar(){
@@ -1544,6 +1685,36 @@
       chip.appendChild(rm); box.appendChild(chip);
     });
   }
+  // 國定假日每年不同、且一次就是十幾天。逐日點選要按二十幾次，貼上則是一次的事。
+  // 刻意不內建一份假日清單：日期每年由行政院公布、且會因補班而調整，寫死一份
+  // 過期的清單會讓「遇假日順延」算出錯誤的日期，那比沒有這個功能更糟。
+  document.getElementById('btnAddHolidayBulk').onclick=()=>{
+    const ta=document.getElementById('inputHolidayBulk');
+    const msg=document.getElementById('holidayBulkMsg');
+    const tokens=ta.value.split(/[\s,、，;；]+/).map(t=>t.trim()).filter(Boolean);
+    if(!tokens.length){ msg.className='holiday-bulk-msg'; msg.textContent=''; return; }
+    const valid=[], invalid=[];
+    tokens.forEach(t=>{
+      // 一併接受 2027/01/01 這種寫法，貼上時最常見
+      const norm=t.replace(/\//g,'-');
+      if(/^\d{4}-\d{2}-\d{2}$/.test(norm) && !isNaN(parseYMD(norm).getTime())) valid.push(norm);
+      else invalid.push(t);
+    });
+    // 先去掉輸入裡自己重複的日期，否則貼上重複兩次會回報「已加入 2 天」，
+    // 但 Set 實際上只多了一天，數字對不上使用者眼睛看到的清單
+    const unique=[...new Set(valid)];
+    const added=unique.filter(v=>!customHolidays.has(v));
+    if(added.length) commit(()=> added.forEach(v=>customHolidays.add(v)));
+    renderHolidayList();
+    ta.value='';
+    msg.className='holiday-bulk-msg'+(invalid.length?' err':'');
+    msg.textContent=[
+      added.length ? '已加入 '+added.length+' 天' : '',
+      valid.length-added.length ? '略過重複 '+(valid.length-added.length)+' 天' : '',
+      invalid.length ? '無法辨識：'+invalid.slice(0,5).join('、')+(invalid.length>5?' 等':'') : ''
+    ].filter(Boolean).join('；');
+  };
+
   document.getElementById('btnAddHoliday').onclick=()=>{
     const v=document.getElementById('inputCustomHoliday').value; if(!v) return;
     document.getElementById('inputCustomHoliday').value='';
@@ -1567,6 +1738,10 @@
   function updateRecurrenceExtra(){
     const val=document.getElementById('selectRecurrence').value;
     document.getElementById('recurrenceExtra').style.display = val==='none' ? 'none' : 'block';
+    const byWeek = (val==='weekly' || val==='biweekly');
+    // 每週類的星期幾由起始日期決定，留著「第幾天」欄位只會讓人以為它有作用
+    document.getElementById('recurDayField').style.display = byWeek ? 'none' : '';
+    document.getElementById('recurWeekNote').style.display = byWeek ? 'block' : 'none';
     document.getElementById('recurDayLabel').textContent = val==='monthly' ? '每月第幾天' : '每季固定第幾天（每 3 個月一次）';
     document.getElementById('itemDateLabel').textContent = val==='none' ? '日期' : '起始日期';
     const nextFreq = val==='none' ? null : val;
@@ -2070,6 +2245,8 @@
     if(el){ el.textContent=text||''; el.className='shared-hint'+(cls?' '+cls:''); }
   }
 
+  let activity = [];
+
   async function fetchShares(){
     if(!cloudEnabled) return;
     try{
@@ -2078,6 +2255,46 @@
       if(!r.ok) return;
       shares = await r.json();
     }catch(e){ /* 離線：沿用上一次讀到的內容，不清空畫面 */ }
+    // 操作記錄失敗不該連累分享清單，各自吞掉自己的錯誤
+    try{
+      const r = await fetch('/api/activity', { cache:'no-store' });
+      if(r.ok) activity = (await r.json()).activity || [];
+    }catch(e){ /* 沿用舊資料 */ }
+  }
+
+  function fmtActivityTime(ms){
+    const d = new Date(ms);
+    const pad = n => String(n).padStart(2,'0');
+    const sameDay = ymd(d) === ymd(new Date());
+    return (sameDay ? '今天 ' : (d.getMonth()+1)+'/'+d.getDate()+' ') + pad(d.getHours())+':'+pad(d.getMinutes());
+  }
+
+  function renderActivity(){
+    const box=document.getElementById('sharedActivity');
+    box.innerHTML='';
+    if(!cloudEnabled) return;
+    if(!activity.length){
+      box.innerHTML='<div class="empty-state">還沒有任何共享項目的變更記錄</div>';
+      return;
+    }
+    const list=document.createElement('div'); list.className='activity-list';
+    activity.forEach(a=>{
+      const row=document.createElement('div'); row.className='activity-row';
+      const t=document.createElement('span'); t.className='activity-time'; t.textContent=fmtActivityTime(a.at);
+      const who=document.createElement('span'); who.className='activity-actor'+(a.byMe?' me':'');
+      who.textContent = a.byMe ? '你' : a.actorEmail;
+      const name=document.createElement('span'); name.className='activity-name'; name.textContent='「'+a.name+'」';
+      const act=document.createElement('span'); act.className='activity-action'; act.textContent=a.action;
+      row.appendChild(t); row.appendChild(who); row.appendChild(name); row.appendChild(act);
+      // 我改別人的東西時，標示這是誰的資料
+      if(a.byMe){
+        const owner=document.createElement('span'); owner.className='activity-actor';
+        owner.textContent='（'+a.ownerEmail+' 的項目）';
+        row.appendChild(owner);
+      }
+      list.appendChild(row);
+    });
+    box.appendChild(list);
   }
 
   /** 只把單一資源寫回擁有者。成功與否都要讓使用者看得到——這條路徑沒有本機備份 */
@@ -2094,6 +2311,7 @@
         return false;
       }
       setSharedHint('已儲存到 '+share.ownerEmail+' 的帳號', 'ok');
+      fetchShares().then(()=>{ if(currentView==='shared') renderActivity(); });
       return true;
     }catch(e){
       setSharedHint('目前離線，這次變更沒有存到對方帳號', 'err');
@@ -2195,6 +2413,7 @@
     inc.innerHTML=''; out.innerHTML='';
     if(!cloudEnabled){
       inc.innerHTML='<div class="empty-state">分享需要登入帳號後才能使用。<br>目前是單機模式，資料只存在這個瀏覽器。</div>';
+      document.getElementById('sharedActivity').innerHTML='';
       return;
     }
     if(!shares.incoming.length){
@@ -2202,6 +2421,7 @@
     } else {
       shares.incoming.forEach(sh=> inc.appendChild(buildIncomingCard(sh)));
     }
+    renderActivity();
     if(!shares.outgoing.length){
       out.innerHTML='<div class="empty-state">還沒有分享任何項目出去 — 在項目或專案上按 <span>🔗</span> 即可分享</div>';
     } else {
@@ -2407,6 +2627,67 @@
     gp.tasks.push({ id: uid('task'), name:'前端開發與測試', start: ymd(s3), end: ymd(e3), progress:0, done:false, todos:[] });
     gp.tasks.forEach(syncTaskFromTodos);
   }
+
+  // ================= Service worker（加到主畫面／離線可用）=================
+  // 只在 http(s) 下註冊：file:// 開啟時瀏覽器不允許 service worker，硬註冊會丟
+  // 例外，而「單檔雙擊開啟」是不能破壞的前提，所以這裡失敗一律靜默忽略。
+  if(location.protocol.startsWith('http') && 'serviceWorker' in navigator){
+    window.addEventListener('load', ()=>{
+      navigator.serviceWorker.register('/sw.js').catch(()=>{ /* 沒有也不影響任何功能 */ });
+    });
+  }
+
+  // ================= 匯出／匯入備份 =================
+  // 系統沒有其他備份手段，而資料會跨帳號分享、也可能因雲端衝突被覆蓋。
+  // 匯出的就是 snapshot()——與雲端同步共用同一個序列化格式，不需要另一套轉換。
+  document.getElementById('btnExport').onclick = ()=>{
+    const blob = new Blob([JSON.stringify(snapshot(), null, 2)], { type:'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    // 檔名用 ASCII：Chromium 遇到非 ASCII 的 download 屬性會整個忽略，
+    // 檔案存成沒有副檔名的 "download"，而匯入的檔案選擇器只收 .json——
+    // 等於備份存得下去卻選不回來（實測過）。
+    a.download = 'work-schedule-backup-' + ymd(new Date()) + '.json';
+    // 必須掛進 DOM 再點：部分瀏覽器對游離的 anchor 會忽略 download 屬性，
+    // 結果是檔案存成 "download" 而沒有副檔名
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    // 立刻 revoke 會讓部分瀏覽器的下載中斷，延後釋放
+    setTimeout(()=> URL.revokeObjectURL(url), 2000);
+  };
+
+  document.getElementById('btnImport').onclick = ()=> document.getElementById('importFile').click();
+  document.getElementById('importFile').onchange = async (e)=>{
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';          // 清空才能連續選同一個檔案
+    if(!file) return;
+    let parsed;
+    try{ parsed = JSON.parse(await file.text()); }
+    catch(err){ alert('這個檔案不是有效的備份：JSON 解析失敗。'); return; }
+
+    const n = Array.isArray(parsed.items) ? parsed.items.length : 0;
+    const g = Array.isArray(parsed.ganttProjects) ? parsed.ganttProjects.length : 0;
+    if(!confirm(
+      '匯入會以備份檔的內容「取代」目前的全部資料，無法復原。\n\n' +
+      '備份檔內容：' + n + ' 個小項目、' + g + ' 個專案\n' +
+      '目前資料：' + items.length + ' 個小項目、' + ganttProjects.length + ' 個專案\n\n' +
+      (cloudEnabled ? '匯入後也會同步覆蓋雲端。\n\n' : '') +
+      '確定要繼續嗎？'
+    )) return;
+
+    // applySnapshot 內含版本檢查與正規化，缺欄位的資料會被過濾掉而不是讓 render 掛掉
+    if(!applySnapshot(parsed)){
+      alert('這個備份檔的格式版本與目前版本不符，無法匯入。');
+      return;
+    }
+    refreshAvailableYears();
+    if(!availableYears.includes(selYear)) selYear = today.getFullYear();
+    commit();
+    alert('匯入完成：' + items.length + ' 個小項目、' + ganttProjects.length + ' 個專案。');
+  };
 
   // ================= 啟動 =================
   const loadedFromStorage = loadState();

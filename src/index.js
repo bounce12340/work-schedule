@@ -1,7 +1,7 @@
 import { handleRegister, handleLogin, handleLogout, handleMe, json } from './handlers/auth.js';
 import { handleGetState, handlePutState } from './handlers/state.js';
 import { handleListUsers, handleUpdateUser, handleDeleteUser } from './handlers/admin.js';
-import { handleListShares, handleCreateShare, handleDeleteShare, handleUpdateShared } from './handlers/share.js';
+import { handleListShares, handleCreateShare, handleDeleteShare, handleUpdateShared, handleListActivity } from './handlers/share.js';
 import { getSessionUser } from './session.js';
 
 /**
@@ -61,6 +61,10 @@ async function route(request, env) {
     if (request.method === 'GET') return handleGetState(env, user.id);
     if (request.method === 'PUT') return handlePutState(request, env, user.id);
     return methodNotAllowed();
+  }
+
+  if (path === '/api/activity') {
+    return request.method === 'GET' ? handleListActivity(env, user) : methodNotAllowed();
   }
 
   if (path === '/api/shares') {
