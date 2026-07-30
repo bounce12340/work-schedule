@@ -1040,6 +1040,123 @@
     persistTimer = setTimeout(()=>{ persist(); pushSoon(); }, 400);
   }
 
+  // ================= 三方合併 =================
+  // 兩台裝置（或本機編輯 vs 被分享者寫回）各自改過同一份雲端資料時，把
+  // 「上次同步的版本」當基準做三方合併：只有一邊改過的部分自動採用，
+  // 兩邊都改到同一個項目才需要使用者選。整份二選一的舊做法在分享上線後
+  // 不再可行——被分享者每一次勾選都會讓擁有者的下一次推送變成「衝突」，
+  // 使用者若選「以本機覆蓋」，對方的勾選就無聲消失。
+  // 此區段內全部是純函式（供測試抽取），不得引用任何模組變數。
+
+  function stableStringify(v){
+    if(v===null || typeof v!=='object') return JSON.stringify(v);
+    if(Array.isArray(v)) return '['+v.map(stableStringify).join(',')+']';
+    return '{'+Object.keys(v).sort().map(k=>JSON.stringify(k)+':'+stableStringify(v[k])).join(',')+'}';
+  }
+  function tmEq(a,b){ return stableStringify(a)===stableStringify(b); }
+
+  /** 以 id 對齊的清單合併。回傳 merged 與 conflicts（預設保留「有編輯的那一邊」）。 */
+  function tmMergeList(baseArr, localArr, remoteArr){
+    const toMap = arr => new Map((Array.isArray(arr)?arr:[]).filter(x=>x&&x.id).map(x=>[x.id,x]));
+    const bm=toMap(baseArr), lm=toMap(localArr), rm=toMap(remoteArr);
+    // 順序：先照遠端，再補本機新增的——排序穩定即可，畫面各自會再排
+    const order=[...rm.keys()];
+    for(const id of lm.keys()) if(!rm.has(id)) order.push(id);
+    const merged=[], conflicts=[];
+    for(const id of order){
+      const b=bm.get(id), l=lm.get(id), r=rm.get(id);
+      if(l && r){
+        if(tmEq(l,r)){ merged.push(r); }
+        else if(b && tmEq(l,b)){ merged.push(r); }        // 只有遠端改過
+        else if(b && tmEq(r,b)){ merged.push(l); }        // 只有本機改過
+        else { merged.push(l); conflicts.push({ id, local:l, remote:r }); }
+      } else if(l && !r){
+        if(!b){ merged.push(l); }                          // 本機新增
+        else if(!tmEq(l,b)){ merged.push(l); conflicts.push({ id, local:l, remote:null }); } // 遠端刪、本機改
+        // 遠端刪除且本機沒動 → 跟著刪
+      } else if(r && !l){
+        if(!b){ merged.push(r); }                          // 遠端新增
+        else if(!tmEq(r,b)){ merged.push(r); conflicts.push({ id, local:null, remote:r }); } // 本機刪、遠端改
+        // 本機刪除且遠端沒動 → 跟著刪
+      }
+    }
+    return { merged, conflicts };
+  }
+
+  /** key -> 字串 的合併（每日記錄）。刪除以「缺 key」表達。 */
+  function tmMergeLogs(base, local, remote){
+    base=base||{}; local=local||{}; remote=remote||{};
+    const merged={}, conflicts=[];
+    for(const k of new Set([...Object.keys(local), ...Object.keys(remote), ...Object.keys(base)])){
+      const b=base[k], l=local[k], r=remote[k];
+      if(l!==undefined && r!==undefined){
+        if(l===r){ merged[k]=r; }
+        else if(l===b){ merged[k]=r; }
+        else if(r===b){ merged[k]=l; }
+        else { merged[k]=l; conflicts.push({ id:k, local:l, remote:r }); }
+      } else if(l!==undefined){
+        if(b===undefined){ merged[k]=l; }
+        else if(l!==b){ merged[k]=l; conflicts.push({ id:k, local:l, remote:undefined }); }
+      } else if(r!==undefined){
+        if(b===undefined){ merged[k]=r; }
+        else if(r!==b){ merged[k]=r; conflicts.push({ id:k, local:undefined, remote:r }); }
+      }
+    }
+    return { merged, conflicts };
+  }
+
+  /** 字串集合的合併：新增看得到就留，刪除只在「基準有、單邊拿掉」時生效。 */
+  function tmMergeSets(base, local, remote){
+    const b=new Set(base||[]), l=new Set(local||[]), r=new Set(remote||[]);
+    const out=[];
+    for(const v of new Set([...l, ...r])){
+      if(l.has(v) && r.has(v)) out.push(v);
+      else if(!b.has(v)) out.push(v);       // 單邊新增
+      // 基準有、另一邊拿掉 → 視為刪除
+    }
+    return out.sort();
+  }
+
+  function threeWayMerge(base, local, remote){
+    const conflicts=[];
+    const items = tmMergeList(base.items, local.items, remote.items);
+    items.conflicts.forEach(c=>conflicts.push({ kind:'item', name:(c.local||c.remote).title||'（未命名）', ...c }));
+    const gantt = tmMergeList(base.ganttProjects, local.ganttProjects, remote.ganttProjects);
+    gantt.conflicts.forEach(c=>conflicts.push({ kind:'gantt', name:(c.local||c.remote).name||'（未命名）', ...c }));
+    const majors = tmMergeList(base.majorProjects, local.majorProjects, remote.majorProjects);
+    majors.conflicts.forEach(c=>conflicts.push({ kind:'major', name:(c.local||c.remote).name||'（未命名）', ...c }));
+    const logs = tmMergeLogs(base.dailyLogs, local.dailyLogs, remote.dailyLogs);
+    logs.conflicts.forEach(c=>conflicts.push({ kind:'log', name:'每日記錄 '+c.id, ...c }));
+    const merged = {
+      ...local,                      // version 與其他純量欄位
+      items: items.merged,
+      ganttProjects: gantt.merged,
+      majorProjects: majors.merged,
+      dailyLogs: logs.merged,
+      customHolidays: tmMergeSets(base.customHolidays, local.customHolidays, remote.customHolidays),
+      availableYears: [...new Set([...(local.availableYears||[]), ...(remote.availableYears||[])])].sort((a,b)=>a-b)
+    };
+    return { merged, conflicts };
+  }
+
+  /** 把衝突項目統一換成使用者選的那一邊（'local'｜'remote'）。 */
+  function resolveConflicts(merged, conflicts, side){
+    const listKey={ item:'items', gantt:'ganttProjects', major:'majorProjects' };
+    for(const c of conflicts){
+      const want = side==='local' ? c.local : c.remote;
+      if(c.kind==='log'){
+        if(want===undefined) delete merged.dailyLogs[c.id];
+        else merged.dailyLogs[c.id]=want;
+        continue;
+      }
+      const arr=merged[listKey[c.kind]];
+      const idx=arr.findIndex(x=>x&&x.id===c.id);
+      if(want){ if(idx>=0) arr[idx]=want; else arr.push(want); }
+      else if(idx>=0) arr.splice(idx,1);
+    }
+    return merged;
+  }
+
   // ================= 雲端同步（部署到 Cloudflare 時才啟用）=================
   // 設計原則：localStorage 仍是主要儲存，畫面永遠即時且離線可用；雲端只在
   // 背景同步。若直接把 localStorage 換成網路呼叫，這兩個特性都會失去。
@@ -1057,9 +1174,12 @@
     try{ return JSON.parse(localStorage.getItem(CLOUD_META_KEY) || 'null'); }
     catch(e){ return null; }
   }
-  function writeCloudMeta(){
-    // owner 讓下次載入能判斷這份本地快取屬於誰
-    try{ localStorage.setItem(CLOUD_META_KEY, JSON.stringify({ updatedAt: cloudUpdatedAt, owner: currentUserEmail })); }
+  function writeCloudMeta(baseSnap){
+    // owner 讓下次載入能判斷這份本地快取屬於誰；baseSnapshot 是「上次成功同步
+    // 到雲端的內容」，三方合併的基準——沒有它就無法區分「哪一邊改過」，
+    // 衝突只能退回整份二選一。
+    try{ localStorage.setItem(CLOUD_META_KEY, JSON.stringify({
+      updatedAt: cloudUpdatedAt, owner: currentUserEmail, baseSnapshot: baseSnap || null })); }
     catch(e){ /* 記憶體模式下略過 */ }
   }
   function clearLocalData(){
@@ -1095,10 +1215,11 @@
     pushInFlight = true;
     setCloudNote('同步中…');
     try{
+      const snap = snapshot();
       const r = await fetch(API_STATE, {
         method:'PUT',
         headers:{ 'content-type':'application/json' },
-        body: JSON.stringify({ state: snapshot(), baseUpdatedAt: cloudUpdatedAt })
+        body: JSON.stringify({ state: snap, baseUpdatedAt: cloudUpdatedAt })
       });
       if(r.status === 401){ sessionExpired(); return; }
       if(r.status === 409){
@@ -1110,7 +1231,7 @@
       if(!r.ok) throw new Error('HTTP '+r.status);
       const d = await r.json();
       cloudUpdatedAt = d.updatedAt;
-      writeCloudMeta();
+      writeCloudMeta(snap);
       setCloudNote('已同步');
     }catch(e){
       // 斷線不該擋住使用：資料仍在 localStorage，恢復連線後下次變更會補推
@@ -1128,6 +1249,32 @@
 
   // 兩台裝置各自改過同一份資料時不能靜默挑一邊，否則一定有人的編輯會消失
   function handleConflict(remote){
+    const meta = readCloudMeta();
+    const baseSnap = meta && meta.baseSnapshot;
+
+    if(baseSnap && remote && remote.state){
+      const { merged, conflicts } = threeWayMerge(baseSnap, snapshot(), remote.state);
+      if(conflicts.length){
+        // 只剩「兩邊都改到同一個項目」需要人決定；其餘已自動合併
+        const names = conflicts.slice(0,8).map(c=>'・'+c.name).join('\n');
+        const useRemote = confirm(
+          '有 '+conflicts.length+' 個項目在這台裝置與其他來源都被修改過：\n'+names+
+          (conflicts.length>8?'\n…':'')+'\n\n其餘變更已自動合併。上述衝突項目：\n'+
+          '［確定］採用雲端版本\n［取消］保留這台裝置的版本'
+        );
+        resolveConflicts(merged, conflicts, useRemote ? 'remote' : 'local');
+      }
+      applySnapshot(merged);
+      cloudUpdatedAt = remote.updatedAt;
+      persist();
+      refreshAvailableYears();
+      renderAll();
+      setCloudNote(conflicts.length ? '已合併（含 '+conflicts.length+' 個手動選擇）' : '已自動合併兩邊的變更');
+      cloudPush();   // 推上合併結果；成功時會把它記成新的基準
+      return;
+    }
+
+    // 沒有基準快照（升級前的舊快取）：無從判斷哪邊改過，只能退回整份二選一
     const useRemote = confirm(
       '偵測到其他裝置上有更新的資料。\n\n' +
       '［確定］載入雲端版本（放棄這台裝置尚未同步的變更）\n' +
@@ -1136,10 +1283,10 @@
     if(useRemote){
       applySnapshot(remote.state);
       cloudUpdatedAt = remote.updatedAt;
-      writeCloudMeta();
       persist();
       refreshAvailableYears();
       renderAll();
+      writeCloudMeta(snapshot());
       setCloudNote('已載入雲端版本');
     }else{
       // 接受遠端版本號後重推，等於明確覆蓋
@@ -1254,8 +1401,8 @@
     if(!localHadData){
       applySnapshot(remote.state);        // 這台裝置初次開啟，直接採用雲端
       cloudUpdatedAt = remote.updatedAt;
-      writeCloudMeta();
       persist();
+      writeCloudMeta(snapshot());   // 正規化後的內容才是可靠的比對基準
       refreshAvailableYears();
       renderAll();
       setCloudNote('已載入雲端版本');
