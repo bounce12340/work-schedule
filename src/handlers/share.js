@@ -14,7 +14,7 @@ import { uuid } from '../crypto.js';
  * 這讓寫入的影響範圍縮到單一資源，不會像整包覆蓋那樣波及擁有者的其他資料。
  */
 
-const KINDS = { item: 'items', gantt: 'ganttProjects' };
+const KINDS = { item: 'items', gantt: 'ganttProjects', major: 'majorProjects' };
 const PERMISSIONS = ['view', 'edit'];
 
 function normalizeEmail(v) {
@@ -68,7 +68,13 @@ export async function handleListShares(env, user) {
   for (const row of incoming.results || []) {
     if (!cache.has(row.owner_id)) cache.set(row.owner_id, await loadState(env, row.owner_id));
     const owned = cache.get(row.owner_id);
-    const resource = owned ? findResource(owned.state, row.resource_kind, row.resource_id) : null;
+    let resource = owned ? findResource(owned.state, row.resource_kind, row.resource_id) : null;
+    // 大項目是分類標籤，內容＝底下的所有小項目。一併附上，對方才有東西可看。
+    if (resource && row.resource_kind === 'major') {
+      const children = (Array.isArray(owned.state.items) ? owned.state.items : [])
+        .filter(it => it && it.parentId === row.resource_id);
+      resource = { ...resource, items: children };
+    }
     items.push({
       id: row.id,
       kind: row.resource_kind,
@@ -163,23 +169,32 @@ export async function handleUpdateShared(request, env, user, shareId) {
   if (!share) return json({ error: '找不到這筆分享' }, 404);
   if (share.target_id !== user.id) return json({ error: '沒有權限' }, 403);
   if (share.permission !== 'edit') return json({ error: '你只有檢視權限' }, 403);
-  if (resource.id !== share.resource_id) return json({ error: '資料與分享對象不符' }, 400);
+  if (share.resource_kind !== 'major' && resource.id !== share.resource_id) {
+    return json({ error: '資料與分享對象不符' }, 400);
+  }
+  if (share.resource_kind === 'major' && !resource.id) return json({ error: '缺少項目識別碼' }, 400);
 
   const owned = await loadState(env, share.owner_id);
   if (!owned) return json({ error: '擁有者的資料已不存在' }, 404);
 
-  const listKey = KINDS[share.resource_kind];
+  // 大項目分享的寫回對象是「底下的某一個小項目」：resource.id 是子項目 id，
+  // 授權依據是它此刻真的隸屬於被分享的大項目——擁有者把項目移出大項目後，
+  // 這條授權立即失效。
+  const isMajor = share.resource_kind === 'major';
+  const listKey = isMajor ? 'items' : KINDS[share.resource_kind];
   const list = Array.isArray(owned.state[listKey]) ? owned.state[listKey] : null;
   if (!list) return json({ error: '擁有者的資料格式不符' }, 409);
-  const idx = list.findIndex(r => r && r.id === share.resource_id);
-  if (idx < 0) return json({ error: '這個項目已被擁有者刪除' }, 404);
+  const idx = isMajor
+    ? list.findIndex(r => r && r.id === resource.id && r.parentId === share.resource_id)
+    : list.findIndex(r => r && r.id === share.resource_id);
+  if (idx < 0) return json({ error: '這個項目已被擁有者刪除或移出分享範圍' }, 404);
 
   const before = list[idx];
   // 白名單合併，不整包替換。UI 沒有提供改名、改日期等操作，但那只是前端沒畫
   // 按鈕——若這裡直接採用送來的整個物件，拿著 edit 權限打 API 就能改掉擁有者
   // 的任何欄位（標題、日期、循環規則、甚至清空子代辦）。權限的邊界必須由
   // 伺服器保證，因此只取出「可操作」允許的欄位，其餘一律以擁有者現有的為準。
-  const merged = mergeSharedEdit(share.resource_kind, before, resource);
+  const merged = mergeSharedEdit(isMajor ? 'item' : share.resource_kind, before, resource);
   list[idx] = merged;
   const now = Date.now();
   await env.DB
@@ -190,8 +205,8 @@ export async function handleUpdateShared(request, env, user, shareId) {
   await recordActivity(env, {
     ownerId: share.owner_id, actorId: user.id,
     kind: share.resource_kind, resourceId: share.resource_id,
-    name: resourceName(share.resource_kind, merged),
-    action: describeChange(share.resource_kind, before, merged),
+    name: resourceName(isMajor ? 'item' : share.resource_kind, merged),
+    action: describeChange(isMajor ? 'item' : share.resource_kind, before, merged),
     now
   });
 
