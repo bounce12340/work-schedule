@@ -73,7 +73,21 @@ npm run deploy
 
 **`TURNSTILE_SECRET` 未設定時所有註冊與登入都會被拒絕**，而不是放行——未設定就放行等於真人驗證形同虛設。
 
-本機開發不需要真的金鑰，`.dev.vars` 已使用 Cloudflare 官方測試金鑰（該檔已 gitignore）。
+### 本機開發用的 `.dev.vars`
+
+`wrangler dev` 會讀專案根目錄的 `.dev.vars`。**這個檔已被 `.gitignore` 排除，不會進版控**——正式環境的值一律走 `wrangler secret put`。
+
+```
+TURNSTILE_SECRET=<Cloudflare 官方測試金鑰即可，本機不需要真的>
+ADMIN_EMAILS=<逗號分隔，本機測試用>
+AGENTMAIL_API_KEY=<選填，要在本機測寄信才需要>
+AGENTMAIL_INBOX_ID=<選填>
+APP_URL=<選填>
+```
+
+> **改完 `.dev.vars` 一定要完整重啟 dev server。** `wrangler dev` 只在啟動時讀一次這個檔，
+> 而且它的子進程樹不容易殺乾淨——留下的 `workerd` 孤兒會繼續佔住 port，
+> 造成「原始碼熱重載了、環境變數卻停在舊值」這種很難診斷的狀況。重啟前先確認 port 真的空了。
 
 ### 部署疑難排解
 
