@@ -324,7 +324,10 @@ test('cron：有逾期才寄，沒有逾期完全不寄', async () => {
     assert.equal(out.skipped, 1, '沒有逾期的人完全不寄——每天一封「你沒有逾期」只會被忽略');
     assert.equal(sent.length, 1);
     assert.equal(sent[0].body.to, 'has@x.com');
-    assert.match(sent[0].url, /\/inboxes\/am_us_inbox_test\/messages\/send$/);
+    // 路徑必須完全符合官方 OpenAPI 規格。/v0 前綴特別容易漏——文件正文與部分
+    // 範例寫成沒有前綴的形式，照抄會 404，而 404 在 log 裡看起來像「inbox 不存在」
+    assert.equal(sent[0].url,
+      'https://api.agentmail.to/v0/inboxes/am_us_inbox_test/messages/send');
     assert.equal(sent[0].auth, 'Bearer am_test_key');
   });
 });

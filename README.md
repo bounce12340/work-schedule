@@ -46,6 +46,18 @@ npx wrangler secret put ADMIN_EMAILS
 > 這兩項走 secret 而非 `vars`：`vars` 會被寫進版控（公開 repo 等於公開你的 email），
 > 且在 Dashboard 改的 `vars` 會被下次 `deploy` 覆蓋。
 
+**（選用）逾期提醒信**——要讓系統在有逾期項目時寄信，再設兩個 secret：
+
+```bash
+npx wrangler secret put AGENTMAIL_API_KEY    # AgentMail Console 產生的帳號層級 API key
+npx wrangler secret put AGENTMAIL_INBOX_ID   # 寄件信箱的 id，形如 am_us_inbox_…
+npx wrangler secret put APP_URL              # 選填，信件內的連結
+```
+
+> `AGENTMAIL_API_KEY` 與 `AGENTMAIL_INBOX_ID` 是**兩個不同的東西**，很容易搞混：
+> 前者是帳號層級的憑證，後者是那個信箱的識別碼。
+> 沒設定時提醒功能不會運作，但不影響其他任何功能。
+
 最後部署：
 
 ```bash
