@@ -32,6 +32,7 @@ public/manifest.webmanifest, public/icon*.png|svg
 | `tests/occurrence.test.mjs` | occurrence 引擎 | 從 `index.html` 抽真正的原始碼求值 |
 | `tests/merge.test.mjs` | 三方合併 | 同上 |
 | `tests/state.test.mjs` | `handlePutState` / `handleUpdateShared` 的樂觀鎖 | 直接 import Worker 端模組 |
+| `tests/richtext.test.mjs` | 富文字過濾器的安全決策、v1→v2 遷移 | 從 `index.html` 抽真正的原始碼求值 |
 
 挑這三塊是因為它們同時是最容易改壞、也最容易測的部分。前兩者近乎純函式、零 DOM 依賴；第三者是**競態**——靠併發碰運氣測不到，但可以把空窗做成確定性的。
 
@@ -149,6 +150,38 @@ commit(()=>{ /* 改資料 */ });   // → 重算年份 → 存檔 → renderAll(
 1. **所有 `localStorage` 存取都必須包 try/catch。** Claude Artifact 的沙盒 iframe 會封鎖 localStorage 並拋 `SecurityError`，沒包就整個 app 當場掛掉。失敗時降級為記憶體模式（footer 會自動改文案），功能全部照常。
 2. **`persist()` 每次都實際嘗試寫入**，不拿 `storageAvailable` 當開關跳過。配額滿是可恢復的錯誤，使用者刪掉資料後應該自動恢復存檔；一次失敗就永久停用會讓存檔靜默死掉。`storageAvailable` 只用來決定 footer 文案。
 3. **`snapshot()` / `applySnapshot()` 是本機與雲端共用的序列化格式。** 新增狀態欄位時只改這兩個函式，否則必定有一邊漏掉。
+
+## 富文字（每日記錄與專案筆記）
+
+這兩個欄位存的是 **HTML**，會被丟進 `innerHTML`。內容可能來自匯入的備份檔、雲端同步回來的資料，或（將來共享頁若顯示筆記）別人的帳號——所以「富文字」區段**是一道安全邊界，不是排版工具**。動它之前請先讀完本節。
+
+### 過濾器的三條原則
+
+1. **白名單，不是黑名單。** 標籤、URL 協定、CSS 屬性與值全部是「不在表上就不通過」。`javascript:` 有 `JaVaScRiPt:`、`java\tscript:`、開頭塞控制字元等無數變形，黑名單永遠列不完。
+2. **屬性一律清空再放回。** 不逐一比對屬性名稱——`onXxx` 那類東西列不完，清空重建才沒有漏網之魚。
+3. **危險的才丟內容，其餘只拆外殼。** 只有 `<script>`／`<iframe>` 這種本身會執行或載入東西的標籤連內容一起丟；不認得的標籤 unwrap（保留文字）。把使用者打的字弄不見也是壞事。
+
+### 每一條入口都要濾，不能假設「存進來時濾過了」
+
+- `applySnapshot()`：每日記錄與專案筆記逐一過濾
+- `normalizeGanttProjects()`：`notes` 過濾
+- 編輯器的 `paste`、`blur`、以及每次 `onInput` 存檔前
+
+濾的目的正是防那些**不是從我們的編輯器進來的內容**，所以「編輯器已經濾過」永遠不能當作某條路徑免濾的理由。
+
+### 為什麼用 execCommand
+
+`document.execCommand` 標為 deprecated，但在零相依前提下它是唯一不必自己寫編輯引擎的作法——自行處理選取範圍、復原堆疊與跨瀏覽器游標行為，複雜度遠超過這個功能該有的份量。代價是各家輸出的標籤不一（`<b>` vs `<strong>`、殘留 `<font>`），因此存檔前一律過 `rtSanitize()` 正規化。**過濾器同時負責安全與一致性**，兩者不可分開處理。
+
+工具列按鈕必須在 `mousedown` 就 `preventDefault`：execCommand 作用在目前的選取範圍上，按鈕一旦搶走焦點，範圍就沒了。
+
+選色盤的「點別處關閉」監聽器要延到下一個 tick 才掛上 document，否則開啟用的那一次點擊會繼續冒泡，當場把自己關掉（實際踩過）。
+
+### 測試的切分
+
+`DOMParser` 只有瀏覽器有，Node 沒有內建。因此 `tests/richtext.test.mjs` 測的是所有**安全決策**（標籤政策、URL 白名單、style 值白名單、`<font>` 折算）——那些是純字串函式；**整條管線（含 DOM 走訪）必須在瀏覽器裡實測**，把惡意 HTML 當成「雲端來的資料」餵進去，然後檢查渲染後的 DOM 有沒有危險節點、`on*` 屬性、不安全的 `href`。
+
+不要為了讓走訪也能在 Node 裡測而自己造一個假 DOM：假 DOM 的解析行為與真瀏覽器不同，測過了也不代表安全。
 
 ### applySnapshot 一定要正規化，不能只檢查 version
 
