@@ -430,6 +430,18 @@ DOM 建構有兩種寫法，請依情境沿用：
 - **互動元素**（列、chip、按鈕）用 `document.createElement` + closure 綁 `.onclick`，例如 `buildOccRow()`
 - **大塊靜態內容**用 `innerHTML` 字串拼接，但**使用者輸入必須先過 `escapeHtml()`**（`renderReminderList()`、`renderMetricList()` 是範例）
 
+### 日曆的點選與拖曳選取
+
+`calSelectedDate` + `calSelectedEnd` 表示選取；`calSelectedEnd` 為 null 代表只選了一天。
+
+- **預設不選任何日期。**「＋ 為此日期新增」是「你選了某一天」的結果，不該平時就掛在畫面上。
+- 選取一律經 `calRange()` 正規化成「起 ≤ 訖」。往回拖在使用者眼中是同一段區間，若照原始順序存下去，後面每一處比較都要先判斷方向。
+- **拖曳過程中只切 class，不重繪整個日曆**（`paintSelection()`）。每次 mousemove 都跑一次 `renderCalendar()` 會把 42 個格子連同內容全部重建，完全跟不上；真正的重繪留到放開手時做一次。
+- `mouseup` 監聽在 **document** 而不是格線上：使用者常常拖出日曆外面才放開。
+- 觸控的 `touchmove` 事件其 `target` 一直是起始元素，必須用 `elementFromPoint` 反查目前指到哪一格；而且只有真的跨格才 `preventDefault`，否則單指上下捲動會被卡住。
+- 格子內的核取方塊要在 `mousedown`／`touchstart` 就排除（`closest('.cal-item-check')`），否則勾選會被拖曳選取搶走。
+- 區間模式不顯示逐日清單與每日記錄——那兩者都是「某一天」的概念。
+
 ### 勾選走樂觀回饋，是全量重繪唯一的緩衝
 
 `commit()` 是同步的完整重繪，成本隨項目數成長（300 項時一次勾選約 52ms）。若打勾符號要等它整段跑完才出現，資料一多就變成「按了沒反應」。

@@ -274,6 +274,10 @@
   .cal-cell.today{ background: var(--today-bg); border-color: var(--amber); box-shadow: inset 0 0 0 1px var(--amber); }
   .cal-cell.today.selected{ background: var(--today-selected-bg); }
   .cal-cell.selected{ background: var(--panel-2); border-color: var(--amber); }
+  /* 拖曳選取時不要讓瀏覽器把格子裡的文字反白，那會蓋掉選取的視覺 */
+  .cal-grid{ user-select:none; -webkit-user-select:none; }
+  /* 選取範圍的頭尾標得重一點，中間輕一點——一眼看得出區間的邊界在哪 */
+  .cal-cell.selected{ box-shadow: inset 0 0 0 1px var(--amber); }
   .cal-daynum{ font-family: var(--mono); font-size:12.5px; color: var(--text-muted); }
   .cal-cell.today .cal-daynum{ color: var(--amber); font-weight:700; }
   .cal-dots{ display:flex; flex-direction:column; gap:3px; }
@@ -1087,7 +1091,10 @@
 
   let calYear = today.getFullYear();
   let calMonth = today.getMonth()+1;
-  let calSelectedDate = ymd(today);
+  // 日曆的選取。預設**不選**任何日期——「＋ 為此日期新增」不該平時就掛在畫面上，
+  // 它應該是「你選了某一天」的結果。calSelectedEnd 為 null 表示只選了一天。
+  let calSelectedDate = null;
+  let calSelectedEnd = null;
 
   // 顯示文字一律在「取值當下」翻譯，不要先算成常數——LANG 會變，
   // 一次算好的常數會停在切換前的語言。
@@ -1170,6 +1177,13 @@
       '選擇日期以查看當日安排':'Pick a date to see that day’s schedule',
       '{0} 的安排':'Schedule for {0}',
       '＋ 為此日期新增':'+ Add to this date',
+      '＋ 為這段區間新增':'+ Add across this range',
+      '點選日期以查看當日安排，或按住拖曳選出一段區間':
+        'Pick a date to see that day’s schedule, or drag across days to select a range',
+      '尚未選擇日期':'No date selected',
+      '{0} – {1}（共 {2} 天）':'{0} – {1} ({2} days)',
+      '已選取一段區間 — 按上方按鈕建立跨多天的項目（例如出差、請假、專案期間）':
+        'Range selected — use the button above to create a multi-day item (a trip, leave, a project window)',
       '每日記錄':'Daily note',
       '此日期尚無工作項目、會議或作業':'Nothing scheduled on this date',
       // —— 專案 ——
@@ -2668,7 +2682,7 @@
         .sort((x,y)=>(x.item.meetingTime||'99:99').localeCompare(y.item.meetingTime||'99:99'));
 
       const cell=document.createElement('div');
-      cell.className='cal-cell'+(dateStr===todayStr?' today':'')+(dateStr===calSelectedDate?' selected':'');
+      cell.className='cal-cell'+(dateStr===todayStr?' today':'')+(inCalSelection(dateStr)?' selected':'');
       const daynum=document.createElement('div'); daynum.className='cal-daynum'; daynum.textContent=day; cell.appendChild(daynum);
 
       const dotsWrap=document.createElement('div'); dotsWrap.className='cal-dots';
@@ -2712,10 +2726,93 @@
         if(undone>1){ const n=document.createElement('span'); n.className='cal-pip-n'; n.textContent=undone; pips.appendChild(n); }
       }
       cell.appendChild(pips);
-      cell.onclick=()=>{ calSelectedDate=dateStr; renderCalendar(); };
+      cell.dataset.date = dateStr;
       grid.appendChild(cell);
     }
     renderCalDetail(byDate);
+  }
+
+  // ================= 日曆的點選與拖曳選取 =================
+  // 點一下＝選一天；按住拖過好幾格＝選一段區間，放開後可以直接建立跨多天的項目。
+  //
+  // 選取狀態一律正規化成「起 ≤ 訖」：往回拖（從 25 拖到 22）在使用者眼中是同一段
+  // 區間，若照原始順序存下去，後面每一處比較都要先判斷方向。
+  function calRange(){
+    if(!calSelectedDate) return null;
+    const a = calSelectedDate, b = calSelectedEnd || calSelectedDate;
+    return a <= b ? { start:a, end:b } : { start:b, end:a };
+  }
+  function inCalSelection(dateStr){
+    const r = calRange();
+    return !!r && dateStr >= r.start && dateStr <= r.end;
+  }
+  function calSelectionDays(){
+    const r = calRange();
+    if(!r) return 0;
+    return Math.round((parseYMD(r.end) - parseYMD(r.start)) / 86400000) + 1;
+  }
+
+  {
+    const grid = document.getElementById('calGrid');
+    let dragging = false, dragMoved = false;
+
+    const dateOfEvent = target => {
+      const cell = target && target.closest ? target.closest('.cal-cell') : null;
+      return (cell && cell.dataset.date) ? cell.dataset.date : null;
+    };
+
+    /**
+     * 拖曳過程中只改 class，不重繪整個日曆——每次 mousemove 都跑一次
+     * renderCalendar() 會把 42 個格子連同內容全部重建，在拖曳時完全跟不上。
+     * 真正的重繪留到放開手時做一次。
+     */
+    const paintSelection = ()=>{
+      grid.querySelectorAll('.cal-cell[data-date]').forEach(c=>{
+        c.classList.toggle('selected', inCalSelection(c.dataset.date));
+      });
+    };
+
+    const startAt = d => { calSelectedDate = d; calSelectedEnd = null; dragging = true; dragMoved = false; paintSelection(); };
+    const extendTo = d => {
+      if(!dragging || !d || d === calSelectedEnd) return;
+      calSelectedEnd = d; dragMoved = true; paintSelection();
+    };
+    const finish = ()=>{
+      if(!dragging) return;
+      dragging = false;
+      // 沒有拖出範圍就是單純點選一天，把 end 清掉避免留下 start===end 的假區間
+      if(!dragMoved) calSelectedEnd = null;
+      renderCalendar();
+    };
+
+    grid.addEventListener('mousedown', e=>{
+      // 格子裡的核取方塊有自己的行為，不能被拖曳選取搶走
+      if(e.target.closest('.cal-item-check')) return;
+      const d = dateOfEvent(e.target);
+      if(!d) return;
+      e.preventDefault();          // 避免拖曳時選到文字
+      startAt(d);
+    });
+    grid.addEventListener('mouseover', e=>{ if(dragging) extendTo(dateOfEvent(e.target)); });
+    // 放開手可能發生在日曆外面（拖出格線再放開），所以監聽整個 document
+    document.addEventListener('mouseup', finish);
+
+    // 觸控：touchmove 的 target 一直是起始元素，必須用座標反查目前指到哪一格
+    grid.addEventListener('touchstart', e=>{
+      if(e.target.closest('.cal-item-check')) return;
+      const d = dateOfEvent(e.target);
+      if(d) startAt(d);
+    }, { passive:true });
+    grid.addEventListener('touchmove', e=>{
+      if(!dragging) return;
+      const t = e.touches[0];
+      const el = document.elementFromPoint(t.clientX, t.clientY);
+      const d = dateOfEvent(el);
+      // 只有真的跨到別格才擋掉捲動，否則單指上下滑會被卡住
+      if(d && d !== calSelectedEnd){ e.preventDefault(); extendTo(d); }
+    }, { passive:false });
+    grid.addEventListener('touchend', finish);
+    grid.addEventListener('touchcancel', finish);
   }
 
   function renderCalDetail(byDate){
@@ -2724,10 +2821,34 @@
     const calBoard=document.getElementById('calBoard'); calBoard.innerHTML='';
     const daylogBox=document.getElementById('daylogBox');
 
-    if(!calSelectedDate){ titleEl.textContent=tr('選擇日期以查看當日安排'); addBtn.style.display='none'; daylogBox.style.display='none'; return; }
-    const d=parseYMD(calSelectedDate);
+    // 沒有選取＝整個詳情區不出現。「＋ 為此日期新增」是「你選了某一天」的結果，
+    // 不該平時就掛在畫面上。
+    const range = calRange();
+    if(!range){
+      titleEl.textContent = tr('點選日期以查看當日安排，或按住拖曳選出一段區間');
+      addBtn.style.display='none'; daylogBox.style.display='none';
+      calBoard.innerHTML = '<div class="empty-state">'+escapeHtml(tr('尚未選擇日期'))+'</div>';
+      return;
+    }
+
+    const days = calSelectionDays();
+    const d = parseYMD(range.start);
+
+    if(days > 1){
+      // 選了一段區間：標題與按鈕都改講區間，按下去直接帶著起訖開新增視窗
+      titleEl.textContent = tf('{0} – {1}（共 {2} 天）', range.start, range.end, days);
+      addBtn.textContent = tr('＋ 為這段區間新增');
+      addBtn.style.display='flex';
+      // 區間模式不顯示逐日清單與每日記錄——那兩者都是「某一天」的概念
+      daylogBox.style.display='none';
+      calBoard.innerHTML = '<div class="empty-state">'+
+        escapeHtml(tr('已選取一段區間 — 按上方按鈕建立跨多天的項目（例如出差、請假、專案期間）'))+'</div>';
+      return;
+    }
+
     const w=weekName(d.getDay());
     titleEl.textContent = tf('{0} 的安排', tf('{0}（週{1}）', calSelectedDate, w));
+    addBtn.textContent = tr('＋ 為此日期新增');
     addBtn.style.display='flex';
 
     const list = (byDate && byDate[calSelectedDate]) ? byDate[calSelectedDate].slice() : getAllOccurrences(d, new Date(d.getFullYear(),d.getMonth(),d.getDate(),23,59,59));
@@ -3004,7 +3125,7 @@
 
   document.getElementById('calPrev').onclick=()=>{ calMonth--; if(calMonth<1){calMonth=12; calYear--;} renderCalendar(); };
   document.getElementById('calNext').onclick=()=>{ calMonth++; if(calMonth>12){calMonth=1; calYear++;} renderCalendar(); };
-  document.getElementById('calToday').onclick=()=>{ const n=new Date(); calYear=n.getFullYear(); calMonth=n.getMonth()+1; calSelectedDate=ymd(n); renderCalendar(); };
+  document.getElementById('calToday').onclick=()=>{ const n=new Date(); calYear=n.getFullYear(); calMonth=n.getMonth()+1; calSelectedDate=ymd(n); calSelectedEnd=null; renderCalendar(); };
 
   // ================= 小項目 modal =================
   const itemOverlay=document.getElementById('itemOverlay');
@@ -3195,7 +3316,7 @@
   document.getElementById('selectMonthlyMode').onchange = updateRecurrenceExtra;
   document.getElementById('selectRecurrence').onchange = updateRecurrenceExtra;
 
-  function openItemModal(existingItem, defaultDate){
+  function openItemModal(existingItem, defaultDate, defaultEndDate){
     editingItemId = existingItem ? existingItem.id : null;
     editingOrigFreq = (existingItem && existingItem.recurrence) ? existingItem.recurrence.freq : null;
     document.getElementById('itemModalTitle').textContent = existingItem ? '編輯小項目' : '新增小項目';
@@ -3225,7 +3346,8 @@
       document.getElementById('inputItemLink').value='';
       document.getElementById('selectParent').value='';
       document.getElementById('inputItemDate').value = defaultDate || selDate;
-      document.getElementById('inputItemEndDate').value='';
+      // 從日曆拖出一段區間時預填結束日，使用者不必再輸入一次
+      document.getElementById('inputItemEndDate').value = defaultEndDate || '';
       document.getElementById('selectRecurrence').value='none';
       document.getElementById('inputRecurDay').value = parseYMD(defaultDate || selDate).getDate();
       document.getElementById('selectHolidayRule').value='none';
@@ -3250,7 +3372,12 @@
     if(mode==='year') defDate = (selYear===today.getFullYear()) ? ymd(today) : selYear+'-01-01';
     openItemModal(null, defDate);
   };
-  document.getElementById('openItemModalFromCal').onclick=()=>openItemModal(null, calSelectedDate);
+  document.getElementById('openItemModalFromCal').onclick=()=>{
+    const r = calRange();
+    if(!r) return;
+    // 只有跨多天時才帶結束日：單日項目留空，否則每一筆都會變成「區間」
+    openItemModal(null, r.start, r.end !== r.start ? r.end : '');
+  };
 
   document.getElementById('btnConfirmItem').onclick=()=>{
     const title=document.getElementById('inputItemTitle').value.trim();
@@ -3300,7 +3427,7 @@
       } else {
         items.push({ id: uid('item'), title, type: modalType, parentId, meetingTime, link, date: dateVal, endDate, recurrence, done:false, doneMap:{}, overrides:{}, skipped:{} });
       }
-      if(currentView==='calendar'){ const dp=parseYMD(dateVal); calYear=dp.getFullYear(); calMonth=dp.getMonth()+1; calSelectedDate=dateVal; }
+      if(currentView==='calendar'){ const dp=parseYMD(dateVal); calYear=dp.getFullYear(); calMonth=dp.getMonth()+1; calSelectedDate=dateVal; calSelectedEnd=null; }
       else{ if(mode==='date') selDate=dateVal; }
     });
   };
