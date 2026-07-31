@@ -296,6 +296,52 @@
   .daylog-saved{ color: var(--teal); font-size:11px; letter-spacing:0; text-transform:none; opacity:0; transition: opacity .3s ease; }
   .daylog-saved.show{ opacity:1; }
 
+  /* 富文字欄位。所有顏色一律走 :root 變數，暗色版才不必再寫一份。 */
+  .rt-wrap{ border:1px solid var(--hairline); border-radius:8px; background: var(--panel-2); overflow:hidden; }
+  .rt-wrap:focus-within{ border-color: var(--amber); }
+  .rt-bar{ display:flex; flex-wrap:wrap; align-items:center; gap:2px; padding:6px 8px;
+           border-bottom:1px solid var(--hairline); background: var(--panel); }
+  .rt-wrap.rt-bar-hidden .rt-bar{ display:none; }
+  .rt-holder{ position:relative; display:inline-flex; }
+  .rt-btn{ min-width:28px; height:28px; padding:0 6px; border:1px solid transparent; border-radius:6px;
+           background:transparent; color: var(--text-muted); cursor:pointer; font-size:13px; line-height:1;
+           display:inline-flex; align-items:center; justify-content:center; font-family: var(--sans); }
+  .rt-btn:hover{ background: var(--panel-2); color: var(--text); }
+  .rt-btn.active{ background: var(--amber-dim); border-color: var(--amber); color: var(--amber); }
+  .rt-btn.rt-b{ font-weight:800; } .rt-btn.rt-i{ font-style:italic; }
+  .rt-btn.rt-u{ text-decoration:underline; } .rt-btn.rt-s{ text-decoration:line-through; }
+  .rt-btn.rt-fg{ font-weight:700; border-bottom:2px solid var(--violet); border-radius:6px 6px 2px 2px; }
+  .rt-sep{ width:1px; height:18px; background: var(--hairline); margin:0 5px; flex-shrink:0; }
+
+  .rt-pop{ position:absolute; top:32px; left:0; z-index:30; display:flex; gap:4px; padding:6px;
+           background: var(--panel); border:1px solid var(--hairline); border-radius:8px;
+           box-shadow:0 6px 20px rgba(0,0,0,.16); }
+  .rt-swatch{ width:20px; height:20px; border-radius:5px; border:1px solid var(--hairline); cursor:pointer; padding:0; }
+  .rt-swatch:hover{ outline:2px solid var(--amber); outline-offset:1px; }
+  .rt-sizebtn{ padding:3px 9px; border-radius:5px; border:1px solid var(--hairline);
+               background: var(--panel-2); color: var(--text); cursor:pointer; font-size:12px; }
+  .rt-sizebtn:hover{ border-color: var(--amber); color: var(--amber); }
+
+  .rt-edit{ min-height:96px; max-height:340px; overflow-y:auto; padding:10px 12px;
+            font-family: var(--sans); font-size:13.5px; line-height:1.7; color: var(--text); outline:none; }
+  /* 空的時候顯示提示字。用 ::before 而不是塞一個節點進去，否則使用者一打字
+     就要先把它清掉，游標位置會亂跳。 */
+  .rt-edit.rt-empty::before{ content: attr(data-placeholder); color: var(--text-dim); pointer-events:none; }
+  .rt-edit p{ margin:0 0 6px; }
+  .rt-edit ul, .rt-edit ol{ margin:4px 0; padding-left:22px; }
+  .rt-edit li{ margin:2px 0; }
+  .rt-edit a{ color: var(--violet); text-decoration:underline; }
+  .rt-edit code{ font-family: var(--mono); font-size:12.5px; background: var(--panel);
+                 border:1px solid var(--hairline); border-radius:4px; padding:1px 5px; }
+  .rt-edit blockquote{ margin:6px 0; padding:2px 0 2px 12px; border-left:3px solid var(--amber);
+                       color: var(--text-muted); }
+  /* 長網址與貼進來的內容不可以把卡片撐開 */
+  .rt-edit{ overflow-wrap:anywhere; }
+
+  .rt-toggle{ margin-top:8px; background:none; border:none; padding:0; cursor:pointer;
+              font-family: var(--mono); font-size:11px; color: var(--text-dim); }
+  .rt-toggle:hover{ color: var(--amber); }
+
   .account-box{ display:flex; align-items:center; gap:9px; }
   .account-email{ font-family: var(--mono); font-size:11px; color: var(--text-muted); max-width:190px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .account-btn{ font-family: var(--mono); font-size:11px; padding:6px 10px; border-radius:7px; cursor:pointer; border:1px solid var(--hairline); background: var(--panel); color: var(--text-muted); }
@@ -511,6 +557,13 @@
 
     /* 表單控制項：16px 以避免 iOS 聚焦時自動放大 */
     select, input[type=date], input[type=time], input[type=number], input[type=text], textarea{ font-size:16px; padding:9px 10px; }
+    /* 富文字：同樣 16px 防自動放大；按鈕加大到好按，工具列換行而不是橫向撐開 */
+    .rt-edit{ font-size:16px; }
+    .rt-bar{ gap:3px; padding:7px 6px; }
+    .rt-btn{ min-width:34px; height:34px; font-size:14px; }
+    .rt-sep{ margin:0 3px; }
+    .rt-pop{ flex-wrap:wrap; max-width:calc(100vw - 60px); }
+    .rt-swatch{ width:26px; height:26px; }
     .field input, .field select{ font-size:16px; }
     .task-row .progress-num{ width:64px; }
 
@@ -672,7 +725,7 @@
 
         <div class="daylog-box" id="daylogBox" style="display:none;">
           <div class="daylog-label">每日記錄 <span class="daylog-saved" id="daylogSaved">已儲存</span></div>
-          <textarea id="daylogTextarea" rows="4" placeholder="記錄今天的想法、備忘、心得...（僅顯示於此，不會出現在日曆格子中）"></textarea>
+          <div id="daylogSlot"></div>
         </div>
       </div>
 
@@ -999,11 +1052,192 @@
   }
   function majorProjectName(pid){ if(!pid) return null; const mp=majorProjects.find(m=>m.id===pid); return mp?mp.name:null; }
 
+  // ================= 富文字 =================
+  // 每日記錄與專案筆記存的是 HTML。這代表它們會被丟進 innerHTML——而內容可能
+  // 來自匯入的備份檔、雲端同步回來的資料，或（將來若共享頁顯示筆記）別人的帳號。
+  // 換句話說**這個區段是一道安全邊界，不是排版工具**。改動前請先讀完這段。
+  //
+  // 策略是白名單：認得的標籤保留、不認得的「拆掉外殼但保留文字」（unwrap），
+  // 只有本身就會執行或載入東西的標籤才連內容一起丟掉。丟掉比保留安全，但把
+  // 使用者打的字弄不見也是壞事，所以只在真的危險時才丟。
+  //
+  // 此區段內全部是純函式（供測試抽取），不得引用任何模組變數。
+  // 樹走訪需要 DOMParser（瀏覽器才有），但所有**安全決策**都在下面這幾個
+  // 純字串函式裡，測試針對它們餵攻擊向量。
+
+  // 連內容一起丟：這些標籤本身就會執行腳本或載入外部資源
+  const RT_DROP = new Set(['SCRIPT','STYLE','IFRAME','OBJECT','EMBED','LINK','META',
+                           'NOSCRIPT','TEMPLATE','SVG','MATH','FORM','INPUT','BUTTON',
+                           'TEXTAREA','SELECT','OPTION','BASE','FRAME','FRAMESET','APPLET']);
+  // 保留的標籤。同義標籤一律正規化成同一個，否則 execCommand 在不同瀏覽器
+  // 產出的 <b> 與 <strong> 會變成兩種存檔內容，比對與樣式都要寫兩份。
+  const RT_MAP = { STRONG:'B', EM:'I', STRIKE:'S', DEL:'S', FONT:'SPAN' };
+  const RT_KEEP = new Set(['B','I','U','S','A','BR','P','DIV','UL','OL','LI',
+                           'BLOCKQUOTE','CODE','PRE','SPAN','MARK']);
+
+  /** 'drop'（連內容丟掉）｜'unwrap'（拆掉外殼保留文字）｜保留用的標籤名 */
+  function rtTagPolicy(tag){
+    const t = String(tag || '').toUpperCase();
+    if(RT_DROP.has(t)) return 'drop';
+    const mapped = RT_MAP[t] || t;
+    return RT_KEEP.has(mapped) ? mapped : 'unwrap';
+  }
+
+  /**
+   * 只放行 http/https/mailto。這裡刻意不用「開頭是不是 javascript:」這種黑名單：
+   * `java\tscript:`、`JaVaScRiPt:`、開頭塞控制字元都能繞過黑名單，白名單不會。
+   */
+  function rtSafeUrl(url){
+    const raw = String(url == null ? '' : url);
+    // 瀏覽器解析 URL 時會忽略前後空白與內嵌的控制字元，比對前必須先照做
+    const s = raw.replace(/[\u0000-\u0020\u007f]/g, '').toLowerCase();
+    if(/^(https?:|mailto:)/.test(s)) return raw.trim();
+    // 沒有協定的相對路徑或 example.com 這種，一律補 https://，避免落入
+    // 「瀏覽器自己補成 javascript:」之類的意外
+    if(s && !/^[a-z][a-z0-9+.-]*:/.test(s) && !s.startsWith('//')) return 'https://' + raw.trim();
+    return null;
+  }
+
+  // 顏色與字級都限制在固定清單內。允許任意 style 值等於把一個沒人看得懂的
+  // 解析器放進安全邊界；固定清單則是「不在表上就丟掉」，一眼看得完。
+  const RT_COLORS = ['#C0392B','#C9822E','#1F8C68','#2A6DB0','#6C5CE0','#5A6472'];
+  const RT_MARKS  = ['#FFF3A3','#C8F0DC','#DCD6FA','#FFD9CC'];
+  const RT_SIZES  = { s:'0.86em', m:'1em', l:'1.28em' };
+
+  const rtNormColor = v => String(v == null ? '' : v).trim().toUpperCase()
+    .replace(/^#([0-9A-F])([0-9A-F])([0-9A-F])$/, '#$1$1$2$2$3$3');
+
+  /** 回傳可用的 CSS 宣告字串，或 null 代表整條丟掉 */
+  function rtStyleDecl(prop, value){
+    const p = String(prop || '').trim().toLowerCase();
+    if(p === 'color'){
+      const c = rtNormColor(value);
+      return RT_COLORS.includes(c) ? 'color:' + c : null;
+    }
+    if(p === 'background-color'){
+      const c = rtNormColor(value);
+      return RT_MARKS.includes(c) ? 'background-color:' + c : null;
+    }
+    if(p === 'font-size'){
+      const v = String(value).trim().toLowerCase();
+      return Object.values(RT_SIZES).includes(v) ? 'font-size:' + v : null;
+    }
+    return null;   // 其餘一律不放行
+  }
+
+  /** 過濾整段 style 屬性，全部不合格就回空字串（呼叫端據此移除該屬性） */
+  function rtSafeStyle(style){
+    return String(style == null ? '' : style).split(';')
+      .map(part => {
+        const i = part.indexOf(':');
+        return i < 0 ? null : rtStyleDecl(part.slice(0, i), part.slice(i + 1));
+      })
+      .filter(Boolean).join(';');
+  }
+
+  /**
+   * execCommand 的 fontSize/foreColor 在部分瀏覽器仍產出 <font size> / <font color>，
+   * 這裡把它折算成我們認得的 style，折算不出來就回空字串（該 span 只當容器）。
+   * size 是 1–7 的舊制刻度，收斂成三級。
+   */
+  function rtFontToStyle(size, color){
+    const out = [];
+    const n = parseInt(size);
+    if(Number.isInteger(n)) out.push('font-size:' + (n <= 2 ? RT_SIZES.s : n >= 5 ? RT_SIZES.l : RT_SIZES.m));
+    const c = rtStyleDecl('color', color);
+    if(c) out.push(c);
+    return out.join(';');
+  }
+
+  /** 純文字轉成安全 HTML，用於舊版存檔遷移與貼上純文字 */
+  function rtFromPlain(text){
+    const esc = String(text == null ? '' : text)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    return esc.split(/\r?\n/).join('<br>');
+  }
+
+  /** 判斷內容是否等同空白（只有空標籤、空白、<br>），用來決定要不要顯示 placeholder */
+  function rtIsEmpty(html){
+    return String(html == null ? '' : html)
+      .replace(/<[^>]*>/g, '').replace(/&nbsp;/gi, ' ').trim() === '';
+  }
+
+  /**
+   * 主要入口。doc 由呼叫端以 DOMParser 產生——把解析與過濾分開，是為了讓
+   * 上面那些安全決策函式可以在沒有 DOM 的環境（Node 測試）裡單獨驗證。
+   */
+  function rtSanitizeNode(node, doc){
+    const children = Array.from(node.childNodes);
+    for(const child of children){
+      if(child.nodeType === 3) continue;                      // 文字節點原樣保留
+      if(child.nodeType !== 1){ child.remove(); continue; }   // 註解等一律移除
+
+      const policy = rtTagPolicy(child.tagName);
+      if(policy === 'drop'){ child.remove(); continue; }
+
+      if(policy === 'unwrap'){
+        rtSanitizeNode(child, doc);
+        // 先遞迴再拆殼：拆完之後這些子節點就直接掛在 node 上，不會再被走訪到
+        while(child.firstChild) node.insertBefore(child.firstChild, child);
+        child.remove();
+        continue;
+      }
+
+      // 保留：先把屬性清乾淨，再處理子樹
+      const wasFont = child.tagName.toUpperCase() === 'FONT';
+      const fontStyle = wasFont ? rtFontToStyle(child.getAttribute('size'), child.getAttribute('color')) : '';
+      const href = policy === 'A' ? rtSafeUrl(child.getAttribute('href')) : null;
+      const style = rtSafeStyle(child.getAttribute('style'));
+
+      // 一律清空所有屬性再放回允許的那幾個。逐一比對屬性名的作法會漏掉
+      // onXxx 這類永遠列不完的東西，清空重建才不會有漏網之魚。
+      Array.from(child.attributes).forEach(a => child.removeAttribute(a.name));
+
+      const merged = [fontStyle, style].filter(Boolean).join(';');
+      if(merged) child.setAttribute('style', merged);
+      if(policy === 'A'){
+        if(!href){
+          // 連結目標不安全：降級成純文字，但保留使用者打的字
+          rtSanitizeNode(child, doc);
+          while(child.firstChild) node.insertBefore(child.firstChild, child);
+          child.remove();
+          continue;
+        }
+        child.setAttribute('href', href);
+        child.setAttribute('target', '_blank');
+        // noopener 讓開啟的分頁拿不到 window.opener，否則它可以把原分頁導走
+        child.setAttribute('rel', 'noopener noreferrer');
+      }
+
+      // 標籤正規化（<strong> → <b> 等）：換一個新元素並搬走子節點
+      if(child.tagName.toUpperCase() !== policy){
+        const rep = doc.createElement(policy);
+        Array.from(child.attributes).forEach(a => rep.setAttribute(a.name, a.value));
+        while(child.firstChild) rep.appendChild(child.firstChild);
+        child.replaceWith(rep);
+        rtSanitizeNode(rep, doc);
+        continue;
+      }
+      rtSanitizeNode(child, doc);
+    }
+    return node;
+  }
+
+  function rtSanitize(html){
+    const src = String(html == null ? '' : html);
+    if(!src) return '';
+    // 用 DOMParser 而不是把字串塞進活文件的 innerHTML：後者會讓 <img src=x>
+    // 這類東西當場發出請求，即使我們接著就把它刪掉。
+    const doc = new DOMParser().parseFromString('<body>' + src + '</body>', 'text/html');
+    return rtSanitizeNode(doc.body, doc).innerHTML;
+  }
+
   // ================= 持久化（單一儲存層）=================
   // Claude Artifact 的沙盒 iframe 會封鎖 localStorage，存取時直接拋 SecurityError。
   // 因此所有存取一律包 try/catch，失敗就降級為純記憶體模式，不能讓整個 app 掛掉。
   const STORAGE_KEY = 'workSchedule.v1';
-  const STORAGE_VERSION = 1;
+  const STORAGE_VERSION = 2;
   let storageAvailable = true;
 
   // snapshot / applySnapshot 是本機與雲端共用的序列化格式，
@@ -1073,7 +1307,8 @@
     return (Array.isArray(raw) ? raw : []).filter(gp => gp && gp.id).map(gp => ({
       id: gp.id,
       name: String(gp.name == null ? '' : gp.name),
-      notes: String(gp.notes == null ? '' : gp.notes),
+      // 筆記是 HTML 且會進 innerHTML，來源可能是備份檔或雲端，因此一律過濾
+      notes: rtSanitize(gp.notes),
       tasks: (Array.isArray(gp.tasks) ? gp.tasks : [])
         .filter(t => t && t.id && isYmd(t.start) && isYmd(t.end))
         .map(t => {
@@ -1094,14 +1329,53 @@
     }));
   }
 
-  function applySnapshot(s){
-    if(!s || s.version !== STORAGE_VERSION) return false;
+  /**
+   * 舊版存檔的升級路徑。
+   *
+   * 這件事本身就是必須的，不只是為了這次的富文字：原本 applySnapshot 遇到版本
+   * 號不符直接回 false，而 loadState() 失敗會接著跑 seed()——也就是說**版本號
+   * 一升，現有使用者開啟時整份資料會被示範資料蓋掉**，而且畫面上看起來一切正常。
+   * 匯入舊備份檔也會被擋成「格式版本不符」。所以升級一律走這裡，不要再回 false。
+   *
+   * v1 → v2：每日記錄與專案筆記從純文字改存 HTML。舊資料逐一escape 後把換行
+   * 轉成 <br>，內容一字不差，只是換了表示法。
+   *
+   * 認不得的版本（比目前新，例如從新版匯出的備份）仍然回 null 由呼叫端拒絕——
+   * 猜測未來的格式只會把資料弄壞。
+   */
+  function migrateSnapshot(s){
+    if(!s || typeof s !== 'object') return null;
+    const v = s.version;
+    if(v === STORAGE_VERSION) return s;
+    if(v === 1){
+      const up = { ...s, version: 2 };
+      const logs = (s.dailyLogs && typeof s.dailyLogs === 'object') ? s.dailyLogs : {};
+      up.dailyLogs = {};
+      Object.keys(logs).forEach(k => { up.dailyLogs[k] = rtFromPlain(logs[k]); });
+      up.ganttProjects = (Array.isArray(s.ganttProjects) ? s.ganttProjects : [])
+        .map(gp => (gp && typeof gp === 'object') ? { ...gp, notes: rtFromPlain(gp.notes) } : gp);
+      return up;
+    }
+    return null;
+  }
+
+  function applySnapshot(raw){
+    const s = migrateSnapshot(raw);
+    if(!s) return false;
     majorProjects = (Array.isArray(s.majorProjects) ? s.majorProjects : [])
       .filter(mp => mp && mp.id)
       .map(mp => ({ id: mp.id, name: String(mp.name == null ? '' : mp.name) }));
     items = normalizeItems(s.items);
     ganttProjects = normalizeGanttProjects(s.ganttProjects);
-    dailyLogs = (s.dailyLogs && typeof s.dailyLogs==='object') ? s.dailyLogs : {};
+    // 每日記錄是 HTML，權威來源可能是備份檔或雲端——套用前一律過濾一次。
+    // 「存進來時已經濾過了」不能當作免濾的理由：濾的目的正是防那些不是從
+    // 我們的編輯器進來的內容。
+    dailyLogs = {};
+    if(s.dailyLogs && typeof s.dailyLogs === 'object'){
+      Object.keys(s.dailyLogs).forEach(k => {
+        if(isYmd(k)) dailyLogs[k] = rtSanitize(s.dailyLogs[k]);
+      });
+    }
     customHolidays = new Set((Array.isArray(s.customHolidays) ? s.customHolidays : []).filter(isYmd));
     customWorkdays = new Set((Array.isArray(s.customWorkdays) ? s.customWorkdays : []).filter(isYmd));
     selectedGanttProjectId = s.selectedGanttProjectId || (ganttProjects[0] ? ganttProjects[0].id : null);
@@ -2124,17 +2398,269 @@
 
     // 每日記錄：只在此處顯示，不顯示於日曆格子
     daylogBox.style.display='block';
-    const ta = document.getElementById('daylogTextarea');
-    ta.value = dailyLogs[calSelectedDate] || '';
-    ta.oninput = ()=>{
-      dailyLogs[calSelectedDate] = ta.value;
-      persistSoon();
-      const savedTag = document.getElementById('daylogSaved');
-      savedTag.classList.add('show');
-      clearTimeout(ta._saveTimer);
-      ta._saveTimer = setTimeout(()=> savedTag.classList.remove('show'), 1200);
-    };
+    const slot = document.getElementById('daylogSlot');
+    slot.innerHTML='';
+    const savedTag = document.getElementById('daylogSaved');
+    let saveTimer = null;
+    const dateKey = calSelectedDate;   // 綁定當下的日期，之後切換日期會整段重建
+    const rt = buildRichEditor({
+      value: dailyLogs[dateKey] || '',
+      placeholder: '記錄今天的想法、備忘、心得...（僅顯示於此，不會出現在日曆格子中）',
+      onInput: html=>{
+        dailyLogs[dateKey] = html;
+        persistSoon();
+        savedTag.classList.add('show');
+        clearTimeout(saveTimer);
+        saveTimer = setTimeout(()=> savedTag.classList.remove('show'), 1200);
+      }
+    });
+    slot.appendChild(rt.el);
+    slot.appendChild(buildRichToggle());
+    syncRichToggles();
   }
+
+  // ================= 富文字編輯器 =================
+  // 每日記錄與專案筆記共用。用 contenteditable + document.execCommand：
+  // execCommand 雖然標為 deprecated，但所有瀏覽器都還支援，而且是零相依前提下
+  // 唯一不必自己寫一套編輯引擎的作法——自己處理選取範圍、復原堆疊與跨瀏覽器
+  // 的游標行為，複雜度遠超過這個功能該有的份量。
+  //
+  // 它的代價是輸出的標籤各家不一（<b> vs <strong>、殘留 <font>），因此存檔前
+  // 一律過 rtSanitize() 正規化。也就是說「過濾器」同時負責安全與一致性。
+
+  // 工具列的顯示偏好不進 snapshot()：它是這台裝置的顯示偏好，不是排程資料。
+  // 跟著雲端同步走的話，在桌機收起來會連手機一起收，理由同主題設定。
+  const RT_TOOLBAR_KEY = STORAGE_KEY + '.rtToolbar';
+  function rtToolbarShown(){
+    try{ return localStorage.getItem(RT_TOOLBAR_KEY) === '1'; }catch(e){ return false; }
+  }
+  function setRtToolbarShown(v){
+    try{ localStorage.setItem(RT_TOOLBAR_KEY, v ? '1' : '0'); }catch(e){ /* 記憶體模式下不記住 */ }
+  }
+
+  const RT_BUTTONS = [
+    { cmd:'bold',                 label:'B',  title:'粗體 (Ctrl+B)',      cls:'rt-b' },
+    { cmd:'italic',               label:'I',  title:'斜體 (Ctrl+I)',      cls:'rt-i' },
+    { cmd:'underline',            label:'U',  title:'底線 (Ctrl+U)',      cls:'rt-u' },
+    { cmd:'strikeThrough',        label:'S',  title:'刪除線',             cls:'rt-s' },
+    { sep:true },
+    { cmd:'insertUnorderedList',  label:'☰',  title:'項目符號清單' },
+    { cmd:'insertOrderedList',    label:'⒈',  title:'編號清單' },
+    { sep:true },
+    { pick:'mark',                label:'✎',  title:'醒目提示' },
+    { pick:'color',               label:'A',  title:'文字顏色',           cls:'rt-fg' },
+    { pick:'size',                label:'AA', title:'字級' },
+    { sep:true },
+    { cmd:'quote',                label:'❝',  title:'引用' },
+    { cmd:'link',                 label:'🔗', title:'插入連結' },
+    { cmd:'code',                 label:'‹›', title:'程式碼' },
+    { sep:true },
+    { cmd:'clear',                label:'⌫',  title:'清除格式' }
+  ];
+
+  /**
+   * @param opts {value, placeholder, onInput(html)}
+   * @returns {el, focusEditor} el 是整個欄位（工具列＋編輯區）
+   */
+  function buildRichEditor(opts){
+    const wrap = document.createElement('div'); wrap.className = 'rt-wrap';
+    const bar  = document.createElement('div'); bar.className = 'rt-bar';
+    const ed   = document.createElement('div'); ed.className = 'rt-edit';
+    ed.contentEditable = 'true';
+    ed.setAttribute('role', 'textbox');
+    ed.setAttribute('aria-multiline', 'true');
+    ed.dataset.placeholder = opts.placeholder || '';
+    // 存進來的內容也要濾：它可能來自雲端或匯入的備份，不是只有編輯器會寫它
+    ed.innerHTML = rtSanitize(opts.value);
+
+    const syncEmpty = ()=> ed.classList.toggle('rt-empty', rtIsEmpty(ed.innerHTML));
+    syncEmpty();
+
+    // execCommand 作用在目前的選取範圍上，按鈕若搶走焦點，範圍就沒了。
+    // 因此一律在 mousedown 就 preventDefault，讓焦點留在編輯區。
+    const holdFocus = el => el.addEventListener('mousedown', e => e.preventDefault());
+
+    function exec(cmd, val){
+      ed.focus();
+      try{ document.execCommand(cmd, false, val === undefined ? null : val); }catch(e){ /* 個別指令不支援就略過 */ }
+      afterEdit();
+    }
+    function afterEdit(){
+      syncEmpty();
+      refreshActive();
+      opts.onInput(rtSanitize(ed.innerHTML));
+    }
+
+    /** 把目前選取範圍包進一個標籤；execCommand 沒有對應指令的（程式碼）用這個 */
+    function wrapSelection(tagName){
+      ed.focus();
+      const sel = window.getSelection();
+      if(!sel || !sel.rangeCount || sel.isCollapsed) return;
+      const range = sel.getRangeAt(0);
+      const node = document.createElement(tagName);
+      try{ range.surroundContents(node); }
+      catch(e){
+        // 選取範圍跨越了元素邊界，surroundContents 會拒絕。退而求其次：
+        // 抽出內容再包起來，結果一樣，只是會把跨越的標籤攤平。
+        node.appendChild(range.extractContents());
+        range.insertNode(node);
+      }
+      sel.removeAllRanges();
+      afterEdit();
+    }
+
+    function runCommand(cmd){
+      if(cmd === 'quote'){
+        // formatBlock 在部分瀏覽器要角括號版本，兩種都試
+        ed.focus();
+        try{ document.execCommand('formatBlock', false, 'blockquote'); }
+        catch(e){ try{ document.execCommand('formatBlock', false, '<blockquote>'); }catch(e2){} }
+        afterEdit();
+        return;
+      }
+      if(cmd === 'code'){ wrapSelection('code'); return; }
+      if(cmd === 'clear'){ exec('removeFormat'); exec('unlink'); return; }
+      if(cmd === 'link'){
+        const url = prompt('輸入連結網址：', 'https://');
+        if(url === null) return;
+        const safe = rtSafeUrl(url);
+        if(!safe){ alert('這個網址無法使用。只接受 http、https 或 mailto 開頭的連結。'); return; }
+        exec('createLink', safe);
+        return;
+      }
+      exec(cmd);
+    }
+
+    // ---- 顏色／醒目提示／字級的選色盤 ----
+    // 「點別處就關掉」的監聽器要延到下一個 tick 才掛：開啟用的那一次點擊會繼續
+    // 冒泡到 document，當場掛上去的話會被自己的開啟動作立刻關掉。
+    let openPop = null, popOwner = null, outsideHandler = null;
+    function closePop(){
+      if(outsideHandler){ document.removeEventListener('click', outsideHandler); outsideHandler = null; }
+      if(openPop){ openPop.remove(); openPop = null; popOwner = null; }
+    }
+    function watchOutside(holder){
+      outsideHandler = e => { if(!holder.contains(e.target)) closePop(); };
+      setTimeout(()=>{ if(outsideHandler) document.addEventListener('click', outsideHandler); }, 0);
+    }
+
+    function buildPicker(kind, anchor){
+      const pop = document.createElement('div'); pop.className = 'rt-pop';
+      holdFocus(pop);
+      const add = (styleText, title, onPick)=>{
+        const b = document.createElement('button');
+        b.className = 'rt-swatch'; b.title = title; b.setAttribute('style', styleText);
+        holdFocus(b);
+        b.onclick = ()=>{ onPick(); closePop(); };
+        pop.appendChild(b);
+      };
+      if(kind === 'mark'){
+        RT_MARKS.forEach(c => add('background:' + c, c, ()=> exec('hiliteColor', c)));
+        add('background:transparent', '移除醒目提示', ()=> exec('hiliteColor', 'transparent'));
+      } else if(kind === 'color'){
+        RT_COLORS.forEach(c => add('background:' + c, c, ()=> exec('foreColor', c)));
+      } else {
+        // fontSize 用的是 1–7 的舊制刻度，過濾器會把它收斂成三級
+        [['小','2'],['中','4'],['大','6']].forEach(([label, n])=>{
+          const b = document.createElement('button');
+          b.className = 'rt-sizebtn'; b.textContent = label;
+          holdFocus(b);
+          b.onclick = ()=>{ exec('fontSize', n); closePop(); };
+          pop.appendChild(b);
+        });
+      }
+      anchor.appendChild(pop);
+      return pop;
+    }
+
+    // ---- 工具列 ----
+    const btnEls = [];
+    RT_BUTTONS.forEach(def=>{
+      if(def.sep){ const s=document.createElement('span'); s.className='rt-sep'; bar.appendChild(s); return; }
+      const holder = document.createElement('span'); holder.className='rt-holder';
+      const b = document.createElement('button');
+      b.className = 'rt-btn' + (def.cls ? ' ' + def.cls : '');
+      b.textContent = def.label; b.title = def.title; b.type = 'button';
+      holdFocus(b);
+      if(def.pick){
+        b.onclick = ()=>{
+          const wasOpen = popOwner === holder;
+          closePop();
+          if(wasOpen) return;                     // 再按一次＝收起來
+          openPop = buildPicker(def.pick, holder);
+          popOwner = holder;
+          watchOutside(holder);
+        };
+      } else {
+        b.onclick = ()=> runCommand(def.cmd);
+        btnEls.push({ el:b, cmd:def.cmd });
+      }
+      holder.appendChild(b); bar.appendChild(holder);
+    });
+
+    // 目前游標處已套用的格式要亮起來，否則使用者無從得知自己在什麼狀態
+    function refreshActive(){
+      btnEls.forEach(({el, cmd})=>{
+        let on = false;
+        try{ on = document.queryCommandState(cmd); }catch(e){ on = false; }
+        el.classList.toggle('active', !!on);
+      });
+    }
+
+    ed.addEventListener('input', afterEdit);
+    ed.addEventListener('keyup', refreshActive);
+    ed.addEventListener('mouseup', refreshActive);
+    ed.addEventListener('blur', ()=>{
+      // 失焦時把 DOM 也換成過濾後的版本，讓畫面與存檔一致。
+      // 不在輸入中做這件事——重寫 innerHTML 會把游標踢到開頭。
+      const clean = rtSanitize(ed.innerHTML);
+      if(clean !== ed.innerHTML) ed.innerHTML = clean;
+      syncEmpty();
+    });
+
+    // 貼上一律過濾。從網頁複製過來的內容是這個欄位最主要的外部輸入。
+    ed.addEventListener('paste', e=>{
+      e.preventDefault();
+      const cb = e.clipboardData;
+      if(!cb) return;
+      const html = cb.getData('text/html');
+      const safe = html ? rtSanitize(html) : rtFromPlain(cb.getData('text/plain'));
+      try{ document.execCommand('insertHTML', false, safe); }
+      catch(err){ document.execCommand('insertText', false, cb.getData('text/plain')); }
+      afterEdit();
+    });
+
+    wrap.appendChild(bar); wrap.appendChild(ed);
+    wrap.classList.toggle('rt-bar-hidden', !rtToolbarShown());
+    return { el: wrap, editor: ed, bar };
+  }
+
+  /**
+   * 「隱藏格式設定選項」按鈕，仿 Teams 放在欄位右下角。
+   * 偏好是全域的：切一次，畫面上所有富文字欄位一起收合，下次開啟也記得。
+   */
+  function syncRichToggles(){
+    const on = rtToolbarShown();
+    document.querySelectorAll('.rt-wrap').forEach(w => w.classList.toggle('rt-bar-hidden', !on));
+    document.querySelectorAll('.rt-toggle').forEach(t => {
+      t.textContent = on ? '🖊 隱藏格式設定選項' : '🖊 顯示格式設定選項';
+      t.title = (on ? '隱藏格式設定選項' : '顯示格式設定選項') + ' (Ctrl+Shift+X)';
+    });
+  }
+  function buildRichToggle(){
+    const b = document.createElement('button');
+    b.className = 'rt-toggle'; b.type = 'button';
+    b.onclick = ()=>{ setRtToolbarShown(!rtToolbarShown()); syncRichToggles(); };
+    return b;
+  }
+  // Teams 用的是同一組快捷鍵，沿用可以少記一個
+  document.addEventListener('keydown', e=>{
+    if(e.ctrlKey && e.shiftKey && (e.key === 'X' || e.key === 'x')){
+      e.preventDefault();
+      setRtToolbarShown(!rtToolbarShown());
+      syncRichToggles();
+    }
+  });
 
   document.getElementById('calPrev').onclick=()=>{ calMonth--; if(calMonth<1){calMonth=12; calYear--;} renderCalendar(); };
   document.getElementById('calNext').onclick=()=>{ calMonth++; if(calMonth>12){calMonth=1; calYear++;} renderCalendar(); };
@@ -2619,19 +3145,24 @@
 
   function buildProjectNotes(gp){
     const box = document.createElement('div'); box.className='daylog-box'; box.style.marginTop='16px';
-    box.innerHTML =
-      '<div class="daylog-label">專案筆記 <span class="daylog-saved" id="ganttNotesSaved">已儲存</span></div>'+
-      '<textarea id="ganttNotesTextarea" rows="5" placeholder="記錄此專案的會議紀要、風險、決策或任何備忘..."></textarea>';
-    const ta = box.querySelector('#ganttNotesTextarea');
-    ta.value = gp.notes || '';
-    ta.oninput = ()=>{
-      gp.notes = ta.value;
-      persistSoon();
-      const saved = box.querySelector('#ganttNotesSaved');
-      saved.classList.add('show');
-      clearTimeout(ta._saveTimer);
-      ta._saveTimer = setTimeout(()=> saved.classList.remove('show'), 1200);
-    };
+    box.innerHTML = '<div class="daylog-label">專案筆記 <span class="daylog-saved" id="ganttNotesSaved">已儲存</span></div>';
+    const saved = box.querySelector('#ganttNotesSaved');
+    let saveTimer = null;
+    const rt = buildRichEditor({
+      value: gp.notes || '',
+      placeholder: '記錄此專案的會議紀要、風險、決策或任何備忘...',
+      onInput: html=>{
+        gp.notes = html;
+        persistSoon();
+        saved.classList.add('show');
+        clearTimeout(saveTimer);
+        saveTimer = setTimeout(()=> saved.classList.remove('show'), 1200);
+      }
+    });
+    box.appendChild(rt.el);
+    box.appendChild(buildRichToggle());
+    // 這個欄位是 renderGanttView() 建的，建完才有機會同步收合狀態與按鈕文案
+    setTimeout(syncRichToggles, 0);
     return box;
   }
 
@@ -3470,9 +4001,12 @@
       '確定要繼續嗎？'
     )) return;
 
-    // applySnapshot 內含版本檢查與正規化，缺欄位的資料會被過濾掉而不是讓 render 掛掉
+    // applySnapshot 內含版本升級、正規化與富文字過濾，缺欄位的資料會被過濾掉
+    // 而不是讓 render 掛掉。舊版備份會自動升級，只有「比目前更新的版本」會被拒絕。
     if(!applySnapshot(parsed)){
-      alert('這個備份檔的格式版本與目前版本不符，無法匯入。');
+      alert('無法匯入這個備份檔。\n\n' +
+            '它的格式版本比目前的程式還新（可能是從較新版本匯出的），' +
+            '硬讀進來只會把資料弄壞。請先更新到最新版再匯入。');
       return;
     }
     refreshAvailableYears();
