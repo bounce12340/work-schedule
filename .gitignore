@@ -1,5 +1,24 @@
+# 相依與建置產物
 node_modules/
 .wrangler/
+
+# 機密。.dev.vars 放本機開發用的 secret（Turnstile 測試金鑰、ADMIN_EMAILS、
+# AgentMail 憑證）；星號讓 .dev.vars.local 這類變體也一併排除。
+#
+# 正式環境的值一律走 `wrangler secret put`，不進這個檔也不進版控——
+# vars 會被寫進版控（公開 repo 等於公開內容），而且在 Dashboard 改的 vars
+# 會被下一次 deploy 覆蓋。
 .dev.vars*
 .env*
+*.secret
+*.pem
+*.key
+
+# 匯出的備份含使用者的完整排程資料，不該進版控
+work-schedule-backup-*.json
+
+# 測試與除錯時容易誤入的東西
 *.log
+*.jar
+cookies.txt
+.DS_Store
