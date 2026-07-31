@@ -17,7 +17,7 @@ src/turnstile.js       Turnstile siteverify
 src/handlers/          auth / state / admin / share 四組 API
 schema.sql             D1 資料表
 wrangler.jsonc         Worker 設定與綁定
-tests/                 occurrence 引擎、三方合併、雲端寫入樂觀鎖的測試（node:test，零相依）
+tests/                 occurrence 引擎、三方合併、樂觀鎖、富文字、變數遮蔽（node:test，零相依）
 tools/                 開發用腳本（解析官方辦公日曆表）
 public/sw.js           service worker（加到主畫面／離線可用）
 public/manifest.webmanifest, public/icon*.png|svg
@@ -25,7 +25,7 @@ public/manifest.webmanifest, public/icon*.png|svg
 
 **前端沒有 build step。** 唯一的前端外部資源是 Google Fonts CDN，離線時退回系統字型但功能不受影響。
 
-測試涵蓋三塊（`npm test`），其餘一律靠實測：
+測試涵蓋幾塊容易改壞、又測得起來的部分（`npm test`），其餘一律靠實測：
 
 | 檔案 | 涵蓋 | 抽取方式 |
 |---|---|---|
@@ -33,8 +33,11 @@ public/manifest.webmanifest, public/icon*.png|svg
 | `tests/merge.test.mjs` | 三方合併 | 同上 |
 | `tests/state.test.mjs` | `handlePutState` / `handleUpdateShared` 的樂觀鎖 | 直接 import Worker 端模組 |
 | `tests/richtext.test.mjs` | 富文字過濾器的安全決策、v1→v2 遷移 | 從 `index.html` 抽真正的原始碼求值 |
+| `tests/shadow.test.mjs` | 頂層函式被區域變數／參數遮蔽 | 對 `index.html` 做靜態掃描（追大括號深度） |
 
-挑這三塊是因為它們同時是最容易改壞、也最容易測的部分。前兩者近乎純函式、零 DOM 依賴；第三者是**競態**——靠併發碰運氣測不到，但可以把空窗做成確定性的。
+前三者的挑選理由：前兩者近乎純函式、零 DOM 依賴；第三者是**競態**——靠併發碰運氣測不到，但可以把空窗做成確定性的。
+
+`tests/shadow.test.mjs` 是另一種性質：它不驗行為，而是擋掉一個已經發生兩次的 bug class（見下方「多語系」章節）。這種錯誤 `node --check` 過、其餘測試也過，執行時卻整段 render 消失，只能靠靜態掃描或人眼。
 
 `tests/d1.mjs` 用 **Node 內建的 `node:sqlite`**（不是相依套件）搭出 D1 相容外殼，讓 handler 跑真正的 SQL。不自己造假的 DB 物件是刻意的：要驗的正是「帶條件的 UPDATE 有沒有改到一列」，那是 SQL 的語意，假物件等於把答案寫成期望值，測起來永遠會過。
 
@@ -177,11 +180,17 @@ gettext 式：**中文原文本身就是字典的 key**，`I18N.en` 查不到就
 
 危險在於這一類錯誤**現有的檢查全部抓不到**：`node --check` 只驗語法（遮蔽是合法的 JS）、`npm test` 不碰前端整合、Worker 與 D1 完全無關。只有在瀏覽器裡把那條路徑走一次才看得見。
 
-`tr` 尤其危險，因為它同時是 `<tr>` 表格列與「todo row」的自然縮寫。列元素請命名為 `trow` / `rowEl`。改動後可以掃一次確認只剩全域定義那三處：
+`tr` 尤其危險，因為它同時是 `<tr>` 表格列與「todo row」的自然縮寫。列元素請命名為 `trow` / `rowEl`。
+
+**碰撞是在全域那一側造成的**：`const tr = document.createElement('div')` 早就存在且無害，是後來把翻譯函式命名為 `tr()` 才撞上。因此大範圍的機械式改名（把 N 處字串包進某個函式）**不能只審 diff 的 `+` 行**——那次的碰撞就在被改的那一行上面兩行，是一行未變更的 context。要問的是：這個名字在每一個被改到的 scope 裡都還指向我以為的東西嗎？
+
+`tests/shadow.test.mjs` 現在會擋下這件事（頂層函式被區域變數或參數遮蔽就紅，並指出行號）。它只管**函式**——資料變數被遮蔽的失敗模式是安靜的錯值而非 TypeError，而且有正當的例外（`threeWayMerge` 內的 `items` 是刻意的）。臨時想手動掃一次：
 
 ```bash
 grep -nE '(const|let|var)[[:space:]]+(tr|tf|weekName)\b' public/index.html
 ```
+
+完整經過記在 `docs/postmortems/2026-07-31-gantt-todos-missing.md`，包含全檔掃描找出的第三處潛伏案例（甘特圖月份刻度的 `tick` 遮蔽時鐘函式 `tick()`，已改名 `tickEl`）。
 
 ## 富文字（每日記錄與專案筆記）
 
