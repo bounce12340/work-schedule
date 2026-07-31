@@ -100,3 +100,25 @@ CREATE TABLE IF NOT EXISTS ics_feed (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_ics_token ON ics_feed(token_hash);
+
+-- 逾期提醒。內容與 ICS 同一個模式：**由前端產生、同步時推上來**，cron 只負責
+-- 「比對日期 → 寄信」。
+--
+-- 不在 Worker 展開循環規則，理由與 ICS 完全相同：occurrence 引擎（含假日順延、
+-- 單次覆寫、略過）只存在前端單檔內，在這裡重新實作一份等於維護兩套必然分歧的
+-- 邏輯——而「提醒寄錯日期」比「沒有提醒」更糟，因為使用者會信任它。
+--
+-- digest 存的是**已展開的**排程：[{ t:標題, d:'YYYY-MM-DD', k:類型, done:0|1 }]。
+-- 刻意不存「已經算好的逾期清單」：逾期與否隨日期改變，今天不逾期的項目後天就
+-- 逾期了。存展開後的日期，cron 每天自己比對，前端沒開也不影響正確性。
+--
+-- last_sent_ymd 讓同一天不會因為 cron 重試而寄第二封。
+CREATE TABLE IF NOT EXISTS reminder_feed (
+  user_id       TEXT PRIMARY KEY,
+  enabled       INTEGER NOT NULL DEFAULT 0,
+  digest        TEXT NOT NULL DEFAULT '[]',
+  last_sent_ymd TEXT,
+  updated_at    INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_reminder_enabled ON reminder_feed(enabled);
