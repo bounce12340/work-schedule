@@ -284,7 +284,20 @@ commit(()=>{ /* 改資料 */ });   // → 重算年份 → 存檔 → renderAll(
 - **沒有逾期就完全不寄。** 每天一封「你沒有逾期項目」只會訓練收件者忽略這個寄件人，真的有事時反而看不到。
 - `last_sent_ymd` 讓同一天不重寄（cron 會重試）；**寄失敗時刻意不寫這個欄位**，沒寄成功就不算寄過，下一次排程要能補。
 - `handleReminderPut` 只更新 digest、不動 `enabled`：推送是同步的副作用，不該把使用者關掉的提醒打開。
-- 需要兩個 secret：`AGENTMAIL_API_KEY`（帳號層級）與 `AGENTMAIL_INBOX_ID`（信箱層級）。**這兩個是不同的東西**，`am_us_inbox_…` 是後者不是前者，設定時很容易搞混。另有選填的 `APP_URL` 用於信中的連結。
+- 需要兩個 secret，另有選填的 `APP_URL` 用於信中的連結：
+
+| 變數 | 值長什麼樣 | 說明 |
+|---|---|---|
+| `AGENTMAIL_API_KEY` | `am_us_inbox_b1e2…` | 帳號層級的憑證。**前綴雖然寫著 `inbox`，它是 API key 不是 inbox id** |
+| `AGENTMAIL_INBOX_ID` | `uic_ai@agentmail.to` | 寄件信箱的識別碼，形式是 **email 位址** |
+
+這兩個極容易搞反——`am_us_inbox_…` 看起來就像 inbox id，但它其實是 key（開發時實際搞錯過兩次）。分辨方法是直接問 API：
+
+```bash
+curl -H "Authorization: Bearer <你以為的 key>" https://api.agentmail.to/v0/inboxes
+```
+
+回 200 就代表那個值是 API key，而回應的 `inboxes[].inbox_id` 才是要填進 `AGENTMAIL_INBOX_ID` 的東西。
 
 #### AgentMail 的端點路徑一定要帶 `/v0`
 

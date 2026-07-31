@@ -49,13 +49,20 @@ npx wrangler secret put ADMIN_EMAILS
 **（選用）逾期提醒信**——要讓系統在有逾期項目時寄信，再設兩個 secret：
 
 ```bash
-npx wrangler secret put AGENTMAIL_API_KEY    # AgentMail Console 產生的帳號層級 API key
-npx wrangler secret put AGENTMAIL_INBOX_ID   # 寄件信箱的 id，形如 am_us_inbox_…
+npx wrangler secret put AGENTMAIL_API_KEY    # 帳號層級憑證，形如 am_us_inbox_b1e2…
+npx wrangler secret put AGENTMAIL_INBOX_ID   # 寄件信箱，email 位址形式如 you@agentmail.to
 npx wrangler secret put APP_URL              # 選填，信件內的連結
 ```
 
-> `AGENTMAIL_API_KEY` 與 `AGENTMAIL_INBOX_ID` 是**兩個不同的東西**，很容易搞混：
-> 前者是帳號層級的憑證，後者是那個信箱的識別碼。
+> 這兩個值**極容易搞反**：API key 的前綴雖然寫著 `inbox`，它是 key 不是 inbox id；
+> inbox id 反而是 email 位址的形式。不確定的話直接問 API：
+>
+> ```bash
+> curl -H "Authorization: Bearer <你以為的 key>" https://api.agentmail.to/v0/inboxes
+> ```
+>
+> 回 200 就代表那是 API key，而回應裡的 `inboxes[].inbox_id` 才是 `AGENTMAIL_INBOX_ID`。
+>
 > 沒設定時提醒功能不會運作，但不影響其他任何功能。
 
 最後部署：

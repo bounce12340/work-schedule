@@ -134,15 +134,18 @@ const AGENTMAIL_SEND = inbox =>
 /**
  * 寄一封信。
  *
- * AgentMail 的送信端點帶 inbox id，而認證用的是**帳號層級**的 API key——
- * 兩者是不同的東西（`am_us_inbox_…` 是 inbox id，不是 key），設定時很容易搞混，
- * 所以下面把兩者的缺漏分開報，錯誤訊息才指得出是哪一個沒設。
+ * 送信端點帶 inbox id，認證用帳號層級的 API key——兩者是不同的東西，而且
+ * **極容易搞反**：API key 長得像 `am_us_inbox_b1e2…`（前綴寫著 inbox 卻是 key），
+ * inbox id 則是 email 位址形式如 `uic_ai@agentmail.to`。開發時實際搞錯過。
+ *
+ * 分辨方法：拿那個值當 Bearer 打 GET /v0/inboxes，回 200 就是 API key，
+ * 而回應裡的 inboxes[].inbox_id 才是要填進 AGENTMAIL_INBOX_ID 的值。
  */
 async function sendMail(env, to, mail) {
   const key = env.AGENTMAIL_API_KEY;
   const inbox = env.AGENTMAIL_INBOX_ID;
-  if (!key) throw new Error('AGENTMAIL_API_KEY 未設定（帳號層級的 API key，非 inbox id）');
-  if (!inbox) throw new Error('AGENTMAIL_INBOX_ID 未設定（am_us_inbox_… 那一串）');
+  if (!key) throw new Error('AGENTMAIL_API_KEY 未設定（帳號層級憑證，形如 am_us_inbox_…）');
+  if (!inbox) throw new Error('AGENTMAIL_INBOX_ID 未設定（寄件信箱，email 位址形式）');
 
   const r = await fetch(AGENTMAIL_SEND(inbox), {
     method: 'POST',
