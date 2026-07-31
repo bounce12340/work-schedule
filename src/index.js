@@ -3,6 +3,7 @@ import { handleGetState, handlePutState } from './handlers/state.js';
 import { handleListUsers, handleUpdateUser, handleDeleteUser, handleResetPassword } from './handlers/admin.js';
 import { handleListShares, handleCreateShare, handleDeleteShare, handleUpdateShared, handleListActivity } from './handlers/share.js';
 import { handleIcsStatus, handleIcsEnable, handleIcsDisable, handleIcsPut, handleIcsFeed } from './handlers/ics.js';
+import { handleReminderStatus, handleReminderEnable, handleReminderPut, sendOverdueReminders } from './handlers/reminder.js';
 import { getSessionUser } from './session.js';
 
 /**
@@ -13,6 +14,22 @@ import { getSessionUser } from './session.js';
  * public/ 的路徑才會落到這裡。保護靜態頁面需要 run_worker_first（下一步處理）。
  */
 export default {
+  /**
+   * Cron 進入點（wrangler.jsonc 的 triggers.crons）。
+   * 例外一律吞掉並記 log：排程失敗不該讓 Cloudflare 反覆重試而放大寄信量，
+   * 而寄信本身在 sendOverdueReminders 內就已經是逐人容錯的。
+   */
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil((async () => {
+      try {
+        const r = await sendOverdueReminders(env);
+        console.log('reminder cron', JSON.stringify(r));
+      } catch (e) {
+        console.error('reminder cron failed', e?.stack || String(e));
+      }
+    })());
+  },
+
   async fetch(request, env, ctx) {
     try {
       return await route(request, env, ctx);
@@ -86,6 +103,13 @@ async function route(request, env, ctx) {
   if (path === '/api/ics') {
     if (request.method === 'PUT') return handleIcsPut(request, env, user);
     if (request.method === 'DELETE') return handleIcsDisable(env, user);
+    return methodNotAllowed();
+  }
+
+  if (path === '/api/reminder') {
+    if (request.method === 'GET') return handleReminderStatus(env, user);
+    if (request.method === 'PUT') return handleReminderPut(request, env, user);
+    if (request.method === 'POST') return handleReminderEnable(request, env, user);
     return methodNotAllowed();
   }
 

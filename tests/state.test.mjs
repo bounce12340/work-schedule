@@ -221,3 +221,148 @@ test('白名單合併：拿 edit 權限也改不到標題與日期', async () =>
   assert.equal(a.date, '2026-03-10', '日期只有擁有者能改');
   assert.equal(a.done, true, '完成狀態才是被授權的欄位');
 });
+
+// ------------------------------------------------------------ 逾期提醒（cron）
+
+import { pickOverdue, taipeiYmd, buildReminderEmail, handleReminderPut,
+         handleReminderEnable, sendOverdueReminders } from '../src/handlers/reminder.js';
+
+const rem = (t, d, done = 0) => ({ t, d, k: 'work', done });
+
+test('逾期＝日期早於今天且未完成；今天到期的不算逾期', () => {
+  const digest = [
+    rem('前天的', '2026-07-29'), rem('昨天的', '2026-07-30'),
+    rem('今天的', '2026-07-31'), rem('明天的', '2026-08-01'),
+    rem('前天但已完成', '2026-07-29', 1)
+  ];
+  const out = pickOverdue(digest, '2026-07-31');
+  assert.deepEqual(out.map(r => r.t), ['前天的', '昨天的'],
+    '今天到期的是「今天要做」，混進逾期會把真正遲交的東西淹沒');
+});
+
+test('壞掉的 digest 不會讓 cron 爆掉', () => {
+  [null, undefined, 'not an array', 42, [null, {}, { d: 123 }]].forEach(d =>
+    assert.deepEqual(pickOverdue(d, '2026-07-31'), []));
+});
+
+test('台北時間換日：UTC 前一天的下午已經是台北的隔天', () => {
+  assert.equal(taipeiYmd(Date.parse('2026-07-30T16:00:00Z')), '2026-07-31');
+  assert.equal(taipeiYmd(Date.parse('2026-07-30T15:59:00Z')), '2026-07-30');
+});
+
+test('信件內容：列出逾期天數，超過上限的用「還有 N 項」帶過', () => {
+  const rows = Array.from({ length: 25 }, (_, i) => rem('項目' + i, '2026-07-01'));
+  const mail = buildReminderEmail(rows, '2026-07-31', 'https://example.test');
+  assert.match(mail.subject, /25/);
+  assert.match(mail.text, /逾期 30 天/);
+  assert.match(mail.text, /還有 5 項/, '只列前 20 筆，其餘帶過');
+  assert.match(mail.html, /https:\/\/example\.test/);
+});
+
+test('信件內容會跳脫使用者輸入，標題不能夾帶標籤', () => {
+  const mail = buildReminderEmail([rem('<img src=x onerror=alert(1)>', '2026-07-01')], '2026-07-31', '');
+  assert.ok(!/<img/.test(mail.html), '標題必須被跳脫');
+  assert.match(mail.html, /&lt;img/);
+});
+
+test('PUT /api/reminder 只收需要的欄位，日期格式不對的丟掉', async () => {
+  const env = makeEnv(); addUser(env, 'u1', 'a@x.com');
+  const user = { id: 'u1', email: 'a@x.com', role: 'user', status: 'approved' };
+  const body = { digest: [
+    { t: '正常', d: '2026-07-01', k: 'meeting', done: false },
+    { t: '壞日期', d: '2026/07/01', k: 'work' },
+    { t: '亂填類型', d: '2026-07-02', k: '<script>' , done: true },
+    { t: 'x'.repeat(500), d: '2026-07-03', k: 'work' }
+  ] };
+  const r = await unwrap(await handleReminderPut(
+    new Request('https://x.test/api/reminder', { method:'PUT', body: JSON.stringify(body) }), env, user));
+  assert.equal(r.status, 200);
+  assert.equal(r.body.count, 3, '日期格式不對的那一筆要被丟掉');
+  const saved = JSON.parse(env.DB.prepare('SELECT digest FROM reminder_feed WHERE user_id = ?').bind('u1').first().digest);
+  assert.equal(saved[1].k, 'work', '不認得的類型退回預設，不是原樣存下來');
+  assert.equal(saved[2].t.length, 200, '標題長度有上限');
+});
+
+test('推送摘要不會把使用者關掉的提醒打開', async () => {
+  const env = makeEnv(); addUser(env, 'u1', 'a@x.com');
+  const user = { id: 'u1', email: 'a@x.com', role: 'user', status: 'approved' };
+  const req2 = b => new Request('https://x.test/api/reminder', { method:'PUT', body: JSON.stringify(b) });
+  await handleReminderPut(req2({ digest: [rem('a', '2026-07-01')] }), env, user);
+  assert.equal(env.DB.prepare('SELECT enabled FROM reminder_feed WHERE user_id = ?').bind('u1').first().enabled, 0);
+
+  await handleReminderEnable(new Request('https://x.test', { method:'POST', body: '{"enabled":true}' }), env, user);
+  await handleReminderPut(req2({ digest: [rem('b', '2026-07-02')] }), env, user);
+  assert.equal(env.DB.prepare('SELECT enabled FROM reminder_feed WHERE user_id = ?').bind('u1').first().enabled, 1,
+    '推送是同步的副作用，不該改動使用者的開關');
+});
+
+/** 攔截 fetch，記錄寄出去的信而不真的送 */
+function withFakeMail(fn) {
+  const real = globalThis.fetch;
+  const sent = [];
+  globalThis.fetch = async (url, init) => {
+    sent.push({ url: String(url), body: JSON.parse(init.body), auth: init.headers.authorization });
+    return new Response('{"ok":true}', { status: 200 });
+  };
+  return fn(sent).finally(() => { globalThis.fetch = real; });
+}
+
+const MAIL_ENV = { AGENTMAIL_API_KEY: 'am_test_key', AGENTMAIL_INBOX_ID: 'am_us_inbox_test', APP_URL: 'https://app.test' };
+
+test('cron：有逾期才寄，沒有逾期完全不寄', async () => {
+  const base = makeEnv();
+  addUser(base, 'u1', 'has@x.com'); addUser(base, 'u2', 'none@x.com');
+  const now = Date.parse('2026-07-31T00:00:00Z');
+  base.DB.prepare('INSERT INTO reminder_feed (user_id, enabled, digest, updated_at) VALUES (?,1,?,?)')
+    .bind('u1', JSON.stringify([rem('遲交的', '2026-07-20')]), now).run();
+  base.DB.prepare('INSERT INTO reminder_feed (user_id, enabled, digest, updated_at) VALUES (?,1,?,?)')
+    .bind('u2', JSON.stringify([rem('還沒到期', '2026-12-01')]), now).run();
+
+  await withFakeMail(async sent => {
+    const out = await sendOverdueReminders({ ...MAIL_ENV, DB: base.DB }, now);
+    assert.equal(out.sent, 1);
+    assert.equal(out.skipped, 1, '沒有逾期的人完全不寄——每天一封「你沒有逾期」只會被忽略');
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].body.to, 'has@x.com');
+    assert.match(sent[0].url, /\/inboxes\/am_us_inbox_test\/messages\/send$/);
+    assert.equal(sent[0].auth, 'Bearer am_test_key');
+  });
+});
+
+test('cron：同一天不重寄（排程重試不該變成第二封）', async () => {
+  const base = makeEnv(); addUser(base, 'u1', 'a@x.com');
+  const now = Date.parse('2026-07-31T00:00:00Z');
+  base.DB.prepare('INSERT INTO reminder_feed (user_id, enabled, digest, updated_at) VALUES (?,1,?,?)')
+    .bind('u1', JSON.stringify([rem('遲交的', '2026-07-20')]), now).run();
+
+  await withFakeMail(async sent => {
+    const env = { ...MAIL_ENV, DB: base.DB };
+    assert.equal((await sendOverdueReminders(env, now)).sent, 1);
+    assert.equal((await sendOverdueReminders(env, now)).sent, 0, '第二次不該再寄');
+    assert.equal(sent.length, 1);
+    // 隔天又有逾期就會再寄
+    assert.equal((await sendOverdueReminders(env, now + 86400000)).sent, 1);
+  });
+});
+
+test('cron：停用中的帳號不寄；寄失敗不記錄已寄，下次會重試', async () => {
+  const base = makeEnv();
+  addUser(base, 'u1', 'ok@x.com'); addUser(base, 'u2', 'susp@x.com');
+  base.DB.prepare("UPDATE users SET status = 'suspended' WHERE id = ?").bind('u2').run();
+  const now = Date.parse('2026-07-31T00:00:00Z');
+  ['u1','u2'].forEach(id => base.DB
+    .prepare('INSERT INTO reminder_feed (user_id, enabled, digest, updated_at) VALUES (?,1,?,?)')
+    .bind(id, JSON.stringify([rem('遲交的', '2026-07-20')]), now).run());
+
+  // 寄信一律失敗
+  const real = globalThis.fetch;
+  globalThis.fetch = async () => new Response('boom', { status: 500 });
+  try {
+    const env = { ...MAIL_ENV, DB: base.DB };
+    const out = await sendOverdueReminders(env, now);
+    assert.equal(out.failed, 1, '只有 u1 該被嘗試');
+    assert.equal(out.skipped, 1, '停用中的帳號不寄');
+    assert.equal(base.DB.prepare('SELECT last_sent_ymd FROM reminder_feed WHERE user_id = ?').bind('u1').first().last_sent_ymd,
+      null, '沒寄成功就不算寄過，下次排程要能重試');
+  } finally { globalThis.fetch = real; }
+});

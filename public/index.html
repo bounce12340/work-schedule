@@ -833,6 +833,7 @@
       <button id="btnExport" class="ghost-btn" type="button" data-i18n>⤓ 匯出備份</button>
       <button id="btnImport" class="ghost-btn" type="button" data-i18n>⤒ 匯入備份</button>
       <button id="btnIcs" class="ghost-btn" type="button" style="display:none;" data-i18n>📅 行事曆訂閱</button>
+      <button id="btnReminder" class="ghost-btn" type="button" style="display:none;"></button>
       <input type="file" id="importFile" accept="application/json,.json" style="display:none;">
     </div>
     <div class="signature" data-i18n>此系統由劉思妤設計、規劃、製作。</div>
@@ -1274,6 +1275,16 @@
       '），資料僅存在本次畫面中，重新整理將會重置。':') — data lives only in this view and resets on refresh.',
       '※ 這個瀏覽器封鎖了本機儲存，資料只保留在這個分頁，關閉後不會留下。':
         '※ This browser blocks local storage — data lives only in this tab and is lost when you close it.',
+      // —— 逾期提醒信 ——
+      '🔕 關閉逾期提醒信':'🔕 Turn off overdue emails',
+      '📧 開啟逾期提醒信':'📧 Overdue email reminders',
+      '目前會在有逾期項目時寄信到你的註冊信箱':'You will be emailed at your registered address when items are overdue',
+      '開啟後，有逾期項目時會寄信到你的註冊信箱（沒有逾期就不寄）':
+        'Emails you at your registered address when items are overdue — nothing is sent when nothing is overdue',
+      '已開啟。有逾期項目時會寄信到你的註冊信箱；沒有逾期就完全不寄。':
+        'Enabled. You will be emailed when items are overdue; nothing is sent when nothing is overdue.',
+      '已關閉逾期提醒信。':'Overdue email reminders turned off.',
+      '目前離線，無法變更提醒設定。':'You are offline — the reminder setting could not be changed.',
       // —— 簽名 ——
       '此系統由劉思妤設計、規劃、製作。':'Designed, planned and built by Liu Szu-Yu.'
     }
@@ -1858,7 +1869,7 @@
   async function cloudPush(){
     if(!cloudEnabled || pushInFlight) return;
     pushInFlight = true;
-    setCloudNote('同步中…');
+    setCloudNote(tr('同步中…'));
     try{
       const snap = snapshot();
       const r = await fetch(API_STATE, {
@@ -1877,11 +1888,12 @@
       const d = await r.json();
       cloudUpdatedAt = d.updatedAt;
       writeCloudMeta(snap);
-      setCloudNote('已同步');
+      setCloudNote(tr('已同步'));
       pushIcsSoon();
+      pushReminderSoon();
     }catch(e){
       // 斷線不該擋住使用：資料仍在 localStorage，恢復連線後下次變更會補推
-      setCloudNote('離線，變更僅存本機', 'off');
+      setCloudNote(tr('離線，變更僅存本機'), 'off');
     }finally{
       pushInFlight = false;
     }
@@ -1933,7 +1945,7 @@
       refreshAvailableYears();
       renderAll();
       writeCloudMeta(snapshot());
-      setCloudNote('已載入雲端版本');
+      setCloudNote(tr('已載入雲端版本'));
     }else{
       // 接受遠端版本號後重推，等於明確覆蓋
       cloudUpdatedAt = remote.updatedAt;
@@ -1965,8 +1977,8 @@
     const oldPw=document.getElementById('inputPwOld').value;
     const nw=document.getElementById('inputPwNew').value;
     const nw2=document.getElementById('inputPwNew2').value;
-    if(nw.length<10){ setPwMsg('新密碼至少需要 10 個字元','err'); return; }
-    if(nw!==nw2){ setPwMsg('兩次輸入的新密碼不一致','err'); return; }
+    if(nw.length<10){ setPwMsg(tr('新密碼至少需要 10 個字元'),'err'); return; }
+    if(nw!==nw2){ setPwMsg(tr('兩次輸入的新密碼不一致'),'err'); return; }
     const btn=document.getElementById('btnConfirmPw'); btn.disabled=true;
     try{
       const r=await fetch('/api/auth/password',{ method:'POST', headers:{'content-type':'application/json'},
@@ -1974,9 +1986,9 @@
       if(r.status===401){ sessionExpired(); return; }
       const d=await r.json().catch(()=>({}));
       if(!r.ok){ setPwMsg(d.error||('變更失敗（HTTP '+r.status+'）'),'err'); btn.disabled=false; return; }
-      setPwMsg('密碼已更新。為了安全，其他裝置已全部登出。','ok');
+      setPwMsg(tr('密碼已更新。為了安全，其他裝置已全部登出。'),'ok');
       setTimeout(()=>pwOverlay.classList.remove('show'), 1600);
-    }catch(e){ setPwMsg('目前離線，無法變更密碼','err'); }
+    }catch(e){ setPwMsg(tr('目前離線，無法變更密碼'),'err'); }
     btn.disabled=false;
   };
   document.getElementById('btnLogout').onclick = async ()=>{
@@ -1992,7 +2004,7 @@
     }catch(e){
       // 同步失敗絕不能連累本機使用：資料仍在 localStorage，僅停用雲端
       cloudEnabled = false;
-      setCloudNote('初始化失敗，僅使用本機資料', 'err');
+      setCloudNote(tr('初始化失敗，僅使用本機資料'), 'err');
       updateStorageNote();
     }
   }
@@ -2020,6 +2032,7 @@
     cloudEnabled = true;
     updateStorageNote();   // 文案要從「單機」改成「雲端同步」
     document.getElementById('btnIcs').style.display='';
+    syncReminderBtn();
     fetch('/api/ics/status',{cache:'no-store'}).then(r=>r.ok?r.json():null)
       .then(d=>{ if(d){ icsEnabled=d.enabled; } }).catch(()=>{});
     // 分享清單與 state 各自獨立，不 await：它慢或失敗都不該拖住主資料的同步
@@ -2049,7 +2062,7 @@
       writeCloudMeta(snapshot());   // 正規化後的內容才是可靠的比對基準
       refreshAvailableYears();
       renderAll();
-      setCloudNote('已載入雲端版本');
+      setCloudNote(tr('已載入雲端版本'));
       return;
     }
     if(meta && meta.updatedAt === remote.updatedAt){
@@ -3892,11 +3905,11 @@
         setSharedHint(d.error || ('儲存失敗（HTTP '+r.status+'）'), 'err');
         return false;
       }
-      setSharedHint('已儲存到 '+share.ownerEmail+' 的帳號', 'ok');
+      setSharedHint(tr('已儲存到 ')+share.ownerEmail+' 的帳號', 'ok');
       fetchShares().then(()=>{ if(currentView==='shared') renderActivity(); });
       return true;
     }catch(e){
-      setSharedHint('目前離線，這次變更沒有存到對方帳號', 'err');
+      setSharedHint(tr('目前離線，這次變更沒有存到對方帳號'), 'err');
       return false;
     }
   }
@@ -3940,10 +3953,10 @@
         try{
           const r=await fetch(API_SHARES+'/'+encodeURIComponent(s.id), { method:'DELETE' });
           if(r.status===401){ sessionExpired(); return; }
-          if(!r.ok){ setShareMsg('取消失敗，請稍後再試','err'); rm.disabled=false; return; }
+          if(!r.ok){ setShareMsg(tr('取消失敗，請稍後再試'),'err'); rm.disabled=false; return; }
           await fetchShares(); renderShareExisting(); renderAll();
-          setShareMsg('已取消對 '+s.targetEmail+' 的分享','ok');
-        }catch(e){ setShareMsg('目前離線，無法取消分享','err'); rm.disabled=false; }
+          setShareMsg(tr('已取消對 ')+s.targetEmail+' 的分享','ok');
+        }catch(e){ setShareMsg(tr('目前離線，無法取消分享'),'err'); rm.disabled=false; }
       };
       row.appendChild(who); row.appendChild(badge); row.appendChild(rm);
       box.appendChild(row);
@@ -3984,8 +3997,8 @@
       if(!r.ok){ setShareMsg(d.error || ('分享失敗（HTTP '+r.status+'）'), 'err'); btn.disabled=false; return; }
       document.getElementById('inputShareEmail').value='';
       await fetchShares(); renderShareExisting(); renderAll();
-      setShareMsg('已分享給 '+d.targetEmail+'（'+(d.permission==='edit'?'可操作':'可檢視')+'）', 'ok');
-    }catch(e){ setShareMsg('目前離線，無法建立分享','err'); }
+      setShareMsg(tr('已分享給 ')+d.targetEmail+'（'+(d.permission==='edit'?'可操作':'可檢視')+'）', 'ok');
+    }catch(e){ setShareMsg(tr('目前離線，無法建立分享'),'err'); }
     btn.disabled=false;
   };
 
@@ -4028,7 +4041,7 @@
             const r=await fetch(API_SHARES+'/'+encodeURIComponent(s.id), { method:'DELETE' });
             if(r.status===401){ sessionExpired(); return; }
             await fetchShares(); renderAll();
-          }catch(e){ setSharedHint('目前離線，無法取消分享','err'); }
+          }catch(e){ setSharedHint(tr('目前離線，無法取消分享'),'err'); }
         };
         head.appendChild(title); head.appendChild(kindTag); head.appendChild(who); head.appendChild(badge); head.appendChild(rm);
         card.appendChild(head); out.appendChild(card);
@@ -4053,7 +4066,7 @@
         const r=await fetch(API_SHARES+'/'+encodeURIComponent(sh.id), { method:'DELETE' });
         if(r.status===401){ sessionExpired(); return; }
         await fetchShares(); renderAll();
-      }catch(e){ setSharedHint('目前離線，無法移除','err'); }
+      }catch(e){ setSharedHint(tr('目前離線，無法移除'),'err'); }
     };
     head.appendChild(title); head.appendChild(owner); head.appendChild(badge); head.appendChild(rm);
     card.appendChild(head);
@@ -4193,9 +4206,9 @@
   }
 
   document.getElementById('btnReloadShares').onclick=async ()=>{
-    setSharedHint('讀取中…');
+    setSharedHint(tr('讀取中…'));
     await fetchShares();
-    setSharedHint('已更新','ok');
+    setSharedHint(tr('已更新'),'ok');
     renderAll();
   };
 
@@ -4300,6 +4313,35 @@
     }, 3000);
   }
 
+  const btnReminder=document.getElementById('btnReminder');
+  function syncReminderBtn(){
+    if(!btnReminder) return;
+    btnReminder.style.display = cloudEnabled ? '' : 'none';
+    btnReminder.textContent = reminderEnabled ? tr('🔕 關閉逾期提醒信') : tr('📧 開啟逾期提醒信');
+    btnReminder.title = reminderEnabled
+      ? tr('目前會在有逾期項目時寄信到你的註冊信箱')
+      : tr('開啟後，有逾期項目時會寄信到你的註冊信箱（沒有逾期就不寄）');
+  }
+  btnReminder.onclick = async ()=>{
+    const next = !reminderEnabled;
+    btnReminder.disabled = true;
+    try{
+      const r = await fetch('/api/reminder', { method:'POST', headers:{'content-type':'application/json'},
+        body: JSON.stringify({ enabled: next }) });
+      if(r.status===401){ sessionExpired(); return; }
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      reminderEnabled = next;
+      syncReminderBtn();
+      // 剛開啟時先推一份目前的排程，否則要等到下一次編輯才有內容可判斷
+      if(next) pushReminderSoon();
+      alert(next
+        ? tr('已開啟。有逾期項目時會寄信到你的註冊信箱；沒有逾期就完全不寄。')
+        : tr('已關閉逾期提醒信。'));
+    }catch(e){
+      alert(tr('目前離線，無法變更提醒設定。'));
+    }finally{ btnReminder.disabled = false; }
+  };
+
   const icsOverlay=document.getElementById('icsOverlay');
   function setIcsMsg(t,cls){ const el=document.getElementById('icsMsg'); el.textContent=t||''; el.className='msg-inline'+(t?' '+cls:''); }
   function renderIcsStatus(url){
@@ -4331,8 +4373,8 @@
       del.onclick=async ()=>{
         try{
           const r=await fetch('/api/ics',{method:'DELETE'});
-          if(r.ok){ icsEnabled=false; renderIcsStatus(null); setIcsMsg('已停用，所有訂閱連結立即失效','ok'); }
-        }catch(e){ setIcsMsg('目前離線，無法停用','err'); }
+          if(r.ok){ icsEnabled=false; renderIcsStatus(null); setIcsMsg(tr('已停用，所有訂閱連結立即失效'),'ok'); }
+        }catch(e){ setIcsMsg(tr('目前離線，無法停用'),'err'); }
       };
       document.querySelector('#icsOverlay .modal-actions').prepend(del);
     } else if(!icsEnabled && del){ del.remove(); }
@@ -4357,9 +4399,9 @@
       if(!r.ok){ setIcsMsg(d.error||('失敗（HTTP '+r.status+'）'),'err'); return; }
       icsEnabled=true;
       renderIcsStatus(d.url);
-      setIcsMsg('已產生。到行事曆軟體選「以 URL 訂閱」貼上這個連結即可。','ok');
+      setIcsMsg(tr('已產生。到行事曆軟體選「以 URL 訂閱」貼上這個連結即可。'),'ok');
       pushIcsSoon();
-    }catch(e){ setIcsMsg('目前離線，無法產生','err'); }
+    }catch(e){ setIcsMsg(tr('目前離線，無法產生'),'err'); }
   };
 
   // ================= seed demo data =================
