@@ -676,17 +676,18 @@
   <header class="top">
     <div>
       <div class="brand-eyebrow">SCHEDULE CONTROL BOARD</div>
-      <div class="brand-title">工作排程確認系統</div>
+      <div class="brand-title" data-i18n>工作排程確認系統</div>
     </div>
     <div style="display:flex; align-items:center; gap:14px;">
       <div class="account-box" id="accountBox" style="display:none;">
         <span class="account-email" id="accountEmail"></span>
-        <button class="account-btn" id="btnAdmin" type="button" style="display:none;">帳號管理</button>
-        <button class="account-btn" id="btnChangePw" type="button">變更密碼</button>
-        <button class="account-btn" id="btnLogout" type="button">登出</button>
+        <button class="account-btn" id="btnAdmin" type="button" style="display:none;" data-i18n>帳號管理</button>
+        <button class="account-btn" id="btnChangePw" type="button" data-i18n>變更密碼</button>
+        <button class="account-btn" id="btnLogout" type="button" data-i18n>登出</button>
       </div>
-      <button id="themeBtn" class="icon-square" type="button" title="切換亮色／暗色" aria-label="切換亮色／暗色">🌙</button>
-      <button id="bellBtn" class="icon-square" title="查看今日待辦提醒" style="position:relative;">
+      <button id="langBtn" class="icon-square" type="button" title="切換語言 / Switch language" aria-label="切換語言 / Switch language">文</button>
+      <button id="themeBtn" class="icon-square" type="button" title="切換亮色／暗色" aria-label="切換亮色／暗色" data-i18n-title>🌙</button>
+      <button id="bellBtn" class="icon-square" title="查看今日待辦提醒" style="position:relative;" data-i18n-title>
         🔔
         <span id="bellBadge" style="display:none; position:absolute; top:-5px; right:-5px; background:var(--red); color:var(--on-accent); font-family:var(--mono); font-size:10px; font-weight:700; border-radius:9px; min-width:18px; height:18px; padding:0 4px; align-items:center; justify-content:center;"></span>
       </button>
@@ -699,29 +700,29 @@
 
   <div class="metric-strip">
     <div class="metric-card day">
-      <div class="metric-label">當日未完成</div>
-      <div class="metric-list" id="metricDayList"><div class="metric-list-empty">今日已全部完成</div></div>
+      <div class="metric-label" data-i18n>當日未完成</div>
+      <div class="metric-list" id="metricDayList"><div class="metric-list-empty" data-i18n>今日已全部完成</div></div>
     </div>
     <div class="metric-card week">
-      <div class="metric-label">當週未完成</div>
-      <div class="metric-list" id="metricWeekList"><div class="metric-list-empty">本週已全部完成</div></div>
+      <div class="metric-label" data-i18n>當週未完成</div>
+      <div class="metric-list" id="metricWeekList"><div class="metric-list-empty" data-i18n>本週已全部完成</div></div>
     </div>
     <div class="metric-card meeting">
-      <div class="metric-label">當日會議項目</div>
-      <div class="metric-meeting-list" id="metricMeetingList"><div class="metric-meeting-empty">今日無會議</div></div>
+      <div class="metric-label" data-i18n>當日會議項目</div>
+      <div class="metric-meeting-list" id="metricMeetingList"><div class="metric-meeting-empty" data-i18n>今日無會議</div></div>
     </div>
     <div class="metric-card overdue">
-      <div class="metric-label">逾期未完成</div>
-      <div class="metric-list" id="metricOverdueList"><div class="metric-list-empty">沒有逾期項目</div></div>
+      <div class="metric-label" data-i18n>逾期未完成</div>
+      <div class="metric-list" id="metricOverdueList"><div class="metric-list-empty" data-i18n>沒有逾期項目</div></div>
     </div>
   </div>
 
   <div class="layout">
     <div class="sidebar">
-      <div class="nav-item active" id="navSchedule"><span class="nav-dot"></span>項目安排</div>
-      <div class="nav-item" id="navCalendar"><span class="nav-dot"></span>日曆</div>
-      <div class="nav-item" id="navGantt"><span class="nav-dot"></span>專案</div>
-      <div class="nav-item" id="navShared"><span class="nav-dot"></span>共享</div>
+      <div class="nav-item active" id="navSchedule"><span class="nav-dot"></span><span data-i18n>項目安排</span></div>
+      <div class="nav-item" id="navCalendar"><span class="nav-dot"></span><span data-i18n>日曆</span></div>
+      <div class="nav-item" id="navGantt"><span class="nav-dot"></span><span data-i18n>專案</span></div>
+      <div class="nav-item" id="navShared"><span class="nav-dot"></span><span data-i18n>共享</span></div>
     </div>
 
     <div class="main-panel">
@@ -729,7 +730,7 @@
       <!-- ================= VIEW 1: 項目安排 ================= -->
       <div class="view active" id="viewSchedule">
         <div class="major-section">
-          <div class="major-section-label">大項目（無需日期，可隨時更名）</div>
+          <div class="major-section-label" data-i18n>大項目（無需日期，可隨時更名）</div>
           <div class="chip-row" id="majorChips"></div>
         </div>
         <div class="mode-tabs" id="modeTabs"></div>
@@ -738,13 +739,13 @@
           <div class="scope-current" id="scopeCurrent">—</div>
           <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
             <div class="stat-pills" id="statPills"></div>
-            <button class="add-project-btn" id="openItemModal">＋ 新增小項目</button>
+            <button class="add-project-btn" id="openItemModal" data-i18n>＋ 新增小項目</button>
           </div>
         </div>
         <div class="filter-bar">
-          <input type="search" id="inputSearch" placeholder="搜尋標題或大項目…" autocomplete="off">
+          <input type="search" id="inputSearch" placeholder="搜尋標題或大項目…" autocomplete="off" data-i18n-ph>
           <div class="filter-types" id="filterTypes"></div>
-          <button class="qbtn" id="btnHideDone" type="button">只看未完成</button>
+          <button class="qbtn" id="btnHideDone" type="button" data-i18n>只看未完成</button>
           <span class="filter-count" id="filterCount"></span>
         </div>
         <div class="board" id="board"></div>
@@ -752,7 +753,7 @@
         <div class="done-section" id="doneSection" style="display:none;">
           <button class="done-head" id="doneHead" type="button">
             <span class="done-caret" id="doneCaret">▸</span>
-            <span>已完成</span>
+            <span data-i18n>已完成</span>
             <span class="done-count" id="doneCount">0</span>
           </button>
           <div class="board done-board" id="doneBoard" style="display:none;"></div>
@@ -764,26 +765,26 @@
         <div class="cal-header">
           <div class="cal-title" id="calTitle">—</div>
           <div class="cal-nav">
-            <button id="calPrev">‹ 上月</button>
-            <button id="calToday">回到今天</button>
-            <button id="calNext">下月 ›</button>
+            <button id="calPrev" data-i18n>‹ 上月</button>
+            <button id="calToday" data-i18n>回到今天</button>
+            <button id="calNext" data-i18n>下月 ›</button>
           </div>
           <div class="cal-legend">
-            <span><span class="legend-dot work"></span>工作項目</span>
-            <span><span class="legend-dot meeting"></span>會議安排</span>
-            <span><span class="legend-dot assignment"></span>作業</span>
+            <span><span class="legend-dot work"></span><span data-i18n>工作項目</span></span>
+            <span><span class="legend-dot meeting"></span><span data-i18n>會議安排</span></span>
+            <span><span class="legend-dot assignment"></span><span data-i18n>作業</span></span>
           </div>
         </div>
         <div class="cal-grid" id="calGrid"></div>
 
         <div class="cal-detail-head">
-          <div class="cal-detail-title" id="calDetailTitle">選擇日期以查看當日安排</div>
-          <button class="add-project-btn" id="openItemModalFromCal" style="display:none;">＋ 為此日期新增</button>
+          <div class="cal-detail-title" id="calDetailTitle" data-i18n>選擇日期以查看當日安排</div>
+          <button class="add-project-btn" id="openItemModalFromCal" style="display:none;" data-i18n>＋ 為此日期新增</button>
         </div>
         <div class="board" id="calBoard"></div>
 
         <div class="daylog-box" id="daylogBox" style="display:none;">
-          <div class="daylog-label">每日記錄 <span class="daylog-saved" id="daylogSaved">已儲存</span></div>
+          <div class="daylog-label"><span data-i18n>每日記錄</span> <span class="daylog-saved" id="daylogSaved" data-i18n>已儲存</span></div>
           <div id="daylogSlot"></div>
         </div>
       </div>
@@ -794,7 +795,7 @@
       <!-- ================= VIEW 3: 專案（甘特圖） ================= -->
       <div class="view" id="viewGantt">
         <div class="major-section">
-          <div class="major-section-label">專案（大型專案，對應甘特圖與待辦事項）</div>
+          <div class="major-section-label" data-i18n>專案（大型專案，對應甘特圖與待辦事項）</div>
           <div class="gantt-picker" id="ganttPicker"></div>
         </div>
         <div id="ganttDetailArea"></div>
@@ -802,21 +803,21 @@
 
       <div class="view" id="viewShared">
         <div class="major-section">
-          <div class="major-section-label">別人分享給我的（資料仍在對方帳號中，這裡看到的永遠是最新版本）</div>
+          <div class="major-section-label" data-i18n>別人分享給我的（資料仍在對方帳號中，這裡看到的永遠是最新版本）</div>
           <div class="shared-toolbar">
-            <button class="qbtn" id="btnReloadShares">↻ 重新整理</button>
+            <button class="qbtn" id="btnReloadShares" data-i18n>↻ 重新整理</button>
             <span class="shared-hint" id="sharedHint"></span>
           </div>
         </div>
         <div id="sharedIncoming"></div>
 
         <div class="major-section" style="margin-top:26px;">
-          <div class="major-section-label">我分享出去的</div>
+          <div class="major-section-label" data-i18n>我分享出去的</div>
         </div>
         <div id="sharedOutgoing"></div>
 
         <div class="major-section" style="margin-top:26px;">
-          <div class="major-section-label">最近的變更（只記錄共享項目，保留 90 天）</div>
+          <div class="major-section-label" data-i18n>最近的變更（只記錄共享項目，保留 90 天）</div>
         </div>
         <div id="sharedActivity"></div>
       </div>
@@ -825,28 +826,28 @@
   </div>
 
   <footer class="storage-note">
-    <div id="storageNoteText">※ 資料儲存狀態偵測中…</div>
+    <div id="storageNoteText" data-i18n>※ 資料儲存狀態偵測中…</div>
     <div id="cloudNoteText"></div>
-    <div>「遇假日」判斷以週六、週日為基準，如需計入國定假日，可在新增小項目時使用「自訂假日」清單自行加入日期。</div>
+    <div data-i18n>「遇假日」判斷以週六、週日為基準，如需計入國定假日，可在新增小項目時使用「自訂假日」清單自行加入日期。</div>
     <div class="backup-row">
-      <button id="btnExport" class="ghost-btn" type="button">⤓ 匯出備份</button>
-      <button id="btnImport" class="ghost-btn" type="button">⤒ 匯入備份</button>
-      <button id="btnIcs" class="ghost-btn" type="button" style="display:none;">📅 行事曆訂閱</button>
+      <button id="btnExport" class="ghost-btn" type="button" data-i18n>⤓ 匯出備份</button>
+      <button id="btnImport" class="ghost-btn" type="button" data-i18n>⤒ 匯入備份</button>
+      <button id="btnIcs" class="ghost-btn" type="button" style="display:none;" data-i18n>📅 行事曆訂閱</button>
       <input type="file" id="importFile" accept="application/json,.json" style="display:none;">
     </div>
-    <div class="signature">此系統由劉思妤設計、規劃、製作。</div>
+    <div class="signature" data-i18n>此系統由劉思妤設計、規劃、製作。</div>
   </footer>
 </div>
 
 <div id="undoToast" class="undo-toast">
   <span id="undoText"></span>
-  <button id="undoBtn" type="button">復原</button>
+  <button id="undoBtn" type="button" data-i18n>復原</button>
 </div>
 
 <div id="reminderToast" class="reminder-toast">
   <div class="reminder-head">
     <span class="reminder-icon">🔔</span>
-    <span class="reminder-title">今日待完成提醒</span>
+    <span class="reminder-title" data-i18n>今日待完成提醒</span>
     <button id="reminderClose" class="reminder-close">✕</button>
   </div>
   <div id="reminderBody" class="reminder-body"></div>
@@ -855,11 +856,11 @@
 <!-- ========== 大項目 Modal ========== -->
 <div class="overlay" id="majorOverlay">
   <div class="modal">
-    <h3><span class="dot"></span><span id="majorModalTitle">新增大項目</span></h3>
-    <div class="field"><label>大項目名稱</label><input type="text" id="inputMajorName" placeholder="例如：Q3 產品上線計畫"></div>
+    <h3><span class="dot"></span><span id="majorModalTitle" data-i18n>新增大項目</span></h3>
+    <div class="field"><label data-i18n>大項目名稱</label><input type="text" id="inputMajorName" placeholder="例如：Q3 產品上線計畫" data-i18n-ph></div>
     <div class="modal-actions">
-      <button class="btn-cancel" id="btnCancelMajor">取消</button>
-      <button class="btn-confirm" id="btnConfirmMajor">建立</button>
+      <button class="btn-cancel" id="btnCancelMajor" data-i18n>取消</button>
+      <button class="btn-confirm" id="btnConfirmMajor" data-i18n>建立</button>
     </div>
   </div>
 </div>
@@ -867,113 +868,113 @@
 <!-- ========== 小項目 Modal ========== -->
 <div class="overlay" id="itemOverlay">
   <div class="modal">
-    <h3><span class="dot"></span><span id="itemModalTitle">新增小項目</span></h3>
-    <div class="recur-warn" id="recurChangeWarn" style="display:none;">
+    <h3><span class="dot"></span><span id="itemModalTitle" data-i18n>新增小項目</span></h3>
+    <div class="recur-warn" id="recurChangeWarn" style="display:none;" data-i18n>
       ⚠ 你變更了循環頻率。各次的完成紀錄、日期覆寫與略過設定是依週期代碼記錄的（每週類記日期、每月記年月、每季記年季），變更後將全部重置。
     </div>
-    <div class="field"><label>標題</label><input type="text" id="inputItemTitle" placeholder="例如：確認提案簡報"></div>
+    <div class="field"><label data-i18n>標題</label><input type="text" id="inputItemTitle" placeholder="例如：確認提案簡報" data-i18n-ph></div>
     <div class="field">
-      <label>類型</label>
+      <label data-i18n>類型</label>
       <div class="type-toggle">
-        <button class="sel-work active" id="btnTypeWork">工作項目</button>
-        <button class="sel-meeting" id="btnTypeMeeting">會議安排</button>
-        <button class="sel-assignment" id="btnTypeAssignment">作業</button>
+        <button class="sel-work active" id="btnTypeWork" data-i18n>工作項目</button>
+        <button class="sel-meeting" id="btnTypeMeeting" data-i18n>會議安排</button>
+        <button class="sel-assignment" id="btnTypeAssignment" data-i18n>作業</button>
       </div>
     </div>
-    <div class="field" id="itemMeetingTimeField"><label>時間（選填）</label><input type="time" id="inputItemMeetingTime"></div>
-    <div class="field"><label>連結（選填，例如會議連結或文件）</label><input type="url" id="inputItemLink" placeholder="https://…"></div>
-    <div class="field"><label>歸屬大項目</label><select id="selectParent"><option value="">獨立項目（不歸屬任何大項目）</option></select></div>
+    <div class="field" id="itemMeetingTimeField"><label data-i18n>時間（選填）</label><input type="time" id="inputItemMeetingTime"></div>
+    <div class="field"><label data-i18n>連結（選填，例如會議連結或文件）</label><input type="url" id="inputItemLink" placeholder="https://…"></div>
+    <div class="field"><label data-i18n>歸屬大項目</label><select id="selectParent"><option value="" data-i18n>獨立項目（不歸屬任何大項目）</option></select></div>
     <div class="field-row">
-      <div class="field"><label id="itemDateLabel">日期</label><input type="date" id="inputItemDate"></div>
-      <div class="field" id="itemEndDateField"><label>結束日期（選填，跨多天）</label><input type="date" id="inputItemEndDate"></div>
+      <div class="field"><label id="itemDateLabel" data-i18n>日期</label><input type="date" id="inputItemDate"></div>
+      <div class="field" id="itemEndDateField"><label data-i18n>結束日期（選填，跨多天）</label><input type="date" id="inputItemEndDate"></div>
     </div>
     <div class="field">
-      <label>循環設定</label>
+      <label data-i18n>循環設定</label>
       <select id="selectRecurrence">
-        <option value="none">不循環</option>
-        <option value="weekly">每週</option>
-        <option value="biweekly">每兩週</option>
-        <option value="monthly">每月固定</option>
-        <option value="quarterly">每季固定（每 3 個月）</option>
-        <option value="yearly">每年（同月同日）</option>
+        <option value="none" data-i18n>不循環</option>
+        <option value="weekly" data-i18n>每週</option>
+        <option value="biweekly" data-i18n>每兩週</option>
+        <option value="monthly" data-i18n>每月固定</option>
+        <option value="quarterly" data-i18n>每季固定（每 3 個月）</option>
+        <option value="yearly" data-i18n>每年（同月同日）</option>
       </select>
     </div>
     <div id="recurrenceExtra" style="display:none;">
       <div class="field" id="weekdayField" style="display:none;">
-        <label>星期幾（可複選）</label>
+        <label data-i18n>星期幾（可複選）</label>
         <div class="weekday-row" id="weekdayBoxes"></div>
       </div>
       <div class="field" id="monthlyModeField" style="display:none;">
-        <label>每月方式</label>
+        <label data-i18n>每月方式</label>
         <select id="selectMonthlyMode">
-          <option value="day">固定日期（每月第幾天）</option>
-          <option value="nthWeekday">第 N 個星期幾（例如：第二個週三）</option>
+          <option value="day" data-i18n>固定日期（每月第幾天）</option>
+          <option value="nthWeekday" data-i18n>第 N 個星期幾（例如：第二個週三）</option>
         </select>
       </div>
       <div class="field-row" id="nthWeekdayRow" style="display:none;">
-        <div class="field"><label>第幾個</label>
+        <div class="field"><label data-i18n>第幾個</label>
           <select id="selectNth">
-            <option value="1">第一個</option><option value="2">第二個</option>
-            <option value="3">第三個</option><option value="4">第四個</option>
-            <option value="-1">最後一個</option>
+            <option value="1" data-i18n>第一個</option><option value="2" data-i18n>第二個</option>
+            <option value="3" data-i18n>第三個</option><option value="4" data-i18n>第四個</option>
+            <option value="-1" data-i18n>最後一個</option>
           </select>
         </div>
-        <div class="field"><label>星期幾</label>
+        <div class="field"><label data-i18n>星期幾</label>
           <select id="selectNthWeekday">
-            <option value="1">週一</option><option value="2">週二</option><option value="3">週三</option>
-            <option value="4">週四</option><option value="5">週五</option><option value="6">週六</option>
-            <option value="0">週日</option>
+            <option value="1" data-i18n>週一</option><option value="2" data-i18n>週二</option><option value="3" data-i18n>週三</option>
+            <option value="4" data-i18n>週四</option><option value="5" data-i18n>週五</option><option value="6" data-i18n>週六</option>
+            <option value="0" data-i18n>週日</option>
           </select>
         </div>
       </div>
       <div class="scope-note" id="recurYearNote" style="display:none;">每年於<b>起始日期的同月同日</b>重複。</div>
       <div class="field-row">
-        <div class="field" id="recurDayField"><label id="recurDayLabel">每月第幾天</label><input type="number" id="inputRecurDay" min="1" max="31" value="1"></div>
+        <div class="field" id="recurDayField"><label id="recurDayLabel" data-i18n>每月第幾天</label><input type="number" id="inputRecurDay" min="1" max="31" value="1"></div>
         <div class="field">
-          <label>遇假日規則</label>
+          <label data-i18n>遇假日規則</label>
           <select id="selectHolidayRule">
-            <option value="none">不調整</option>
-            <option value="postpone">順延下一個工作天</option>
-            <option value="advance">提前至前一個工作天</option>
+            <option value="none" data-i18n>不調整</option>
+            <option value="postpone" data-i18n>順延下一個工作天</option>
+            <option value="advance" data-i18n>提前至前一個工作天</option>
           </select>
         </div>
       </div>
       <div class="field-row">
         <div class="field">
-          <label>循環期限（選填）</label>
+          <label data-i18n>循環期限（選填）</label>
           <input type="date" id="inputRecurUntil">
         </div>
         <div class="field">
-          <label>重複次數（選填）</label>
-          <input type="number" id="inputRecurCount" min="1" max="500" placeholder="不限">
+          <label data-i18n>重複次數（選填）</label>
+          <input type="number" id="inputRecurCount" min="1" max="500" placeholder="不限" data-i18n-ph>
         </div>
       </div>
       <div class="field">
-        <label>自訂假日（選填，除週六日外的額外假日）</label>
+        <label data-i18n>自訂假日（選填，除週六日外的額外假日）</label>
         <div style="display:flex; gap:8px;">
           <input type="date" id="inputCustomHoliday" style="flex:1;">
-          <button type="button" id="btnAddHoliday" class="add-year-btn" style="white-space:nowrap;">＋ 加入</button>
+          <button type="button" id="btnAddHoliday" class="add-year-btn" style="white-space:nowrap;" data-i18n>＋ 加入</button>
         </div>
         <div class="builtin-holiday" id="builtinHolidayRow"></div>
         <div class="holiday-bulk">
-          <textarea id="inputHolidayBulk" rows="2" placeholder="也可以一次貼上多個日期，例如：&#10;2027-01-01, 2027-02-16 2027-02-17&#10;2027-04-04"></textarea>
-          <button type="button" id="btnAddHolidayBulk" class="add-year-btn">＋ 批次加入</button>
+          <textarea id="inputHolidayBulk" rows="2" placeholder="也可以一次貼上多個日期，例如：&#10;2027-01-01, 2027-02-16 2027-02-17&#10;2027-04-04" data-i18n-ph></textarea>
+          <button type="button" id="btnAddHolidayBulk" class="add-year-btn" data-i18n>＋ 批次加入</button>
           <div class="holiday-bulk-msg" id="holidayBulkMsg"></div>
         </div>
         <div class="holiday-list-box" id="holidayListBox"></div>
       </div>
       <div class="field">
-        <label>補班日（選填，週六日但要上班的日子，循環不會被順延跳過）</label>
+        <label data-i18n>補班日（選填，週六日但要上班的日子，循環不會被順延跳過）</label>
         <div style="display:flex; gap:8px;">
           <input type="date" id="inputCustomWorkday" style="flex:1;">
-          <button type="button" id="btnAddWorkday" class="add-year-btn" style="white-space:nowrap;">＋ 加入</button>
+          <button type="button" id="btnAddWorkday" class="add-year-btn" style="white-space:nowrap;" data-i18n>＋ 加入</button>
         </div>
         <div class="holiday-list-box" id="workdayListBox"></div>
       </div>
     </div>
     <div class="modal-actions">
-      <button class="btn-cancel" id="btnCancelItem">取消</button>
-      <button class="btn-confirm" id="btnConfirmItem">建立</button>
+      <button class="btn-cancel" id="btnCancelItem" data-i18n>取消</button>
+      <button class="btn-confirm" id="btnConfirmItem" data-i18n>建立</button>
     </div>
   </div>
 </div>
@@ -983,10 +984,10 @@
   <div class="modal" style="max-width:380px;">
     <h3><span class="dot"></span>調整本次日期</h3>
     <div class="scope-note">項目：<b id="occModalItemName" style="color:var(--amber);">—</b>　週期：<b id="occModalPeriod">—</b></div>
-    <div class="field"><label>本次日期</label><input type="date" id="inputOccDate"></div>
+    <div class="field"><label data-i18n>本次日期</label><input type="date" id="inputOccDate"></div>
     <div class="modal-actions">
-      <button class="btn-clear" id="btnClearOcc">清除覆寫（恢復預設）</button>
-      <button class="btn-confirm" id="btnConfirmOcc">儲存</button>
+      <button class="btn-clear" id="btnClearOcc" data-i18n>清除覆寫（恢復預設）</button>
+      <button class="btn-confirm" id="btnConfirmOcc" data-i18n>儲存</button>
     </div>
   </div>
 </div>
@@ -994,11 +995,11 @@
 <!-- ========== 專案 Modal ========== -->
 <div class="overlay" id="ganttOverlay">
   <div class="modal" style="max-width:380px;">
-    <h3><span class="dot"></span><span id="ganttModalTitle">新增專案</span></h3>
-    <div class="field"><label>專案名稱</label><input type="text" id="inputGanttName" placeholder="例如：官網改版專案"></div>
+    <h3><span class="dot"></span><span id="ganttModalTitle" data-i18n>新增專案</span></h3>
+    <div class="field"><label data-i18n>專案名稱</label><input type="text" id="inputGanttName" placeholder="例如：官網改版專案" data-i18n-ph></div>
     <div class="modal-actions">
-      <button class="btn-cancel" id="btnCancelGantt">取消</button>
-      <button class="btn-confirm" id="btnConfirmGantt">建立</button>
+      <button class="btn-cancel" id="btnCancelGantt" data-i18n>取消</button>
+      <button class="btn-confirm" id="btnConfirmGantt" data-i18n>建立</button>
     </div>
   </div>
 </div>
@@ -1011,8 +1012,8 @@
     <div id="icsStatusBox" class="share-existing"></div>
     <div class="msg-inline" id="icsMsg"></div>
     <div class="modal-actions">
-      <button class="btn-cancel" id="btnCancelIcs">關閉</button>
-      <button class="btn-confirm" id="btnEnableIcs">產生訂閱連結</button>
+      <button class="btn-cancel" id="btnCancelIcs" data-i18n>關閉</button>
+      <button class="btn-confirm" id="btnEnableIcs" data-i18n>產生訂閱連結</button>
     </div>
   </div>
 </div>
@@ -1020,13 +1021,13 @@
 <div class="overlay" id="pwOverlay">
   <div class="modal" style="max-width:400px;">
     <h3><span class="dot"></span>變更密碼</h3>
-    <div class="field"><label>目前密碼</label><input type="password" id="inputPwOld" autocomplete="current-password"></div>
-    <div class="field"><label>新密碼（至少 10 個字元）</label><input type="password" id="inputPwNew" autocomplete="new-password"></div>
-    <div class="field"><label>確認新密碼</label><input type="password" id="inputPwNew2" autocomplete="new-password"></div>
+    <div class="field"><label data-i18n>目前密碼</label><input type="password" id="inputPwOld" autocomplete="current-password"></div>
+    <div class="field"><label data-i18n>新密碼（至少 10 個字元）</label><input type="password" id="inputPwNew" autocomplete="new-password"></div>
+    <div class="field"><label data-i18n>確認新密碼</label><input type="password" id="inputPwNew2" autocomplete="new-password"></div>
     <div class="msg-inline" id="pwMsg"></div>
     <div class="modal-actions">
-      <button class="btn-cancel" id="btnCancelPw">取消</button>
-      <button class="btn-confirm" id="btnConfirmPw">變更</button>
+      <button class="btn-cancel" id="btnCancelPw" data-i18n>取消</button>
+      <button class="btn-confirm" id="btnConfirmPw" data-i18n>變更</button>
     </div>
   </div>
 </div>
@@ -1036,22 +1037,22 @@
     <h3><span class="dot"></span>分享給其他帳號</h3>
     <div class="scope-note" id="shareScopeNote">—</div>
     <div class="field">
-      <label>對方的帳號 email</label>
-      <input type="email" id="inputShareEmail" placeholder="對方註冊時使用的 email" autocomplete="off">
+      <label data-i18n>對方的帳號 email</label>
+      <input type="email" id="inputShareEmail" placeholder="對方註冊時使用的 email" autocomplete="off" data-i18n-ph>
     </div>
     <div class="field">
-      <label>權限</label>
+      <label data-i18n>權限</label>
       <div class="type-toggle">
-        <button type="button" id="btnPermView">可檢視</button>
-        <button type="button" id="btnPermEdit">可操作</button>
+        <button type="button" id="btnPermView" data-i18n>可檢視</button>
+        <button type="button" id="btnPermEdit" data-i18n>可操作</button>
       </div>
       <div class="share-perm-hint" id="sharePermHint"></div>
     </div>
     <div class="share-existing" id="shareExisting"></div>
     <div class="msg-inline" id="shareMsg"></div>
     <div class="modal-actions">
-      <button class="btn-cancel" id="btnCancelShare">關閉</button>
-      <button class="btn-confirm" id="btnConfirmShare">分享</button>
+      <button class="btn-cancel" id="btnCancelShare" data-i18n>關閉</button>
+      <button class="btn-confirm" id="btnConfirmShare" data-i18n>分享</button>
     </div>
   </div>
 </div>
@@ -1087,8 +1088,12 @@
   let calMonth = today.getMonth()+1;
   let calSelectedDate = ymd(today);
 
-  const modeLabels = { year:'年度', quarter:'季度', month:'月份', date:'特定日期' };
-  const typeLabels = { work:'工作', meeting:'會議', assignment:'作業' };
+  // 顯示文字一律在「取值當下」翻譯，不要先算成常數——LANG 會變，
+  // 一次算好的常數會停在切換前的語言。
+  const MODE_LABELS = { year:'年度', quarter:'季度', month:'月份', date:'特定日期' };
+  const TYPE_LABELS = { work:'工作', meeting:'會議', assignment:'作業' };
+  const modeLabel = m => tr(MODE_LABELS[m]);
+  const typeLabel = k => tr(TYPE_LABELS[k]);
 
   // ================= date helpers =================
   function ymd(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
@@ -1110,6 +1115,198 @@
     return cur;
   }
   function majorProjectName(pid){ if(!pid) return null; const mp=majorProjects.find(m=>m.id===pid); return mp?mp.name:null; }
+
+  // ================= 語言 =================
+  // 以**中文原文當 key**（gettext 的作法），而不是自創 key 名。理由：
+  //   1. 不必為四百條字串發明名字，也不必維護「key ↔ 文案」的對照表
+  //   2. 查不到翻譯就原樣回傳中文——漏翻的後果是「顯示中文」而不是「顯示空白」
+  //      或「顯示 dashboard.metrics.today.empty」，前者仍然可用
+  // 代價是中文文案一改，對應的翻譯就失效（退回中文）。以這個規模來說划算。
+  //
+  // 需要帶變數的句子一律用 {0}{1} 佔位，不要在外面字串相加：英文語序與中文不同，
+  // 「2026 年 第 3 季」相加成 '2026'+' 年 第 '+'3'+' 季' 的話，英文永遠拼不出
+  // 「Q3 2026」。tf() 負責代入。
+  // 這個區段的求值順序在「持久化」之前，因此不能寫成 STORAGE_KEY + '.lang'——
+  // const 有 TDZ，模組初始化時讀還沒宣告的 STORAGE_KEY 會直接拋錯，整個 IIFE
+  // 當場中止而畫面只是停在未初始化的骨架（實際踩過，症狀是「完全沒有翻譯」）。
+  const LANG_KEY = 'workSchedule.v1.lang';
+  const I18N = {
+    en: {
+      // —— 導覽與頁首 ——
+      '工作排程確認系統':'Schedule Control Board',
+      '項目安排':'Schedule', '日曆':'Calendar', '專案':'Projects', '共享':'Shared',
+      '帳號管理':'Accounts', '登出':'Sign out',
+      // —— 指標卡 ——
+      '當日未完成':'Due today', '當週未完成':'Due this week',
+      '當日會議項目':'Today’s meetings', '逾期未完成':'Overdue',
+      '今日已全部完成':'All done for today', '本週已全部完成':'All done this week',
+      '今日無會議':'No meetings today', '沒有逾期項目':'Nothing overdue',
+      // —— 類型與頻率 ——
+      '工作項目':'Task', '會議安排':'Meeting', '作業':'Assignment',
+      // 徽章與篩選鈕用的短標籤（TYPE_LABELS）
+      '工作':'Task', '會議':'Meeting',
+      '不循環':'Does not repeat', '每週':'Weekly', '每兩週':'Every 2 weeks',
+      '每月':'Monthly', '每季':'Quarterly', '每年':'Yearly',
+      // —— 範圍 ——
+      '年度':'Year', '季度':'Quarter', '月份':'Month', '特定日期':'Specific date',
+      '年份':'Year', '季別':'Quarter', '日期':'Date',
+      '{0} 年':'{0}', '{0} 年 第 {1} 季':'Q{1} {0}', '{0} 年 {1} 月':'{1}/{0}',
+      '{0}（週{1}）':'{0} ({1})',
+      // —— 項目安排 ——
+      '項目':'Items', '未完成':'Open', '已完成':'Done',
+      '＋ 新增小項目':'+ New item', '＋ 新增大項目':'+ New group',
+      '搜尋標題或大項目…':'Search title or group…',
+      '只看未完成':'Open only', '符合 {0} / {1} 項':'{0} of {1} match',
+      '編輯':'Edit', '刪除':'Delete', '更名':'Rename', '建立':'Create', '儲存':'Save',
+      '取消':'Cancel', '復原':'Undo', '關閉':'Close',
+      '獨立項目':'No group',
+      '此範圍尚無項目':'Nothing scheduled in this range',
+      '此範圍的 {0} 項全部完成了 🎉':'All {0} items in this range are done 🎉',
+      '此範圍有 {0} 項，但沒有符合目前篩選條件的項目':'{0} items in this range, none match the current filters',
+      '已刪除「{0}」':'Deleted “{0}”',
+      // —— 日曆 ——
+      '‹ 上月':'‹ Prev', '下月 ›':'Next ›', '回到今天':'Today',
+      '選擇日期以查看當日安排':'Pick a date to see that day’s schedule',
+      '{0} 的安排':'Schedule for {0}',
+      '＋ 為此日期新增':'+ Add to this date',
+      '每日記錄':'Daily note',
+      '此日期尚無工作項目、會議或作業':'Nothing scheduled on this date',
+      // —— 專案 ——
+      '專案名稱':'Project name', '＋ 新增專案':'+ New project',
+      '＋ 新增待辦事項':'+ New task', '＋ 新增代辦項目':'+ New subtask',
+      '專案筆記':'Project notes', '開始':'Start', '結束':'End', '進度':'Progress',
+      '時間刻度':'Zoom', '週':'Week', '月':'Month', '季':'Quarter', '年':'Year',
+      '跳到今天':'Jump to today', '{0}月':'{0}',
+      '＋ 新增代辦項目（新增後進度改由完成比例自動計算）':'+ Add subtask (progress then follows the checklist)',
+      '今日項目已全部完成，太棒了！':'Everything for today is done. Nice work!',
+      '目前沒有人分享項目給你':'Nobody has shared anything with you',
+      '尚無待辦事項，新增後將顯示甘特圖時間軸':'No tasks yet — add one to see the timeline',
+      // 甘特圖的區間長度。刻意與上面的『{0} 年』（範圍標題）用不同的原文——
+      // 同一個 key 出現兩次的話，JS 物件字面值會靜默只留最後一個
+      '共 {0} 年':'{0} yr', '共 {0} 個月':'{0} mo',
+      // —— 共享 ——
+      '分享':'Share', '分享給其他帳號':'Share with another account',
+      '對方的帳號 email':'Recipient’s account email',
+      '可檢視':'Can view', '可操作':'Can edit',
+      '操作記錄':'Activity',
+      // —— 儲存與同步 ——
+      '已儲存':'Saved', '已同步':'Synced', '同步中…':'Syncing…',
+      '離線，變更僅存本機':'Offline — changes saved on this device only',
+      '⤓ 匯出備份':'⤓ Export', '⤒ 匯入備份':'⤒ Import',
+      // —— 富文字工具列 ——
+      '粗體 (Ctrl+B)':'Bold (Ctrl+B)', '斜體 (Ctrl+I)':'Italic (Ctrl+I)',
+      '底線 (Ctrl+U)':'Underline (Ctrl+U)', '刪除線':'Strikethrough',
+      '項目符號清單':'Bulleted list', '編號清單':'Numbered list',
+      '醒目提示':'Highlight', '文字顏色':'Text colour', '字級':'Text size',
+      '引用':'Quote', '插入連結':'Insert link', '程式碼':'Code', '清除格式':'Clear formatting',
+      '小':'S', '中':'M', '大':'L', '移除醒目提示':'Remove highlight',
+      '🖊 隱藏格式設定選項':'🖊 Hide formatting options',
+      '🖊 顯示格式設定選項':'🖊 Show formatting options',
+      '隱藏格式設定選項':'Hide formatting options', '顯示格式設定選項':'Show formatting options',
+      '輸入連結網址：':'Enter the link URL:',
+      '這個網址無法使用。只接受 http、https 或 mailto 開頭的連結。':
+        'That URL can’t be used. Only http, https and mailto links are accepted.',
+      // —— 操作按鈕與提示 ——
+      '✎ 更名':'✎ Rename', '✕ 刪除':'✕ Delete', '＋ 新增年份':'+ Add year',
+      '編輯小項目設定':'Edit item', '調整本次日期':'Reschedule this occurrence',
+      '略過此次':'Skip', '跳過這一次，不影響其他週期':'Skip this one — other occurrences are unaffected',
+      '刪除整個項目（含所有循環）':'Delete the whole item (all occurrences)',
+      '刪除大項目（項目將變為獨立項目）':'Delete group (its items become ungrouped)',
+      '刪除此代辦項目':'Delete subtask', '代辦項目內容':'Subtask',
+      '選擇要檢視的專案':'Choose a project', '結束日期需要晚於開始日期。':'The end date must be after the start date.',
+      '🔗 連結':'🔗 Link', '🔗 分享此專案':'🔗 Share this project',
+      '分享這個大項目（含底下所有項目）':'Share this group (including all its items)',
+      '這個大項目底下目前沒有任何項目。':'This group has no items yet.',
+      '已逾期':'Overdue', '複製':'Copy', '已複製':'Copied',
+      // —— 共享 ——
+      '你只有檢視權限':'You only have view access',
+      '取消分享':'Stop sharing', '從我的畫面移除':'Remove from my view',
+      '對方已經刪除這個項目，內容不再存在。':'The owner deleted this item — its content no longer exists.',
+      '分享需要登入帳號後才能使用。':'Sharing requires a signed-in account.',
+      '把這個分享從你的畫面移除？不會影響對方的資料，但要重新看到必須請對方再分享一次。':
+        'Remove this share from your view? The owner’s data is unaffected, but they will have to share it again for you to see it.',
+      // —— 行事曆訂閱 ——
+      '尚未啟用。':'Not enabled yet.', '停用訂閱':'Disable subscription',
+      '訂閱已啟用。連結只在產生當下顯示；遺失了就重新產生（舊連結會失效）。':
+        'Subscription enabled. The link is shown only once — regenerate it if you lose it (the old link stops working).',
+      '這個連結只顯示這一次。重新產生會讓舊連結立即失效。':
+        'This link is shown only once. Regenerating it invalidates the old one immediately.',
+      // —— 匯入匯出 ——
+      '這個檔案不是有效的備份：JSON 解析失敗。':'That file is not a valid backup — the JSON could not be parsed.',
+      '無法匯入這個備份檔。\n\n':'This backup cannot be imported.\n\n',
+      '它的格式版本比目前的程式還新（可能是從較新版本匯出的），硬讀進來只會把資料弄壞。請先更新到最新版再匯入。':
+        'Its format version is newer than this app (it was probably exported from a newer build). Reading it anyway would corrupt your data — please update first.',
+      // —— 假日 ——
+      '資料來源：行政院人事行政總處「政府行政機關辦公日曆表」。加入後可在下方清單逐筆檢視或移除；其他年度請用底下的批次貼上。':
+        'Source: the official government office calendar (Taiwan DGPA). Added dates can be reviewed or removed in the list below; for other years use the bulk paste box.',
+      // —— 帶變數的句子（一律用佔位符，不要在外面相加）——
+      '+ 還有 {0} 項':'+ {0} more', '{0} 項':'{0}',
+      '+ 還有 {0} 場會議':'+ {0} more meetings',
+      '來自 {0}':'from {0}',
+      '取消對 {0} 的分享？對方將不再看得到這個項目。':
+        'Stop sharing with {0}? They will no longer be able to see this item.',
+      '匯入完成：{0} 個小項目、{1} 個專案。':'Import complete: {0} items, {1} projects.',
+      '最近三個月內沒有安排（日期：{0}）':'Nothing scheduled in the last three months (date: {0})',
+      '{0} 年國定假日（{1} 天）':'{0} public holidays ({1} days)',
+      '{0} 年國定假日已全部加入':'All {0} public holidays are already added',
+      // —— 區塊標題與長說明 ——
+      '大項目（無需日期，可隨時更名）':'Groups (no dates — rename any time)',
+      '專案（大型專案，對應甘特圖與待辦事項）':'Projects (larger efforts with a timeline and tasks)',
+      '我分享出去的':'Shared by me',
+      '別人分享給我的（資料仍在對方帳號中，這裡看到的永遠是最新版本）':
+        'Shared with me (the data stays in the owner’s account — you always see the latest version)',
+      '最近的變更（只記錄共享項目，保留 90 天）':'Recent changes (shared items only, kept for 90 days)',
+      '↻ 重新整理':'↻ Refresh',
+      '目前是單機模式，資料只存在這個瀏覽器。':'Standalone mode — data lives only in this browser.',
+      '今日待完成提醒':'Today’s reminders',
+      '「遇假日」判斷以週六、週日為基準，如需計入國定假日，可在新增小項目時使用「自訂假日」清單自行加入日期。':
+        'Weekends count as holidays by default. To include public holidays, add the dates to the “Custom holidays” list when creating an item.',
+      '※ 目前為單機模式，資料儲存在這個瀏覽器中，重新整理不會遺失；登入帳號後即可跨裝置同步。':
+        '※ Standalone mode — data is stored in this browser and survives a refresh. Sign in to sync across devices.',
+      '※ 資料儲存在你的帳號中（雲端同步啟用中），在任何裝置以同一組帳號登入都會看到相同的內容。':
+        '※ Data is stored in your account (cloud sync on) — sign in on any device to see the same content.',
+      '※ 資料儲存狀態偵測中…':'※ Checking storage…',
+      '※ 資料儲存在你的帳號中（':'※ Your data is stored in your account (',
+      '雲端同步啟用中':'cloud sync on',
+      '），在任何裝置以同一組帳號登入都會看到相同內容。':') — sign in on any device to see the same content.',
+      '※ 目前環境不允許本機儲存（':'※ This environment blocks local storage (',
+      '記憶體模式':'in-memory mode',
+      '），資料僅存在本次畫面中，重新整理將會重置。':') — data lives only in this view and resets on refresh.',
+      '※ 這個瀏覽器封鎖了本機儲存，資料只保留在這個分頁，關閉後不會留下。':
+        '※ This browser blocks local storage — data lives only in this tab and is lost when you close it.',
+      // —— 簽名 ——
+      '此系統由劉思妤設計、規劃、製作。':'Designed, planned and built by Liu Szu-Yu.'
+    }
+  };
+  // 星期與月份要照語言換，不能把中文的「週一」硬接在英文句子裡
+  const WEEK_NAMES = { zh:['日','一','二','三','四','五','六'],
+                       en:['Sun','Mon','Tue','Wed','Thu','Fri','Sat'] };
+
+  function readLang(){
+    try{ const v = localStorage.getItem(LANG_KEY); if(v==='en'||v==='zh') return v; }catch(e){}
+    // 沒選過就跟隨瀏覽器：非中文環境的人第一次打開就該看到英文
+    const nav = (navigator.language || '').toLowerCase();
+    return nav.startsWith('zh') ? 'zh' : 'en';
+  }
+  let LANG = readLang();
+
+  /**
+   * 查翻譯；查不到就原樣回傳（漏翻＝顯示中文，仍然可用）。
+   *
+   * 刻意不叫 t()：這份程式碼裡 t 是「task」的慣用變數名（gp.tasks.forEach(t=>…)），
+   * 叫 t 的話在那些閉包內會被遮蔽，變成「t is not a function」——而且只在跑到
+   * 那一段時才炸，靜態檢查看不出來（實際踩過）。
+   */
+  function tr(s){
+    if(LANG === 'zh') return s;
+    const table = I18N[LANG];
+    return (table && table[s] !== undefined) ? table[s] : s;
+  }
+  /** 帶變數的句子：tf('{0} 年 第 {1} 季', 2026, 3) */
+  function tf(s, ...args){
+    return tr(s).replace(/\{(\d+)\}/g, (m, i) => args[i] === undefined ? m : String(args[i]));
+  }
+  const weekName = i => WEEK_NAMES[LANG === 'en' ? 'en' : 'zh'][i];
 
   // ================= 富文字 =================
   // 每日記錄與專案筆記存的是 HTML。這代表它們會被丟進 innerHTML——而內容可能
@@ -1870,13 +2067,18 @@
     if(!el) return;
     // 有帳號時資料的權威來源是雲端，本機只是離線快取。此時仍寫「儲存於此瀏覽器、
     // 換裝置不保留」會讓使用者誤以為資料綁在這台機器上，與實際行為相反。
+    // 狀態字眼要保留高亮，所以拆成「前段 + 狀態 + 後段」三個可翻譯片段
     if(cloudEnabled){
-      el.innerHTML = '※ 資料儲存在你的帳號中（<span class="storage-state">雲端同步啟用中</span>），在任何裝置以同一組帳號登入都會看到相同內容。';
+      el.innerHTML = escapeHtml(tr('※ 資料儲存在你的帳號中（'))
+        + '<span class="storage-state">' + escapeHtml(tr('雲端同步啟用中')) + '</span>'
+        + escapeHtml(tr('），在任何裝置以同一組帳號登入都會看到相同內容。'));
       return;
     }
     el.innerHTML = storageAvailable
-      ? '※ 目前為單機模式，資料儲存在這個瀏覽器中，重新整理不會遺失；登入帳號後即可跨裝置同步。'
-      : '※ 目前環境不允許本機儲存（<span class="storage-state off">記憶體模式</span>），資料僅存在本次畫面中，重新整理將會重置。';
+      ? escapeHtml(tr('※ 目前為單機模式，資料儲存在這個瀏覽器中，重新整理不會遺失；登入帳號後即可跨裝置同步。'))
+      : escapeHtml(tr('※ 目前環境不允許本機儲存（'))
+        + '<span class="storage-state off">' + escapeHtml(tr('記憶體模式')) + '</span>'
+        + escapeHtml(tr('），資料僅存在本次畫面中，重新整理將會重置。'));
   }
 
   // 年份選單必須涵蓋實際有資料的年份，否則範圍外的項目在年度檢視中永遠選不到
@@ -2035,7 +2237,7 @@
   }
   function skipOccurrence(occ){ occ.item.skipped = occ.item.skipped || {}; occ.item.skipped[occ.occKey] = true; }
   const WEEKDAYS = ['日','一','二','三','四','五','六'];
-  function weekdayLabel(dateStr){ return '週'+WEEKDAYS[parseYMD(dateStr).getDay()]; }
+  function weekdayLabel(dateStr){ const i=parseYMD(dateStr).getDay(); return LANG==='en' ? weekName(i) : '週'+WEEKDAYS[i]; }
   function recurrenceLabel(it){
     const r = it.recurrence;
     if(!r) return '';
@@ -2069,10 +2271,10 @@
     if(mode==='date'){ const d=parseYMD(selDate); const e=new Date(d); e.setHours(23,59,59,999); return [d,e]; }
   }
   function scopeDisplay(){
-    if(mode==='year') return selYear+' 年';
-    if(mode==='quarter') return selYear+' 年 第 '+selQuarter+' 季';
-    if(mode==='month') return selYear+' 年 '+selMonth+' 月';
-    if(mode==='date'){ const d=parseYMD(selDate); const w=['日','一','二','三','四','五','六'][d.getDay()]; return selDate+'（週'+w+'）'; }
+    if(mode==='year') return tf('{0} 年', selYear);
+    if(mode==='quarter') return tf('{0} 年 第 {1} 季', selYear, selQuarter);
+    if(mode==='month') return tf('{0} 年 {1} 月', selYear, selMonth);
+    if(mode==='date'){ const d=parseYMD(selDate); return tf('{0}（週{1}）', selDate, weekName(d.getDay())); }
   }
   function currentOccurrences(){
     const [rs,re] = currentRange();
@@ -2109,7 +2311,7 @@
       (o.item.meetingTime ? '<span class="m-time">'+o.item.meetingTime+'</span> ' : '')+
       escapeHtml(o.item.title)+'</span></div>'
     ).join('');
-    if(occList.length>MAX) html += '<div class="metric-list-more">+ 還有 '+(occList.length-MAX)+' 項</div>';
+    if(occList.length>MAX) html += '<div class="metric-list-more">'+escapeHtml(tf('+ 還有 {0} 項', occList.length-MAX))+'</div>';
     el.innerHTML = html;
   }
   function renderMetrics(){
@@ -2118,8 +2320,8 @@
     const wStart = startOfWeek(new Date()), wEnd = endOfWeek(new Date());
     const dayOcc = getAllOccurrences(now, todayEnd);
     const weekOcc = getAllOccurrences(wStart, wEnd);
-    renderMetricList('metricDayList', dayOcc.filter(o=>!o.done), '今日已全部完成');
-    renderMetricList('metricWeekList', weekOcc.filter(o=>!o.done), '本週已全部完成');
+    renderMetricList('metricDayList', dayOcc.filter(o=>!o.done), tr('今日已全部完成'));
+    renderMetricList('metricWeekList', weekOcc.filter(o=>!o.done), tr('本週已全部完成'));
     // 逾期＝過去 90 天內、日期已過且未完成。回看窗口有限是刻意的：全展開的成本
     // 隨項目數與歷史長度成長，而 90 天前還沒勾的項目，實務上已經不是「待辦」。
     const odStart = new Date(now); odStart.setDate(odStart.getDate()-90);
@@ -2135,12 +2337,12 @@
       const MAXO = 4;
       odEl.innerHTML = overdue.slice(0,MAXO).map(o=>
         '<div class="metric-list-row"><span class="od-date">'+o.date.slice(5)+'</span><span>'+escapeHtml(o.item.title)+'</span></div>'
-      ).join('') + (overdue.length>MAXO ? '<div class="metric-list-more">+ 還有 '+(overdue.length-MAXO)+' 項</div>' : '');
+      ).join('') + (overdue.length>MAXO ? '<div class="metric-list-more">'+escapeHtml(tf('+ 還有 {0} 項', overdue.length-MAXO))+'</div>' : '');
     }
 
     const todaysMeetings = dayOcc.filter(o=>o.item.type==='meeting').sort((a,b)=>(a.item.meetingTime||'99:99').localeCompare(b.item.meetingTime||'99:99'));
     const listEl = document.getElementById('metricMeetingList');
-    listEl.innerHTML = todaysMeetings.length===0 ? '<div class="metric-meeting-empty">今日無會議</div>' :
+    listEl.innerHTML = todaysMeetings.length===0 ? '<div class="metric-meeting-empty">'+escapeHtml(tr('今日無會議'))+'</div>' :
       todaysMeetings.map(o=>'<div class="metric-meeting-row"><span class="m-time">'+(o.item.meetingTime||'--:--')+'</span><span>'+escapeHtml(o.item.title)+'</span></div>').join('');
   }
 
@@ -2155,7 +2357,7 @@
     const before = snapshot();
     commit(mutate);
     undoState = before;
-    document.getElementById('undoText').textContent = '已刪除「'+desc+'」';
+    document.getElementById('undoText').textContent = tf('已刪除「{0}」', desc);
     document.getElementById('undoToast').classList.add('show');
     clearTimeout(undoTimer);
     undoTimer = setTimeout(hideUndo, 6000);
@@ -2174,16 +2376,16 @@
       const cnt = items.filter(it=>it.parentId===mp.id).length;
       const chip = document.createElement('div'); chip.className='chip';
       const nameSpan=document.createElement('span'); nameSpan.textContent=mp.name;
-      const cntSpan=document.createElement('span'); cntSpan.className='cnt'; cntSpan.textContent=cnt+' 項';
+      const cntSpan=document.createElement('span'); cntSpan.className='cnt'; cntSpan.textContent=tf('{0} 項', cnt);
       chip.appendChild(nameSpan); chip.appendChild(cntSpan);
-      const editBtn=document.createElement('button'); editBtn.textContent='✎'; editBtn.title='更名';
+      const editBtn=document.createElement('button'); editBtn.textContent='✎'; editBtn.title=tr('更名');
       editBtn.onclick=()=>openMajorModal(mp); chip.appendChild(editBtn);
       if(cloudEnabled){
-        const shareBtn=document.createElement('button'); shareBtn.textContent='🔗'; shareBtn.title='分享這個大項目（含底下所有項目）';
+        const shareBtn=document.createElement('button'); shareBtn.textContent='🔗'; shareBtn.title=tr('分享這個大項目（含底下所有項目）');
         shareBtn.onclick=()=>openShareModal('major', mp.id, mp.name);
         chip.appendChild(shareBtn);
       }
-      const delBtn=document.createElement('button'); delBtn.textContent='✕'; delBtn.className='chip-del'; delBtn.title='刪除大項目（項目將變為獨立項目）';
+      const delBtn=document.createElement('button'); delBtn.textContent='✕'; delBtn.className='chip-del'; delBtn.title=tr('刪除大項目（項目將變為獨立項目）');
       delBtn.onclick=()=>{
         deleteWithUndo('大項目：'+mp.name, ()=>{
           majorProjects = majorProjects.filter(x=>x.id!==mp.id);
@@ -2192,7 +2394,7 @@
       };
       chip.appendChild(delBtn); wrap.appendChild(chip);
     });
-    const addBtn=document.createElement('button'); addBtn.className='add-chip-btn'; addBtn.textContent='＋ 新增大項目';
+    const addBtn=document.createElement('button'); addBtn.className='add-chip-btn'; addBtn.textContent=tr('＋ 新增大項目');
     addBtn.onclick=()=>openMajorModal(null); wrap.appendChild(addBtn);
   }
   let editingMajorId = null;
@@ -2218,46 +2420,46 @@
   // ================= mode tabs / period row =================
   function renderModeTabs(){
     const el = document.getElementById('modeTabs'); el.innerHTML='';
-    Object.keys(modeLabels).forEach(m=>{
-      const b=document.createElement('button'); b.className='mode-tab'+(mode===m?' active':''); b.textContent=modeLabels[m];
+    Object.keys(MODE_LABELS).forEach(m=>{
+      const b=document.createElement('button'); b.className='mode-tab'+(mode===m?' active':''); b.textContent=modeLabel(m);
       b.onclick=()=>{ mode=m; renderScheduleView(); }; el.appendChild(b);
     });
   }
   function renderPeriodRow(){
     const el = document.getElementById('periodRow'); el.innerHTML='';
     if(mode !== 'date'){
-      const label=document.createElement('span'); label.className='period-label'; label.textContent='年份'; el.appendChild(label);
+      const label=document.createElement('span'); label.className='period-label'; label.textContent=tr('年份'); el.appendChild(label);
       const sel=document.createElement('select');
       availableYears.slice().sort((a,b)=>a-b).forEach(y=>{ const o=document.createElement('option'); o.value=y; o.textContent=y+' 年'; if(y===selYear) o.selected=true; sel.appendChild(o); });
       sel.onchange = e=>{ selYear=parseInt(e.target.value); renderScheduleView(); }; el.appendChild(sel);
-      const addYearBtn=document.createElement('button'); addYearBtn.className='add-year-btn'; addYearBtn.textContent='＋ 新增年份';
+      const addYearBtn=document.createElement('button'); addYearBtn.className='add-year-btn'; addYearBtn.textContent=tr('＋ 新增年份');
       addYearBtn.onclick=()=>{ const ny=availableYears.length?Math.max(...availableYears)+1:selYear+1; commit(()=>{ availableYears.push(ny); selYear=ny; }); };
       el.appendChild(addYearBtn);
     }
     if(mode==='quarter'){
-      const label=document.createElement('span'); label.className='period-label'; label.textContent='季別'; el.appendChild(label);
+      const label=document.createElement('span'); label.className='period-label'; label.textContent=tr('季別'); el.appendChild(label);
       [1,2,3,4].forEach(q=>{ const b=document.createElement('button'); b.className='qbtn'+(selQuarter===q?' active':''); b.textContent='Q'+q; b.onclick=()=>{ selQuarter=q; renderScheduleView(); }; el.appendChild(b); });
     }
     if(mode==='month'){
-      const label=document.createElement('span'); label.className='period-label'; label.textContent='月份'; el.appendChild(label);
+      const label=document.createElement('span'); label.className='period-label'; label.textContent=tr('月份'); el.appendChild(label);
       const grid=document.createElement('div'); grid.className='month-grid';
       for(let m=1;m<=12;m++){ const b=document.createElement('button'); b.className='mbtn'+(selMonth===m?' active':''); b.textContent=m+'月'; b.onclick=()=>{ selMonth=m; renderScheduleView(); }; grid.appendChild(b); }
       el.appendChild(grid);
     }
     if(mode==='date'){
-      const label=document.createElement('span'); label.className='period-label'; label.textContent='日期'; el.appendChild(label);
+      const label=document.createElement('span'); label.className='period-label'; label.textContent=tr('日期'); el.appendChild(label);
       const inp=document.createElement('input'); inp.type='date'; inp.value=selDate;
       inp.onchange=e=>{ selDate=e.target.value; renderScheduleView(); }; el.appendChild(inp);
     }
   }
   function renderScopeStrip(){
-    document.getElementById('scopeCurrent').innerHTML = scopeDisplay()+' <span class="unit">/ '+modeLabels[mode].toUpperCase()+'</span>';
+    document.getElementById('scopeCurrent').innerHTML = scopeDisplay()+' <span class="unit">/ '+modeLabel(mode).toUpperCase()+'</span>';
     const list = currentOccurrences();
     const doneCount = list.filter(o=>o.done).length;
     document.getElementById('statPills').innerHTML =
-      '<div class="pill">項目 <b>'+list.length+'</b></div>'+
-      '<div class="pill pending">未完成 <b>'+(list.length-doneCount)+'</b></div>'+
-      '<div class="pill done">已完成 <b>'+doneCount+'</b></div>';
+      '<div class="pill">'+escapeHtml(tr('項目'))+' <b>'+list.length+'</b></div>'+
+      '<div class="pill pending">'+escapeHtml(tr('未完成'))+' <b>'+(list.length-doneCount)+'</b></div>'+
+      '<div class="pill done">'+escapeHtml(tr('已完成'))+' <b>'+doneCount+'</b></div>';
   }
 
   // ================= shared occurrence row builder =================
@@ -2266,7 +2468,7 @@
     const row = document.createElement('div'); row.className = 'occ-row type-'+it.type;
     const cb = document.createElement('span'); cb.className='checkbox'+(occ.done?' done':''); cb.textContent=occ.done?'✓':'';
     row.appendChild(cb);
-    const badge=document.createElement('span'); badge.className='type-badge '+it.type; badge.textContent=typeLabels[it.type]; row.appendChild(badge);
+    const badge=document.createElement('span'); badge.className='type-badge '+it.type; badge.textContent=typeLabel(it.type); row.appendChild(badge);
     const title=document.createElement('span'); title.className='occ-title'+(occ.done?' done':''); title.textContent=it.title; row.appendChild(title);
     // 綁在 title 建好之後：樂觀回饋要同時把標題切成完成樣式
     cb.onclick=()=> toggleOccDone(occ, cb, title);
@@ -2279,7 +2481,7 @@
     }
     if(it.meetingTime){ const mt=document.createElement('span'); mt.className='meeting-time'; mt.textContent=it.meetingTime; row.appendChild(mt); }
     if(it.link){
-      const a=document.createElement('a'); a.className='item-link'; a.textContent='🔗 連結';
+      const a=document.createElement('a'); a.className='item-link'; a.textContent=tr('🔗 連結');
       a.href=it.link; a.target='_blank'; a.rel='noopener noreferrer';
       a.onclick=(e)=>e.stopPropagation();
       row.appendChild(a);
@@ -2287,23 +2489,23 @@
     const dateEl=document.createElement('span'); dateEl.className='occ-date';
     dateEl.textContent = it.endDate ? occ.date+' → '+it.endDate : occ.date;
     // 跨多天事項要整段結束後才算逾期，期間進行中不是
-    if(!occ.done && (it.endDate || occ.date) < ymd(new Date())){ dateEl.classList.add('overdue'); dateEl.title='已逾期'; }
+    if(!occ.done && (it.endDate || occ.date) < ymd(new Date())){ dateEl.classList.add('overdue'); dateEl.title=tr('已逾期'); }
     row.appendChild(dateEl);
     if(it.recurrence){
-      const adjBtn=document.createElement('button'); adjBtn.className='icon-btn'; adjBtn.textContent='📅✎'; adjBtn.title='調整本次日期';
+      const adjBtn=document.createElement('button'); adjBtn.className='icon-btn'; adjBtn.textContent='📅✎'; adjBtn.title=tr('調整本次日期');
       adjBtn.onclick=()=>openOccModal(occ); row.appendChild(adjBtn);
-      const skipBtn=document.createElement('button'); skipBtn.className='icon-btn skip'; skipBtn.textContent='略過此次'; skipBtn.title='跳過這一次，不影響其他週期';
+      const skipBtn=document.createElement('button'); skipBtn.className='icon-btn skip'; skipBtn.textContent=tr('略過此次'); skipBtn.title=tr('跳過這一次，不影響其他週期');
       skipBtn.onclick=()=> commit(()=> skipOccurrence(occ)); row.appendChild(skipBtn);
     }
     const spacer=document.createElement('span'); spacer.className='occ-spacer'; row.appendChild(spacer);
     if(cloudEnabled){
       const shareBtn=document.createElement('button'); shareBtn.className='icon-btn'; shareBtn.textContent='🔗';
-      shareBtn.title='分享給其他帳號';
+      shareBtn.title=tr('分享給其他帳號');
       shareBtn.onclick=()=>openShareModal('item', it.id, it.title); row.appendChild(shareBtn);
     }
-    const editBtn=document.createElement('button'); editBtn.className='icon-btn'; editBtn.textContent='編輯'; editBtn.title='編輯小項目設定';
+    const editBtn=document.createElement('button'); editBtn.className='icon-btn'; editBtn.textContent=tr('編輯'); editBtn.title=tr('編輯小項目設定');
     editBtn.onclick=()=>openItemModal(it); row.appendChild(editBtn);
-    const delBtn=document.createElement('button'); delBtn.className='icon-btn danger'; delBtn.textContent='刪除'; delBtn.title='刪除整個項目（含所有循環）';
+    const delBtn=document.createElement('button'); delBtn.className='icon-btn danger'; delBtn.textContent=tr('刪除'); delBtn.title=tr('刪除整個項目（含所有循環）');
     delBtn.onclick=()=>{
       deleteWithUndo(it.title, ()=>{ items = items.filter(x=>x.id!==it.id); });
     };
@@ -2335,7 +2537,7 @@
     ['work','meeting','assignment'].forEach(t=>{
       const b=document.createElement('button');
       b.className='qbtn'+(typeFilter.has(t)?' active':'');
-      b.type='button'; b.textContent=typeLabels[t];
+      b.type='button'; b.textContent=typeLabel(t);
       b.onclick=()=>{
         if(typeFilter.has(t)) typeFilter.delete(t); else typeFilter.add(t);
         renderScheduleView();          // 純檢視變更，不走 commit()
@@ -2356,7 +2558,7 @@
     const all=currentOccurrences();
     const list=all.filter(matchesFilter);
     document.getElementById('filterCount').textContent =
-      filterActive() ? '符合 '+list.length+' / '+all.length+' 項' : '';
+      filterActive() ? tf('符合 {0} / {1} 項', list.length, all.length) : '';
 
     // 上方只展開還沒完成的，已勾選的收到下面的區塊
     const pending = list.filter(o=>!o.done);
@@ -2412,9 +2614,9 @@
 
   // ================= calendar view =================
   function renderCalendar(){
-    document.getElementById('calTitle').textContent = calYear+' 年 '+calMonth+' 月';
+    document.getElementById('calTitle').textContent = tf('{0} 年 {1} 月', calYear, calMonth);
     const grid=document.getElementById('calGrid'); grid.innerHTML='';
-    ['日','一','二','三','四','五','六'].forEach(w=>{ const d=document.createElement('div'); d.className='cal-weekday'; d.textContent=w; grid.appendChild(d); });
+    WEEK_NAMES[LANG==='en'?'en':'zh'].forEach(w=>{ const d=document.createElement('div'); d.className='cal-weekday'; d.textContent=w; grid.appendChild(d); });
     const firstDay=new Date(calYear, calMonth-1, 1);
     const startWeekday=firstDay.getDay();
     const dim=daysInMonth(calYear, calMonth);
@@ -2459,7 +2661,7 @@
         const subj=document.createElement('span'); subj.className='cal-meeting-subject'; subj.textContent=o.item.title;
         row.appendChild(time); row.appendChild(subj); dotsWrap.appendChild(row);
       });
-      if(meetings.length>MAXM){ const more=document.createElement('div'); more.className='cal-more'; more.textContent='+ 還有 '+(meetings.length-MAXM)+' 場會議'; dotsWrap.appendChild(more); }
+      if(meetings.length>MAXM){ const more=document.createElement('div'); more.className='cal-more'; more.textContent=tf('+ 還有 {0} 場會議', meetings.length-MAXM); dotsWrap.appendChild(more); }
 
       const MAXW=3;
       tasks.slice(0,MAXW).forEach(o=>{
@@ -2471,7 +2673,7 @@
         check.onclick=(e)=>{ e.stopPropagation(); toggleOccDone(o, check, text); };
         row.appendChild(check); row.appendChild(text); dotsWrap.appendChild(row);
       });
-      if(tasks.length>MAXW){ const more=document.createElement('div'); more.className='cal-more'; more.textContent='+ 還有 '+(tasks.length-MAXW)+' 項'; dotsWrap.appendChild(more); }
+      if(tasks.length>MAXW){ const more=document.createElement('div'); more.className='cal-more'; more.textContent=tf('+ 還有 {0} 項', tasks.length-MAXW); dotsWrap.appendChild(more); }
 
       cell.appendChild(dotsWrap);
 
@@ -2504,15 +2706,15 @@
     const calBoard=document.getElementById('calBoard'); calBoard.innerHTML='';
     const daylogBox=document.getElementById('daylogBox');
 
-    if(!calSelectedDate){ titleEl.textContent='選擇日期以查看當日安排'; addBtn.style.display='none'; daylogBox.style.display='none'; return; }
+    if(!calSelectedDate){ titleEl.textContent=tr('選擇日期以查看當日安排'); addBtn.style.display='none'; daylogBox.style.display='none'; return; }
     const d=parseYMD(calSelectedDate);
-    const w=['日','一','二','三','四','五','六'][d.getDay()];
-    titleEl.textContent = calSelectedDate+'（週'+w+'）的安排';
+    const w=weekName(d.getDay());
+    titleEl.textContent = tf('{0} 的安排', tf('{0}（週{1}）', calSelectedDate, w));
     addBtn.style.display='flex';
 
     const list = (byDate && byDate[calSelectedDate]) ? byDate[calSelectedDate].slice() : getAllOccurrences(d, new Date(d.getFullYear(),d.getMonth(),d.getDate(),23,59,59));
     list.sort((a,b)=>(a.item.meetingTime||'99:99').localeCompare(b.item.meetingTime||'99:99'));
-    if(list.length===0){ calBoard.innerHTML='<div class="empty-state">此日期尚無工作項目、會議或作業 — 點選 <span>「＋ 為此日期新增」</span></div>'; }
+    if(list.length===0){ calBoard.innerHTML='<div class="empty-state">'+escapeHtml(tr('此日期尚無工作項目、會議或作業'))+' — <span>'+escapeHtml(tr('＋ 為此日期新增'))+'</span></div>'; }
     else{ list.forEach(occ=> calBoard.appendChild(buildOccRow(occ)) ); }
 
     // 每日記錄：只在此處顯示，不顯示於日曆格子
@@ -2643,7 +2845,7 @@
         const url = prompt('輸入連結網址：', 'https://');
         if(url === null) return;
         const safe = rtSafeUrl(url);
-        if(!safe){ alert('這個網址無法使用。只接受 http、https 或 mailto 開頭的連結。'); return; }
+        if(!safe){ alert(tr('這個網址無法使用。只接受 http、https 或 mailto 開頭的連結。')); return; }
         exec('createLink', safe);
         return;
       }
@@ -2761,9 +2963,10 @@
   function syncRichToggles(){
     const on = rtToolbarShown();
     document.querySelectorAll('.rt-wrap').forEach(w => w.classList.toggle('rt-bar-hidden', !on));
-    document.querySelectorAll('.rt-toggle').forEach(t => {
-      t.textContent = on ? '🖊 隱藏格式設定選項' : '🖊 顯示格式設定選項';
-      t.title = (on ? '隱藏格式設定選項' : '顯示格式設定選項') + ' (Ctrl+Shift+X)';
+    // 參數不可叫 t：那會遮蔽翻譯用的全域 tr()
+    document.querySelectorAll('.rt-toggle').forEach(btn => {
+      btn.textContent = tr(on ? '🖊 隱藏格式設定選項' : '🖊 顯示格式設定選項');
+      btn.title = tr(on ? '隱藏格式設定選項' : '顯示格式設定選項') + ' (Ctrl+Shift+X)';
     });
   }
   function buildRichToggle(){
@@ -2840,7 +3043,7 @@
     });
     const note=document.createElement('div');
     note.className='source-note';
-    note.textContent='資料來源：行政院人事行政總處「政府行政機關辦公日曆表」。加入後可在下方清單逐筆檢視或移除；其他年度請用底下的批次貼上。';
+    note.textContent=tr('資料來源：行政院人事行政總處「政府行政機關辦公日曆表」。加入後可在下方清單逐筆檢視或移除；其他年度請用底下的批次貼上。');
     box.appendChild(note);
   }
 
@@ -3058,7 +3261,7 @@
     });
     const recurNone = recurVal==='none';
     if(recurNone && endRaw && endRaw <= dateVal){
-      alert('結束日期需要晚於開始日期。'); return;
+      alert(tr('結束日期需要晚於開始日期。')); return;
     }
     const endDate = (recurNone && endRaw) ? endRaw : null;
     itemOverlay.classList.remove('show');
@@ -3119,7 +3322,7 @@
     if(list.length>0){ bellBadge.style.display='flex'; bellBadge.textContent=list.length; } else { bellBadge.style.display='none'; }
     const body=document.getElementById('reminderBody');
     body.innerHTML = list.length===0
-      ? '<div class="reminder-row"><span class="reminder-row-text">今日項目已全部完成，太棒了！</span></div>'
+      ? '<div class="reminder-row"><span class="reminder-row-text">'+escapeHtml(tr('今日項目已全部完成，太棒了！'))+'</span></div>'
       : list.map(it=>'<div class="reminder-row"><span class="reminder-dot '+it.type+'"></span><span class="reminder-row-text"><b>'+escapeHtml(it.projectName)+'</b> — '+escapeHtml(it.title)+'</span></div>').join('');
   }
   function showReminderToast(){ renderReminderList(); document.getElementById('reminderToast').classList.add('show'); }
@@ -3148,6 +3351,40 @@
     applyTheme(next);
     try{ localStorage.setItem(THEME_KEY, next); }catch(e){ /* 記憶體模式下切換仍有效，只是不記住 */ }
   };
+
+  // 語言切換。與主題同樣不進 snapshot()：這是這台裝置的顯示偏好，不是排程資料。
+  const langBtn = document.getElementById('langBtn');
+  function applyLang(){
+    document.documentElement.setAttribute('lang', LANG === 'en' ? 'en' : 'zh-Hant');
+    langBtn.textContent = LANG === 'en' ? '中' : 'EN';
+    langBtn.title = LANG === 'en' ? '切換為中文' : 'Switch to English';
+    applyStaticI18n();
+    renderAll();
+  }
+  langBtn.onclick = ()=>{
+    LANG = (LANG === 'en') ? 'zh' : 'en';
+    try{ localStorage.setItem(LANG_KEY, LANG); }catch(e){ /* 記憶體模式下切換仍有效，只是不記住 */ }
+    applyLang();
+  };
+
+  /**
+   * 靜態骨架的翻譯。第一次跑時把原文記進 dataset 當 key——直接讀當下的
+   * textContent 會在切回中文時拿到英文，key 就對不上了。
+   */
+  function applyStaticI18n(){
+    document.querySelectorAll('[data-i18n]').forEach(el=>{
+      if(el.dataset.i18nSrc === undefined) el.dataset.i18nSrc = el.textContent.trim();
+      el.textContent = tr(el.dataset.i18nSrc);
+    });
+    document.querySelectorAll('[data-i18n-ph]').forEach(el=>{
+      if(el.dataset.i18nPhSrc === undefined) el.dataset.i18nPhSrc = el.placeholder;
+      el.placeholder = tr(el.dataset.i18nPhSrc);
+    });
+    document.querySelectorAll('[data-i18n-title]').forEach(el=>{
+      if(el.dataset.i18nTitleSrc === undefined) el.dataset.i18nTitleSrc = el.title;
+      el.title = tr(el.dataset.i18nTitleSrc);
+    });
+  }
   // 使用者尚未手動選過時才跟隨系統；選過之後系統再怎麼切都以使用者的決定為準
   if(systemDark && systemDark.addEventListener){
     systemDark.addEventListener('change', e=>{ if(!readThemePref()) applyTheme(e.matches ? 'dark' : 'light'); });
@@ -3159,8 +3396,9 @@
   // 否則每秒都要把所有循環項目展開一次，成本隨項目數線性放大。
   let lastTickYmd = ymd(new Date());
   function tick(){
-    const d=new Date(); const wd=['日','一','二','三','四','五','六'][d.getDay()];
-    document.getElementById('nowDate').textContent = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+'（週'+wd+'）';
+    const d=new Date(); const wd=weekName(d.getDay());
+    document.getElementById('nowDate').textContent = tf('{0}（週{1}）',
+      d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'), wd);
     document.getElementById('nowTime').textContent = String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')+':'+String(d.getSeconds()).padStart(2,'0');
     const curYmd = ymd(d);
     if(curYmd !== lastTickYmd){ lastTickYmd = curYmd; renderAll(); }
@@ -3186,7 +3424,7 @@
   function renderGanttPicker(){
     const wrap=document.getElementById('ganttPicker'); wrap.innerHTML='';
     if(ganttProjects.length){
-      const sel=document.createElement('select'); sel.id='ganttSelect'; sel.title='選擇要檢視的專案';
+      const sel=document.createElement('select'); sel.id='ganttSelect'; sel.title=tr('選擇要檢視的專案');
       ganttProjects.forEach(gp=>{
         const o=document.createElement('option');
         o.value=gp.id; o.textContent=gp.name+'（'+gp.tasks.length+' 項）';
@@ -3197,9 +3435,9 @@
       wrap.appendChild(sel);
 
       const gpNow=ganttProjects.find(g=>g.id===selectedGanttProjectId) || ganttProjects[0];
-      const editBtn=document.createElement('button'); editBtn.className='qbtn'; editBtn.textContent='✎ 更名';
+      const editBtn=document.createElement('button'); editBtn.className='qbtn'; editBtn.textContent=tr('✎ 更名');
       editBtn.onclick=()=>openGanttModal(gpNow); wrap.appendChild(editBtn);
-      const delBtn=document.createElement('button'); delBtn.className='qbtn'; delBtn.textContent='✕ 刪除';
+      const delBtn=document.createElement('button'); delBtn.className='qbtn'; delBtn.textContent=tr('✕ 刪除');
       delBtn.onclick=()=>{
         deleteWithUndo('專案：'+gpNow.name, ()=>{
           ganttProjects = ganttProjects.filter(x=>x.id!==gpNow.id);
@@ -3208,7 +3446,7 @@
       };
       wrap.appendChild(delBtn);
     }
-    const addBtn=document.createElement('button'); addBtn.className='add-chip-btn'; addBtn.textContent='＋ 新增專案';
+    const addBtn=document.createElement('button'); addBtn.className='add-chip-btn'; addBtn.textContent=tr('＋ 新增專案');
     addBtn.onclick=()=>openGanttModal(null); wrap.appendChild(addBtn);
   }
   let editingGanttId=null;
@@ -3244,14 +3482,14 @@
 
     const head = document.createElement('div'); head.className='gantt-project-head';
     head.innerHTML = '<div class="gantt-project-title">'+escapeHtml(gp.name)+'</div>';
-    const addTaskBtn = document.createElement('button'); addTaskBtn.className='add-project-btn'; addTaskBtn.textContent='＋ 新增待辦事項';
+    const addTaskBtn = document.createElement('button'); addTaskBtn.className='add-project-btn'; addTaskBtn.textContent=tr('＋ 新增待辦事項');
     addTaskBtn.onclick = ()=>{
       const s = ymd(new Date());
       const e = new Date(); e.setDate(e.getDate()+7);
       commit(()=>{ gp.tasks.push({ id: uid('task'), name:'新任務', start:s, end: ymd(e), progress:0, done:false, todos:[] }); });
     };
     if(cloudEnabled){
-      const shareBtn=document.createElement('button'); shareBtn.className='qbtn'; shareBtn.textContent='🔗 分享此專案';
+      const shareBtn=document.createElement('button'); shareBtn.className='qbtn'; shareBtn.textContent=tr('🔗 分享此專案');
       shareBtn.onclick=()=>openShareModal('gantt', gp.id, gp.name); head.appendChild(shareBtn);
     }
     head.appendChild(addTaskBtn);
@@ -3264,7 +3502,8 @@
 
   function buildProjectNotes(gp){
     const box = document.createElement('div'); box.className='daylog-box'; box.style.marginTop='16px';
-    box.innerHTML = '<div class="daylog-label">專案筆記 <span class="daylog-saved" id="ganttNotesSaved">已儲存</span></div>';
+    box.innerHTML = '<div class="daylog-label">'+escapeHtml(tr('專案筆記'))
+      +' <span class="daylog-saved" id="ganttNotesSaved">'+escapeHtml(tr('已儲存'))+'</span></div>';
     const saved = box.querySelector('#ganttNotesSaved');
     let saveTimer = null;
     const rt = buildRichEditor({
@@ -3339,22 +3578,22 @@
 
     // ---- 工具列：刻度切換、跳到今天、目前涵蓋的區間 ----
     const bar = document.createElement('div'); bar.className='gantt-toolbar';
-    const zlabel = document.createElement('span'); zlabel.className='gantt-toolbar-label'; zlabel.textContent='時間刻度';
+    const zlabel = document.createElement('span'); zlabel.className='gantt-toolbar-label'; zlabel.textContent=tr('時間刻度');
     bar.appendChild(zlabel);
     GANTT_ZOOMS.forEach(z=>{
       const b=document.createElement('button');
-      b.className='qbtn'+(z.key===zoom.key?' active':''); b.type='button'; b.textContent=z.label;
+      b.className='qbtn'+(z.key===zoom.key?' active':''); b.type='button'; b.textContent=tr(z.label);
       // 純檢視變更，不走 commit()。捲動位置歸零讓新刻度重新對齊今天。
       b.onclick=()=>{ ganttZoom=z.key; ganttScrollLeft=null; refreshGanttChart(gp); };
       bar.appendChild(b);
     });
     const todayBtn=document.createElement('button');
-    todayBtn.className='qbtn'; todayBtn.type='button'; todayBtn.textContent='跳到今天';
+    todayBtn.className='qbtn'; todayBtn.type='button'; todayBtn.textContent=tr('跳到今天');
     bar.appendChild(todayBtn);
     const range=document.createElement('span'); range.className='gantt-range';
     const fmtYM = d => d.getFullYear()+'/'+String(d.getMonth()+1).padStart(2,'0');
-    range.textContent = fmtYM(minDate)+' – '+fmtYM(maxDate)
-      + '（' + (totalDays>=365 ? (totalDays/365).toFixed(1)+' 年' : Math.round(totalDays/30)+' 個月') + '）';
+    range.textContent = fmtYM(minDate)+' – '+fmtYM(maxDate) + '　'
+      + (totalDays>=365 ? tf('共 {0} 年', (totalDays/365).toFixed(1)) : tf('共 {0} 個月', Math.round(totalDays/30)));
     bar.appendChild(range);
     wrap.appendChild(bar);
 
@@ -3383,7 +3622,7 @@
         const lbl=document.createElement('div'); lbl.className='gantt-month-label'; lbl.style.left=x+'px';
         lbl.textContent = (curM.getMonth()===0 || idx===0)
           ? curM.getFullYear()+'/'+(curM.getMonth()+1)
-          : (curM.getMonth()+1)+'月';
+          : tf('{0}月', curM.getMonth()+1);
         axis.appendChild(lbl);
       }
       curM = new Date(curM.getFullYear(), curM.getMonth()+1, 1);
@@ -3465,17 +3704,17 @@
       };
       row.appendChild(nameInp);
 
-      const startLbl=document.createElement('span'); startLbl.className='task-field-label'; startLbl.textContent='開始'; row.appendChild(startLbl);
+      const startLbl=document.createElement('span'); startLbl.className='task-field-label'; startLbl.textContent=tr('開始'); row.appendChild(startLbl);
       const startInp=document.createElement('input'); startInp.type='date'; startInp.value=t.start;
       startInp.onchange=()=>{ t.start=startInp.value; refreshGanttChart(gp); persist(); };
       row.appendChild(startInp);
 
-      const endLbl=document.createElement('span'); endLbl.className='task-field-label'; endLbl.textContent='結束'; row.appendChild(endLbl);
+      const endLbl=document.createElement('span'); endLbl.className='task-field-label'; endLbl.textContent=tr('結束'); row.appendChild(endLbl);
       const endInp=document.createElement('input'); endInp.type='date'; endInp.value=t.end;
       endInp.onchange=()=>{ t.end=endInp.value; refreshGanttChart(gp); persist(); };
       row.appendChild(endInp);
 
-      const progLbl=document.createElement('span'); progLbl.className='task-field-label'; progLbl.textContent='進度'; row.appendChild(progLbl);
+      const progLbl=document.createElement('span'); progLbl.className='task-field-label'; progLbl.textContent=tr('進度'); row.appendChild(progLbl);
 
       // 有子待辦時進度是算出來的，不能手動改——留著可編輯的輸入框只會讓兩個數字打架
       const progText=document.createElement('span'); progText.className='todo-progress';
@@ -3513,7 +3752,7 @@
         syncCb(); syncProg(); refreshGanttChart(gp); persist();
       };
 
-      const delBtn=document.createElement('button'); delBtn.className='icon-btn danger'; delBtn.textContent='刪除'; delBtn.style.marginLeft='auto';
+      const delBtn=document.createElement('button'); delBtn.className='icon-btn danger'; delBtn.textContent=tr('刪除'); delBtn.style.marginLeft='auto';
       delBtn.onclick=()=>{
         deleteWithUndo('待辦：'+t.name, ()=>{ gp.tasks=gp.tasks.filter(x=>x.id!==t.id); });
       };
@@ -3527,7 +3766,7 @@
         t.todos.forEach(td=>{
           const tr=document.createElement('div'); tr.className='todo-row';
           const tcb=document.createElement('span'); tcb.className='todo-cb'+(td.done?' done':''); tcb.textContent=td.done?'✓':'';
-          const inp=document.createElement('input'); inp.type='text'; inp.value=td.text; inp.placeholder='代辦項目內容';
+          const inp=document.createElement('input'); inp.type='text'; inp.value=td.text; inp.placeholder=tr('代辦項目內容');
           inp.className=td.done?'done':'';
           // 逐字輸入用 debounce，與專案筆記、任務改名一致
           inp.oninput=()=>{ td.text=inp.value; persistSoon(); };
@@ -3538,7 +3777,7 @@
             inp.className=td.done?'done':'';
             syncCb(); syncProg(); refreshGanttChart(gp); persist();
           };
-          const rm=document.createElement('button'); rm.className='icon-btn danger'; rm.textContent='✕'; rm.title='刪除此代辦項目';
+          const rm=document.createElement('button'); rm.className='icon-btn danger'; rm.textContent='✕'; rm.title=tr('刪除此代辦項目');
           rm.onclick=()=>{
             // 行數改變，照既有慣例走完整 commit()（deleteWithUndo 內部就是 commit）
             deleteWithUndo('代辦項目：'+(td.text||'未命名'), ()=>{ t.todos=t.todos.filter(x=>x.id!==td.id); syncTaskFromTodos(t); });
@@ -3547,7 +3786,7 @@
           todoBox.appendChild(tr);
         });
         const addTodo=document.createElement('button'); addTodo.className='add-todo-btn';
-        addTodo.textContent = t.todos.length ? '＋ 新增代辦項目' : '＋ 新增代辦項目（新增後進度改由完成比例自動計算）';
+        addTodo.textContent = tr(t.todos.length ? '＋ 新增代辦項目' : '＋ 新增代辦項目（新增後進度改由完成比例自動計算）');
         addTodo.onclick=()=>{
           commit(()=>{
             t.todos.push({ id: uid('todo'), text:'', done:false });
@@ -3695,7 +3934,7 @@
       const who=document.createElement('span'); who.className='who'; who.textContent=s.targetEmail;
       const badge=document.createElement('span'); badge.className='perm-badge '+s.permission;
       badge.textContent = s.permission==='edit' ? '可操作' : '可檢視';
-      const rm=document.createElement('button'); rm.className='icon-btn danger'; rm.textContent='取消分享';
+      const rm=document.createElement('button'); rm.className='icon-btn danger'; rm.textContent=tr('取消分享');
       rm.onclick=async ()=>{
         rm.disabled=true;
         try{
@@ -3712,7 +3951,7 @@
   }
 
   async function openShareModal(kind, resourceId, name){
-    if(!cloudEnabled){ alert('分享需要登入帳號後才能使用。'); return; }
+    if(!cloudEnabled){ alert(tr('分享需要登入帳號後才能使用。')); return; }
     shareCtx={ kind, resourceId, name };
     sharePerm='view'; updatePermToggle();
     document.getElementById('shareScopeNote').innerHTML =
@@ -3757,7 +3996,8 @@
     const out=document.getElementById('sharedOutgoing');
     inc.innerHTML=''; out.innerHTML='';
     if(!cloudEnabled){
-      inc.innerHTML='<div class="empty-state">分享需要登入帳號後才能使用。<br>目前是單機模式，資料只存在這個瀏覽器。</div>';
+      inc.innerHTML='<div class="empty-state">'+escapeHtml(tr('分享需要登入帳號後才能使用。'))
+        +'<br>'+escapeHtml(tr('目前是單機模式，資料只存在這個瀏覽器。'))+'</div>';
       document.getElementById('sharedActivity').innerHTML='';
       return;
     }
@@ -3781,9 +4021,9 @@
         const badge=document.createElement('span'); badge.className='perm-badge '+s.permission;
         badge.textContent = s.permission==='edit' ? '可操作' : '可檢視';
         const rm=document.createElement('button'); rm.className='icon-btn danger'; rm.style.marginLeft='auto';
-        rm.textContent='取消分享';
+        rm.textContent=tr('取消分享');
         rm.onclick=async ()=>{
-          if(!confirm('取消對 '+s.targetEmail+' 的分享？對方將不再看得到這個項目。')) return;
+          if(!confirm(tf('取消對 {0} 的分享？對方將不再看得到這個項目。', s.targetEmail))) return;
           try{
             const r=await fetch(API_SHARES+'/'+encodeURIComponent(s.id), { method:'DELETE' });
             if(r.status===401){ sessionExpired(); return; }
@@ -3802,13 +4042,13 @@
     const head=document.createElement('div'); head.className='share-card-head';
     const title=document.createElement('span'); title.className='share-card-title';
     title.textContent = sh.resource ? (sh.kind==='item' ? sh.resource.title : sh.resource.name) : '（已被移除）';
-    const owner=document.createElement('span'); owner.className='share-owner'; owner.textContent='來自 '+sh.ownerEmail;
+    const owner=document.createElement('span'); owner.className='share-owner'; owner.textContent=tf('來自 {0}', sh.ownerEmail);
     const badge=document.createElement('span'); badge.className='perm-badge '+sh.permission;
     badge.textContent = sh.permission==='edit' ? '可操作' : '可檢視';
     const rm=document.createElement('button'); rm.className='icon-btn danger'; rm.style.marginLeft='auto';
-    rm.textContent='從我的畫面移除';
+    rm.textContent=tr('從我的畫面移除');
     rm.onclick=async ()=>{
-      if(!confirm('把這個分享從你的畫面移除？不會影響對方的資料，但要重新看到必須請對方再分享一次。')) return;
+      if(!confirm(tr('把這個分享從你的畫面移除？不會影響對方的資料，但要重新看到必須請對方再分享一次。'))) return;
       try{
         const r=await fetch(API_SHARES+'/'+encodeURIComponent(sh.id), { method:'DELETE' });
         if(r.status===401){ sessionExpired(); return; }
@@ -3820,7 +4060,7 @@
 
     if(!sh.resource){
       const gone=document.createElement('div'); gone.className='share-gone';
-      gone.textContent='對方已經刪除這個項目，內容不再存在。';
+      gone.textContent=tr('對方已經刪除這個項目，內容不再存在。');
       card.appendChild(gone); return card;
     }
     if(sh.kind==='item') buildSharedItemBody(card, sh, sh.resource);
@@ -3843,7 +4083,7 @@
 
     if(!occs.length){
       const none=document.createElement('div'); none.className='share-gone';
-      none.textContent='最近三個月內沒有安排（日期：'+(it.date||'—')+'）';
+      none.textContent=tf('最近三個月內沒有安排（日期：{0}）', it.date||'—');
       card.appendChild(none); return;
     }
     occs.forEach(occ=>{
@@ -3861,16 +4101,16 @@
           }
         };
       } else {
-        cb.style.cursor='default'; cb.title='你只有檢視權限';
+        cb.style.cursor='default'; cb.title=tr('你只有檢視權限');
       }
-      const badge=document.createElement('span'); badge.className='type-badge '+it.type; badge.textContent=typeLabels[it.type];
+      const badge=document.createElement('span'); badge.className='type-badge '+it.type; badge.textContent=typeLabel(it.type);
       const t=document.createElement('span'); t.className='occ-title'+(occ.done?' done':''); t.textContent=it.title;
       const d=document.createElement('span'); d.className='occ-date';
       d.textContent = it.endDate ? occ.date+' → '+it.endDate : occ.date;
       row.appendChild(cb); row.appendChild(badge); row.appendChild(t);
       if(it.meetingTime){ const mt=document.createElement('span'); mt.className='meeting-time'; mt.textContent=it.meetingTime; row.appendChild(mt); }
     if(it.link){
-      const a=document.createElement('a'); a.className='item-link'; a.textContent='🔗 連結';
+      const a=document.createElement('a'); a.className='item-link'; a.textContent=tr('🔗 連結');
       a.href=it.link; a.target='_blank'; a.rel='noopener noreferrer';
       a.onclick=(e)=>e.stopPropagation();
       row.appendChild(a);
@@ -3885,7 +4125,7 @@
     const children = Array.isArray(sh.resource.items) ? sh.resource.items : [];
     if(!children.length){
       const none=document.createElement('div'); none.className='share-gone';
-      none.textContent='這個大項目底下目前沒有任何項目。';
+      none.textContent=tr('這個大項目底下目前沒有任何項目。');
       card.appendChild(none); return;
     }
     children.forEach(it=> buildSharedItemBody(card, sh, it));
@@ -3933,7 +4173,7 @@
                 tcb.className='todo-cb'+(td.done?' done':''); tcb.textContent=td.done?'✓':'';
                 syncProg(); refreshGanttChart(gp); }
             };
-          } else { tcb.style.cursor='default'; tcb.title='你只有檢視權限'; }
+          } else { tcb.style.cursor='default'; tcb.title=tr('你只有檢視權限'); }
           tr.appendChild(tcb); tr.appendChild(label); box.appendChild(tr);
         });
         card.appendChild(box);
@@ -3946,7 +4186,7 @@
           if(!ok){ t.done=prev; t.progress=prev?100:0; syncProg(); refreshGanttChart(gp); }
         };
       } else if(sh.permission!=='edit'){
-        cb.style.cursor='default'; cb.title='你只有檢視權限';
+        cb.style.cursor='default'; cb.title=tr('你只有檢視權限');
       }
       syncProg();
     });
@@ -4069,25 +4309,25 @@
       const inp=document.createElement('input'); inp.type='text'; inp.readOnly=true; inp.value=url;
       inp.style.flex='1'; inp.style.fontFamily='var(--mono)'; inp.style.fontSize='11px';
       inp.onclick=()=>inp.select();
-      const copy=document.createElement('button'); copy.className='qbtn'; copy.textContent='複製';
-      copy.onclick=async ()=>{ try{ await navigator.clipboard.writeText(url); copy.textContent='已複製'; setTimeout(()=>copy.textContent='複製',1500);}catch(e){ inp.select(); } };
+      const copy=document.createElement('button'); copy.className='qbtn'; copy.textContent=tr('複製');
+      copy.onclick=async ()=>{ try{ await navigator.clipboard.writeText(url); copy.textContent=tr('已複製'); setTimeout(()=>copy.textContent=tr('複製'),1500);}catch(e){ inp.select(); } };
       row.appendChild(inp); row.appendChild(copy); box.appendChild(row);
       const note=document.createElement('div'); note.className='shared-hint';
-      note.textContent='這個連結只顯示這一次。重新產生會讓舊連結立即失效。';
+      note.textContent=tr('這個連結只顯示這一次。重新產生會讓舊連結立即失效。');
       box.appendChild(note);
     } else if(icsEnabled){
       const note=document.createElement('div'); note.className='shared-hint';
-      note.textContent='訂閱已啟用。連結只在產生當下顯示；遺失了就重新產生（舊連結會失效）。';
+      note.textContent=tr('訂閱已啟用。連結只在產生當下顯示；遺失了就重新產生（舊連結會失效）。');
       box.appendChild(note);
     } else {
       const note=document.createElement('div'); note.className='shared-hint';
-      note.textContent='尚未啟用。';
+      note.textContent=tr('尚未啟用。');
       box.appendChild(note);
     }
     document.getElementById('btnEnableIcs').textContent = icsEnabled ? '重新產生連結' : '產生訂閱連結';
     let del=document.getElementById('btnDisableIcs');
     if(icsEnabled && !del){
-      del=document.createElement('button'); del.id='btnDisableIcs'; del.className='btn-clear'; del.textContent='停用訂閱';
+      del=document.createElement('button'); del.id='btnDisableIcs'; del.className='btn-clear'; del.textContent=tr('停用訂閱');
       del.onclick=async ()=>{
         try{
           const r=await fetch('/api/ics',{method:'DELETE'});
@@ -4193,7 +4433,7 @@
     if(!file) return;
     let parsed;
     try{ parsed = JSON.parse(await file.text()); }
-    catch(err){ alert('這個檔案不是有效的備份：JSON 解析失敗。'); return; }
+    catch(err){ alert(tr('這個檔案不是有效的備份：JSON 解析失敗。')); return; }
 
     const n = Array.isArray(parsed.items) ? parsed.items.length : 0;
     const g = Array.isArray(parsed.ganttProjects) ? parsed.ganttProjects.length : 0;
@@ -4208,7 +4448,7 @@
     // applySnapshot 內含版本升級、正規化與富文字過濾，缺欄位的資料會被過濾掉
     // 而不是讓 render 掛掉。舊版備份會自動升級，只有「比目前更新的版本」會被拒絕。
     if(!applySnapshot(parsed)){
-      alert('無法匯入這個備份檔。\n\n' +
+      alert(tr('無法匯入這個備份檔。\n\n') +
             '它的格式版本比目前的程式還新（可能是從較新版本匯出的），' +
             '硬讀進來只會把資料弄壞。請先更新到最新版再匯入。');
       return;
@@ -4216,7 +4456,7 @@
     refreshAvailableYears();
     if(!availableYears.includes(selYear)) selYear = today.getFullYear();
     commit();
-    alert('匯入完成：' + items.length + ' 個小項目、' + ganttProjects.length + ' 個專案。');
+    alert(tf('匯入完成：{0} 個小項目、{1} 個專案。', items.length, ganttProjects.length));
   };
 
   // ================= 啟動 =================
@@ -4226,7 +4466,7 @@
   refreshAvailableYears();
   if(!availableYears.includes(selYear)) selYear = today.getFullYear();
   if(!loadedFromStorage) persist();   // 首次開啟即建立存檔，之後重整才接得回來
-  renderAll();
+  applyLang();                        // 內含 renderAll()：語言要在第一次繪製前就套好
   setTimeout(showReminderToast, 700);
   initCloudSync(loadedFromStorage);   // 不 await：雲端偵測不得拖慢啟動
 })();
