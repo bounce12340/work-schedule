@@ -2002,7 +2002,12 @@
     try{
       await runCloudSync(localHadData);
     }catch(e){
-      // 同步失敗絕不能連累本機使用：資料仍在 localStorage，僅停用雲端
+      // 同步失敗絕不能連累本機使用：資料仍在 localStorage，僅停用雲端。
+      //
+      // 但**一定要把例外記出來**。這個 catch 原本什麼都不印，結果畫面只顯示
+      // 「初始化失敗」而 console 一片乾淨——使用者回報時完全沒有線索可查，
+      // 只能靠逐行讀程式碼猜（實際踩過）。降級與沉默是兩件事。
+      console.error('雲端同步初始化失敗', e && e.stack ? e.stack : String(e));
       cloudEnabled = false;
       setCloudNote(tr('初始化失敗，僅使用本機資料'), 'err');
       updateStorageNote();
@@ -4309,6 +4314,42 @@
       try{
         await fetch('/api/ics', { method:'PUT', headers:{'content-type':'application/json'},
           body: JSON.stringify({ ics: buildICS() }) });
+      }catch(e){ /* 下次同步再補 */ }
+    }, 3000);
+  }
+
+  // ================= 逾期提醒 =================
+  // 內容與 ICS 同一個模式：**在前端展開、推上伺服器**，cron 只做日期比對與寄信。
+  // Worker 不能重新實作 occurrence 引擎（含假日順延、單次覆寫、略過），兩套必然
+  // 分歧——而提醒寄錯日期比沒有提醒更糟，因為使用者會信任它。
+  //
+  // 推的是「已展開的排程」而不是「已經算好的逾期清單」：逾期與否隨日期改變，
+  // 今天不逾期的項目後天就逾期了。讓 cron 每天自己比對，使用者一段時間沒開
+  // app 也不影響正確性。
+  let reminderEnabled = false;
+
+  function buildReminderDigest(){
+    // 回看一年、前瞻三個月：逾期只可能落在過去，前瞻是為了讓使用者一段時間
+    // 沒開 app 時，之後才到期的項目也已經在伺服器上等著被判定
+    const start=new Date(); start.setHours(0,0,0,0); start.setFullYear(start.getFullYear()-1);
+    const end=new Date(); end.setHours(23,59,59,999); end.setMonth(end.getMonth()+3);
+    return getAllOccurrences(start, end).map(o=>({
+      t: o.item.title,
+      // 跨多天事項以結束日判定逾期：進行中的區間不該被當成遲交
+      d: (o.item.endDate && o.occKey==='single') ? o.item.endDate : o.date,
+      k: o.item.type,
+      done: o.done ? 1 : 0
+    }));
+  }
+
+  let reminderPushTimer=null;
+  function pushReminderSoon(){
+    if(!cloudEnabled) return;
+    clearTimeout(reminderPushTimer);
+    reminderPushTimer = setTimeout(async ()=>{
+      try{
+        await fetch('/api/reminder', { method:'PUT', headers:{'content-type':'application/json'},
+          body: JSON.stringify({ digest: buildReminderDigest() }) });
       }catch(e){ /* 下次同步再補 */ }
     }, 3000);
   }
