@@ -149,8 +149,10 @@
   .metric-label{ font-family: var(--mono); font-size:10.5px; letter-spacing:2px; color: var(--text-dim); text-transform:uppercase; margin-bottom:6px; }
   .metric-value{ font-family: var(--mono); font-size:28px; font-weight:700; color: var(--text); line-height:1; }
   .metric-value .unit{ font-size:13px; color: var(--text-muted); font-weight:500; margin-left:6px; }
-  .metric-meeting-list, .metric-list{ display:flex; flex-direction:column; gap:4px; max-height:96px; overflow-y:auto; }
-  .metric-meeting-row, .metric-list-row{ display:flex; align-items:baseline; gap:7px; font-family: var(--sans); font-size:12.5px; color: var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  /* 高度必須是「行高 + gap」的整數倍，否則最後一列會被切成一半——看起來像
+     渲染壞掉而不是「還有更多」。5 × 20px + 4 × 4px = 116px。 */
+  .metric-meeting-list, .metric-list{ display:flex; flex-direction:column; gap:4px; max-height:116px; overflow-y:auto; }
+  .metric-meeting-row, .metric-list-row{ display:flex; align-items:baseline; gap:7px; height:20px; line-height:20px; flex-shrink:0; font-family: var(--sans); font-size:12.5px; color: var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .metric-meeting-row .m-time{ font-family: var(--mono); font-size:11.5px; color: var(--violet); flex-shrink:0; }
   .metric-meeting-empty, .metric-list-empty{ font-family: var(--mono); font-size:12.5px; color: var(--text-dim); }
   .metric-list-dot{ width:6px; height:6px; border-radius:50%; flex-shrink:0; position:relative; top:-1px; }
@@ -275,6 +277,14 @@
   .cal-daynum{ font-family: var(--mono); font-size:12.5px; color: var(--text-muted); }
   .cal-cell.today .cal-daynum{ color: var(--amber); font-weight:700; }
   .cal-dots{ display:flex; flex-direction:column; gap:3px; }
+  /* 手機版的圓點表示法。桌機不顯示——由 media query 對調兩者 */
+  .cal-pips{ display:none; }
+  .cal-pip{ width:6px; height:6px; border-radius:50%; flex-shrink:0; }
+  .cal-pip.meeting{ background: var(--violet); }
+  .cal-pip.work{ background: var(--teal); }
+  .cal-pip.assignment{ background: var(--amber); }
+  .cal-pip.done{ opacity:.3; }
+  .cal-pip-n{ font-family: var(--mono); font-size:9px; color: var(--text-dim); line-height:1; }
   .cal-meeting-row{ display:flex; align-items:baseline; gap:5px; min-width:0; }
   .cal-meeting-time{ font-family: var(--mono); font-size:10px; color: var(--violet); flex-shrink:0; }
   .cal-meeting-subject{ font-family: var(--sans); font-size:10.5px; color: var(--violet); line-height:1.3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; font-weight:600; }
@@ -290,6 +300,20 @@
 
   .cal-detail-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; flex-wrap:wrap; gap:10px; }
   .cal-detail-title{ font-family: var(--mono); font-size:16px; font-weight:700; }
+
+  /* 已完成區塊。刻意做得比上方的清單低調：它是「已經處理掉的」，不該和
+     還要做的事搶注意力。 */
+  .done-section{ margin-top:18px; }
+  .done-head{ display:flex; align-items:center; gap:8px; width:100%; padding:9px 12px; cursor:pointer;
+              background: var(--panel); border:1px solid var(--hairline); border-radius:10px;
+              font-family: var(--mono); font-size:11px; letter-spacing:1.5px; text-transform:uppercase;
+              color: var(--text-muted); }
+  .done-head:hover{ border-color: var(--hairline-strong); color: var(--text); }
+  .done-caret{ font-size:10px; width:10px; }
+  .done-count{ margin-left:auto; background: var(--panel-2); border-radius:20px; padding:2px 9px;
+               font-size:11px; letter-spacing:0; color: var(--text-muted); }
+  .done-board{ margin-top:8px; opacity:.72; }
+  .done-board:hover{ opacity:1; }
 
   .daylog-box{ background: var(--panel); border:1px solid var(--hairline); border-radius:12px; padding:16px; margin-top:18px; }
   .daylog-label{ font-family: var(--mono); font-size:10.5px; letter-spacing:2px; color: var(--text-dim); text-transform:uppercase; margin-bottom:8px; display:flex; align-items:center; gap:8px; }
@@ -353,7 +377,9 @@
   footer.storage-note .storage-state.off{ color: var(--amber); }
   footer.storage-note .storage-state.err{ color: var(--red); }
   footer.storage-note #cloudNoteText:empty{ display:none; }
-  footer.storage-note .signature{ margin-top:14px; padding-top:12px; border-top:1px solid var(--hairline); font-family: var(--sans); font-size:11.5px; color: var(--text-muted); letter-spacing:0.5px; }
+  /* 簽名刻意比周圍的頁尾說明大且粗：它是署名，不是註腳。顏色用 --text 而非
+     --text-muted，否則放大了仍然顯得像被淡化的次要資訊。 */
+  footer.storage-note .signature{ margin-top:16px; padding-top:14px; border-top:1px solid var(--hairline); font-family: var(--sans); font-size:15px; font-weight:700; color: var(--text); letter-spacing:0.8px; }
 
   .undo-toast{ position:fixed; left:50%; bottom:24px; transform:translate(-50%, 16px); z-index:80;
     display:flex; align-items:center; gap:14px; background:var(--text); color:var(--bg);
@@ -383,16 +409,33 @@
   .gantt-empty{ padding: 60px 20px; text-align:center; color: var(--text-dim); border: 1px dashed var(--dash); border-radius:12px; font-family: var(--mono); font-size:13px; line-height:1.9; background:var(--panel); }
   .gantt-project-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; flex-wrap:wrap; gap:10px; }
   .gantt-project-title{ font-size:19px; font-weight:800; }
-  .gantt-wrap{ background: var(--panel); border:1px solid var(--hairline); border-radius:12px; padding:18px 18px 8px; margin-bottom:20px; overflow-x:auto; }
-  .gantt-header-row{ display:flex; margin-bottom:6px; }
-  .gantt-label-col{ width:170px; flex-shrink:0; }
-  .gantt-timeline-col{ flex:1; min-width:360px; position:relative; height:22px; border-bottom:1px solid var(--hairline); }
-  .gantt-month-tick{ position:absolute; top:0; bottom:0; border-left:1px dashed var(--hairline); }
-  .gantt-month-label{ position:absolute; top:0; font-family:var(--mono); font-size:10px; color:var(--text-dim); padding-left:4px; white-space:nowrap; }
-  .gantt-body{ display:flex; flex-direction:column; }
-  .gantt-row{ display:flex; align-items:center; margin-bottom:10px; }
-  .gantt-row-label{ width:170px; flex-shrink:0; font-size:12.5px; font-weight:600; padding-right:10px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .gantt-row-track{ flex:1; min-width:360px; position:relative; height:22px; background: var(--panel-2); border-radius:6px; }
+  /* 甘特圖：固定的標籤欄 + 可水平捲動的時間軸。
+     兩欄各自獨立、靠固定列高（--gantt-row-h）對齊，不用 sticky——sticky 在有
+     overflow 的祖先裡各家行為不一，這樣結果比較可預期。
+     contain:inline-size 讓內容再寬也不會反過來把版面撐開（行動版的
+     shrink-to-fit 會以文件的最小內容寬度決定版面視窗，實測踩過 390→425）。 */
+  .gantt-wrap{ --gantt-row-h:32px; background: var(--panel); border:1px solid var(--hairline);
+               border-radius:12px; padding:14px 16px 10px; margin-bottom:20px;
+               max-width:100%; contain: inline-size; }
+  .gantt-toolbar{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-bottom:12px; }
+  .gantt-toolbar-label{ font-family:var(--mono); font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color:var(--text-dim); margin-right:2px; }
+  .gantt-range{ margin-left:auto; font-family:var(--mono); font-size:10.5px; color:var(--text-dim); }
+  .gantt-cols{ display:flex; align-items:flex-start; }
+  .gantt-labels{ flex-shrink:0; width:170px; padding-right:10px; }
+  .gantt-axis-spacer{ height:24px; }
+  .gantt-scroll{ flex:1; min-width:0; overflow-x:auto; overflow-y:hidden; padding-bottom:4px; }
+  .gantt-inner{ position:relative; }
+  .gantt-axis{ position:relative; height:24px; border-bottom:1px solid var(--hairline); }
+  .gantt-month-tick{ position:absolute; top:0; height:calc(100% + 4px); border-left:1px dashed var(--hairline); }
+  /* 年度邊界畫得比月份重：跨年專案捲動時，這是最重要的定位點 */
+  .gantt-month-tick.year{ border-left:1px solid var(--hairline-strong); }
+  .gantt-month-label{ position:absolute; top:5px; font-family:var(--mono); font-size:10px; color:var(--text-dim); padding-left:4px; white-space:nowrap; }
+  .gantt-row-label{ height:var(--gantt-row-h); display:flex; align-items:center; font-size:12.5px; font-weight:600;
+                    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .gantt-row-track{ position:relative; height:var(--gantt-row-h); }
+  /* 底色只鋪在長條所在的帶狀區域，讓捲動時仍看得出列的分界 */
+  .gantt-row-track::before{ content:''; position:absolute; left:0; right:0; top:5px; height:22px;
+                            background: var(--panel-2); border-radius:6px; }
   .gantt-bar{ position:absolute; top:2px; height:18px; border-radius:5px; background: var(--violet); overflow:hidden; box-shadow: var(--shadow-xs); }
   .gantt-bar.done{ background: var(--teal); }
   .gantt-bar.overdue{ background: var(--red); }
@@ -582,22 +625,29 @@
     .checkbox{ width:24px; height:24px; }
     .icon-btn{ padding:8px 10px; font-size:15px; }
 
-    .cal-grid{ gap:4px; }
-    .cal-cell{ min-height:64px; padding:5px; border-radius:7px; }
-    .cal-item-text, .cal-meeting-subject{ font-size:9.5px; }
+    /* 手機版日曆改成 Google 日曆的作法：格子裡只放顏色圓點，點選日期才在下方
+       展開當日內容。把三、四列文字塞進 50px 寬的格子，字小到讀不了、項目一多
+       還互相擠壓——那個版面在手機上等於沒有資訊量。
+       日期本身則做成接近正方形、可以放心點的目標。 */
+    .cal-grid{ gap:3px; }
+    .cal-cell{ min-height:0; aspect-ratio:1; padding:4px 2px; border-radius:8px;
+               align-items:center; justify-content:flex-start; gap:4px; }
+    .cal-dots{ display:none; }                      /* 桌機的逐項文字在手機上收起 */
+    .cal-pips{ display:flex; align-items:center; justify-content:center; gap:3px; flex-wrap:wrap; }
+    .cal-daynum{ font-size:13px; text-align:center; }
+    .cal-cell.selected{ box-shadow: inset 0 0 0 2px var(--amber); }
+    .cal-weekday{ padding:4px 0; font-size:10px; }
     .cal-nav{ width:100%; }
     .cal-nav button{ flex:1; padding:10px 8px; }
     .cal-legend{ gap:10px; font-size:10.5px; }
+    /* 展開的當日內容是手機上真正在讀的東西，給它明確的區塊感 */
+    .cal-detail{ margin-top:4px; }
 
-    /* 甘特圖：表格欄位改為堆疊，圖表本身維持橫向捲動 */
-    .gantt-label-col, .gantt-row-label{ width:104px; }
-    .gantt-timeline-col, .gantt-row-track{ min-width:280px; }
-    /* 光有 overflow-x:auto 不夠：行動版瀏覽器的 shrink-to-fit 會以文件的最小內容
-       寬度決定版面視窗，甘特圖的固定欄寬因此把整頁撐寬（實測 390 → 425，全站
-       跟著縮小）。contain:inline-size 明確切斷「內容決定寬度」這條路，橫向捲動
-       就關在容器內；它不像 calc(100vw - …) 那樣要人工扣掉每一層祖先的內距，
-       共享頁把同一張圖表包在 .share-card 裡時也才會正確。 */
-    .gantt-wrap{ padding:14px 12px 6px; max-width:100%; contain: inline-size; }
+    /* 甘特圖：標籤欄縮窄，把寬度留給時間軸 */
+    .gantt-labels{ width:96px; padding-right:8px; }
+    .gantt-row-label{ font-size:11.5px; }
+    .gantt-range{ margin-left:0; width:100%; }
+    .gantt-wrap{ padding:12px 10px 6px; }
     .task-row{ gap:7px; }
     .task-row input[type=text]{ flex:1 1 100%; min-width:0; }
     /* flex-basis 要給明確值：basis:0 的話日期欄不會觸發換行，而是被壓到
@@ -698,6 +748,15 @@
           <span class="filter-count" id="filterCount"></span>
         </div>
         <div class="board" id="board"></div>
+        <!-- 已完成的項目收在這裡，預設收合：上方只留還要處理的事 -->
+        <div class="done-section" id="doneSection" style="display:none;">
+          <button class="done-head" id="doneHead" type="button">
+            <span class="done-caret" id="doneCaret">▸</span>
+            <span>已完成</span>
+            <span class="done-count" id="doneCount">0</span>
+          </button>
+          <div class="board done-board" id="doneBoard" style="display:none;"></div>
+        </div>
       </div>
 
       <!-- ================= VIEW 2: 日曆 ================= -->
@@ -2043,7 +2102,8 @@
   function renderMetricList(elId, occList, emptyText){
     const el = document.getElementById(elId);
     if(occList.length===0){ el.innerHTML = '<div class="metric-list-empty">'+emptyText+'</div>'; return; }
-    const MAX = 6;
+    // 4 筆 + 一行「還有 N 項」＝ 5 列，正好是 .metric-list 的高度上限，不會出現半列
+    const MAX = 4;
     let html = occList.slice(0,MAX).map(o=>
       '<div class="metric-list-row"><span class="metric-list-dot '+o.item.type+'"></span><span>'+
       (o.item.meetingTime ? '<span class="m-time">'+o.item.meetingTime+'</span> ' : '')+
@@ -2072,7 +2132,7 @@
     if(!overdue.length){
       odEl.innerHTML = '<div class="metric-list-empty">沒有逾期項目</div>';
     } else {
-      const MAXO = 6;
+      const MAXO = 4;
       odEl.innerHTML = overdue.slice(0,MAXO).map(o=>
         '<div class="metric-list-row"><span class="od-date">'+o.date.slice(5)+'</span><span>'+escapeHtml(o.item.title)+'</span></div>'
       ).join('') + (overdue.length>MAXO ? '<div class="metric-list-more">+ 還有 '+(overdue.length-MAXO)+' 項</div>' : '');
@@ -2285,22 +2345,63 @@
     document.getElementById('btnHideDone').classList.toggle('active', hideDone);
   }
 
+  // 已完成區塊是否展開。與其他檢視狀態一樣只留在記憶體裡、不存檔——
+  // 重整回到預設（收合），使用者才不會下次打開時對著一份看不懂的清單。
+  let showDoneSection = false;
+
   function renderBoard(){
     const board=document.getElementById('board'); board.innerHTML='';
+    const doneSection=document.getElementById('doneSection');
+    const doneBoard=document.getElementById('doneBoard'); doneBoard.innerHTML='';
     const all=currentOccurrences();
     const list=all.filter(matchesFilter);
     document.getElementById('filterCount').textContent =
       filterActive() ? '符合 '+list.length+' / '+all.length+' 項' : '';
+
+    // 上方只展開還沒完成的，已勾選的收到下面的區塊
+    const pending = list.filter(o=>!o.done);
+    const done    = list.filter(o=> o.done);
+
     if(all.length===0){
       board.innerHTML='<div class="empty-state">此範圍尚無項目 — 點選右上角 <span>「＋ 新增小項目」</span> 開始建立工作、會議或作業</div>';
+      doneSection.style.display='none';
       return;
     }
     if(list.length===0){
       board.innerHTML='<div class="empty-state">此範圍有 <span>'+all.length+'</span> 項，但沒有符合目前篩選條件的項目</div>';
+      doneSection.style.display='none';
       return;
     }
-    list.forEach(occ=> board.appendChild(buildOccRow(occ)) );
+
+    if(pending.length===0){
+      // 全部做完時給的是結果，不是「沒有東西」——後者會讓人以為篩選壞了
+      board.innerHTML='<div class="empty-state">此範圍的 <span>'+done.length+'</span> 項全部完成了 🎉</div>';
+    } else {
+      // 逐列 append 進活的 DOM 在項目多時成本明顯，先組在 fragment 裡再一次插入
+      const frag=document.createDocumentFragment();
+      pending.forEach(occ=> frag.appendChild(buildOccRow(occ)) );
+      board.appendChild(frag);
+    }
+
+    // 「只看未完成」開著時不顯示這一區：使用者已經明確說了不想看到它們
+    if(done.length===0 || hideDone){
+      doneSection.style.display='none';
+      return;
+    }
+    doneSection.style.display='block';
+    document.getElementById('doneCount').textContent = done.length;
+    document.getElementById('doneCaret').textContent = showDoneSection ? '▾' : '▸';
+    doneBoard.style.display = showDoneSection ? '' : 'none';
+    if(showDoneSection){
+      const frag=document.createDocumentFragment();
+      done.forEach(occ=> frag.appendChild(buildOccRow(occ)) );
+      doneBoard.appendChild(frag);
+    }
   }
+  document.getElementById('doneHead').onclick = ()=>{
+    showDoneSection = !showDoneSection;
+    renderScheduleView();          // 純檢視變更，不走 commit()
+  };
   // 只負責「項目安排」頁自己的區塊；頂部 metrics 與跨頁重繪由 renderAll() 統籌
   function renderScheduleView(){
     renderMajorChips(); renderModeTabs(); renderPeriodRow(); renderScopeStrip(); renderFilterBar(); renderBoard();
@@ -2373,6 +2474,24 @@
       if(tasks.length>MAXW){ const more=document.createElement('div'); more.className='cal-more'; more.textContent='+ 還有 '+(tasks.length-MAXW)+' 項'; dotsWrap.appendChild(more); }
 
       cell.appendChild(dotsWrap);
+
+      // 手機版的表示法：格子裡只放顏色圓點，點選日期才在下方展開當日內容。
+      // 兩種表示法都建出來、由 CSS 決定顯示哪一個——若改成用 JS 判斷視窗寬度，
+      // 旋轉螢幕或改變視窗大小時就要自己補重繪，而且會多一條分支要維護。
+      const pips=document.createElement('div'); pips.className='cal-pips';
+      if(dayOcc.length){
+        // 每個類型最多一顆點，順序固定，這樣同一天的圖形不會因排序而跳動
+        const kinds=['meeting','work','assignment'].filter(t=>dayOcc.some(o=>o.item.type===t));
+        kinds.forEach(t=>{
+          const dot=document.createElement('span');
+          dot.className='cal-pip '+t+(dayOcc.filter(o=>o.item.type===t).every(o=>o.done) ? ' done' : '');
+          pips.appendChild(dot);
+        });
+        // 有未完成的才標數字：全部做完的日子不需要再提醒還剩幾項
+        const undone=dayOcc.filter(o=>!o.done).length;
+        if(undone>1){ const n=document.createElement('span'); n.className='cal-pip-n'; n.textContent=undone; pips.appendChild(n); }
+      }
+      cell.appendChild(pips);
       cell.onclick=()=>{ calSelectedDate=dateStr; renderCalendar(); };
       grid.appendChild(cell);
     }
@@ -3172,67 +3291,152 @@
     if(old) old.replaceWith(buildGanttChart(gp));
   }
 
+  /**
+   * 時間刻度。原本的時間軸是 flex:1 撐滿容器，也就是「不管專案多長都塞進同一個
+   * 寬度」——跨年度的專案會被壓縮到每個月只有幾個像素，長條全部黏在一起。
+   * 改成固定的每日像素寬 × 天數，超出容器就水平捲動，長專案才讀得下去。
+   *
+   * 每個刻度的值是照「一個約 800px 的視窗裡看得到多久」挑的：
+   * 週≈4 週、月≈3 個月、季≈8 個月、年≈2 年。
+   */
+  const GANTT_ZOOMS = [
+    { key:'week',    label:'週', pxPerDay:28,  labelEvery:1 },
+    { key:'month',   label:'月', pxPerDay:9,   labelEvery:1 },
+    { key:'quarter', label:'季', pxPerDay:3.4, labelEvery:2 },
+    { key:'year',    label:'年', pxPerDay:1.4, labelEvery:3 }
+  ];
+  // 檢視狀態，不進 snapshot()——與年份／季別選擇同一類
+  let ganttZoom = 'month';
+  // 記住捲動位置，跨重畫保留（改一次日期不該讓畫面跳回最左邊）。
+  // 切換刻度時歸零：像素位置整個換算過，沿用舊值會落在毫無意義的地方。
+  let ganttScrollLeft = null;
+
   function buildGanttChart(gp){
     const wrap = document.createElement('div'); wrap.className='gantt-wrap'; wrap.id='ganttChartWrap';
     if(gp.tasks.length===0){
       wrap.innerHTML = '<div style="padding:24px; text-align:center; font-family:var(--mono); font-size:12.5px; color:var(--text-dim);">尚無待辦事項，新增後將顯示甘特圖時間軸</div>';
       return wrap;
     }
+    const zoom = GANTT_ZOOMS.find(z=>z.key===ganttZoom) || GANTT_ZOOMS[1];
+    const DAY = 86400000;
+
     const starts = gp.tasks.map(t=>parseYMD(t.start));
     const ends = gp.tasks.map(t=>parseYMD(t.end));
     let minDate = new Date(Math.min.apply(null, starts));
     let maxDate = new Date(Math.max.apply(null, ends));
-    minDate.setDate(minDate.getDate()-2);
-    maxDate.setDate(maxDate.getDate()+2);
+    // 從月初開始、到月底結束：刻度線落在月份邊界上，捲動時比較好定位
+    minDate = new Date(minDate.getFullYear(), minDate.getMonth(), 1);
+    maxDate = new Date(maxDate.getFullYear(), maxDate.getMonth()+1, 0);
+    const now = new Date(); now.setHours(0,0,0,0);
+    // 今天若落在專案區間外，仍然把它納入範圍——否則「跳到今天」沒有東西可跳
+    if(now < minDate) minDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    if(now > maxDate) maxDate = new Date(now.getFullYear(), now.getMonth()+1, 0);
     if(maxDate<=minDate) maxDate = new Date(minDate.getFullYear(), minDate.getMonth(), minDate.getDate()+14);
-    const totalMs = maxDate - minDate;
 
-    const headerRow = document.createElement('div'); headerRow.className='gantt-header-row';
-    const labelCol = document.createElement('div'); labelCol.className='gantt-label-col';
-    headerRow.appendChild(labelCol);
-    const timelineCol = document.createElement('div'); timelineCol.className='gantt-timeline-col';
-    // month ticks
+    const totalDays = Math.round((maxDate - minDate) / DAY) + 1;
+    const innerW = Math.max(320, Math.round(totalDays * zoom.pxPerDay));
+    const xOf = d => ((d - minDate) / DAY) * zoom.pxPerDay;
+
+    // ---- 工具列：刻度切換、跳到今天、目前涵蓋的區間 ----
+    const bar = document.createElement('div'); bar.className='gantt-toolbar';
+    const zlabel = document.createElement('span'); zlabel.className='gantt-toolbar-label'; zlabel.textContent='時間刻度';
+    bar.appendChild(zlabel);
+    GANTT_ZOOMS.forEach(z=>{
+      const b=document.createElement('button');
+      b.className='qbtn'+(z.key===zoom.key?' active':''); b.type='button'; b.textContent=z.label;
+      // 純檢視變更，不走 commit()。捲動位置歸零讓新刻度重新對齊今天。
+      b.onclick=()=>{ ganttZoom=z.key; ganttScrollLeft=null; refreshGanttChart(gp); };
+      bar.appendChild(b);
+    });
+    const todayBtn=document.createElement('button');
+    todayBtn.className='qbtn'; todayBtn.type='button'; todayBtn.textContent='跳到今天';
+    bar.appendChild(todayBtn);
+    const range=document.createElement('span'); range.className='gantt-range';
+    const fmtYM = d => d.getFullYear()+'/'+String(d.getMonth()+1).padStart(2,'0');
+    range.textContent = fmtYM(minDate)+' – '+fmtYM(maxDate)
+      + '（' + (totalDays>=365 ? (totalDays/365).toFixed(1)+' 年' : Math.round(totalDays/30)+' 個月') + '）';
+    bar.appendChild(range);
+    wrap.appendChild(bar);
+
+    // ---- 固定的標籤欄 + 可捲動的時間軸 ----
+    // 標籤放在捲動區外面而不是用 sticky：sticky 在有 overflow 的祖先裡行為
+    // 各家不一，兩欄各自獨立、靠固定列高對齊，結果比較可預期。
+    const cols = document.createElement('div'); cols.className='gantt-cols';
+    const labels = document.createElement('div'); labels.className='gantt-labels';
+    const headSpacer = document.createElement('div'); headSpacer.className='gantt-axis-spacer';
+    labels.appendChild(headSpacer);
+
+    const scroll = document.createElement('div'); scroll.className='gantt-scroll';
+    const inner = document.createElement('div'); inner.className='gantt-inner';
+    inner.style.width = innerW+'px';
+
+    // 月份刻度。跨年時把年份一起寫出來，否則捲到隔年會分不清是哪個一月。
+    const axis = document.createElement('div'); axis.className='gantt-axis';
     let curM = new Date(minDate.getFullYear(), minDate.getMonth(), 1);
-    if(curM < minDate) curM.setMonth(curM.getMonth()+0);
+    let idx = 0;
     while(curM <= maxDate){
-      if(curM >= minDate){
-        const pct = ((curM - minDate) / totalMs) * 100;
-        const tick=document.createElement('div'); tick.className='gantt-month-tick'; tick.style.left=pct+'%'; timelineCol.appendChild(tick);
-        const lbl=document.createElement('div'); lbl.className='gantt-month-label'; lbl.style.left=pct+'%'; lbl.textContent=(curM.getMonth()+1)+'月';
-        timelineCol.appendChild(lbl);
+      const x = xOf(curM);
+      const tick=document.createElement('div'); tick.className='gantt-month-tick'
+        + (curM.getMonth()===0 ? ' year' : '');
+      tick.style.left=x+'px'; axis.appendChild(tick);
+      if(idx % zoom.labelEvery === 0){
+        const lbl=document.createElement('div'); lbl.className='gantt-month-label'; lbl.style.left=x+'px';
+        lbl.textContent = (curM.getMonth()===0 || idx===0)
+          ? curM.getFullYear()+'/'+(curM.getMonth()+1)
+          : (curM.getMonth()+1)+'月';
+        axis.appendChild(lbl);
       }
       curM = new Date(curM.getFullYear(), curM.getMonth()+1, 1);
+      idx++;
     }
-    headerRow.appendChild(timelineCol);
-    wrap.appendChild(headerRow);
+    inner.appendChild(axis);
 
-    const body = document.createElement('div'); body.className='gantt-body';
-    const now = new Date(); now.setHours(0,0,0,0);
+    const todayX = (now>=minDate && now<=maxDate) ? xOf(now) : null;
+
     gp.tasks.forEach(t=>{
-      const row=document.createElement('div'); row.className='gantt-row';
       const label=document.createElement('div'); label.className='gantt-row-label'; label.textContent=t.name; label.title=t.name;
       label.dataset.taskId = t.id;   // 供表格改名時就地更新，免整張圖表重畫
-      row.appendChild(label);
+      labels.appendChild(label);
+
       const track=document.createElement('div'); track.className='gantt-row-track';
       const ts=parseYMD(t.start), te=parseYMD(t.end);
-      const leftPct = ((ts-minDate)/totalMs)*100;
-      const widthPct = Math.max(1.2, ((te-ts+86400000)/totalMs)*100);
-      const bar=document.createElement('div'); bar.className='gantt-bar'+(t.done?' done':(te<now && !t.done ? ' overdue':''));
-      bar.style.left=leftPct+'%'; bar.style.width=widthPct+'%';
+      const left = xOf(ts);
+      const width = Math.max(4, ((te-ts+DAY)/DAY) * zoom.pxPerDay);
+      const barEl=document.createElement('div'); barEl.className='gantt-bar'+(t.done?' done':(te<now && !t.done ? ' overdue':''));
+      barEl.style.left=left+'px'; barEl.style.width=width+'px';
+      barEl.title = t.name+'　'+t.start+' → '+t.end+'　'+(t.progress||0)+'%';
       const fill=document.createElement('div'); fill.className='gantt-bar-fill';
-      fill.style.width=(100-Math.max(0,Math.min(100,t.progress||0)))+'%'; fill.style.left=(Math.max(0,Math.min(100,t.progress||0)))+'%';
-      bar.appendChild(fill);
-      const barLabel=document.createElement('div'); barLabel.className='gantt-bar-label'; barLabel.textContent=(t.progress||0)+'%';
-      bar.appendChild(barLabel);
-      track.appendChild(bar);
-      if(now>=minDate && now<=maxDate){
-        const todayPct=((now-minDate)/totalMs)*100;
-        const tl=document.createElement('div'); tl.className='gantt-today-line'; tl.style.left=todayPct+'%'; track.appendChild(tl);
+      const pg = Math.max(0,Math.min(100,t.progress||0));
+      fill.style.width=(100-pg)+'%'; fill.style.left=pg+'%';
+      barEl.appendChild(fill);
+      // 壓縮的刻度下長條可能只有幾像素寬，硬塞百分比文字只會溢出成雜訊
+      if(width >= 34){
+        const barLabel=document.createElement('div'); barLabel.className='gantt-bar-label'; barLabel.textContent=pg+'%';
+        barEl.appendChild(barLabel);
       }
-      row.appendChild(track);
-      body.appendChild(row);
+      track.appendChild(barEl);
+      if(todayX !== null){
+        const tl=document.createElement('div'); tl.className='gantt-today-line'; tl.style.left=todayX+'px'; track.appendChild(tl);
+      }
+      inner.appendChild(track);
     });
-    wrap.appendChild(body);
+
+    scroll.appendChild(inner);
+    cols.appendChild(labels); cols.appendChild(scroll);
+    wrap.appendChild(cols);
+
+    const centerOnToday = ()=>{
+      if(todayX === null) return;
+      scroll.scrollLeft = Math.max(0, todayX - scroll.clientWidth/2);
+    };
+    todayBtn.onclick = centerOnToday;
+    todayBtn.disabled = todayX === null;
+    // 重畫後把捲動位置接回去，否則改一次日期畫面就跳回最左邊
+    requestAnimationFrame(()=>{
+      if(ganttScrollLeft !== null) scroll.scrollLeft = ganttScrollLeft;
+      else centerOnToday();
+    });
+    scroll.addEventListener('scroll', ()=>{ ganttScrollLeft = scroll.scrollLeft; });
     return wrap;
   }
 
