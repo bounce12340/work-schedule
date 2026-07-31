@@ -125,21 +125,36 @@ ${appUrl ? `<p style="margin:18px 0 0"><a href="${esc(appUrl)}" style="color:#C9
   return { subject: `【逾期提醒】${rows.length} 個項目已過期`, text, html };
 }
 
+// 路徑取自官方 OpenAPI 規格（https://docs.agentmail.to/openapi.json）：
+// servers = https://api.agentmail.to，端點 = POST /v0/inboxes/{inbox_id}/messages/send。
+// **版本前綴 /v0 不可省略**——文件正文與部分範例寫成沒有前綴的形式，照抄會 404。
+const AGENTMAIL_SEND = inbox =>
+  `https://api.agentmail.to/v0/inboxes/${encodeURIComponent(inbox)}/messages/send`;
+
 /**
- * 寄一封信。AgentMail 的送信端點帶 inbox id，認證用帳號層級的 API key——
- * 兩者是不同的東西，設定時很容易搞混。
+ * 寄一封信。
+ *
+ * AgentMail 的送信端點帶 inbox id，而認證用的是**帳號層級**的 API key——
+ * 兩者是不同的東西（`am_us_inbox_…` 是 inbox id，不是 key），設定時很容易搞混，
+ * 所以下面把兩者的缺漏分開報，錯誤訊息才指得出是哪一個沒設。
  */
 async function sendMail(env, to, mail) {
   const key = env.AGENTMAIL_API_KEY;
   const inbox = env.AGENTMAIL_INBOX_ID;
-  if (!key || !inbox) throw new Error('AGENTMAIL_API_KEY / AGENTMAIL_INBOX_ID 未設定');
+  if (!key) throw new Error('AGENTMAIL_API_KEY 未設定（帳號層級的 API key，非 inbox id）');
+  if (!inbox) throw new Error('AGENTMAIL_INBOX_ID 未設定（am_us_inbox_… 那一串）');
 
-  const r = await fetch(`https://api.agentmail.to/inboxes/${encodeURIComponent(inbox)}/messages/send`, {
+  const r = await fetch(AGENTMAIL_SEND(inbox), {
     method: 'POST',
     headers: { 'authorization': `Bearer ${key}`, 'content-type': 'application/json' },
+    // to 接受單一位址或陣列；其餘欄位規格上都是選填，但沒有內文的信沒有意義
     body: JSON.stringify({ to, subject: mail.subject, text: mail.text, html: mail.html })
   });
-  if (!r.ok) throw new Error(`AgentMail ${r.status}: ${(await r.text()).slice(0, 300)}`);
+  if (!r.ok) {
+    // 規格定義了 400/403/404/409 四種錯誤回應，訊息在 body 裡——
+    // 只記狀態碼的話，「inbox 不存在」與「key 無效」看起來會一模一樣
+    throw new Error(`AgentMail ${r.status}: ${(await r.text()).slice(0, 300)}`);
+  }
   return true;
 }
 

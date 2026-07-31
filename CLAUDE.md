@@ -286,6 +286,19 @@ commit(()=>{ /* 改資料 */ });   // → 重算年份 → 存檔 → renderAll(
 - `handleReminderPut` 只更新 digest、不動 `enabled`：推送是同步的副作用，不該把使用者關掉的提醒打開。
 - 需要兩個 secret：`AGENTMAIL_API_KEY`（帳號層級）與 `AGENTMAIL_INBOX_ID`（信箱層級）。**這兩個是不同的東西**，`am_us_inbox_…` 是後者不是前者，設定時很容易搞混。另有選填的 `APP_URL` 用於信中的連結。
 
+#### AgentMail 的端點路徑一定要帶 `/v0`
+
+```
+POST https://api.agentmail.to/v0/inboxes/{inbox_id}/messages/send
+Authorization: Bearer <API_KEY>
+```
+
+**版本前綴不可省略。** 官方文件正文與部分範例寫成 `https://api.agentmail.to/inboxes/…`（沒有前綴），照抄會 404——而 404 在 log 裡看起來像「inbox 不存在」，會往完全錯誤的方向查。以 <https://docs.agentmail.to/openapi.json> 為準：`servers` 是 `https://api.agentmail.to`，路徑本身帶 `/v0`。
+
+`tests/state.test.mjs` 的 cron 測試**比對完整 URL 字串**而不是只看結尾，就是為了讓這個前綴掉了會失敗（加測試後實際拿掉 `/v0` 驗證過它會紅）。
+
+`to` 依規格接受單一字串或字串陣列；`subject`／`text`／`html` 都是選填，錯誤回應（400/403/404/409）的訊息在 body 裡，因此失敗時要把 body 一起記下來——只記狀態碼的話，「key 無效」與「inbox 不存在」看起來一模一樣。
+
 ### 權限只有兩級
 
 - `view` — 唯讀
