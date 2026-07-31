@@ -3760,9 +3760,10 @@
     let idx = 0;
     while(curM <= maxDate){
       const x = xOf(curM);
-      const tick=document.createElement('div'); tick.className='gantt-month-tick'
+      // 不可命名為 tick——那是頂層的時鐘函式，同 scope 內會被遮蔽掉
+      const tickEl=document.createElement('div'); tickEl.className='gantt-month-tick'
         + (curM.getMonth()===0 ? ' year' : '');
-      tick.style.left=x+'px'; axis.appendChild(tick);
+      tickEl.style.left=x+'px'; axis.appendChild(tickEl);
       if(idx % zoom.labelEvery === 0){
         const lbl=document.createElement('div'); lbl.className='gantt-month-label'; lbl.style.left=x+'px';
         lbl.textContent = (curM.getMonth()===0 || idx===0)
