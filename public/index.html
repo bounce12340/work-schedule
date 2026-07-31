@@ -3909,7 +3909,8 @@
       function renderTodos(){
         todoBox.innerHTML='';
         t.todos.forEach(td=>{
-          const tr=document.createElement('div'); tr.className='todo-row';
+          // 不可命名為 tr——那是翻譯函式的名字，同一個 scope 內會把它遮蔽掉
+          const trow=document.createElement('div'); trow.className='todo-row';
           const tcb=document.createElement('span'); tcb.className='todo-cb'+(td.done?' done':''); tcb.textContent=td.done?'✓':'';
           const inp=document.createElement('input'); inp.type='text'; inp.value=td.text; inp.placeholder=tr('代辦項目內容');
           inp.className=td.done?'done':'';
@@ -3927,8 +3928,8 @@
             // 行數改變，照既有慣例走完整 commit()（deleteWithUndo 內部就是 commit）
             deleteWithUndo('代辦項目：'+(td.text||'未命名'), ()=>{ t.todos=t.todos.filter(x=>x.id!==td.id); syncTaskFromTodos(t); });
           };
-          tr.appendChild(tcb); tr.appendChild(inp); tr.appendChild(rm);
-          todoBox.appendChild(tr);
+          trow.appendChild(tcb); trow.appendChild(inp); trow.appendChild(rm);
+          todoBox.appendChild(trow);
         });
         const addTodo=document.createElement('button'); addTodo.className='add-todo-btn';
         addTodo.textContent = tr(t.todos.length ? '＋ 新增代辦項目' : '＋ 新增代辦項目（新增後進度改由完成比例自動計算）');
@@ -4302,7 +4303,8 @@
       if(t.todos.length){
         const box=document.createElement('div'); box.className='todo-list';
         t.todos.forEach(td=>{
-          const tr=document.createElement('div'); tr.className='todo-row';
+          // 同上，不可命名為 tr
+          const trow=document.createElement('div'); trow.className='todo-row';
           const tcb=document.createElement('span'); tcb.className='todo-cb'+(td.done?' done':''); tcb.textContent=td.done?'✓':'';
           const label=document.createElement('span'); label.style.flex='1'; label.style.fontSize='13px';
           label.textContent=td.text || '（未命名）';
@@ -4319,7 +4321,7 @@
                 syncProg(); refreshGanttChart(gp); }
             };
           } else { tcb.style.cursor='default'; tcb.title=tr('你只有檢視權限'); }
-          tr.appendChild(tcb); tr.appendChild(label); box.appendChild(tr);
+          trow.appendChild(tcb); trow.appendChild(label); box.appendChild(trow);
         });
         card.appendChild(box);
       }
