@@ -1207,6 +1207,8 @@
       // —— 儲存與同步 ——
       '已儲存':'Saved', '已同步':'Synced', '同步中…':'Syncing…',
       '離線，變更僅存本機':'Offline — changes saved on this device only',
+      '連線失敗，暫時只用本機資料（稍後重新整理再試）':
+        'Connection failed — using local data for now (reload to retry)',
       '⤓ 匯出備份':'⤓ Export', '⤒ 匯入備份':'⤒ Import',
       // —— 富文字工具列 ——
       '粗體 (Ctrl+B)':'Bold (Ctrl+B)', '斜體 (Ctrl+I)':'Italic (Ctrl+I)',
@@ -1518,6 +1520,8 @@
   // Claude Artifact 的沙盒 iframe 會封鎖 localStorage，存取時直接拋 SecurityError。
   // 因此所有存取一律包 try/catch，失敗就降級為純記憶體模式，不能讓整個 app 掛掉。
   const STORAGE_KEY = 'workSchedule.v1';
+  // 套用不了的存檔會被搬到這裡再讓啟動流程覆蓋，見 loadState()
+  const CORRUPT_KEY = 'workSchedule.v1.unreadable';
   const STORAGE_VERSION = 2;
   let storageAvailable = true;
 
@@ -1669,14 +1673,30 @@
   function loadState(){
     let raw = null;
     try{ raw = localStorage.getItem(STORAGE_KEY); }
-    catch(e){ storageAvailable = false; return false; }
-    if(!raw) return false;
-    try{
-      return applySnapshot(JSON.parse(raw));
-    }catch(e){
-      // 存檔毀損時不阻斷啟動，退回 seed 示範資料
-      return false;
+    catch(e){
+      // 沙盒 iframe 會擋 localStorage。功能照常，只是這一次開啟不會有存檔。
+      console.error('無法讀取本機存檔，改用記憶體模式', e && e.stack ? e.stack : String(e));
+      storageAvailable = false; return false;
     }
+    if(!raw) return false;      // 第一次開啟，不是錯誤
+
+    let applied = false, err = null;
+    try{ applied = applySnapshot(JSON.parse(raw)); }
+    catch(e){ err = e; }
+    if(applied) return true;
+
+    // 有存檔卻套用不了。兩種成因，後果一樣：
+    //   1. JSON 解析失敗——寫入被截斷（配額滿、寫到一半當掉）
+    //   2. applySnapshot 回 false——存檔版本比這個 build 還新，migrateSnapshot 拒絕
+    //
+    // 第 2 種是真的會發生的：使用者開到快取住的舊版頁面（或留著沒關的舊分頁），
+    // 而啟動流程接下來會 seed() 再 persist()，把那份**比較新的**資料直接蓋掉。
+    // 所以覆蓋前一定要先留一份，兩種情況都還有機會人工救回。
+    console.error('本機存檔無法套用，改以示範資料啟動；原始內容已備份到 localStorage 的 '
+      + CORRUPT_KEY, err && err.stack ? err.stack : (err ? String(err) : '版本比目前的程式新，或內容不完整'));
+    try{ localStorage.setItem(CORRUPT_KEY, raw); }
+    catch(e){ console.error('連備份都寫不進去（配額滿？），這份存檔即將被覆蓋', String(e)); }
+    return false;
   }
 
   // 每次都實際嘗試寫入，不拿 storageAvailable 當開關跳過：
@@ -1873,11 +1893,32 @@
 
   // 回 { user, state, updatedAt }。user 是伺服器順帶給的——這個端點本來就要
   // 有效 session 才進得來，不必再單獨打一次 /api/auth/me 問「我是誰」。
+  /**
+   * 取雲端資料。回傳 { kind, data?, error? }，四種結果**必須分得開**：
+   *
+   *   'ok'      拿到資料
+   *   'absent'  沒有這個端點（file:// 或未部署）→ 靜默降級，這是正常且預期的
+   *   'failed'  端點在、但這次失敗（5xx、網路中斷、回應不是 JSON）→ 不可靜默
+   *   'expired' session 過期，已導向登入頁
+   *
+   * 原本 `if(!r.ok) return null` 把 'absent' 與 'failed' 併成同一個值，於是
+   * 後端一次 502 就會靜默變成單機模式、狀態列被清空、console 一片乾淨——
+   * **畫面與「雙擊檔案離線開啟」完全一樣**，使用者以為還在同步，實際上變更
+   * 只留在本機。分不開的降級就是沉默的降級。
+   */
   async function cloudPull(){
-    const r = await fetch(API_STATE, { cache:'no-store' });
-    if(r.status === 401){ sessionExpired(); return null; }
-    if(!r.ok) return null;
-    return r.json();
+    let r;
+    try{
+      r = await fetch(API_STATE, { cache:'no-store' });
+    }catch(e){
+      // file:// 沒有伺服器可打，fetch 直接拒絕——那是「沒有後端」而不是故障
+      return { kind: location.protocol.startsWith('http') ? 'failed' : 'absent', error: e };
+    }
+    if(r.status === 401){ sessionExpired(); return { kind:'expired' }; }
+    if(r.status === 404) return { kind:'absent' };
+    if(!r.ok) return { kind:'failed', error: new Error('HTTP '+r.status) };
+    try{ return { kind:'ok', data: await r.json() }; }
+    catch(e){ return { kind:'failed', error: e }; }
   }
 
   async function cloudPush(){
@@ -2032,8 +2073,19 @@
     // 身分與資料一次拿齊。過去是先打 /api/auth/me 再打 /api/state：兩次串行
     // 網路往返、兩次 session 查詢，而後者的 401 傳達的就是前者要問的事。
     // 打不通（或根本沒有這個端點）就代表是單檔開啟，靜默降級。
-    let remote = null;
-    try{ remote = await cloudPull(); }catch(e){ remote = null; }
+    const res = await cloudPull();
+    if(res.kind === 'expired') return;                 // sessionExpired() 已經導向登入頁
+    if(res.kind === 'failed'){
+      // 降級可以，沉默不行：這裡與「單檔開啟」是兩件完全不同的事，
+      // 文案與 console 都要說得出差別，否則使用者只會看到「怎麼變單機了」。
+      console.error('雲端同步：取得雲端資料失敗，暫時只用本機資料',
+        res.error && res.error.stack ? res.error.stack : String(res.error));
+      cloudEnabled = false;
+      setCloudNote(tr('連線失敗，暫時只用本機資料（稍後重新整理再試）'), 'err');
+      updateStorageNote();
+      return;
+    }
+    const remote = res.kind === 'ok' ? res.data : null;
     if(!remote || !remote.user){ cloudEnabled = false; setCloudNote(''); updateStorageNote(); return; }
     const me = remote.user;
 
@@ -2259,13 +2311,49 @@
    * 而 occ.item 是 items[] 裡的活參照、occKey 也不隨重繪改變，所以即使這一列
    * 稍後被重建，變更仍然落在正確的項目上。
    */
+  /**
+   * 勾掉一列時，把那一列從未完成區搬走，而不是重建整個看板。
+   *
+   * 只處理最常見的那一種互動：**看板上的一列被勾成完成、且已完成區是收合的**。
+   * 其餘情況（取消勾選要插回正確位置、「只看未完成」要讓它整列消失、已完成區
+   * 展開時要維持日期排序、勾完之後一項不剩要換成完成畫面）一律回頭走完整重繪
+   * ——那些分支的規則寫在 renderBoard() 裡，在這裡複製一份遲早會走鐘。
+   *
+   * 回傳 true 代表已就地處理完，呼叫端就不必重繪。
+   */
+  function moveOccRowToDone(row){
+    if(hideDone || showDoneSection) return false;
+    const board=document.getElementById('board');
+    const doneSection=document.getElementById('doneSection');
+    const doneCount=document.getElementById('doneCount');
+    if(!board || !doneSection || !doneCount || !board.contains(row)) return false;
+    row.remove();
+    if(!board.querySelector('.occ-row')) return false;   // 一項不剩，交給完整重繪換成完成畫面
+    doneCount.textContent = String((parseInt(doneCount.textContent, 10) || 0) + 1);
+    doneSection.style.display='block';
+    return true;
+  }
+
   function toggleOccDone(occ, checkEl, labelEl){
     const next = !occ.done;
     occ.done = next;
     checkEl.classList.toggle('done', next); checkEl.textContent = next ? '✓' : '';
     if(labelEl) labelEl.classList.toggle('done', next);
-    requestAnimationFrame(()=> requestAnimationFrame(()=>
-      commit(()=> setOccurrenceDone(occ, next)) ));
+    const row = checkEl.closest ? checkEl.closest('.occ-row') : null;
+    requestAnimationFrame(()=> requestAnimationFrame(()=>{
+      setOccurrenceDone(occ, next);
+      refreshAvailableYears();
+      persist();
+      pushSoon();
+      // 只有這一列的歸屬變了，其餘每一列的內容完全沒動。整份重建會讓瀏覽器對
+      // 每一列重跑樣式計算與版面配置——實測 3247 列時光那部分就要 2.4 秒，
+      // 而 JS 本身只佔 130ms。換句話說，貴的不是重算資料，是重建 DOM。
+      if(next && row && currentView==='schedule' && moveOccRowToDone(row)){
+        renderMetrics(); renderReminderList();
+      } else {
+        renderAll();
+      }
+    }));
   }
   function skipOccurrence(occ){ occ.item.skipped = occ.item.skipped || {}; occ.item.skipped[occ.occKey] = true; }
   const WEEKDAYS = ['日','一','二','三','四','五','六'];
