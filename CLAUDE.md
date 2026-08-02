@@ -57,6 +57,17 @@ npm test               # occurrence 引擎測試（node:test，不需安裝任�
 
 本機開發需要 `.dev.vars`（已 gitignore），內含 Turnstile 官方測試金鑰與測試用 `ADMIN_EMAILS`。
 
+### PR 一律用 squash 合併
+
+已決定，不要再改回 rebase。兩者的差別只有這兩點，squash 的取捨是刻意的：
+
+| | GitHub 顯示 Verified | commit 的 author |
+|---|---|---|
+| rebase | ✗（GitHub 不簽 rebase merge） | Claude |
+| **squash** | **✓**（GitHub 以 web-flow 金鑰簽章） | 你，Claude 掛 `Co-authored-by` |
+
+合併後的 commit committer 一律是 `noreply@github.com`——**任何**在 GitHub 上按合併的方式都是如此。所以若有工具要求 committer 為某個特定 email，那個警告在這個 repo 永遠會叫，可以忽略，不要為了消掉它去 amend 已合併的 commit。
+
 **改完 `.dev.vars` 一定要完整重啟 dev server。** `wrangler dev` 只在啟動時讀一次該檔，而且 TaskStop 之類的終止方式殺不掉 wrangler 的子進程樹——留下的 workerd 孤兒會繼續佔住 port，造成「原始碼熱重載了、環境變數卻停在舊值」這種極難診斷的狀況（開發時實際踩過，繞很久）。重啟前先確認 port 真的空了：
 
 ```powershell
