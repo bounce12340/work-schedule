@@ -124,6 +124,8 @@ Local development doesn't need real keys; `.dev.vars` already uses Cloudflare's 
 - When both sides changed, they are **merged item by item** (for example you are editing while a colleague ticks something you shared with them); you are only asked to choose when the *same* item changed on both sides
 - Cloud writes use a database-level compare-and-swap, so simultaneous writes never silently discard somebody's changes
 - Falls back automatically when no API is detected (standalone) or local storage is blocked (Claude Artifact sandbox), with no loss of function
+- **The reason for falling back is distinguishable**: standalone is silent (there is no back end to begin with), but a back end that is temporarily unreachable says so — "Connection failed — using local data for now". If the two looked alike you would assume you were still syncing while changes stayed on this device
+- **An unusable local save is backed up before being overwritten**: if the save is corrupt, or newer than the page you have open (which happens with a browser-cached older version), the original is moved to `workSchedule.v1.unreadable` instead of being replaced by demo data
 - **Export / import backups**: dump everything to JSON from the page footer, or restore from a backup file
 - **Add to your phone's home screen**: PWA support after deployment, and it opens offline
 - **Calendar subscription (ICS)**: generate a private link and subscribe your schedule into Google or Apple Calendar — meetings carry their time, project tasks are date ranges, and it refreshes after every sync; the link can be regenerated or disabled at any time
@@ -147,8 +149,9 @@ src/turnstile.js       Turnstile siteverify
 src/handlers/          auth / state / admin / share APIs
 schema.sql             D1 tables
 wrangler.jsonc         Worker config and bindings
-tests/                 occurrence engine, three-way merge, optimistic locking (node:test, zero deps, npm test)
-tools/                 script that parses the official office calendar (yearly holiday updates)
+tests/                 occurrence engine, three-way merge, optimistic locking, rich-text filter, variable shadowing (node:test, zero deps, npm test)
+tools/                 smoke test, toggle-equivalence check, rich-text pipeline check (need Playwright, hence outside npm test)
+                       + script that parses the official office calendar (yearly holiday updates)
 public/sw.js           service worker (home screen / offline)
 ```
 
