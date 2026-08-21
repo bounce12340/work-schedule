@@ -8,17 +8,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```
 public/index.html      主應用（單檔，可直接雙擊開啟）
-public/login.html      登入／註冊（含 Turnstile）
+public/login.html      登入／註冊／忘記密碼（含 Turnstile）
+public/reset.html      從信裡的一次性連結設定新密碼
 public/admin.html      帳號管理（僅管理者）
 src/index.js           路由與存取控制
 src/crypto.js          PBKDF2 密碼雜湊、token 產生
 src/session.js         session 建立／查詢／銷毀
 src/turnstile.js       Turnstile siteverify
-src/handlers/          auth / state / admin / share 四組 API
+src/handlers/          auth / state / admin / share / password-reset 等 API
+src/mail.js            AgentMail 寄信（逾期提醒與密碼重設共用）
 schema.sql             D1 資料表
 wrangler.jsonc         Worker 設定與綁定
 tests/                 occurrence 引擎、三方合併、樂觀鎖、富文字、變數遮蔽（node:test，零相依）
-tools/                 開發用腳本：冒煙測試、勾選等價驗證、富文字管線驗證、語法檢查、解析官方辦公日曆表
+tools/                 開發用腳本：冒煙測試、勾選等價驗證、富文字管線驗證、語法檢查、密碼救援、解析官方辦公日曆表
 .github/workflows/ci.yml  驗證與自動部署（見〈CI 與自動部署〉）
 docs/postmortems/      事故紀錄（線上才會壞的坑，出過事就寫一份）
 docs/superpowers/specs/ 設計文件
@@ -506,8 +508,59 @@ Authorization: Bearer <API_KEY>
 | 註冊時 email 重複則明說 | 比照登入回模糊訊息會讓使用者卡在「註冊沒反應」 |
 | 未核准帳號登入時**不發 session** | 因此不需要 `/pending` 頁面，對方根本進不了站 |
 | 管理者不能變更自己的角色或狀態 | 避免手滑把自己降級，導致無人能管理系統 |
-| `ADMIN_EMAILS` 名單內的帳號無法從介面停用／降級／刪除 | 系統的最後保險，即使操作者是另一位管理者 |
+| `ADMIN_EMAILS` 名單內的帳號無法從介面停用／降級／刪除／重設密碼 | 系統的最後保險，即使操作者是另一位管理者 |
+| 但**自助重設不受這條限制**（見〈忘記密碼〉） | 名單防的是另一位管理者的橫向接管；收得到那封信等於證明自己是本人 |
 | 狀態一旦不是 `approved` 就銷毀該使用者所有 session | 否則對方在下次登入前仍能繼續使用，停用形同虛設 |
+
+### 忘記密碼：名單內的帳號原本會被鎖死
+
+`ADMIN_EMAILS` 名單內的帳號連管理者都不能重設密碼。那道保險本身是對的（重設密碼等於接管帳號），但它把「**本人**忘記密碼」也一起擋死了——四條路全部封閉：
+
+| 想走的路 | 結果 |
+|---|---|
+| 管理者按「重設密碼」 | 403「這是設定檔指定的管理者」 |
+| 自己用「變更密碼」 | 要先輸入舊密碼 |
+| 登入頁的「忘記密碼」 | 在這條路徑存在之前，沒有這個功能 |
+| 裝置還登著 | 一樣要舊密碼 |
+
+實際踩過：唯一的救法是去 Cloudflare 把那個 email 從 `ADMIN_EMAILS` 拿掉、重設、**再加回去**——而最後那一步一旦忘記，該帳號就永遠失去保護，畫面上完全看不出來。
+
+**自助重設刻意不檢查 `ADMIN_EMAILS`，而那不是在保險上打洞。** 名單防的是「另一位管理者」的**橫向**接管；收得到寄到該帳號信箱的信，等於**證明自己就是本人**，是直向的。兩者擋的東西不同。
+
+**代價要說清楚**：帳號安全從此綁在信箱安全上，信箱被盜等於帳號被盜。原本的設計沒有這個弱點，代價是忘記密碼就永遠打不開。這是取捨，不是純好處。
+
+`handlers/admin.js` 原本寫著「不做 email 寄信重設是刻意的：系統沒有寄信基礎設施」——那句話在接上 AgentMail 寄逾期提醒之後就過期了。**設計決定的前提會過期，改動前先確認它現在還成不成立。**
+
+兩支端點的濫用防線刻意不同：
+
+| 端點 | Turnstile | 為什麼 |
+|---|---|---|
+| `POST /api/auth/forgot` | **要** | 它會**寄信到別人的信箱**，是最典型的濫用目標 |
+| `POST /api/auth/reset` | **不要** | 憑證是連結裡的 256 位元 token，猜不到；這條路是使用者已經進不去時才走的，多一個 Turnstile 只是多一個會壞的東西 |
+
+其餘幾個不能拿掉的判斷：
+
+- **無論結果如何都回同一個 200。** 回「查無此 email」等於把這裡變成帳號列舉工具——登入失敗訊息刻意模糊也是同一個理由，不能自己在旁邊開一個後門。**寄信失敗也是回 200**（但一定要 `console.error`，理由見〈降級可以，沉默不行〉）。
+- **只有 `approved` 的帳號能重設。** 停用中的帳號能重設密碼的話，停用就形同虛設。
+- **索取新連結時刪掉舊的。** 留著的話，使用者以為「我重新要了一次」，先前那封信裡的連結卻還有效。
+- **`used_at` 標記已使用而不是刪除列**：連結被重複點（郵件用戶端預抓、按上一頁）時，「已經用過」與「查無此連結」要能分辨。
+- **密碼太短要退回，且不能消耗連結**——否則使用者打太短就得回信箱重新索取。
+- **重設成功後銷毀該使用者所有 session，且不順手發新的**：前提通常是「我進不去」或「我懷疑被盜」，留任何一個舊 session 等於重設完了對方還在裡面；讓他用新密碼真的登入一次，也才確認得了新密碼真的能用。
+
+`tests/reset.test.mjs` 涵蓋以上每一條。加測試時用突變驗證過它們真的抓得到 bug（拿掉 `used_at` 檢查、拿掉 `approved` 檢查、把 token 存成原文，三種都會紅）。
+
+### 破窗鎚：`npm run admin:reset`
+
+`tools/reset-password.mjs`，直接對 D1 改密碼並清 session，**不經過 Worker**：
+
+```bash
+node tools/reset-password.mjs someone@example.com --yes          # 遠端
+node tools/reset-password.mjs someone@example.com --yes --local  # 本機
+```
+
+它是「連寄信這條路都斷了」時才用的——AgentMail 掛掉、使用者的信箱本身進不去、或系統裡一個管理者都沒有。`--yes` 是刻意的：它會立刻改掉別人的密碼並把所有裝置登出，不該因為打錯一個指令就發生。
+
+`wrangler d1 execute` 只收 `--command`、沒有參數化介面，所以 SQL 是自己拼的——因此 `sqlQuote` / `buildSql` 抽成純函式並有測試（`tests/rescue.test.mjs`），不在指令中間硬拼。**改到 0 列會當成錯誤**：沒有這個檢查的話，email 打錯會安靜地什麼都沒發生，然後有人拿著一組永遠登不進去的密碼去問人。
 
 ### PBKDF2 迭代次數有平台硬上限（本機測不出來）
 

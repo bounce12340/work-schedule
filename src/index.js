@@ -4,6 +4,7 @@ import { handleListUsers, handleUpdateUser, handleDeleteUser, handleResetPasswor
 import { handleListShares, handleCreateShare, handleDeleteShare, handleUpdateShared, handleListActivity } from './handlers/share.js';
 import { handleIcsStatus, handleIcsEnable, handleIcsDisable, handleIcsPut, handleIcsFeed } from './handlers/ics.js';
 import { handleReminderStatus, handleReminderEnable, handleReminderPut, sendOverdueReminders } from './handlers/reminder.js';
+import { handleForgotPassword, handleResetPassword as handleSelfResetPassword } from './handlers/password-reset.js';
 import { getSessionUser } from './session.js';
 
 /**
@@ -70,6 +71,16 @@ async function route(request, env, ctx) {
   }
   if (path === '/api/auth/logout') {
     return request.method === 'POST' ? handleLogout(request, env) : methodNotAllowed();
+  }
+
+  // 忘記密碼也是公開端點——會走到這裡的人，定義上就是登不進來的人。
+  // 兩支的濫用防線不同：索取會寄信到別人的信箱，所以要真人驗證；
+  // 消費那一端的憑證是連結裡的 token 本身，多一道 Turnstile 只是多一個故障點。
+  if (path === '/api/auth/forgot') {
+    return request.method === 'POST' ? handleForgotPassword(request, env) : methodNotAllowed();
+  }
+  if (path === '/api/auth/reset') {
+    return request.method === 'POST' ? handleSelfResetPassword(request, env) : methodNotAllowed();
   }
 
   // 以下都需要有效 session

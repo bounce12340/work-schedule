@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light dark">
+<!-- 這個頁面刻意不讓搜尋引擎收錄：網址裡帶著一次性 token -->
+<meta name="robots" content="noindex, nofollow">
+<script>
+  // 與 index.html／login.html 共用同一個偏好鍵，暗色使用者不會在這裡突然被閃一下。
+  (function(){
+    var pref = null;
+    try{ pref = localStorage.getItem('workSchedule.v1.theme'); }catch(e){}
+    var dark = (pref === 'dark') || (pref !== 'light' &&
+      window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  })();
+</script>
+<title>設定新密碼 — 工作排程確認系統</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" media="print" onload="this.media='all';this.onload=null"
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700;900&display=swap">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700;900&display=swap"></noscript>
+<style>
+  /* 與 login.html 同一組變數與元件樣式。這兩頁是同一個流程的前後段，長相必須一致。 */
+  :root{
+    --bg:#F6F4EE; --panel:#FFFFFF; --panel-2:#F1EEE5;
+    --hairline:#E4E0D3; --text:#2A2A26; --text-muted:#71706A; --text-dim:#A2A099;
+    --amber:#C9822E; --amber-dim:rgba(201,130,46,0.12);
+    --teal:#1F8C68; --teal-dim:rgba(31,140,104,0.10);
+    --red:#C74B43; --red-dim:rgba(199,75,67,0.10);
+    --on-accent:#FFFDF9;
+    --mono:'JetBrains Mono',monospace; --sans:'Noto Sans TC','Inter',sans-serif;
+  }
+  :root[data-theme="dark"]{
+    color-scheme:dark;
+    --bg:#1A1917; --panel:#232220; --panel-2:#2B2A27;
+    --hairline:#3A3833;
+    --text:#E8E5DC; --text-muted:#A8A49A; --text-dim:#7A766D;
+    --on-accent:#17160F;
+    --amber:#E3A052; --amber-dim:rgba(227,160,82,0.16);
+    --teal:#3FBF92; --teal-dim:rgba(63,191,146,0.14);
+    --red:#E8756B; --red-dim:rgba(232,117,107,0.14);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;min-height:100vh;background:var(--bg);color:var(--text);font-family:var(--sans);
+       display:flex;align-items:center;justify-content:center;padding:24px;}
+  .card{width:100%;max-width:420px;background:var(--panel);border:1px solid var(--hairline);
+        border-radius:16px;padding:32px 28px;}
+  .eyebrow{font-family:var(--mono);font-size:10.5px;letter-spacing:.18em;color:var(--text-dim);
+           text-transform:uppercase;margin-bottom:6px;}
+  h1{margin:0 0 8px;font-size:21px;font-weight:700;letter-spacing:.01em;}
+  .lede{margin:0 0 22px;font-size:13px;line-height:1.7;color:var(--text-muted);}
+  .field{margin-bottom:15px;}
+  label{display:block;font-family:var(--mono);font-size:11px;letter-spacing:.06em;
+        color:var(--text-muted);margin-bottom:6px;}
+  input{width:100%;padding:11px 12px;border:1px solid var(--hairline);border-radius:8px;
+        background:var(--panel-2);color:var(--text);font-family:var(--sans);font-size:14px;}
+  input:focus{outline:none;border-color:var(--amber);background:var(--panel);}
+  .hint{font-family:var(--mono);font-size:10.5px;color:var(--text-dim);margin-top:5px;}
+  button.submit{width:100%;margin-top:6px;padding:12px;border:none;border-radius:9px;background:var(--amber);
+                color:var(--on-accent);font-family:var(--sans);font-size:14.5px;font-weight:700;cursor:pointer;}
+  button.submit:disabled{background:var(--text-dim);cursor:not-allowed;}
+  .msg{margin-top:16px;padding:11px 13px;border-radius:8px;font-size:13px;line-height:1.65;display:none;}
+  .msg.err{display:block;background:var(--red-dim);border:1px solid rgba(199,75,67,.3);color:var(--red);}
+  .msg.ok{display:block;background:var(--teal-dim);border:1px solid rgba(31,140,104,.3);color:var(--teal);}
+  .foot{margin-top:22px;text-align:center;font-family:var(--mono);font-size:10.5px;
+        color:var(--text-dim);line-height:1.8;}
+  .foot a{color:var(--amber);text-decoration:none;}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="eyebrow">Schedule Control Board</div>
+  <h1>設定新密碼</h1>
+  <p class="lede" id="lede">設定完成後，你目前登入的所有裝置都會登出，需要用新密碼重新登入。</p>
+
+  <form id="form" autocomplete="on">
+    <div class="field">
+      <label for="pw">新密碼</label>
+      <input type="password" id="pw" autocomplete="new-password" required>
+      <div class="hint">至少 10 個字元</div>
+    </div>
+    <div class="field">
+      <label for="pw2">再輸入一次</label>
+      <input type="password" id="pw2" autocomplete="new-password" required>
+    </div>
+    <button class="submit" id="submitBtn" type="submit">設定新密碼</button>
+  </form>
+
+  <div class="msg" id="msg"></div>
+
+  <div class="foot"><a href="/login">回到登入頁</a></div>
+</div>
+
+<script>
+(function(){
+  var form = document.getElementById('form');
+  var pw = document.getElementById('pw');
+  var pw2 = document.getElementById('pw2');
+  var btn = document.getElementById('submitBtn');
+  var msg = document.getElementById('msg');
+
+  function showMsg(text, kind){ msg.textContent = text; msg.className = 'msg ' + kind; }
+
+  // token 從網址帶進來。沒有 token 就不必讓使用者白填一輪表單才知道連結有問題。
+  var token = new URLSearchParams(location.search).get('token') || '';
+  if (!token) {
+    form.style.display = 'none';
+    document.getElementById('lede').textContent = '這個連結不完整。請回到登入頁重新索取一次重設連結。';
+    showMsg('網址裡沒有重設代碼', 'err');
+  }
+
+  form.onsubmit = async function(e){
+    e.preventDefault();
+    // 兩次不一致在前端就擋掉：這是打字錯誤，不值得跑一趟伺服器，而且送出去
+    // 就直接把連結消耗掉了（伺服器不會知道使用者其實打錯了）
+    if (pw.value !== pw2.value) { showMsg('兩次輸入的密碼不一樣', 'err'); return; }
+    if (pw.value.length < 10) { showMsg('密碼至少需要 10 個字元', 'err'); return; }
+
+    btn.disabled = true;
+    btn.textContent = '處理中…';
+    try {
+      var res = await fetch('/api/auth/reset', {
+        method:'POST',
+        headers:{'content-type':'application/json'},
+        body: JSON.stringify({ token: token, password: pw.value })
+      });
+      var data = await res.json().catch(function(){ return {}; });
+
+      if (res.ok) {
+        form.style.display = 'none';
+        showMsg((data.message || '密碼已更新') + '，3 秒後回到登入頁…', 'ok');
+        setTimeout(function(){ location.href = '/login'; }, 3000);
+        return;
+      }
+      // 回應不是 JSON 時 data 會是空物件，此時至少要把狀態碼顯示出來，
+      // 否則畫面上看不出任何線索（理由同 login.html）
+      showMsg(data.error || ('伺服器發生錯誤（HTTP ' + res.status + '），請稍後再試'), 'err');
+    } catch (err) {
+      showMsg('無法連線到伺服器，請檢查網路後再試', 'err');
+    }
+    btn.disabled = false;
+    btn.textContent = '設定新密碼';
+  };
+})();
+</script>
+</body>
+</html>
