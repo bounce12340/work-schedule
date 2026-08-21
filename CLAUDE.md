@@ -18,7 +18,8 @@ src/handlers/          auth / state / admin / share 四組 API
 schema.sql             D1 資料表
 wrangler.jsonc         Worker 設定與綁定
 tests/                 occurrence 引擎、三方合併、樂觀鎖、富文字、變數遮蔽（node:test，零相依）
-tools/                 開發用腳本：冒煙測試、勾選等價驗證、富文字管線驗證、解析官方辦公日曆表
+tools/                 開發用腳本：冒煙測試、勾選等價驗證、富文字管線驗證、語法檢查、解析官方辦公日曆表
+.github/workflows/ci.yml  驗證與自動部署（見〈CI 與自動部署〉）
 docs/postmortems/      事故紀錄（線上才會壞的坑，出過事就寫一份）
 docs/superpowers/specs/ 設計文件
 public/sw.js           service worker（加到主畫面／離線可用）
@@ -75,6 +76,26 @@ node tools/verify-richtext.mjs
 
 本機開發需要 `.dev.vars`（已 gitignore），內含 Turnstile 官方測試金鑰與測試用 `ADMIN_EMAILS`。
 
+### CI 與自動部署
+
+`.github/workflows/ci.yml`。三個 job，切法對應〈驗證方式〉那份清單：
+
+| job | 內容 | 何時跑 |
+|---|---|---|
+| `check` | `npm test`、`tools/check-syntax.mjs`、`wrangler deploy --dry-run` | 每個 PR 與 main |
+| `smoke` | `smoke.mjs`、`verify-toggle.mjs`、`verify-richtext.mjs`（要 Chromium） | 每個 PR 與 main |
+| `deploy` | `npx wrangler deploy`，完成後打一次線上 `/` 確認回 302 | 只有 push 到 `main` |
+
+幾個刻意的決定：
+
+- **`smoke` 與 `check` 分開**是為了回饋速度：`check` 幾秒就有結果，`smoke` 要裝 Playwright 與 Chromium（約 150MB）。合在一起的話，一個分號打錯也要等瀏覽器裝完才看得到。
+- **Playwright 用 `npm install --no-save`**，不進 `package.json`——零相依是專案前提，CI 容器用完就丟。
+- **`deploy` 要等 `smoke` 也綠**。記在〈驗證方式〉第 0 條的兩次事故，單元測試當時全部是綠的，只有在瀏覽器裡走過那條路徑才看得見；少了這道關卡，那兩次一樣會上線。
+- **部署後打一次線上 `/`**。`wrangler deploy` 回成功只代表**上傳**成功，Worker 啟動時丟例外的話回來的是 1101 而不是 302（register 那次事故就是這個形狀）。`run_worker_first` 保證 `/` 每次都經過 Worker，所以 302 是「有在跑、而且存取控制沒破」最省事的證據。
+- **`deploy` 的 concurrency 不取消進行中的部署**（其餘分支的 CI 會取消）。部署砍在半路會留下不確定的線上狀態，排隊等前一次做完才對。
+
+需要兩個 GitHub repository secret：`CLOUDFLARE_API_TOKEN`（用「Edit Cloudflare Workers」範本建立即可，不需要全帳號權限）與 `CLOUDFLARE_ACCOUNT_ID`。Worker 自己的 secret（`TURNSTILE_SECRET`、`AGENTMAIL_*`、`ADMIN_EMAILS`）不歸 CI 管，`wrangler deploy` 不會動到已經設定好的值。
+
 ### PR 一律用 squash 合併
 
 已決定，不要再改回 rebase。兩者的差別只有這兩點，squash 的取捨是刻意的：
@@ -98,7 +119,7 @@ Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.Comm
 
 0. **凡是新增「前端呼叫的函式」，一定要在瀏覽器裡把那條路徑真的走一次。** `npm test` 與 `node --check` 都抓不到「函式根本沒被定義」——前者不碰前端整合，後者只驗語法。逾期提醒就是這樣上線的：前端區段整段沒進檔案，`pushReminderSoon` 從未定義，而後端 API、cron、單元測試全部是綠的。症狀是登入後顯示「初始化失敗，僅使用本機資料」。
 1. **動到 occurrence 引擎（日期／循環／假日／單次覆寫）一律先跑 `npm test`。** 測試直接從 `public/index.html` 抽出真正的原始碼求值，不是複製一份——複製一份出來測，測的是副本而不是實際跑的程式，那比沒有測試更糟。
-2. 前端語法檢查——抽出 `<script>` 內容後 `node --check`
+2. 前端語法檢查——`node tools/check-syntax.mjs`（抽出三個 HTML 與 sw.js 的 inline script 編譯一次，錯誤直接指出 HTML 的行號）
 3. `npx wrangler deploy --dry-run` 驗證 wrangler 設定
 4. 起 `npm run dev`，用瀏覽器實際操作四個頁籤，確認 console 無錯誤
 
@@ -109,6 +130,8 @@ Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.Comm
 | `tools/smoke.mjs` | 四個頁籤 × 中英文 × 單檔／已登入共四輪，零 pageerror、零 console.error、每頁關鍵錨點存在 | **任何前端改動**。第 0 條的自動化版本 |
 | `tools/verify-toggle.mjs` | 勾選的就地更新與完整重繪結果完全相同 | 動到 `renderBoard()` 或 `moveOccRowToDone()` |
 | `tools/verify-richtext.mjs` | 富文字過濾器的整條管線（含 DOM 走訪）擋得住 16 種攻擊向量 | 動到富文字 |
+
+（`tools/check-syntax.mjs` 不在這張表裡：它零相依、跑不到一秒，已經放進 CI 的 `check` job 與上面〈驗證方式〉第 2 條。）
 
 `smoke.mjs` **兩種後端狀態都要跑**不是多餘的：逾期提醒那次事故只在登入後才踩得到（`runCloudSync` 才會呼叫到缺失的函式），只測單檔開啟會整條漏掉。實際驗證過——把 `reminderEnabled` 改名重現那次事故，單檔兩輪全綠、已登入兩輪才紅。
 
