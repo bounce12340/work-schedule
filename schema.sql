@@ -122,3 +122,30 @@ CREATE TABLE IF NOT EXISTS reminder_feed (
 );
 
 CREATE INDEX IF NOT EXISTS idx_reminder_enabled ON reminder_feed(enabled);
+
+-- 密碼重設的一次性 token。
+--
+-- 為什麼需要這張表：ADMIN_EMAILS 名單內的帳號**連管理者都不能重設密碼**（那是
+-- 防止另一位管理者橫向接管帳號的最後保險）。但那道保險把「本人忘記密碼」也一起
+-- 擋死了——四條路全部封閉：管理者重設回 403、變更密碼要輸入舊密碼、登入頁沒有
+-- 忘記密碼、就算裝置還登著也一樣。實際踩過：唯一的救法是去改 Cloudflare 的環境
+-- 變數，而那個繞路本身也有地雷（把人從名單拿掉之後忘記加回去，防線就靜靜消失）。
+--
+-- 自助重設**不會在那道保險上打洞**，因為它擋的是完全不同的東西：名單防的是
+-- 「另一個管理者」的橫向接管，而收得到這封信等於證明自己就是帳號本人。因此
+-- 這條路徑刻意**不檢查 ADMIN_EMAILS**。
+--
+-- token 只存 SHA-256：這張表外洩時，裡面的值不能直接拿去重設別人的密碼。
+-- 與 sessions、ics_feed 同一個原則。
+--
+-- used_at 標記已使用而不是直接刪除：連結被重複點（郵件用戶端預抓、使用者按上一頁）
+-- 時，「這個連結已經用過了」與「查無此連結」要能分辨，才給得出看得懂的訊息。
+CREATE TABLE IF NOT EXISTS password_resets (
+  token_hash TEXT PRIMARY KEY,
+  user_id    TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  used_at    INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id, created_at);

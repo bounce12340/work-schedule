@@ -1,0 +1,136 @@
+# 驗證與部署。
+#
+# 分成三個 job，切法直接對應 CLAUDE.md〈驗證方式〉那份清單：
+#
+#   check    零相依、幾秒鐘就跑完的靜態檢查（測試、語法、wrangler 設定）
+#   smoke    要開瀏覽器的整合驗證，慢得多，所以獨立成一個 job 平行跑
+#   deploy   兩者都綠、而且是 main 分支才部署
+#
+# 為什麼 smoke 要獨立：它得裝 Playwright 與 Chromium（約 150MB），而 check 只要
+# 幾秒。合在一起的話，一個分號打錯也要等瀏覽器裝完才看得到結果。
+#
+# 為什麼 deploy 要等兩個都過：CLAUDE.md 記著兩次事故——逾期提醒的前端區段整段
+# 沒進檔案、以及區域變數遮蔽翻譯函式——兩次的單元測試都是綠的，只有實際在瀏覽器
+# 裡走過那條路徑才看得見。少了 smoke 這道關卡，那兩次一樣會上線。
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# 預設只給讀取權限。這個 workflow 不需要寫回 repo，多給的權限只是多一個洞。
+permissions:
+  contents: read
+
+concurrency:
+  # 同一個分支上連續推兩次時，取消還在跑的舊 CI——結果本來就會被新的取代。
+  # 但 main 上的部署不能取消：deploy 跑到一半被砍會留下不確定的線上狀態，
+  # 所以下面的 deploy job 另外用自己的 concurrency group。
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  check:
+    name: 測試與靜態檢查
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # tests/d1.mjs 用 node:sqlite。它在 Node 22.5 之前需要 --experimental-sqlite
+          # 旗標，22.5 起免旗標，因此下限卡在這裡；本機開發也是 22.x，讓兩邊一致。
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      # 五個測試檔。occurrence 引擎與富文字是從 public/index.html 抽真正的原始碼
+      # 求值，所以這一步同時也在確認那些區段註解還在（找不到區段會直接失敗）。
+      - name: 單元測試
+        run: npm test
+
+      # CLAUDE.md〈驗證方式〉第 2 條。抽出 inline script 編譯一次，只驗語法。
+      - name: 前端語法檢查
+        run: node tools/check-syntax.mjs
+
+      # 第 3 條。dry-run 不需要任何憑證，純粹驗 wrangler.jsonc 與 bindings 寫得對不對。
+      - name: wrangler 設定檢查
+        run: npx wrangler deploy --dry-run
+
+  smoke:
+    name: 瀏覽器冒煙測試
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      # --no-save 是刻意的：**零相依是這個專案的前提**，Playwright 不能進
+      # package.json。CI 的容器是用完就丟的，裝在裡面不影響 repo。
+      - name: 安裝 Playwright（不寫進 package.json）
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+
+      # 四輪：單檔開啟／已登入 × 中文／英文。零 pageerror、零 console.error 才算過。
+      # 兩種後端狀態都要跑不是多餘的——第一次事故只在登入後才踩得到。
+      - name: 冒煙測試（四個頁籤 × 中英文 × 單檔／已登入）
+        run: node tools/smoke.mjs
+
+      # 勾選的就地更新必須與完整重繪得到完全相同的 DOM。
+      - name: 勾選等價驗證
+        run: node tools/verify-toggle.mjs
+
+      # 富文字過濾器的整條管線（含 DOM 走訪）擋不擋得住 16 種攻擊向量。
+      # 這是安全邊界，不是排版工具，所以放在每一次 PR 都會跑的地方。
+      - name: 富文字管線驗證
+        run: node tools/verify-richtext.mjs
+
+  deploy:
+    name: 部署到 Cloudflare
+    needs: [check, smoke]
+    # 只有 main 才部署。PR 上跑前兩個 job 就好——PR 的 head 部署上去會直接蓋掉線上版本。
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    # 部署不能被後來的推送取消：砍在半路會留下不確定的線上狀態。排隊等前一次做完才對。
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      - name: wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler deploy
+
+      # 部署完直接打一次線上端點確認它真的活著。wrangler 回成功只代表上傳成功，
+      # 不代表 Worker 跑得起來——啟動時就丟例外的話，回來的會是 1101 而不是 302。
+      #
+      # / 未登入時必定 302 到 /login（wrangler.jsonc 的 run_worker_first 保證每次都
+      # 經過 Worker），所以 302 是「Worker 有在跑而且存取控制沒破」最省事的證據。
+      - name: 確認線上還活著
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' \
+            https://work-schedule.bounceto12340.workers.dev/)
+          echo "GET / → $code"
+          if [ "$code" != "302" ]; then
+            echo "::error::預期 302（導向 /login），實際 $code——部署可能壞了"
+            exit 1
+          fi

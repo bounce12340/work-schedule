@@ -4,21 +4,26 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 專案性質
 
-前端是**零依賴的單一 HTML 檔** `public/index.html`（約 1700 行，CSS + HTML + JavaScript 全在裡面），可以獨立雙擊開啟運作；後端是 Cloudflare Worker + D1，只在部署後才啟用。
+前端是**零依賴的單一 HTML 檔** `public/index.html`（約 4800 行，CSS + HTML + JavaScript 全在裡面），可以獨立雙擊開啟運作；後端是 Cloudflare Worker + D1，只在部署後才啟用。
 
 ```
 public/index.html      主應用（單檔，可直接雙擊開啟）
-public/login.html      登入／註冊（含 Turnstile）
+public/login.html      登入／註冊／忘記密碼（含 Turnstile）
+public/reset.html      從信裡的一次性連結設定新密碼
 public/admin.html      帳號管理（僅管理者）
 src/index.js           路由與存取控制
 src/crypto.js          PBKDF2 密碼雜湊、token 產生
 src/session.js         session 建立／查詢／銷毀
 src/turnstile.js       Turnstile siteverify
-src/handlers/          auth / state / admin / share 四組 API
+src/handlers/          auth / state / admin / share / password-reset 等 API
+src/mail.js            AgentMail 寄信（逾期提醒與密碼重設共用）
 schema.sql             D1 資料表
 wrangler.jsonc         Worker 設定與綁定
 tests/                 occurrence 引擎、三方合併、樂觀鎖、富文字、變數遮蔽（node:test，零相依）
-tools/                 開發用腳本：冒煙測試、勾選等價驗證、富文字管線驗證、解析官方辦公日曆表
+tools/                 開發用腳本：冒煙測試、勾選等價驗證、富文字管線驗證、語法檢查、密碼救援、解析官方辦公日曆表
+.github/workflows/ci.yml  驗證與自動部署（見〈CI 與自動部署〉）
+docs/postmortems/      事故紀錄（線上才會壞的坑，出過事就寫一份）
+docs/superpowers/specs/ 設計文件
 public/sw.js           service worker（加到主畫面／離線可用）
 public/manifest.webmanifest, public/icon*.png|svg
 ```
@@ -52,10 +57,46 @@ npm run dev            # wrangler dev，本機起 Worker + 靜態資產
 npm run db:init:local  # 對本機 miniflare D1 建表（--local 的資料庫與遠端各自獨立）
 npm run db:init        # 對遠端 D1 建表
 npm run deploy         # 部署
-npm test               # occurrence 引擎測試（node:test，不需安裝任何東西）
+npm test               # 全部五個測試檔（node:test，不需安裝任何東西；目前 105 個測試）
+```
+
+跑單一測試檔或單一測試（`npm test` 沒有轉發參數的管道，直接用 node）：
+
+```bash
+node --test tests/occurrence.test.mjs
+node --test --test-name-pattern '樂觀鎖' tests/state.test.mjs
+```
+
+`tools/` 底下的三支瀏覽器驗證腳本各自起一個臨時 http server，直接執行即可；Playwright 不是本專案的相依套件（零相依是前提），需要時才自行安裝：
+
+```bash
+npx playwright install chromium        # 或設 PLAYWRIGHT_CHROMIUM 指向現成的 binary
+node tools/smoke.mjs                   # 也吃 PORT 環境變數（預設 8963/8964/8951）
+node tools/verify-toggle.mjs
+node tools/verify-richtext.mjs
 ```
 
 本機開發需要 `.dev.vars`（已 gitignore），內含 Turnstile 官方測試金鑰與測試用 `ADMIN_EMAILS`。
+
+### CI 與自動部署
+
+`.github/workflows/ci.yml`。三個 job，切法對應〈驗證方式〉那份清單：
+
+| job | 內容 | 何時跑 |
+|---|---|---|
+| `check` | `npm test`、`tools/check-syntax.mjs`、`wrangler deploy --dry-run` | 每個 PR 與 main |
+| `smoke` | `smoke.mjs`、`verify-toggle.mjs`、`verify-richtext.mjs`（要 Chromium） | 每個 PR 與 main |
+| `deploy` | `npx wrangler deploy`，完成後打一次線上 `/` 確認回 302 | 只有 push 到 `main` |
+
+幾個刻意的決定：
+
+- **`smoke` 與 `check` 分開**是為了回饋速度：`check` 幾秒就有結果，`smoke` 要裝 Playwright 與 Chromium（約 150MB）。合在一起的話，一個分號打錯也要等瀏覽器裝完才看得到。
+- **Playwright 用 `npm install --no-save`**，不進 `package.json`——零相依是專案前提，CI 容器用完就丟。
+- **`deploy` 要等 `smoke` 也綠**。記在〈驗證方式〉第 0 條的兩次事故，單元測試當時全部是綠的，只有在瀏覽器裡走過那條路徑才看得見；少了這道關卡，那兩次一樣會上線。
+- **部署後打一次線上 `/`**。`wrangler deploy` 回成功只代表**上傳**成功，Worker 啟動時丟例外的話回來的是 1101 而不是 302（register 那次事故就是這個形狀）。`run_worker_first` 保證 `/` 每次都經過 Worker，所以 302 是「有在跑、而且存取控制沒破」最省事的證據。
+- **`deploy` 的 concurrency 不取消進行中的部署**（其餘分支的 CI 會取消）。部署砍在半路會留下不確定的線上狀態，排隊等前一次做完才對。
+
+需要兩個 GitHub repository secret：`CLOUDFLARE_API_TOKEN`（用「Edit Cloudflare Workers」範本建立即可，不需要全帳號權限）與 `CLOUDFLARE_ACCOUNT_ID`。Worker 自己的 secret（`TURNSTILE_SECRET`、`AGENTMAIL_*`、`ADMIN_EMAILS`）不歸 CI 管，`wrangler deploy` 不會動到已經設定好的值。
 
 ### PR 一律用 squash 合併
 
@@ -80,7 +121,7 @@ Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.Comm
 
 0. **凡是新增「前端呼叫的函式」，一定要在瀏覽器裡把那條路徑真的走一次。** `npm test` 與 `node --check` 都抓不到「函式根本沒被定義」——前者不碰前端整合，後者只驗語法。逾期提醒就是這樣上線的：前端區段整段沒進檔案，`pushReminderSoon` 從未定義，而後端 API、cron、單元測試全部是綠的。症狀是登入後顯示「初始化失敗，僅使用本機資料」。
 1. **動到 occurrence 引擎（日期／循環／假日／單次覆寫）一律先跑 `npm test`。** 測試直接從 `public/index.html` 抽出真正的原始碼求值，不是複製一份——複製一份出來測，測的是副本而不是實際跑的程式，那比沒有測試更糟。
-2. 前端語法檢查——抽出 `<script>` 內容後 `node --check`
+2. 前端語法檢查——`node tools/check-syntax.mjs`（抽出三個 HTML 與 sw.js 的 inline script 編譯一次，錯誤直接指出 HTML 的行號）
 3. `npx wrangler deploy --dry-run` 驗證 wrangler 設定
 4. 起 `npm run dev`，用瀏覽器實際操作四個頁籤，確認 console 無錯誤
 
@@ -91,6 +132,8 @@ Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.Comm
 | `tools/smoke.mjs` | 四個頁籤 × 中英文 × 單檔／已登入共四輪，零 pageerror、零 console.error、每頁關鍵錨點存在 | **任何前端改動**。第 0 條的自動化版本 |
 | `tools/verify-toggle.mjs` | 勾選的就地更新與完整重繪結果完全相同 | 動到 `renderBoard()` 或 `moveOccRowToDone()` |
 | `tools/verify-richtext.mjs` | 富文字過濾器的整條管線（含 DOM 走訪）擋得住 16 種攻擊向量 | 動到富文字 |
+
+（`tools/check-syntax.mjs` 不在這張表裡：它零相依、跑不到一秒，已經放進 CI 的 `check` job 與上面〈驗證方式〉第 2 條。）
 
 `smoke.mjs` **兩種後端狀態都要跑**不是多餘的：逾期提醒那次事故只在登入後才踩得到（`runCloudSync` 才會呼叫到缺失的函式），只測單檔開啟會整條漏掉。實際驗證過——把 `reminderEnabled` 改名重現那次事故，單檔兩輪全綠、已登入兩輪才紅。
 
@@ -112,11 +155,40 @@ UI 類的改動（版面、行動版、主題）**必須真的用瀏覽器看過
 
 | 行數範圍 | 內容 |
 |---|---|
-| 9–289 | `<style>`。`:root` 的 CSS 變數是所有顏色的唯一來源 |
-| 291–511 | `<body>` 靜態骨架。**所有 modal 都預先寫死在 markup 裡**，靠 `.overlay` 的 class 切換顯示 |
-| 512–1694 | 單一 `<script>`，整段包在一個 IIFE 內 |
+| 15–26 | `<head>` 內的**開機腳本**（見下方說明），唯一在主 IIFE 之外的 JS |
+| 41–675 | `<style>`。`:root` 的 CSS 變數是所有顏色的唯一來源，`[data-theme="dark"]` 覆寫同一組變數 |
+| 677–1064 | `<body>` 靜態骨架。**所有 modal 都預先寫死在 markup 裡**，靠 `.overlay` 的 class 切換顯示 |
+| 1065–4774 | 單一 `<script>`，整段包在一個 IIFE 內 |
+
+行號會隨改動漂移，別當精確座標用。要定位某個功能請找區段註解（`// ================= 名稱 =================`），`grep -n '^\s*// =\+ .* =\+$' public/index.html` 會列出全部 27 個。
 
 因為全部包在 IIFE 裡，**沒有任何東西暴露在 global scope**——所以不能用 inline `onclick="..."` 屬性，事件一律在 JS 內用 `.onclick = fn` 綁定。新增 UI 時請沿用此模式。
+
+### `<head>` 的開機腳本是刻意的例外
+
+`<head>` 裡那段 IIFE 只做一件事：讀 `workSchedule.v1.theme` 並把結果寫成 `<html data-theme>`。**它必須在 `<style>` 與 `<body>` 之前執行**，否則暗色使用者每次載入都會先閃一下亮色底再切過去。放進主 script 就晚了——那時候畫面已經畫過一次。
+
+它同樣不暴露任何全域變數，也不碰 IIFE 內的東西，所以與上面那條規則不衝突。字型 link 的 inline `onload`（只碰 `this`）是同一類例外，理由記在〈字型不阻擋首次繪製〉。
+
+### 顯示偏好不進 `snapshot()`
+
+主題與語言是**這台裝置的顯示偏好，不是排程資料**，各自存自己的 localStorage key。跟著雲端同步走的話，在桌機切成暗色會連手機一起變。
+
+| key | 內容 |
+|---|---|
+| `workSchedule.v1` | 排程資料本體（`snapshot()` 的序列化結果） |
+| `workSchedule.v1.unreadable` | 套用不了的存檔備份（見〈儲存層的三個設計約束〉第 4 點） |
+| `workSchedule.v1.cloudMeta` | 雲端同步的版本號、`owner` 與 `baseSnapshot` |
+| `workSchedule.v1.theme` / `.lang` | 主題／語言偏好 |
+| `workSchedule.v1.rtToolbar` / `.activitySeen` | 富文字工具列展開狀態、操作記錄已讀位置 |
+
+主題只在使用者**沒有手動選過**時跟隨系統（`prefers-color-scheme` 的 change 監聽器會先檢查 `readThemePref()`）；選過之後系統再怎麼切都以使用者的決定為準。新增顏色一律加進 `:root` 與 `[data-theme="dark"]` **兩組**變數，不要在個別選擇器裡硬寫色碼——漏掉暗色那一組的症狀是「白天看起來正常，暗色模式下某一塊變成看不見的低對比」。
+
+### 刪除一律走 `deleteWithUndo()`
+
+刪除不用 `confirm()` 攔截——攔截式對話框擋不住「按太快」，事後復原才擋得住。`deleteWithUndo(desc, mutate)` 先拍一份 `snapshot()` 再 `commit(mutate)`，並顯示 6 秒的復原 toast；復原就是把整份快照 `applySnapshot()` 回去。
+
+**整份還原是刻意的取捨**：逐項還原的閉包版本更精緻，但整份還原用的是既有且測過的 `applySnapshot()` 機制。代價是復原也會撤銷這幾秒內的其他小變更，以刪除到復原的間隔而言可以接受。新增刪除操作時請沿用這個函式，不要自己 `commit(()=>{ ... })` 了事——那樣就沒有復原了。
 
 ## 核心架構：occurrence 引擎
 
@@ -436,8 +508,59 @@ Authorization: Bearer <API_KEY>
 | 註冊時 email 重複則明說 | 比照登入回模糊訊息會讓使用者卡在「註冊沒反應」 |
 | 未核准帳號登入時**不發 session** | 因此不需要 `/pending` 頁面，對方根本進不了站 |
 | 管理者不能變更自己的角色或狀態 | 避免手滑把自己降級，導致無人能管理系統 |
-| `ADMIN_EMAILS` 名單內的帳號無法從介面停用／降級／刪除 | 系統的最後保險，即使操作者是另一位管理者 |
+| `ADMIN_EMAILS` 名單內的帳號無法從介面停用／降級／刪除／重設密碼 | 系統的最後保險，即使操作者是另一位管理者 |
+| 但**自助重設不受這條限制**（見〈忘記密碼〉） | 名單防的是另一位管理者的橫向接管；收得到那封信等於證明自己是本人 |
 | 狀態一旦不是 `approved` 就銷毀該使用者所有 session | 否則對方在下次登入前仍能繼續使用，停用形同虛設 |
+
+### 忘記密碼：名單內的帳號原本會被鎖死
+
+`ADMIN_EMAILS` 名單內的帳號連管理者都不能重設密碼。那道保險本身是對的（重設密碼等於接管帳號），但它把「**本人**忘記密碼」也一起擋死了——四條路全部封閉：
+
+| 想走的路 | 結果 |
+|---|---|
+| 管理者按「重設密碼」 | 403「這是設定檔指定的管理者」 |
+| 自己用「變更密碼」 | 要先輸入舊密碼 |
+| 登入頁的「忘記密碼」 | 在這條路徑存在之前，沒有這個功能 |
+| 裝置還登著 | 一樣要舊密碼 |
+
+實際踩過：唯一的救法是去 Cloudflare 把那個 email 從 `ADMIN_EMAILS` 拿掉、重設、**再加回去**——而最後那一步一旦忘記，該帳號就永遠失去保護，畫面上完全看不出來。
+
+**自助重設刻意不檢查 `ADMIN_EMAILS`，而那不是在保險上打洞。** 名單防的是「另一位管理者」的**橫向**接管；收得到寄到該帳號信箱的信，等於**證明自己就是本人**，是直向的。兩者擋的東西不同。
+
+**代價要說清楚**：帳號安全從此綁在信箱安全上，信箱被盜等於帳號被盜。原本的設計沒有這個弱點，代價是忘記密碼就永遠打不開。這是取捨，不是純好處。
+
+`handlers/admin.js` 原本寫著「不做 email 寄信重設是刻意的：系統沒有寄信基礎設施」——那句話在接上 AgentMail 寄逾期提醒之後就過期了。**設計決定的前提會過期，改動前先確認它現在還成不成立。**
+
+兩支端點的濫用防線刻意不同：
+
+| 端點 | Turnstile | 為什麼 |
+|---|---|---|
+| `POST /api/auth/forgot` | **要** | 它會**寄信到別人的信箱**，是最典型的濫用目標 |
+| `POST /api/auth/reset` | **不要** | 憑證是連結裡的 256 位元 token，猜不到；這條路是使用者已經進不去時才走的，多一個 Turnstile 只是多一個會壞的東西 |
+
+其餘幾個不能拿掉的判斷：
+
+- **無論結果如何都回同一個 200。** 回「查無此 email」等於把這裡變成帳號列舉工具——登入失敗訊息刻意模糊也是同一個理由，不能自己在旁邊開一個後門。**寄信失敗也是回 200**（但一定要 `console.error`，理由見〈降級可以，沉默不行〉）。
+- **只有 `approved` 的帳號能重設。** 停用中的帳號能重設密碼的話，停用就形同虛設。
+- **索取新連結時刪掉舊的。** 留著的話，使用者以為「我重新要了一次」，先前那封信裡的連結卻還有效。
+- **`used_at` 標記已使用而不是刪除列**：連結被重複點（郵件用戶端預抓、按上一頁）時，「已經用過」與「查無此連結」要能分辨。
+- **密碼太短要退回，且不能消耗連結**——否則使用者打太短就得回信箱重新索取。
+- **重設成功後銷毀該使用者所有 session，且不順手發新的**：前提通常是「我進不去」或「我懷疑被盜」，留任何一個舊 session 等於重設完了對方還在裡面；讓他用新密碼真的登入一次，也才確認得了新密碼真的能用。
+
+`tests/reset.test.mjs` 涵蓋以上每一條。加測試時用突變驗證過它們真的抓得到 bug（拿掉 `used_at` 檢查、拿掉 `approved` 檢查、把 token 存成原文，三種都會紅）。
+
+### 破窗鎚：`npm run admin:reset`
+
+`tools/reset-password.mjs`，直接對 D1 改密碼並清 session，**不經過 Worker**：
+
+```bash
+node tools/reset-password.mjs someone@example.com --yes          # 遠端
+node tools/reset-password.mjs someone@example.com --yes --local  # 本機
+```
+
+它是「連寄信這條路都斷了」時才用的——AgentMail 掛掉、使用者的信箱本身進不去、或系統裡一個管理者都沒有。`--yes` 是刻意的：它會立刻改掉別人的密碼並把所有裝置登出，不該因為打錯一個指令就發生。
+
+`wrangler d1 execute` 只收 `--command`、沒有參數化介面，所以 SQL 是自己拼的——因此 `sqlQuote` / `buildSql` 抽成純函式並有測試（`tests/rescue.test.mjs`），不在指令中間硬拼。**改到 0 列會當成錯誤**：沒有這個檢查的話，email 打錯會安靜地什麼都沒發生，然後有人拿著一組永遠登不進去的密碼去問人。
 
 ### PBKDF2 迭代次數有平台硬上限（本機測不出來）
 
@@ -554,7 +677,7 @@ DOM 建構有兩種寫法，請依情境沿用：
 | 曾經懷疑 | 實測 | 結論 |
 |---|---|---|
 | `commit()` 每次序列化整份 state | 300 項時 `JSON.stringify` 1.10ms ＋ `setItem` 0.40ms | 佔不到勾選成本的 3% |
-| 傳輸量太大 | 197KB 的 `index.html` 經 brotli 約 50KB，`content-encoding: br` 已生效 | 已是最佳 |
+| 傳輸量太大 | `index.html`（當時 197KB）經 brotli 約 50KB，`content-encoding: br` 已生效 | 已是最佳 |
 | `getSessionUser` 查兩次 | 本來就是單一 JOIN | 沒有浪費 |
 | D1 讀取複本 | 資料庫在 APAC、使用者也在台灣 | 開複本只幫得到遠端使用者，目前沒有 |
 
@@ -624,7 +747,7 @@ class 命名沿用 `type-<type>`（列）與 `type-badge <type>`（徽章）；�
 
 ## 尚未做的重構
 
-約 1180 行 JS 目前仍在單一 IIFE 內，靠區段註解分隔。收攏成 `DateUtil`／`OccurrenceEngine`／`Store`／各 View 的 namespace 物件是合理的下一步。occurrence 引擎現在有測試護著，重構它相對安全；其餘部分仍然沒有網，**不該和功能修改混在同一批做**——會讓 diff 大到無法人工審查。要做就單獨一個 commit，且不夾帶任何行為變更。
+約 3700 行 JS 目前仍在單一 IIFE 內，靠區段註解分隔。收攏成 `DateUtil`／`OccurrenceEngine`／`Store`／各 View 的 namespace 物件是合理的下一步。occurrence 引擎現在有測試護著，重構它相對安全；其餘部分仍然沒有網，**不該和功能修改混在同一批做**——會讓 diff 大到無法人工審查。要做就單獨一個 commit，且不夾帶任何行為變更。
 
 注意 `tests/occurrence.test.mjs` 是靠區段註解（`// ================= 名稱 =================`）定位原始碼的。重構時若改動區段名稱，測試會直接失敗並指出找不到哪一個區段——這是刻意的，不要改成靜默跳過。
 

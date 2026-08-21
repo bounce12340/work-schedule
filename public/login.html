@@ -66,6 +66,10 @@
         background:var(--panel-2);color:var(--text);font-family:var(--sans);font-size:14px;}
   input:focus{outline:none;border-color:var(--amber);background:var(--panel);}
   .hint{font-family:var(--mono);font-size:10.5px;color:var(--text-dim);margin-top:5px;}
+  .forgot{margin-top:7px;text-align:right;}
+  .forgot button{background:none;border:none;padding:0;cursor:pointer;font-family:var(--mono);
+                 font-size:10.5px;color:var(--text-muted);text-decoration:underline;}
+  .forgot button:hover{color:var(--amber);}
   #tsBox{margin:18px 0 14px;min-height:65px;display:flex;justify-content:center;}
   button.submit{width:100%;padding:12px;border:none;border-radius:9px;background:var(--amber);
                 color:var(--on-accent);font-family:var(--sans);font-size:14.5px;font-weight:700;cursor:pointer;}
@@ -98,6 +102,7 @@
       <label for="password">密碼</label>
       <input type="password" id="password" name="password" autocomplete="current-password" required>
       <div class="hint" id="pwHint" style="display:none;">至少 10 個字元</div>
+      <div class="forgot" id="forgotRow"><button type="button" id="forgotLink">忘記密碼？</button></div>
     </div>
 
     <div id="tsBox"></div>
@@ -132,18 +137,30 @@
   var msg = document.getElementById('msg');
   var pwHint = document.getElementById('pwHint');
 
+  // 'forgot' 是第三種模式，但**不給它一個頁籤**：登入與註冊是兩個對等的入口，
+  // 忘記密碼是登入不成時才走的岔路。做成第三個頁籤會讓它看起來一樣重要。
+  var pwField = pwEl.closest('.field');
+  var forgotRow = document.getElementById('forgotRow');
+
   function setMode(next){
     mode = next;
-    document.getElementById('tabLogin').classList.toggle('active', mode==='login');
+    document.getElementById('tabLogin').classList.toggle('active', mode!=='register');
     document.getElementById('tabRegister').classList.toggle('active', mode==='register');
     pwEl.setAttribute('autocomplete', mode==='login' ? 'current-password' : 'new-password');
     pwHint.style.display = mode==='register' ? 'block' : 'none';
-    btn.textContent = mode==='login' ? '登入' : '註冊';
+    // 忘記密碼時不需要密碼欄。required 也要一起拿掉，否則表單會卡在一個
+    // 看不見的欄位上不肯送出，而瀏覽器的提示會指向一個隱藏元素。
+    pwField.style.display = mode==='forgot' ? 'none' : '';
+    pwEl.required = mode !== 'forgot';
+    forgotRow.style.display = mode==='login' ? '' : 'none';
+    btn.textContent = mode==='forgot' ? '寄出重設連結' : (mode==='login' ? '登入' : '註冊');
     hideMsg();
+    if (mode==='forgot') showMsg('輸入註冊時用的 email，我們會寄一封含重設連結的信給你。', 'ok');
     // 每個 token 只能用一次，切換表單後必須重取，否則送出會被判定 token 已使用
     if (widgetId !== null && window.turnstile) { tsToken=''; btn.disabled=true; turnstile.reset(widgetId); }
   }
   document.getElementById('tabLogin').onclick = function(){ setMode('login'); };
+  document.getElementById('forgotLink').onclick = function(){ setMode('forgot'); };
   document.getElementById('tabRegister').onclick = function(){ setMode('register'); };
 
   function showMsg(text, kind){ msg.textContent = text; msg.className = 'msg ' + kind; }
@@ -179,6 +196,12 @@
 
       if (res.ok) {
         if (mode==='login') { location.href = '/'; return; }
+        if (mode==='forgot') {
+          // 這則訊息對「有註冊」與「沒註冊」完全相同——伺服器刻意不說有沒有這個
+          // 帳號（說了就變成帳號列舉工具），前端當然也不能自己補上去
+          showMsg(data.message || '如果這個 email 有註冊，重設連結已經寄出，請查看信箱', 'ok');
+          return;
+        }
         showMsg(data.message || '註冊成功', 'ok');
         if (data.status === 'approved') setMode('login');
         else form.reset();
