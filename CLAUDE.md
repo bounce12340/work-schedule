@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 專案性質
 
-前端是**零依賴的單一 HTML 檔** `public/index.html`（約 1700 行，CSS + HTML + JavaScript 全在裡面），可以獨立雙擊開啟運作；後端是 Cloudflare Worker + D1，只在部署後才啟用。
+前端是**零依賴的單一 HTML 檔** `public/index.html`（約 4800 行，CSS + HTML + JavaScript 全在裡面），可以獨立雙擊開啟運作；後端是 Cloudflare Worker + D1，只在部署後才啟用。
 
 ```
 public/index.html      主應用（單檔，可直接雙擊開啟）
@@ -19,6 +19,8 @@ schema.sql             D1 資料表
 wrangler.jsonc         Worker 設定與綁定
 tests/                 occurrence 引擎、三方合併、樂觀鎖、富文字、變數遮蔽（node:test，零相依）
 tools/                 開發用腳本：冒煙測試、勾選等價驗證、富文字管線驗證、解析官方辦公日曆表
+docs/postmortems/      事故紀錄（線上才會壞的坑，出過事就寫一份）
+docs/superpowers/specs/ 設計文件
 public/sw.js           service worker（加到主畫面／離線可用）
 public/manifest.webmanifest, public/icon*.png|svg
 ```
@@ -52,7 +54,23 @@ npm run dev            # wrangler dev，本機起 Worker + 靜態資產
 npm run db:init:local  # 對本機 miniflare D1 建表（--local 的資料庫與遠端各自獨立）
 npm run db:init        # 對遠端 D1 建表
 npm run deploy         # 部署
-npm test               # occurrence 引擎測試（node:test，不需安裝任何東西）
+npm test               # 全部五個測試檔（node:test，不需安裝任何東西；目前 105 個測試）
+```
+
+跑單一測試檔或單一測試（`npm test` 沒有轉發參數的管道，直接用 node）：
+
+```bash
+node --test tests/occurrence.test.mjs
+node --test --test-name-pattern '樂觀鎖' tests/state.test.mjs
+```
+
+`tools/` 底下的三支瀏覽器驗證腳本各自起一個臨時 http server，直接執行即可；Playwright 不是本專案的相依套件（零相依是前提），需要時才自行安裝：
+
+```bash
+npx playwright install chromium        # 或設 PLAYWRIGHT_CHROMIUM 指向現成的 binary
+node tools/smoke.mjs                   # 也吃 PORT 環境變數（預設 8963/8964/8951）
+node tools/verify-toggle.mjs
+node tools/verify-richtext.mjs
 ```
 
 本機開發需要 `.dev.vars`（已 gitignore），內含 Turnstile 官方測試金鑰與測試用 `ADMIN_EMAILS`。
@@ -112,11 +130,40 @@ UI 類的改動（版面、行動版、主題）**必須真的用瀏覽器看過
 
 | 行數範圍 | 內容 |
 |---|---|
-| 9–289 | `<style>`。`:root` 的 CSS 變數是所有顏色的唯一來源 |
-| 291–511 | `<body>` 靜態骨架。**所有 modal 都預先寫死在 markup 裡**，靠 `.overlay` 的 class 切換顯示 |
-| 512–1694 | 單一 `<script>`，整段包在一個 IIFE 內 |
+| 15–26 | `<head>` 內的**開機腳本**（見下方說明），唯一在主 IIFE 之外的 JS |
+| 41–675 | `<style>`。`:root` 的 CSS 變數是所有顏色的唯一來源，`[data-theme="dark"]` 覆寫同一組變數 |
+| 677–1064 | `<body>` 靜態骨架。**所有 modal 都預先寫死在 markup 裡**，靠 `.overlay` 的 class 切換顯示 |
+| 1065–4774 | 單一 `<script>`，整段包在一個 IIFE 內 |
+
+行號會隨改動漂移，別當精確座標用。要定位某個功能請找區段註解（`// ================= 名稱 =================`），`grep -n '^\s*// =\+ .* =\+$' public/index.html` 會列出全部 27 個。
 
 因為全部包在 IIFE 裡，**沒有任何東西暴露在 global scope**——所以不能用 inline `onclick="..."` 屬性，事件一律在 JS 內用 `.onclick = fn` 綁定。新增 UI 時請沿用此模式。
+
+### `<head>` 的開機腳本是刻意的例外
+
+`<head>` 裡那段 IIFE 只做一件事：讀 `workSchedule.v1.theme` 並把結果寫成 `<html data-theme>`。**它必須在 `<style>` 與 `<body>` 之前執行**，否則暗色使用者每次載入都會先閃一下亮色底再切過去。放進主 script 就晚了——那時候畫面已經畫過一次。
+
+它同樣不暴露任何全域變數，也不碰 IIFE 內的東西，所以與上面那條規則不衝突。字型 link 的 inline `onload`（只碰 `this`）是同一類例外，理由記在〈字型不阻擋首次繪製〉。
+
+### 顯示偏好不進 `snapshot()`
+
+主題與語言是**這台裝置的顯示偏好，不是排程資料**，各自存自己的 localStorage key。跟著雲端同步走的話，在桌機切成暗色會連手機一起變。
+
+| key | 內容 |
+|---|---|
+| `workSchedule.v1` | 排程資料本體（`snapshot()` 的序列化結果） |
+| `workSchedule.v1.unreadable` | 套用不了的存檔備份（見〈儲存層的三個設計約束〉第 4 點） |
+| `workSchedule.v1.cloudMeta` | 雲端同步的版本號、`owner` 與 `baseSnapshot` |
+| `workSchedule.v1.theme` / `.lang` | 主題／語言偏好 |
+| `workSchedule.v1.rtToolbar` / `.activitySeen` | 富文字工具列展開狀態、操作記錄已讀位置 |
+
+主題只在使用者**沒有手動選過**時跟隨系統（`prefers-color-scheme` 的 change 監聽器會先檢查 `readThemePref()`）；選過之後系統再怎麼切都以使用者的決定為準。新增顏色一律加進 `:root` 與 `[data-theme="dark"]` **兩組**變數，不要在個別選擇器裡硬寫色碼——漏掉暗色那一組的症狀是「白天看起來正常，暗色模式下某一塊變成看不見的低對比」。
+
+### 刪除一律走 `deleteWithUndo()`
+
+刪除不用 `confirm()` 攔截——攔截式對話框擋不住「按太快」，事後復原才擋得住。`deleteWithUndo(desc, mutate)` 先拍一份 `snapshot()` 再 `commit(mutate)`，並顯示 6 秒的復原 toast；復原就是把整份快照 `applySnapshot()` 回去。
+
+**整份還原是刻意的取捨**：逐項還原的閉包版本更精緻，但整份還原用的是既有且測過的 `applySnapshot()` 機制。代價是復原也會撤銷這幾秒內的其他小變更，以刪除到復原的間隔而言可以接受。新增刪除操作時請沿用這個函式，不要自己 `commit(()=>{ ... })` 了事——那樣就沒有復原了。
 
 ## 核心架構：occurrence 引擎
 
@@ -554,7 +601,7 @@ DOM 建構有兩種寫法，請依情境沿用：
 | 曾經懷疑 | 實測 | 結論 |
 |---|---|---|
 | `commit()` 每次序列化整份 state | 300 項時 `JSON.stringify` 1.10ms ＋ `setItem` 0.40ms | 佔不到勾選成本的 3% |
-| 傳輸量太大 | 197KB 的 `index.html` 經 brotli 約 50KB，`content-encoding: br` 已生效 | 已是最佳 |
+| 傳輸量太大 | `index.html`（當時 197KB）經 brotli 約 50KB，`content-encoding: br` 已生效 | 已是最佳 |
 | `getSessionUser` 查兩次 | 本來就是單一 JOIN | 沒有浪費 |
 | D1 讀取複本 | 資料庫在 APAC、使用者也在台灣 | 開複本只幫得到遠端使用者，目前沒有 |
 
@@ -624,7 +671,7 @@ class 命名沿用 `type-<type>`（列）與 `type-badge <type>`（徽章）；�
 
 ## 尚未做的重構
 
-約 1180 行 JS 目前仍在單一 IIFE 內，靠區段註解分隔。收攏成 `DateUtil`／`OccurrenceEngine`／`Store`／各 View 的 namespace 物件是合理的下一步。occurrence 引擎現在有測試護著，重構它相對安全；其餘部分仍然沒有網，**不該和功能修改混在同一批做**——會讓 diff 大到無法人工審查。要做就單獨一個 commit，且不夾帶任何行為變更。
+約 3700 行 JS 目前仍在單一 IIFE 內，靠區段註解分隔。收攏成 `DateUtil`／`OccurrenceEngine`／`Store`／各 View 的 namespace 物件是合理的下一步。occurrence 引擎現在有測試護著，重構它相對安全；其餘部分仍然沒有網，**不該和功能修改混在同一批做**——會讓 diff 大到無法人工審查。要做就單獨一個 commit，且不夾帶任何行為變更。
 
 注意 `tests/occurrence.test.mjs` 是靠區段註解（`// ================= 名稱 =================`）定位原始碼的。重構時若改動區段名稱，測試會直接失敗並指出找不到哪一個區段——這是刻意的，不要改成靜默跳過。
 
