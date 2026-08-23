@@ -117,9 +117,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_ics_token ON ics_feed(token_hash);
 -- lead_days：提前幾天開始提醒。0 代表只在逾期時寄——那是原本的行為，保留給
 -- 「不想被事前打擾」的人。預設 3 天：提醒的價值本來就在事前，只在逾期時才說
 -- 等於永遠慢一步。
+--
+-- enabled 預設為 1：提醒的價值在於「不必記得去看」，而預設關閉等於要求使用者
+-- 先知道有這個功能、再自己去打開——真正需要提醒的人往往就是不會去翻設定的人。
+-- 信只寄到本人的註冊信箱、而且沒事就完全不寄，所以預設開啟的打擾成本很低。
+-- 不想收的人按一下就關掉，那個選擇會被完整尊重（見 handleReminderPut）。
 CREATE TABLE IF NOT EXISTS reminder_feed (
   user_id       TEXT PRIMARY KEY,
-  enabled       INTEGER NOT NULL DEFAULT 0,
+  enabled       INTEGER NOT NULL DEFAULT 1,
   digest        TEXT NOT NULL DEFAULT '[]',
   last_sent_ymd TEXT,
   lead_days     INTEGER NOT NULL DEFAULT 3,

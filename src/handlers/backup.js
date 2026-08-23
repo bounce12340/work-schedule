@@ -106,6 +106,31 @@ async function pruneOld(env) {
 }
 
 /**
+ * 列出目前有哪些備份，給管理頁顯示。
+ *
+ * 為什麼這件事需要一個端點：備份最可怕的失敗模式是「以為有、其實沒有」。cron 的
+ * log 只有翻 Cloudflare 後台才看得到，而沒有人會每天去翻——真正會被看到的地方是
+ * 管理頁。**看得見的備份才是備份。**
+ *
+ * 只回 metadata（檔名、大小、幾筆），不回內容：這裡的用途是確認「有沒有、對不對」，
+ * 而備份內容是全系統所有人的排程，沒有理由為了確認而把它整包送到瀏覽器。
+ */
+export async function listBackups(env) {
+  if (!env.BACKUPS) return { configured: false, backups: [] };
+  const listed = await env.BACKUPS.list({ prefix: KEY_PREFIX, limit: 1000 });
+  const backups = (listed.objects || [])
+    .map(o => ({
+      key: o.key,
+      size: o.size,
+      uploaded: o.uploaded ? new Date(o.uploaded).getTime() : null,
+      users: Number(o.customMetadata?.users ?? 0),
+      states: Number(o.customMetadata?.states ?? 0),
+    }))
+    .sort((a, b) => b.key.localeCompare(a.key));   // 最新的排前面
+  return { configured: true, keep: KEEP, backups };
+}
+
+/**
  * 清掉過期的執行期資料。跟備份放在同一個 cron，因為兩者都是「每天固定要做一次
  * 的家事」，而不是使用者觸發的行為。
  *
