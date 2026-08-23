@@ -1,6 +1,7 @@
 import { hashPassword, verifyPassword, uuid } from '../crypto.js';
 import { createSession, destroySession, destroyOtherSessions, sessionCookie, clearCookie, readCookie, COOKIE_NAME } from '../session.js';
 import { verifyTurnstile } from '../turnstile.js';
+import { checkThrottle, recordFailure, clearFailures, throttleKeys } from '../throttle.js';
 
 const MIN_PASSWORD = 10;
 
@@ -56,17 +57,34 @@ export async function handleLogin(request, env) {
   const ts = await verifyTurnstile(body.turnstileToken, env, clientIp(request));
   if (!ts.ok) return json({ error: '真人驗證未通過，請重新整理後再試', detail: ts.reason }, 403);
 
+  // 節流檢查放在雜湊之前：被擋下的請求不該還去燒 PBKDF2 的 CPU，
+  // 否則「擋下來」本身就成了另一種消耗資源的方式
+  const keys = throttleKeys(email, clientIp(request));
+  const throttled = await checkThrottle(env, keys);
+  if (throttled.blocked) {
+    return json(
+      { error: '嘗試次數過多，請稍後再試' },
+      429,
+      { 'Retry-After': String(throttled.retryAfterSec) }
+    );
+  }
+
   const user = await env.DB.prepare(
     'SELECT id, email, password_hash, role, status FROM users WHERE email = ?'
   ).bind(email).first();
 
   // 帳號不存在與密碼錯誤回相同訊息，避免被用來列舉哪些 email 有註冊。
   // 帳號不存在時仍跑一次雜湊，讓兩條路徑的耗時接近。
+  //
+  // 失敗計數在**兩條路徑都要記**，理由同上：只在帳號存在時計數的話，「這次有沒有
+  // 被節流」就成了帳號是否存在的旁通道，前面那些小心翼翼就白費了。
   if (!user) {
     await hashPassword(password);
+    await recordFailure(env, keys);
     return json({ error: 'email 或密碼錯誤' }, 401);
   }
   if (!(await verifyPassword(password, user.password_hash))) {
+    await recordFailure(env, keys);
     return json({ error: 'email 或密碼錯誤' }, 401);
   }
 
@@ -74,6 +92,9 @@ export async function handleLogin(request, env) {
   if (user.status !== 'approved') {
     return json({ error: statusMessage(user.status), status: user.status }, 403);
   }
+
+  // 密碼對了就把計數清掉：先前打錯幾次不該累積到下一次真的把本人擋在外面
+  await clearFailures(env, keys);
 
   const { token, expiresAt } = await createSession(env, user.id);
   return json(

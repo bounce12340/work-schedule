@@ -83,6 +83,15 @@
   .op.approve:hover{color:var(--teal);border-color:var(--teal);}
   .op.danger:hover{color:var(--red);border-color:var(--red);}
   .locked{font-family:var(--mono);font-size:10.5px;color:var(--text-dim);}
+  .log{margin-top:26px;}
+  .log h2{font-size:13px;font-family:var(--mono);letter-spacing:.06em;color:var(--text-muted);
+          margin:0 0 10px;font-weight:600;}
+  .log-row{display:flex;gap:10px;padding:7px 0;border-bottom:1px solid var(--hairline);
+           font-size:12.5px;align-items:baseline;flex-wrap:wrap;}
+  .log-row:last-child{border-bottom:none;}
+  .log-when{font-family:var(--mono);font-size:11px;color:var(--text-dim);white-space:nowrap;}
+  .log-who{color:var(--text-muted);}
+  .log-what{color:var(--text);}
   .empty{padding:34px 20px;text-align:center;border:1px dashed #D2CDBB;border-radius:12px;
          font-family:var(--mono);font-size:12.5px;color:var(--text-dim);background:var(--panel);}
   .msg{margin-bottom:16px;padding:11px 13px;border-radius:8px;font-size:13px;display:none;}
@@ -111,6 +120,11 @@
 
   <div class="msg" id="msg"></div>
   <div id="list"><div class="empty">載入中…</div></div>
+
+  <div class="log">
+    <h2>管理者操作記錄（最近 200 筆）</h2>
+    <div id="log"><div class="empty">載入中…</div></div>
+  </div>
   <div class="signature">此系統由劉思妤設計、規劃、製作。</div>
 </div>
 
@@ -154,6 +168,51 @@
       listEl.innerHTML = '';
       showMsg('讀取失敗：' + e.message, 'err');
     }
+    // 操作記錄與帳號清單各自獨立：記錄讀不到不該讓整個管理頁變成錯誤畫面
+    loadLog();
+  }
+
+  async function loadLog(){
+    var el = document.getElementById('log');
+    try {
+      var d = await api('/api/admin/activity');
+      renderLog(d.activity || []);
+    } catch (e) {
+      el.innerHTML = '<div class="empty">操作記錄讀取失敗：' + esc(e.message) + '</div>';
+    }
+  }
+
+  function renderLog(rows){
+    var el = document.getElementById('log');
+    if (!rows.length) {
+      el.innerHTML = '<div class="empty">目前沒有任何管理者操作記錄</div>';
+      return;
+    }
+    // 這裡的內容全部來自伺服器（email 與伺服器自己算出的描述），但仍然逐一跳脫：
+    // email 是使用者自己註冊時填的，把它直接塞進 innerHTML 就是一條注入路徑
+    el.innerHTML = rows.map(function(r){
+      return '<div class="log-row">' +
+        '<span class="log-when">' + esc(formatWhen(r.created_at)) + '</span>' +
+        '<span class="log-who">' + esc(r.actor_email) + ' → ' + esc(r.target_email) + '</span>' +
+        '<span class="log-what">' + esc(r.action) + '</span>' +
+        '</div>';
+    }).join('');
+  }
+
+  function esc(v){
+    return String(v == null ? '' : v).replace(/[&<>"']/g, function(c){
+      return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
+    });
+  }
+
+  // 不叫 when()：admin.html 內已經有 `var when = document.createElement('span')`，
+  // 取同一個名字會讓那一段執行時丟 "when is not a function"。這正是 CLAUDE.md
+  // 記過兩次的碰撞——而碰撞是新加的全域這一側造成的，不是既有區域變數的錯。
+  function formatWhen(ms){
+    var d = new Date(ms);
+    var p = function(n){ return String(n).padStart(2, '0'); };
+    return d.getFullYear() + '-' + p(d.getMonth()+1) + '-' + p(d.getDate()) +
+           ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
   }
 
   function render(users){

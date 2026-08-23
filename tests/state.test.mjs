@@ -252,7 +252,7 @@ test('台北時間換日：UTC 前一天的下午已經是台北的隔天', () =
 
 test('信件內容：列出逾期天數，超過上限的用「還有 N 項」帶過', () => {
   const rows = Array.from({ length: 25 }, (_, i) => rem('項目' + i, '2026-07-01'));
-  const mail = buildReminderEmail(rows, '2026-07-31', 'https://example.test');
+  const mail = buildReminderEmail(rows, [], '2026-07-31', 'https://example.test');
   assert.match(mail.subject, /25/);
   assert.match(mail.text, /逾期 30 天/);
   assert.match(mail.text, /還有 5 項/, '只列前 20 筆，其餘帶過');
@@ -260,7 +260,7 @@ test('信件內容：列出逾期天數，超過上限的用「還有 N 項」�
 });
 
 test('信件內容會跳脫使用者輸入，標題不能夾帶標籤', () => {
-  const mail = buildReminderEmail([rem('<img src=x onerror=alert(1)>', '2026-07-01')], '2026-07-31', '');
+  const mail = buildReminderEmail([rem('<img src=x onerror=alert(1)>', '2026-07-01')], [], '2026-07-31', '');
   assert.ok(!/<img/.test(mail.html), '標題必須被跳脫');
   assert.match(mail.html, /&lt;img/);
 });
