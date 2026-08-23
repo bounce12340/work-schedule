@@ -511,7 +511,20 @@
   .filter-bar input[type=search]{ flex:1; min-width:170px; font-family: var(--sans); font-size:13.5px; }
   .filter-types{ display:flex; gap:6px; }
   .filter-count{ font-family: var(--mono); font-size:11.5px; color: var(--text-dim); margin-left:auto; }
-  .backup-row{ display:flex; gap:8px; justify-content:center; margin-top:12px; }
+  /* ===== 我的帳號 ===== */
+  .acct-sec{ background:var(--panel); border:1px solid var(--hairline); border-radius:12px;
+             padding:16px 18px; margin-bottom:14px; }
+  .acct-h{ font-size:14px; font-weight:700; margin-bottom:6px; }
+  .acct-sub{ font-size:12.5px; line-height:1.7; color:var(--text-muted); margin-bottom:10px; }
+  .acct-id-email{ font-family:var(--mono); font-size:15px; margin-bottom:2px; word-break:break-all; }
+  .acct-row{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .acct-dev{ display:flex; gap:10px; align-items:baseline; flex-wrap:wrap;
+             padding:8px 0; border-bottom:1px solid var(--hairline); font-size:12.5px; }
+  .acct-dev:last-child{ border-bottom:none; }
+  .acct-dev-name{ font-weight:600; }
+  .acct-dev-when{ font-family:var(--mono); font-size:11px; color:var(--text-dim); }
+  .acct-dev-this{ font-family:var(--mono); font-size:10.5px; color:var(--teal);
+                  border:1px solid var(--teal); border-radius:4px; padding:0 5px; }
   .ghost-btn{ font-family: var(--mono); font-size:11px; color: var(--text-dim); background:transparent; border:1px dashed var(--dash); border-radius:6px; padding:7px 12px; cursor:pointer; }
   .ghost-btn:hover{ color: var(--amber); border-color: var(--amber); }
   .builtin-holiday{ margin-top:8px; display:flex; flex-direction:column; gap:6px; }
@@ -685,12 +698,8 @@
     <div style="display:flex; align-items:center; gap:14px;">
       <div class="account-box" id="accountBox" style="display:none;">
         <span class="account-email" id="accountEmail"></span>
-        <button class="account-btn" id="btnAdmin" type="button" style="display:none;" data-i18n>帳號管理</button>
-        <button class="account-btn" id="btnChangePw" type="button" data-i18n>變更密碼</button>
         <button class="account-btn" id="btnLogout" type="button" data-i18n>登出</button>
       </div>
-      <button id="langBtn" class="icon-square" type="button" title="切換語言 / Switch language" aria-label="切換語言 / Switch language">文</button>
-      <button id="themeBtn" class="icon-square" type="button" title="切換亮色／暗色" aria-label="切換亮色／暗色" data-i18n-title>🌙</button>
       <button id="bellBtn" class="icon-square" title="查看今日待辦提醒" style="position:relative;" data-i18n-title>
         🔔
         <span id="bellBadge" style="display:none; position:absolute; top:-5px; right:-5px; background:var(--red); color:var(--on-accent); font-family:var(--mono); font-size:10px; font-weight:700; border-radius:9px; min-width:18px; height:18px; padding:0 4px; align-items:center; justify-content:center;"></span>
@@ -727,6 +736,7 @@
       <div class="nav-item" id="navCalendar"><span class="nav-dot"></span><span data-i18n>日曆</span></div>
       <div class="nav-item" id="navGantt"><span class="nav-dot"></span><span data-i18n>專案</span></div>
       <div class="nav-item" id="navShared"><span class="nav-dot"></span><span data-i18n>共享</span></div>
+      <div class="nav-item" id="navAccount"><span class="nav-dot"></span><span data-i18n>我的帳號</span></div>
     </div>
 
     <div class="main-panel">
@@ -826,6 +836,72 @@
         <div id="sharedActivity"></div>
       </div>
 
+      <!-- 我的帳號。所有控制項都是從 header 與 footer **搬過來的同一個元素**
+           （id 不變），因此既有的事件綁定完全不必更動。搬移的價值在於：這些
+           設定原本躺在頁尾，沒有人找得到——ics_feed 一直是 0 筆就是證據。 -->
+      <div class="view" id="viewAccount">
+
+        <div class="acct-sec" id="acctIdentity">
+          <div class="acct-h" data-i18n>👤 帳號</div>
+          <div class="acct-id-email" id="acctEmail">—</div>
+          <div class="acct-sub" id="acctMeta"></div>
+          <div class="acct-row">
+            <button class="ghost-btn" id="btnChangePw" type="button" data-i18n>變更密碼</button>
+            <button class="ghost-btn" id="btnAdmin" type="button" style="display:none;" data-i18n>帳號管理</button>
+          </div>
+        </div>
+
+        <div class="acct-sec" id="acctReminder">
+          <div class="acct-h" data-i18n>📧 逾期提醒信</div>
+          <div class="acct-sub" id="acctReminderSub"></div>
+          <div class="acct-row">
+            <button id="btnReminder" class="ghost-btn" type="button"></button>
+            <select id="reminderLead" class="ghost-btn"></select>
+          </div>
+        </div>
+
+        <div class="acct-sec" id="acctIcs">
+          <div class="acct-h" data-i18n>📅 行事曆訂閱</div>
+          <div class="acct-sub" data-i18n>產生一個專屬網址，貼進 Google 日曆或 Apple 行事曆的「以網址訂閱」，排程就會出現在你原本的行事曆裡。對方的行事曆服務會自行抓取，更新可能延遲數小時。</div>
+          <div class="acct-row">
+            <button id="btnIcs" class="ghost-btn" type="button" data-i18n>📅 行事曆訂閱</button>
+          </div>
+        </div>
+
+        <div class="acct-sec" id="acctDevices">
+          <div class="acct-h" data-i18n>💻 登入中的裝置</div>
+          <div class="acct-sub" data-i18n>在別人的電腦上忘記登出時，可以從這裡把它踢掉。不記錄 IP 位址。</div>
+          <div id="acctDeviceList"><div class="acct-sub" data-i18n>載入中…</div></div>
+          <div class="acct-row">
+            <button id="btnLogoutOthers" class="ghost-btn" type="button" data-i18n>登出其他所有裝置</button>
+          </div>
+        </div>
+
+        <div class="acct-sec">
+          <div class="acct-h" data-i18n>🎨 顯示偏好</div>
+          <div class="acct-sub" data-i18n>這是這台裝置的偏好，不會跟著帳號走——在電腦上切成暗色，手機不會跟著變。沒有手動選過時，主題會跟隨系統設定。</div>
+          <div class="acct-row">
+            <button id="themeBtn" class="ghost-btn" type="button" title="切換亮色／暗色" data-i18n-title>🌙</button>
+            <button id="langBtn" class="ghost-btn" type="button" title="切換語言 / Switch language">文</button>
+          </div>
+        </div>
+
+        <div class="acct-sec">
+          <div class="acct-h" data-i18n>💾 備份</div>
+          <div class="acct-sub" data-i18n>匯出一份 JSON 存到自己的電腦。登入後系統每天也會自動備份一次，但這一份是你自己拿得到的。</div>
+          <div class="acct-row">
+            <button id="btnExport" class="ghost-btn" type="button" data-i18n>⤓ 匯出備份</button>
+            <button id="btnImport" class="ghost-btn" type="button" data-i18n>⤒ 匯入備份</button>
+            <input type="file" id="importFile" accept="application/json,.json" style="display:none;">
+          </div>
+        </div>
+
+        <div class="acct-sec" id="acctSignedOutNote" style="display:none;">
+          <div class="acct-sub" data-i18n>帳號、提醒、行事曆訂閱與裝置管理需要登入後才能使用。目前為單機模式，資料只存在這個瀏覽器。</div>
+        </div>
+
+      </div>
+
     </div>
   </div>
 
@@ -833,14 +909,7 @@
     <div id="storageNoteText" data-i18n>※ 資料儲存狀態偵測中…</div>
     <div id="cloudNoteText"></div>
     <div data-i18n>「遇假日」判斷以週六、週日為基準，如需計入國定假日，可在新增小項目時使用「自訂假日」清單自行加入日期。</div>
-    <div class="backup-row">
-      <button id="btnExport" class="ghost-btn" type="button" data-i18n>⤓ 匯出備份</button>
-      <button id="btnImport" class="ghost-btn" type="button" data-i18n>⤒ 匯入備份</button>
-      <button id="btnIcs" class="ghost-btn" type="button" style="display:none;" data-i18n>📅 行事曆訂閱</button>
-      <button id="btnReminder" class="ghost-btn" type="button" style="display:none;"></button>
-      <select id="reminderLead" class="ghost-btn" style="display:none;"></select>
-      <input type="file" id="importFile" accept="application/json,.json" style="display:none;">
-    </div>
+    <div data-i18n>備份、提醒與行事曆訂閱已移到「我的帳號」頁。</div>
     <div class="signature" data-i18n>此系統由劉思妤設計、規劃、製作。</div>
   </footer>
 </div>
@@ -1306,6 +1375,39 @@
       '提前 {0} 天提醒':'{0} day(s) before due',
       '提前幾天開始提醒。選「只在逾期時」就是原本的行為。':
         'How many days ahead to start reminding. “Only when overdue” is the original behaviour.',
+      // —— 我的帳號 ——
+      '我的帳號':'My account',
+      '👤 帳號':'👤 Account',
+      '管理者':'Administrator', '使用者':'User',
+      '{0} 加入':'joined {0}',
+      '有項目逾期或即將到期時，寄信到 {0}。沒事就完全不寄。':
+        'Emails {0} when items are overdue or coming up. Nothing is sent when there is nothing to say.',
+      '📅 行事曆訂閱':'📅 Calendar subscription',
+      '產生一個專屬網址，貼進 Google 日曆或 Apple 行事曆的「以網址訂閱」，排程就會出現在你原本的行事曆裡。對方的行事曆服務會自行抓取，更新可能延遲數小時。':
+        'Generates a private URL. Paste it into Google Calendar or Apple Calendar as a subscription and your schedule shows up there. The calendar service fetches on its own timetable, so updates can lag by several hours.',
+      '💻 登入中的裝置':'💻 Signed-in devices',
+      '在別人的電腦上忘記登出時，可以從這裡把它踢掉。不記錄 IP 位址。':
+        'Signed in on someone else\'s computer and forgot to sign out? Remove it here. IP addresses are not recorded.',
+      '登出其他所有裝置':'Sign out all other devices',
+      '要登出其他所有裝置嗎？這一台會保留。':'Sign out all other devices? This one stays signed in.',
+      '其他裝置已登出。':'Other devices have been signed out.',
+      '目前離線，無法登出其他裝置。':'You are offline — other devices could not be signed out.',
+      '裝置清單讀取失敗，其餘設定不受影響。':'Could not load the device list. Other settings are unaffected.',
+      '目前沒有其他登入中的裝置。':'No other devices are signed in.',
+      '未知裝置':'Unknown device', '這一台':'this one', '時間不詳':'unknown',
+      '剛剛':'just now',
+      '{0} 分鐘前':'{0} min ago', '{0} 小時前':'{0} h ago', '{0} 天前':'{0} d ago',
+      '最後使用 {0}':'last used {0}',
+      '🎨 顯示偏好':'🎨 Display preferences',
+      '這是這台裝置的偏好，不會跟著帳號走——在電腦上切成暗色，手機不會跟著變。沒有手動選過時，主題會跟隨系統設定。':
+        'These are per-device preferences and do not follow your account — switching to dark on your computer will not change your phone. Until you choose manually, the theme follows your system setting.',
+      '💾 備份':'💾 Backup',
+      '匯出一份 JSON 存到自己的電腦。登入後系統每天也會自動備份一次，但這一份是你自己拿得到的。':
+        'Export a JSON file to your own computer. Signed in, the system also backs up daily — but this is the copy you hold yourself.',
+      '帳號、提醒、行事曆訂閱與裝置管理需要登入後才能使用。目前為單機模式，資料只存在這個瀏覽器。':
+        'Account, reminders, calendar subscription and device management require signing in. You are in local-only mode — data lives in this browser.',
+      '備份、提醒與行事曆訂閱已移到「我的帳號」頁。':
+        'Backup, reminders and calendar subscription have moved to the My account tab.',
       // —— 簽名 ——
       '此系統由劉思妤設計、規劃、製作。':'Designed, planned and built by Liu Szu-Yu.'
     }
@@ -2013,12 +2115,19 @@
     }
   }
 
+  // 登入後拿到的身分。「我的帳號」分頁要用它顯示 email／角色／加入時間，
+  // 而分頁可能在拿到身分之前就被切過去，所以存起來而不是只用一次。
+  let accountMe = null;
+
   function showAccount(me){
+    accountMe = me;
     const box = document.getElementById('accountBox');
-    if(!box) return;
-    document.getElementById('accountEmail').textContent = me.email;
+    if(box){
+      document.getElementById('accountEmail').textContent = me.email;
+      box.style.display = 'flex';
+    }
     document.getElementById('btnAdmin').style.display = me.role === 'admin' ? '' : 'none';
-    box.style.display = 'flex';
+    if(currentView==='account') renderAccountView();
   }
 
   document.getElementById('btnAdmin').onclick = ()=>{ location.href = '/admin'; };
@@ -2424,8 +2533,10 @@
   document.getElementById('navCalendar').onclick = ()=>{ currentView='calendar'; renderNav(); };
   document.getElementById('navGantt').onclick = ()=>{ currentView='gantt'; renderNav(); };
   document.getElementById('navShared').onclick = ()=>{ currentView='shared'; renderNav(); };
+  document.getElementById('navAccount').onclick = ()=>{ currentView='account'; renderNav(); };
   const VIEWS = [['schedule','navSchedule','viewSchedule'], ['calendar','navCalendar','viewCalendar'],
-                 ['gantt','navGantt','viewGantt'], ['shared','navShared','viewShared']];
+                 ['gantt','navGantt','viewGantt'], ['shared','navShared','viewShared'],
+                 ['account','navAccount','viewAccount']];
   function renderNav(){
     VIEWS.forEach(([name, navId, viewId])=>{
       document.getElementById(navId).classList.toggle('active', currentView===name);
@@ -2433,6 +2544,129 @@
     });
     renderAll();
   }
+
+  // ================= 我的帳號 =================
+  // 這一區只負責「顯示」：所有控制項都是搬過來的既有元素，它們的事件仍綁在
+  // 原本的區段裡。這裡做的是填入身分、切換單機／登入的可見性、以及裝置清單。
+  //
+  // 命名注意：這一段新增了好幾個頂層函式，而 CLAUDE.md 記過兩次「區域變數遮蔽
+  // 頂層函式」的事故。因此這裡的名字都刻意加上 acct 前綴，避開 tr/tf/row/when
+  // 這類短又常見的字。
+
+  /**
+   * user agent 折算成人看得懂的描述。
+   *
+   * 放前端是刻意的：這是顯示邏輯，而瀏覽器的 UA 字串會隨改版而變——規則放這裡
+   * 改起來不必動資料庫裡已經存好的原文。
+   *
+   * 判斷順序有講究：Edge 的 UA 同時含有 Chrome、Chrome 的 UA 同時含有 Safari，
+   * 所以特例要排在前面，否則每一台都會被說成 Chrome。
+   */
+  function acctDeviceName(ua){
+    if(!ua) return tr('未知裝置');
+    const os = /Windows/.test(ua) ? 'Windows'
+      : /iPhone|iPad|iPod/.test(ua) ? 'iOS'
+      : /Android/.test(ua) ? 'Android'
+      : /Mac OS X|Macintosh/.test(ua) ? 'macOS'
+      : /Linux/.test(ua) ? 'Linux' : null;
+    const br = /Edg\//.test(ua) ? 'Edge'
+      : /OPR\/|Opera/.test(ua) ? 'Opera'
+      : /Firefox\//.test(ua) ? 'Firefox'
+      : /Chrome\//.test(ua) ? 'Chrome'
+      : /Safari\//.test(ua) ? 'Safari' : null;
+    if(br && os) return br + ' on ' + os;
+    return br || os || tr('未知裝置');
+  }
+
+  /** 相對時間。精度只到「幾小時前」，與伺服器端一小時才更新一次的節流相稱。 */
+  function acctSince(ms){
+    if(ms == null) return tr('時間不詳');
+    const mins = Math.floor((Date.now() - ms) / 60000);
+    if(mins < 2) return tr('剛剛');
+    if(mins < 60) return tf('{0} 分鐘前', mins);
+    const hrs = Math.floor(mins / 60);
+    if(hrs < 24) return tf('{0} 小時前', hrs);
+    return tf('{0} 天前', Math.floor(hrs / 24));
+  }
+
+  /** 沿用既有的 ymd()，不另造一個——兩個格式化日期的函式遲早會不一致 */
+  function acctYmd(ms){ return ms ? ymd(new Date(ms)) : ''; }
+
+  const ACCT_CLOUD_SECTIONS = ['acctIdentity','acctReminder','acctIcs','acctDevices'];
+
+  function renderAccountView(){
+    // 單機模式：雲端相關的區塊整區隱藏，並說明為什麼——留白會被當成壞掉
+    ACCT_CLOUD_SECTIONS.forEach(id=>{
+      const el = document.getElementById(id);
+      if(el) el.style.display = cloudEnabled ? '' : 'none';
+    });
+    const note = document.getElementById('acctSignedOutNote');
+    if(note) note.style.display = cloudEnabled ? 'none' : '';
+
+    if(!cloudEnabled) return;
+
+    if(accountMe){
+      document.getElementById('acctEmail').textContent = accountMe.email;
+      const role = accountMe.role === 'admin' ? tr('管理者') : tr('使用者');
+      const joined = accountMe.createdAt ? tf('{0} 加入', acctYmd(accountMe.createdAt)) : '';
+      document.getElementById('acctMeta').textContent = joined ? role + ' · ' + joined : role;
+    }
+
+    const sub = document.getElementById('acctReminderSub');
+    if(sub && accountMe){
+      sub.textContent = tf('有項目逾期或即將到期時，寄信到 {0}。沒事就完全不寄。', accountMe.email);
+    }
+
+    syncReminderBtn();
+    acctLoadDevices();
+  }
+
+  /**
+   * 裝置清單。讀取失敗只讓這一區顯示錯誤，不影響分頁其他區塊——與 admin.html
+   * 的備份區、操作記錄區同一個模式。
+   */
+  async function acctLoadDevices(){
+    const el = document.getElementById('acctDeviceList');
+    if(!el) return;
+    try{
+      const r = await fetch('/api/auth/sessions', { cache:'no-store' });
+      if(r.status===401){ sessionExpired(); return; }
+      if(!r.ok) throw new Error('HTTP ' + r.status);
+      acctRenderDevices((await r.json()).sessions || []);
+    }catch(e){
+      console.error('device list failed', e);
+      el.innerHTML = '<div class="acct-sub">' + escapeHtml(tr('裝置清單讀取失敗，其餘設定不受影響。')) + '</div>';
+    }
+  }
+
+  function acctRenderDevices(list){
+    const el = document.getElementById('acctDeviceList');
+    if(!list.length){ el.innerHTML = '<div class="acct-sub">' + escapeHtml(tr('目前沒有其他登入中的裝置。')) + '</div>'; return; }
+    // 伺服器已經把 token 與雜湊都拿掉了，這裡拿到的只有描述性欄位；
+    // 但 user agent 仍是外部輸入，一律跳脫
+    el.innerHTML = list.map(d=>
+      '<div class="acct-dev">' +
+        '<span class="acct-dev-name">' + escapeHtml(acctDeviceName(d.userAgent)) + '</span>' +
+        (d.current ? '<span class="acct-dev-this">' + escapeHtml(tr('這一台')) + '</span>' : '') +
+        '<span class="acct-dev-when">' + escapeHtml(tf('最後使用 {0}', acctSince(d.lastSeenAt))) + '</span>' +
+      '</div>'
+    ).join('');
+  }
+
+  document.getElementById('btnLogoutOthers').onclick = async function(){
+    if(!confirm(tr('要登出其他所有裝置嗎？這一台會保留。'))) return;
+    this.disabled = true;
+    try{
+      const r = await fetch('/api/auth/sessions', { method:'DELETE' });
+      if(r.status===401){ sessionExpired(); return; }
+      if(!r.ok) throw new Error('HTTP ' + r.status);
+      await acctLoadDevices();
+      alert(tr('其他裝置已登出。'));
+    }catch(e){
+      console.error('logout others failed', e);
+      alert(tr('目前離線，無法登出其他裝置。'));
+    }finally{ this.disabled = false; }
+  };
 
   // ================= metrics =================
   function renderMetricList(elId, occList, emptyText){
@@ -4058,6 +4292,7 @@
     if(currentView==='calendar') renderCalendar();
     else if(currentView==='gantt') renderGanttView();
     else if(currentView==='shared') renderSharedView();
+    else if(currentView==='account') renderAccountView();
     else renderScheduleView();
   }
 

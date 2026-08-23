@@ -219,6 +219,27 @@ async function walk(page, log) {
   await need('#sharedIncoming', '別人分享給我');
   await need('#sharedOutgoing', '我分享出去的');
 
+  // ---- 我的帳號 ----
+  // 這一頁的每一個控制項都是從 header／footer 搬過來的**同一個元素**。搬移最
+  // 可能的失敗是「元素被搬走但程式還在找它」——getElementById 回 null、整段
+  // render 丟例外。那種錯誤會出現在 pageerror 裡，正是這支腳本要抓的。
+  await click('#navAccount', '切到我的帳號頁');
+  await page.waitForTimeout(400);
+  await need('#viewAccount.active', '我的帳號頁');
+  await need('#acctEmail', '帳號資訊');
+
+  // 搬過來的控制項要真的還在。少一個就代表某段程式碼從此找不到它。
+  for (const id of ['btnChangePw', 'btnExport', 'btnImport', 'themeBtn', 'langBtn']) {
+    await need('#' + id, id);
+  }
+
+  // 主題與語言現在只有這一頁能切，所以在這裡按一次——順便確認搬家之後
+  // 那兩顆按鈕的事件綁定仍然有效（它們的程式碼一行都沒改）。
+  await click('#themeBtn', '切換主題');
+  await page.waitForTimeout(150);
+  await click('#themeBtn', '切回主題');
+  await page.waitForTimeout(150);
+
   log(`      走過：${checked.join('、')}`);
 }
 
