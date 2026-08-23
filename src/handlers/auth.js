@@ -1,5 +1,5 @@
 import { hashPassword, verifyPassword, uuid } from '../crypto.js';
-import { createSession, destroySession, destroyOtherSessions, sessionCookie, clearCookie, readCookie, COOKIE_NAME } from '../session.js';
+import { createSession, destroySession, destroyOtherSessions, listSessions, sessionCookie, clearCookie, readCookie, COOKIE_NAME } from '../session.js';
 import { verifyTurnstile } from '../turnstile.js';
 import { checkThrottle, recordFailure, clearFailures, throttleKeys } from '../throttle.js';
 
@@ -96,7 +96,8 @@ export async function handleLogin(request, env) {
   // 密碼對了就把計數清掉：先前打錯幾次不該累積到下一次真的把本人擋在外面
   await clearFailures(env, keys);
 
-  const { token, expiresAt } = await createSession(env, user.id);
+  // user agent 只能在這裡取得：session.js 拿不到 request
+  const { token, expiresAt } = await createSession(env, user.id, request.headers.get('user-agent'));
   return json(
     { ok: true, user: { email: user.email, role: user.role } },
     200,
@@ -137,7 +138,28 @@ export async function handleLogout(request, env) {
 }
 
 export function handleMe(user) {
-  return json({ email: user.email, role: user.role, status: user.status });
+  return json({ email: user.email, role: user.role, status: user.status, createdAt: user.createdAt });
+}
+
+/**
+ * 登入中的裝置。只回自己的——user 來自這次請求的 session，沒有參數可以指定別人。
+ */
+export async function handleListSessions(request, env, user) {
+  return json({ sessions: await listSessions(env, user.id, readCookie(request, COOKIE_NAME)) });
+}
+
+/**
+ * 登出其他所有裝置，**保留當下這一台**。
+ *
+ * 保留自己是刻意的：這顆按鈕的使用情境是「我在別人的電腦上忘記登出」，把自己
+ * 也踢掉只會讓按下去的人當場被登出，然後懷疑是不是按錯了。要全部登出的人按
+ * 「登出」就好。
+ */
+export async function handleLogoutOtherSessions(request, env, user) {
+  const token = readCookie(request, COOKIE_NAME);
+  if (!token) return json({ error: '尚未登入' }, 401);
+  await destroyOtherSessions(env, user.id, token);
+  return json({ ok: true });
 }
 
 function statusMessage(status) {
