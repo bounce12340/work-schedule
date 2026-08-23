@@ -14,11 +14,20 @@ CREATE TABLE IF NOT EXISTS users (
 
 -- Session。只存 token 的 SHA-256，不存原文：DB 若外洩，裡面的值無法直接拿來登入。
 -- 選 DB session 而非無狀態 JWT，是為了讓管理者停用帳號能立即生效。
+--
+-- user_agent 與 last_seen_at 是給「我的帳號」頁的裝置清單用的。兩者都可為 NULL：
+-- 這兩個欄位加上去之前就存在的 session 沒有這些資料，顯示為「未知裝置」即可，
+-- 不需要為了一個顯示用的欄位把所有人踢出去重新登入。
+--
+-- 刻意不記 IP：它是個人資料，而這個功能真正要回答的是「我是不是在別人的電腦上
+-- 忘記登出了」——裝置類型加上最後使用時間就足以回答，記 IP 換不到更多。
 CREATE TABLE IF NOT EXISTS sessions (
   token_hash TEXT PRIMARY KEY,
-  user_id    TEXT NOT NULL,
-  created_at INTEGER NOT NULL,
-  expires_at INTEGER NOT NULL
+  user_id      TEXT NOT NULL,
+  created_at   INTEGER NOT NULL,
+  expires_at   INTEGER NOT NULL,
+  user_agent   TEXT,
+  last_seen_at INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);

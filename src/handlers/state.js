@@ -15,7 +15,7 @@ export async function handleGetState(env, user) {
     .bind(user.id)
     .first();
 
-  const me = { email: user.email, role: user.role, status: user.status };
+  const me = { email: user.email, role: user.role, status: user.status, createdAt: user.createdAt };
 
   // 沒有雲端資料不是錯誤：代表這個使用者還沒同步過，前端應沿用本地資料
   if (!row) return json({ user: me, state: null, updatedAt: null });

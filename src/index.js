@@ -1,4 +1,4 @@
-import { handleRegister, handleLogin, handleLogout, handleMe, handleChangePassword, json } from './handlers/auth.js';
+import { handleRegister, handleLogin, handleLogout, handleMe, handleChangePassword, handleListSessions, handleLogoutOtherSessions, json } from './handlers/auth.js';
 import { handleGetState, handlePutState } from './handlers/state.js';
 import { handleListUsers, handleUpdateUser, handleDeleteUser, handleResetPassword, handleAdminActivity } from './handlers/admin.js';
 import { runBackup, purgeExpired, listBackups } from './handlers/backup.js';
@@ -100,6 +100,13 @@ async function route(request, env, ctx) {
     // GET 收下整個 user：它順帶回傳身分，讓前端啟動時不必再打一次 /api/auth/me
     if (request.method === 'GET') return handleGetState(env, user);
     if (request.method === 'PUT') return handlePutState(request, env, user.id);
+    return methodNotAllowed();
+  }
+
+  // 登入中的裝置。GET 看清單、DELETE 登出其他裝置（保留當下這一台）。
+  if (path === '/api/auth/sessions') {
+    if (request.method === 'GET') return handleListSessions(request, env, user);
+    if (request.method === 'DELETE') return handleLogoutOtherSessions(request, env, user);
     return methodNotAllowed();
   }
 

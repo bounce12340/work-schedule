@@ -3,13 +3,30 @@ import { generateToken, sha256, uuid } from './crypto.js';
 const COOKIE_NAME = 'ws_session';
 const SESSION_DAYS = 30;
 
-export async function createSession(env, userId) {
+/** user agent 截斷長度。它只是拿來顯示「哪一種裝置」，不需要完整保存。 */
+const MAX_UA = 300;
+
+/**
+ * 「最後使用時間」的更新間隔。
+ *
+ * 每個請求都寫一次等於每個人的每個操作都多一次 D1 寫入，而畫面上顯示的是
+ * 「2 小時前」這種精度——本來就不需要秒級準確。
+ */
+const SEEN_INTERVAL_MS = 60 * 60 * 1000;
+
+/**
+ * @param {string|null} userAgent 由 handleLogin 從請求標頭取得後傳入。
+ *   session.js 拿不到 request，所以這個值只能由呼叫端給。
+ */
+export async function createSession(env, userId, userAgent = null) {
   const token = generateToken();
   const now = Date.now();
   const expiresAt = now + SESSION_DAYS * 86400000;
   await env.DB
-    .prepare('INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)')
-    .bind(await sha256(token), userId, now, expiresAt)
+    .prepare(`INSERT INTO sessions (token_hash, user_id, created_at, expires_at, user_agent, last_seen_at)
+              VALUES (?, ?, ?, ?, ?, ?)`)
+    .bind(await sha256(token), userId, now, expiresAt,
+          userAgent ? String(userAgent).slice(0, MAX_UA) : null, now)
     .run();
   return { token, expiresAt };
 }
@@ -22,18 +39,67 @@ export async function getSessionUser(request, env) {
   const token = readCookie(request, COOKIE_NAME);
   if (!token) return null;
 
+  const hash = await sha256(token);
   const row = await env.DB.prepare(
-    `SELECT u.id, u.email, u.role, u.status, s.expires_at
+    `SELECT u.id, u.email, u.role, u.status, u.created_at, s.expires_at, s.last_seen_at
        FROM sessions s JOIN users u ON u.id = s.user_id
       WHERE s.token_hash = ?`
-  ).bind(await sha256(token)).first();
+  ).bind(hash).first();
 
   if (!row) return null;
-  if (row.expires_at < Date.now()) {
+  const now = Date.now();
+  if (row.expires_at < now) {
     await destroySession(env, token);
     return null;
   }
-  return { id: row.id, email: row.email, role: row.role, status: row.status };
+
+  // 這裡刻意**先讀後寫**，與〈樂觀鎖必須是單句 SQL〉並不衝突：那條規則防的是
+  // 「讀到寫之間別人改了同一列，導致有意義的變更被無聲蓋掉」。last_seen_at 沒有
+  // 這個風險——兩個並發請求寫進去的值幾乎相同，誰贏都一樣。
+  //
+  // 而先讀後寫在這裡反而更省：上面那個 SELECT 本來就要跑，順手把 last_seen_at
+  // 帶出來之後，**新鮮的時候一句 SQL 都不必發**。改成無條件的單句 UPDATE 的話，
+  // 每一個請求都會多送一句（即使它一列都改不到）。
+  if (row.last_seen_at == null || now - row.last_seen_at >= SEEN_INTERVAL_MS) {
+    // 條件仍然留著：兩個並發請求同時判定為過期時，只有一個會真的寫進去
+    await env.DB.prepare(
+      `UPDATE sessions SET last_seen_at = ?
+        WHERE token_hash = ? AND (last_seen_at IS NULL OR last_seen_at < ?)`
+    ).bind(now, hash, now - SEEN_INTERVAL_MS).run();
+  }
+
+  return {
+    id: row.id, email: row.email, role: row.role,
+    status: row.status, createdAt: row.created_at,
+  };
+}
+
+/**
+ * 這個使用者目前有效的 session，最近使用的排前面。
+ *
+ * `WHERE user_id = ?` 綁的是呼叫端從 session 解出來的 user——**沒有任何參數可以
+ * 指定別人**。這不是靠權限判斷擋住，是這條路徑根本走不到別人的資料。
+ *
+ * 回傳的 `current` 標出哪一個是發出這次請求的裝置，讓 UI 能寫「這台」而不是讓
+ * 使用者自己猜。比對的是雜湊，不是把 token 送到前端。
+ */
+export async function listSessions(env, userId, currentToken) {
+  const currentHash = currentToken ? await sha256(currentToken) : null;
+  const { results } = await env.DB.prepare(
+    `SELECT token_hash, created_at, last_seen_at, user_agent, expires_at
+       FROM sessions
+      WHERE user_id = ? AND expires_at > ?
+      ORDER BY COALESCE(last_seen_at, created_at) DESC`
+  ).bind(userId, Date.now()).all();
+
+  return (results || []).map(r => ({
+    // 不回 token_hash 本身：前端只需要知道「是不是這一台」，不需要能指認任何一列
+    current: r.token_hash === currentHash,
+    createdAt: r.created_at,
+    lastSeenAt: r.last_seen_at,
+    userAgent: r.user_agent,
+    expiresAt: r.expires_at,
+  }));
 }
 
 export async function destroySession(env, token) {
