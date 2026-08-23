@@ -83,6 +83,14 @@
   .op.approve:hover{color:var(--teal);border-color:var(--teal);}
   .op.danger:hover{color:var(--red);border-color:var(--red);}
   .locked{font-family:var(--mono);font-size:10.5px;color:var(--text-dim);}
+  .bk-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:0 0 10px;}
+  .bk-row{display:flex;gap:10px;padding:7px 0;border-bottom:1px solid var(--hairline);
+          font-size:12.5px;align-items:baseline;flex-wrap:wrap;}
+  .bk-row:last-child{border-bottom:none;}
+  .bk-key{font-family:var(--mono);font-size:11.5px;white-space:nowrap;}
+  .bk-meta{color:var(--text-muted);font-size:11.5px;}
+  .bk-fresh{color:var(--teal);font-weight:600;}
+  .bk-stale{color:var(--amber);font-weight:600;}
   .log{margin-top:26px;}
   .log h2{font-size:13px;font-family:var(--mono);letter-spacing:.06em;color:var(--text-muted);
           margin:0 0 10px;font-weight:600;}
@@ -120,6 +128,14 @@
 
   <div class="msg" id="msg"></div>
   <div id="list"><div class="empty">載入中…</div></div>
+
+  <div class="log">
+    <div class="bk-head">
+      <h2 style="margin:0">每日備份</h2>
+      <button class="btn" id="btnBackupNow" type="button">立即備份一次</button>
+    </div>
+    <div id="backups"><div class="empty">載入中…</div></div>
+  </div>
 
   <div class="log">
     <h2>管理者操作記錄（最近 200 筆）</h2>
@@ -168,9 +184,76 @@
       listEl.innerHTML = '';
       showMsg('讀取失敗：' + e.message, 'err');
     }
-    // 操作記錄與帳號清單各自獨立：記錄讀不到不該讓整個管理頁變成錯誤畫面
+    // 操作記錄、備份與帳號清單各自獨立：其中一項讀不到不該讓整個管理頁變成錯誤畫面
     loadLog();
+    loadBackups();
   }
+
+  async function loadBackups(){
+    var el = document.getElementById('backups');
+    try {
+      var d = await api('/api/admin/backups');
+      renderBackups(d);
+    } catch (e) {
+      el.innerHTML = '<div class="empty">備份狀態讀取失敗：' + esc(e.message) + '</div>';
+    }
+  }
+
+  function renderBackups(d){
+    var el = document.getElementById('backups');
+    if (!d.configured) {
+      el.innerHTML = '<div class="empty">尚未綁定備份儲存空間（R2）</div>';
+      return;
+    }
+    if (!d.backups.length) {
+      // 「還沒有備份」必須說得很明白。備份最可怕的失敗模式是「以為有、其實沒有」，
+      // 所以這裡不能只是一片空白讓人自己猜。
+      el.innerHTML = '<div class="empty">⚠️ 目前沒有任何備份。每天台北時間早上 8 點會自動產生一份；' +
+        '想立刻確認能不能備份，按上面的「立即備份一次」。</div>';
+      return;
+    }
+
+    // 最新一份是不是今天或昨天的？備份的價值在於「最近」，一份三週前的備份
+    // 看起來也是綠燈，但它其實已經沒有在跑了——所以這裡要標出來。
+    var today = ymdTaipei(Date.now());
+    var newest = d.backups[0].key.replace('backup/', '').replace('.json', '');
+    var fresh = newest >= ymdTaipei(Date.now() - 36 * 3600 * 1000);
+
+    el.innerHTML =
+      '<div class="bk-row"><span class="' + (fresh ? 'bk-fresh' : 'bk-stale') + '">' +
+        (fresh ? '✓ 最新備份 ' + esc(newest) : '⚠️ 最新備份是 ' + esc(newest) + '，已經不是最近的了') +
+      '</span><span class="bk-meta">共 ' + d.backups.length + ' 份，保留最近 ' + d.keep + ' 份' +
+      (newest === today ? '（含今天）' : '') + '</span></div>' +
+      d.backups.map(function(b){
+        return '<div class="bk-row">' +
+          '<span class="bk-key">' + esc(b.key.replace('backup/', '')) + '</span>' +
+          '<span class="bk-meta">' + kb(b.size) + ' · ' + b.users + ' 個帳號 · ' + b.states + ' 份排程</span>' +
+          '</div>';
+      }).join('');
+  }
+
+  function kb(n){ return (n / 1024).toFixed(1) + ' KB'; }
+
+  /** 台北時間的 YYYY-MM-DD。與伺服器端的備份檔名用同一個時區基準。 */
+  function ymdTaipei(ms){ return new Date(ms + 8 * 3600 * 1000).toISOString().slice(0, 10); }
+
+  document.getElementById('btnBackupNow').onclick = async function(){
+    var btn = this;
+    btn.disabled = true;
+    var was = btn.textContent;
+    btn.textContent = '備份中…';
+    try {
+      var d = await api('/api/admin/backups', { method: 'POST' });
+      showMsg('備份完成：' + d.result.key + '（' + d.result.users + ' 個帳號、' +
+              d.result.states + ' 份排程，' + kb(d.result.bytes) + '）', 'ok', true);
+      loadBackups();
+    } catch (e) {
+      showMsg('備份失敗：' + e.message, 'err', true);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = was;
+    }
+  };
 
   async function loadLog(){
     var el = document.getElementById('log');

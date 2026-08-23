@@ -12,7 +12,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { runBackup, purgeExpired, logAdminAction } from '../src/handlers/backup.js';
+import { runBackup, purgeExpired, logAdminAction, listBackups } from '../src/handlers/backup.js';
 import { makeEnv, addUser, seedState } from './d1.mjs';
 
 /** 最小的 R2 外殼：put / list / delete，list 依 key 排序（真的 R2 也是字典序） */
@@ -25,7 +25,15 @@ function fakeR2() {
     async list({ prefix = '', limit = 1000 } = {}) {
       const objects = [...store.keys()]
         .filter(k => k.startsWith(prefix)).sort().slice(0, limit)
-        .map(key => ({ key }));
+        .map(key => {
+          const v = store.get(key);
+          return {
+            key,
+            size: String(v.body ?? '').length,
+            uploaded: new Date(0),
+            customMetadata: v.opts?.customMetadata,
+          };
+        });
       return { objects };
     },
   };
@@ -174,4 +182,39 @@ test('操作記錄：寫入失敗不能把已經成功的操作變成錯誤', as
     await logAdminAction(env, { id: 'a', email: 'a@x' }, { id: 'b', email: 'b@x' }, 'x');
   } finally { console.warn = warn; }
   assert.ok(seen.some(l => l.includes('admin activity log failed')), '但要留下線索');
+});
+
+// ---------------------------------------------------------------- 看得見的備份
+
+test('列出備份：最新的排前面，並帶出「幾個帳號、幾份排程」', async () => {
+  const env = envWithR2();
+  addUser(env, 'u1', 'a@x.test');
+  seedState(env, 'u1', { version: 1 }, 1);
+
+  await runBackup(env, Date.parse('2026-08-21T02:00:00Z'));
+  await runBackup(env, Date.parse('2026-08-23T02:00:00Z'));
+
+  const d = await listBackups(env);
+  assert.equal(d.configured, true);
+  assert.equal(d.backups.length, 2);
+  assert.equal(d.backups[0].key, 'backup/2026-08-23.json', '最新的要在最前面');
+  assert.equal(d.backups[0].users, 1);
+  assert.equal(d.backups[0].states, 1, '沒有這個數字，就分不出「有備份」與「備了個空的」');
+});
+
+test('列出備份：沒綁 R2 時明講 configured=false，不要假裝是「零份備份」', async () => {
+  const d = await listBackups(makeEnv());
+  assert.equal(d.configured, false);
+  assert.deepEqual(d.backups, []);
+});
+
+test('列出備份：不回傳備份內容本身', async () => {
+  const env = envWithR2();
+  addUser(env, 'u1', 'secret-person@x.test');
+  seedState(env, 'u1', { version: 1, items: [{ id: 'SECRET-ITEM' }] }, 1);
+  await runBackup(env, Date.parse('2026-08-23T02:00:00Z'));
+
+  const raw = JSON.stringify(await listBackups(env));
+  assert.ok(!raw.includes('SECRET-ITEM'), '確認用途只需要 metadata，不需要把全系統的排程送出去');
+  assert.ok(!raw.includes('secret-person'), '連 email 都不必');
 });

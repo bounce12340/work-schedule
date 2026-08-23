@@ -283,17 +283,31 @@ test('PUT /api/reminder 只收需要的欄位，日期格式不對的丟掉', as
   assert.equal(saved[2].t.length, 200, '標題長度有上限');
 });
 
-test('推送摘要不會把使用者關掉的提醒打開', async () => {
+test('推送摘要絕不改動使用者的開關，但新建的列採用預設值', async () => {
   const env = makeEnv(); addUser(env, 'u1', 'a@x.com');
   const user = { id: 'u1', email: 'a@x.com', role: 'user', status: 'approved' };
-  const req2 = b => new Request('https://x.test/api/reminder', { method:'PUT', body: JSON.stringify(b) });
-  await handleReminderPut(req2({ digest: [rem('a', '2026-07-01')] }), env, user);
-  assert.equal(env.DB.prepare('SELECT enabled FROM reminder_feed WHERE user_id = ?').bind('u1').first().enabled, 0);
+  const enabledNow = () => env.DB
+    .prepare('SELECT enabled FROM reminder_feed WHERE user_id = ?').bind('u1').first().enabled;
+  const push = b => handleReminderPut(
+    new Request('https://x.test/api/reminder', { method: 'PUT', body: JSON.stringify(b) }), env, user);
+  const setEnabled = v => handleReminderEnable(
+    new Request('https://x.test', { method: 'POST', body: JSON.stringify({ enabled: v }) }), env, user);
 
-  await handleReminderEnable(new Request('https://x.test', { method:'POST', body: '{"enabled":true}' }), env, user);
-  await handleReminderPut(req2({ digest: [rem('b', '2026-07-02')] }), env, user);
-  assert.equal(env.DB.prepare('SELECT enabled FROM reminder_feed WHERE user_id = ?').bind('u1').first().enabled, 1,
-    '推送是同步的副作用，不該改動使用者的開關');
+  // 第一次推送會建立這一列。此時使用者還沒表達過任何意見，套用 schema 的預設
+  // （開啟）——「預設開啟」若只改 schema 而這句 INSERT 仍寫死 0，就完全不會生效。
+  await push({ digest: [rem('a', '2026-07-01')] });
+  assert.equal(enabledNow(), 1, '新建的列要拿到預設值');
+
+  // **這一條是現在最重要的方向**：使用者親手關掉之後，同步的副作用絕不能把它
+  // 又打開。預設開啟讓這個風險比以前更真實——以前 INSERT 寫死 0，關掉之後
+  // 就算 DO UPDATE 出錯也只會維持關閉。
+  await setEnabled(false);
+  await push({ digest: [rem('b', '2026-07-02')] });
+  assert.equal(enabledNow(), 0, '關掉的提醒不能被推送打開——那是使用者明確表達過的選擇');
+
+  await setEnabled(true);
+  await push({ digest: [rem('c', '2026-07-03')] });
+  assert.equal(enabledNow(), 1, '開著的也要維持開著');
 });
 
 /** 攔截 fetch，記錄寄出去的信而不真的送 */

@@ -124,9 +124,17 @@ export async function handleReminderPut(request, env, user) {
   if (serialized.length > MAX_DIGEST_BYTES) return json({ error: 'Digest too large' }, 413);
 
   const now = Date.now();
-  // 只更新內容，不動 enabled——推送是同步的副作用，不該把使用者關掉的提醒打開
+  // 兩件事要分清楚：
+  //
+  //   - **已經存在的列不動 enabled**（DO UPDATE 只改 digest）。推送是同步的副作用，
+  //     絕不能把使用者親手關掉的提醒又打開——那是他明確表達過的選擇。
+  //   - **新建的列採用預設值（開啟）**。這裡沒有任何「使用者的選擇」可以尊重，
+  //     他還沒表達過意見；預設開啟的理由見 schema.sql 的註解。
+  //
+  // 先前這裡寫死 enabled = 0，等於讓 schema 的預設值永遠用不到——「預設開啟」
+  // 只改 schema 是不夠的，因為實際建立這一列的就是這句 SQL。
   await env.DB.prepare(
-    `INSERT INTO reminder_feed (user_id, enabled, digest, updated_at) VALUES (?, 0, ?, ?)
+    `INSERT INTO reminder_feed (user_id, digest, updated_at) VALUES (?, ?, ?)
      ON CONFLICT(user_id) DO UPDATE SET digest = excluded.digest, updated_at = excluded.updated_at`
   ).bind(user.id, serialized, now).run();
   return json({ ok: true, count: digest.length });

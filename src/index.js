@@ -1,7 +1,7 @@
 import { handleRegister, handleLogin, handleLogout, handleMe, handleChangePassword, json } from './handlers/auth.js';
 import { handleGetState, handlePutState } from './handlers/state.js';
 import { handleListUsers, handleUpdateUser, handleDeleteUser, handleResetPassword, handleAdminActivity } from './handlers/admin.js';
-import { runBackup, purgeExpired } from './handlers/backup.js';
+import { runBackup, purgeExpired, listBackups } from './handlers/backup.js';
 import { handleListShares, handleCreateShare, handleDeleteShare, handleUpdateShared, handleListActivity } from './handlers/share.js';
 import { handleIcsStatus, handleIcsEnable, handleIcsDisable, handleIcsPut, handleIcsFeed } from './handlers/ics.js';
 import { handleReminderStatus, handleReminderEnable, handleReminderPut, sendOverdueReminders } from './handlers/reminder.js';
@@ -162,6 +162,21 @@ async function route(request, env, ctx) {
     }
     if (path === '/api/admin/activity') {
       return request.method === 'GET' ? handleAdminActivity(env) : methodNotAllowed();
+    }
+    // GET 看有哪些備份；POST 立刻跑一次。後者存在的理由是「不必等到明天早上才
+    // 知道備份會不會成功」——設定改動或第一次上線時，能當場驗證比什麼都重要。
+    // 檔名以日期為 key，所以同一天重跑是覆蓋而不是長出第二份。
+    if (path === '/api/admin/backups') {
+      if (request.method === 'GET') return json(await listBackups(env));
+      if (request.method === 'POST') {
+        try {
+          return json({ ok: true, result: await runBackup(env) });
+        } catch (e) {
+          console.error('manual backup failed', e?.stack || String(e));
+          return json({ error: '備份失敗：' + String(e?.message || e) }, 500);
+        }
+      }
+      return methodNotAllowed();
     }
     const mr = path.match(/^\/api\/admin\/users\/([^/]+)\/reset-password$/);
     if (mr) {
