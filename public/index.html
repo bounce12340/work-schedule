@@ -838,6 +838,7 @@
       <button id="btnImport" class="ghost-btn" type="button" data-i18n>⤒ 匯入備份</button>
       <button id="btnIcs" class="ghost-btn" type="button" style="display:none;" data-i18n>📅 行事曆訂閱</button>
       <button id="btnReminder" class="ghost-btn" type="button" style="display:none;"></button>
+      <select id="reminderLead" class="ghost-btn" style="display:none;"></select>
       <input type="file" id="importFile" accept="application/json,.json" style="display:none;">
     </div>
     <div class="signature" data-i18n>此系統由劉思妤設計、規劃、製作。</div>
@@ -1301,6 +1302,10 @@
         'Enabled. You will be emailed when items are overdue; nothing is sent when nothing is overdue.',
       '已關閉逾期提醒信。':'Overdue email reminders turned off.',
       '目前離線，無法變更提醒設定。':'You are offline — the reminder setting could not be changed.',
+      '只在逾期時提醒':'Only when overdue',
+      '提前 {0} 天提醒':'{0} day(s) before due',
+      '提前幾天開始提醒。選「只在逾期時」就是原本的行為。':
+        'How many days ahead to start reminding. “Only when overdue” is the original behaviour.',
       // —— 簽名 ——
       '此系統由劉思妤設計、規劃、製作。':'Designed, planned and built by Liu Szu-Yu.'
     }
@@ -2106,6 +2111,15 @@
     syncReminderBtn();
     fetch('/api/ics/status',{cache:'no-store'}).then(r=>r.ok?r.json():null)
       .then(d=>{ if(d){ icsEnabled=d.enabled; } }).catch(()=>{});
+    // 提醒狀態原本從來沒有被讀回來：reminderEnabled 永遠從 false 開始，所以重新
+    // 整理之後按鈕一律顯示「開啟提醒」——即使那個人早就開著了。伺服器端的
+    // handleReminderStatus 一直都在，只是沒有人呼叫它。
+    fetch('/api/reminder',{cache:'no-store'}).then(r=>r.ok?r.json():null)
+      .then(d=>{ if(d){
+        reminderEnabled = !!d.enabled;
+        if(typeof d.leadDays === 'number') reminderLeadDays = d.leadDays;
+        syncReminderBtn();
+      } }).catch(e=>{ console.error('reminder status failed', e); });
     // 分享清單與 state 各自獨立，不 await：它慢或失敗都不該拖住主資料的同步
     fetchShares().then(()=>{ if(currentView==='shared') renderAll(); });
     const meta = readCloudMeta();
@@ -4545,6 +4559,10 @@
   // 今天不逾期的項目後天就逾期了。讓 cron 每天自己比對，使用者一段時間沒開
   // app 也不影響正確性。
   let reminderEnabled = false;
+  // 提前幾天開始提醒。0 = 只在逾期時（原本的行為）。伺服器端的預設也是 3，
+  // 兩邊要一致——不一致的話，使用者沒動過設定就會看到與實際行為不同的顯示。
+  let reminderLeadDays = 3;
+  const LEAD_CHOICES = [0, 1, 3, 7, 14];
 
   function buildReminderDigest(){
     // 回看一年、前瞻三個月：逾期只可能落在過去，前瞻是為了讓使用者一段時間
@@ -4573,6 +4591,8 @@
   }
 
   const btnReminder=document.getElementById('btnReminder');
+  const selReminderLead=document.getElementById('reminderLead');
+
   function syncReminderBtn(){
     if(!btnReminder) return;
     btnReminder.style.display = cloudEnabled ? '' : 'none';
@@ -4580,13 +4600,48 @@
     btnReminder.title = reminderEnabled
       ? tr('目前會在有逾期項目時寄信到你的註冊信箱')
       : tr('開啟後，有逾期項目時會寄信到你的註冊信箱（沒有逾期就不寄）');
+
+    // 提前天數只在提醒開著時才有意義——關著的時候顯示它只會讓人以為還會收到信
+    if(!selReminderLead) return;
+    selReminderLead.style.display = (cloudEnabled && reminderEnabled) ? '' : 'none';
+    selReminderLead.title = tr('提前幾天開始提醒。選「只在逾期時」就是原本的行為。');
+    // 每次重建：語言切換後選項文字要跟著換，而選項只有五個，重建比逐一改省事
+    selReminderLead.innerHTML='';
+    LEAD_CHOICES.forEach(n=>{
+      const opt=document.createElement('option');
+      opt.value=String(n);
+      opt.textContent = n===0 ? tr('只在逾期時提醒') : tf('提前 {0} 天提醒', n);
+      if(n===reminderLeadDays) opt.selected=true;
+      selReminderLead.appendChild(opt);
+    });
   }
+
+  selReminderLead.onchange = async ()=>{
+    const next = Number(selReminderLead.value);
+    const prev = reminderLeadDays;
+    selReminderLead.disabled = true;
+    try{
+      const r = await fetch('/api/reminder', { method:'POST', headers:{'content-type':'application/json'},
+        body: JSON.stringify({ enabled: true, leadDays: next }) });
+      if(r.status===401){ sessionExpired(); return; }
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      reminderLeadDays = next;
+    }catch(e){
+      // 失敗要把選單轉回去：留在新值上會讓使用者以為設定成功了
+      console.error('reminder lead days failed', e);
+      reminderLeadDays = prev;
+      alert(tr('目前離線，無法變更提醒設定。'));
+    }finally{
+      selReminderLead.disabled = false;
+      syncReminderBtn();
+    }
+  };
   btnReminder.onclick = async ()=>{
     const next = !reminderEnabled;
     btnReminder.disabled = true;
     try{
       const r = await fetch('/api/reminder', { method:'POST', headers:{'content-type':'application/json'},
-        body: JSON.stringify({ enabled: next }) });
+        body: JSON.stringify({ enabled: next, leadDays: reminderLeadDays }) });
       if(r.status===401){ sessionExpired(); return; }
       if(!r.ok) throw new Error('HTTP '+r.status);
       reminderEnabled = next;

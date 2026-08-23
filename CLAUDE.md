@@ -17,6 +17,8 @@ src/session.js         session 建立／查詢／銷毀
 src/turnstile.js       Turnstile siteverify
 src/handlers/          auth / state / admin / share / password-reset 等 API
 src/mail.js            AgentMail 寄信（逾期提醒與密碼重設共用）
+src/throttle.js        登入失敗節流（email 與 IP 兩個維度）
+migrations/            既有資料庫的欄位變更（schema.sql 的 IF NOT EXISTS 補不了欄位）
 schema.sql             D1 資料表
 wrangler.jsonc         Worker 設定與綁定
 tests/                 occurrence 引擎、三方合併、樂觀鎖、富文字、變數遮蔽（node:test，零相依）
@@ -56,6 +58,7 @@ public/manifest.webmanifest, public/icon*.png|svg
 npm run dev            # wrangler dev，本機起 Worker + 靜態資產
 npm run db:init:local  # 對本機 miniflare D1 建表（--local 的資料庫與遠端各自獨立）
 npm run db:init        # 對遠端 D1 建表
+npm run admin:reset    # 破窗鎚：直接改密碼（見〈破窗鎚〉）
 npm run deploy         # 部署
 npm test               # 全部五個測試檔（node:test，不需安裝任何東西；目前 105 個測試）
 ```
@@ -373,6 +376,52 @@ grep -nE '(const|let|var)[[:space:]]+(tr|tf|weekName)\b' public/index.html
 
 `cloudMeta` 除了版本號還記錄 `owner`。同一台電腦換人登入時，localStorage 仍是前一位使用者的資料；若不比對 owner，衝突對話框會讓新使用者有機會把別人的排程覆蓋進自己的雲端帳號。載入時 owner 不符即清空本地（清成空白，不重新 seed——理由同上），登出時也一併清除——兩道防線都要保留，不要因為「登出已經清過」就移除 owner 比對（session 過期、cookie 被替換等情況不會經過登出流程）。
 
+## 每日 cron：提醒、備份、清理
+
+`wrangler.jsonc` 的 `triggers.crons` 只有一條（00:00 UTC＝台北早上 8 點），`scheduled()` 依序跑三件事。**三者各自獨立 try/catch，不能串在一起**——備份失敗不該連帶讓當天的提醒不寄，反過來也一樣。它們只是剛好在同一個時間點跑，彼此沒有依賴。
+
+`step()` 在**成功時也會 `console.log`**。只在失敗時印的話，「備份從三週前就沒在跑了」看起來與「一切正常」一模一樣（log 裡什麼都沒有）——備份最可怕的失敗模式正是這種。
+
+### 備份（`handlers/backup.js` → R2）
+
+在這之前，所有人的排程只存在一個地方。其他每一種故障都還有救，只有資料沒了是真的沒了。
+
+- **備份不含密碼雜湊，這是刻意的。** 帶著雜湊等於把所有人的憑證多複製一份到另一個地方，外洩面積直接放大。代價是還原後所有人要重設密碼——而**自助重設讓這個代價變成負擔得起的**：從「每個人都來拜託管理者」變成「每個人自己點一下」。這兩個功能是一組的。
+- 備 `user_state`、`users`（不含雜湊）、`shares`。`ics_feed` 與 `reminder_feed` 不備——那是前端每次同步重新推上來的衍生資料，還原 `user_state` 之後會自己補回去。
+- **空的備份當成失敗**（`users` 一筆都沒讀到就丟例外）。與其寫出一份空檔案佔掉輪替空間，不如當場失敗；備份最可怕的是「以為有、其實沒有」。
+- 檔名 `backup/YYYY-MM-DD.json`。**選這個格式是為了讓字典序等於時間序**——R2 的 list 依 key 字典序回傳，所以「前面幾個」就是「最舊的幾個」，輪替不需要額外排序或讀 metadata。
+- 留 14 份。輪替只碰 `backup/` 這個 prefix。
+- 儲存桶必須先存在（`npx wrangler r2 bucket create work-schedule-backups`），否則 deploy 會失敗——而 **`--dry-run` 不會發現，它不連線**。
+
+### 清理（`purgeExpired`）
+
+session 原本只有「剛好被碰到」時才刪，`password_resets` 更徹底：原本完全沒有人清。
+
+**用過的重設連結保留 7 天才刪**，不是立刻刪：使用者按上一頁或郵件用戶端預抓時，「這個連結已經用過了」比「查無此連結」好懂太多，那個訊息要撐得過幾天。
+
+## 登入失敗節流（`src/throttle.js`）
+
+Turnstile 擋得住「一秒鐘一萬次」的機器人，擋不住「一分鐘三次、試一整天」的人。兩者是不同的攻擊形狀。
+
+| 決定 | 理由 |
+|---|---|
+| **不是「鎖定帳號」而是滑動窗口** | 真的鎖定的話，任何人對著別人的 email 一直打錯就能把對方鎖在門外——防禦本身變成阻斷服務 |
+| **email 與 IP 兩個維度都記** | 只擋 email：換一個就能繼續打；只擋 IP：同一間辦公室互相牽連。IP 的門檻較寬（20 vs 5），因為它天生會被共用 |
+| **帳號不存在時也要計數** | 否則「這次有沒有被擋」就成了「這個 email 有沒有註冊」的旁通道，登入訊息刻意模糊的用心會整個白費 |
+| **節流檢查放在 PBKDF2 之前** | 被擋下的請求不該還去燒 CPU，否則「擋下來」本身成了另一種消耗資源的方式 |
+| **計數用單句 UPSERT** | 「先讀再寫」在兩次併發失敗之間有空窗，後寫的會蓋掉前一次——攻擊者開兩條連線就能讓計數永遠停在 1。與〈樂觀鎖必須是單句 SQL〉是同一件事 |
+| **登入成功清掉計數** | 先前的失手不該累積到下一次把本人擋在外面 |
+
+## 管理者操作記錄（`admin_activity`）
+
+原本只有 `share_activity`（別人動我的分享資源），管理者停用帳號、改角色、重設密碼卻一筆都沒留。系統有兩位以上管理者時，「是誰把我停用的」必須答得出來。
+
+- **描述由伺服器依實際前後值產生**（`狀態 pending → approved`），不採用前端送來的字串。理由同 `share_activity`。
+- **刪除帳號要先記錄再刪**：刪完之後 target 的 email 就沒有地方可以讀了，而「當時刪掉的是誰」正是這種記錄最需要回答的問題。
+- 記 email 的**當下快照**，帳號被刪掉之後記錄仍要讀得懂。
+- 任何管理者都看得到全部——這種記錄的用途就是互相監督，只讓自己看自己做過什麼等於沒有記錄。
+- 寫入失敗只 `console.warn`，不讓已經成功的操作變成 500（帳號狀態已經改了，回錯誤會讓管理者重試而重複操作）。
+
 ## 跨帳號分享
 
 只分享**指標**，不複製內容。`shares` 一列＝「擁有者把某一個資源分享給某一位使用者」，資源本身永遠只有一份，存在擁有者的 `user_state` JSON 裡。
@@ -417,8 +466,11 @@ grep -nE '(const|let|var)[[:space:]]+(tr|tf|weekName)\b' public/index.html
 **與 ICS 同一個模式，理由也完全相同**：內容由前端 `buildReminderDigest()` 展開、每次成功同步後推上伺服器，Cron 只做「比對日期 → 寄信」。Worker 不重新實作 occurrence 引擎——兩套必然分歧，而**提醒寄錯日期比沒有提醒更糟**，因為使用者會信任它。
 
 - 推上來的是**已展開的排程**（`[{t,d,k,done}]`）而不是「已經算好的逾期清單」。逾期與否隨日期改變，今天不逾期的項目後天就逾期了；存日期讓 cron 每天自己比對，使用者一段時間沒開 app 也不影響正確性。
-- **今天到期的不算逾期。** 那是「今天要做」，混進去會把真正遲交的東西淹沒。
-- **沒有逾期就完全不寄。** 每天一封「你沒有逾期項目」只會訓練收件者忽略這個寄件人，真的有事時反而看不到。
+- **今天到期的不算逾期。** 那是「今天要做」，混進去會把真正遲交的東西淹沒——它屬於「即將到期」那一段。
+- **沒有逾期、也沒有即將到期就完全不寄。** 每天一封「你今天沒事」只會訓練收件者忽略這個寄件人，真的有事時反而看不到。加了事前提醒之後這條**更重要**，不是更不重要：會觸發寄信的條件變寬了，那道「沒事就閉嘴」的閘門就更要守住。
+- **事前提醒（`lead_days`）**：提前幾天開始通知，預設 3、上限 30。`0` 代表只在逾期時通知，也就是原本的行為——那條路要留得回去。`pickOverdue` 取 `d < today`、`pickUpcoming` 取 `today <= d <= today+lead`，兩者**剛好互補，不重疊也不漏接**。
+- 信件分兩段且**逾期永遠在前**：兩者要的行動不同（「已經遲了，現在處理」vs「先看一眼，安排時間」），混成一張表會讓真正遲交的被淹沒。主旨有逾期時讓逾期當主角——收件匣通常只看得到主旨。
+- `lead_days` 是**既有資料庫要跑 migration 的欄位**（見〈資料庫結構變更〉）。
 - `last_sent_ymd` 讓同一天不重寄（cron 會重試）；**寄失敗時刻意不寫這個欄位**，沒寄成功就不算寄過，下一次排程要能補。
 - `handleReminderPut` 只更新 digest、不動 `enabled`：推送是同步的副作用，不該把使用者關掉的提醒打開。
 - 需要兩個 secret，另有選填的 `APP_URL` 用於信中的連結：
@@ -548,6 +600,20 @@ Authorization: Bearer <API_KEY>
 - **重設成功後銷毀該使用者所有 session，且不順手發新的**：前提通常是「我進不去」或「我懷疑被盜」，留任何一個舊 session 等於重設完了對方還在裡面；讓他用新密碼真的登入一次，也才確認得了新密碼真的能用。
 
 `tests/reset.test.mjs` 涵蓋以上每一條。加測試時用突變驗證過它們真的抓得到 bug（拿掉 `used_at` 檢查、拿掉 `approved` 檢查、把 token 存成原文，三種都會紅）。
+
+### 資料庫結構變更（`migrations/`）
+
+`schema.sql` 是**完整的 canonical schema**，全部用 `CREATE TABLE IF NOT EXISTS`——所以它對「新資料庫」永遠正確，對「已經存在的資料庫」卻**補不了新欄位**（`IF NOT EXISTS` 只看表在不在，不看欄位）。
+
+新增欄位因此要在 `migrations/` 下留一支單獨的 SQL，並在**部署之前**跑過：
+
+```bash
+npx wrangler d1 execute work-schedule-db --remote --file=./migrations/001-lead-days.sql
+```
+
+**順序不能反。** 新程式碼 `SELECT r.lead_days`，欄位還沒加就會讓提醒的 cron 與 `/api/reminder` 直接失敗。新增**資料表**沒有這個問題（`db:init` 重跑 `schema.sql` 就會建），只有**欄位**需要 migration。
+
+SQLite 沒有 `ADD COLUMN IF NOT EXISTS`，重跑會報 `duplicate column name`——那個錯誤是安全的，代表已經加過了。
 
 ### 破窗鎚：`npm run admin:reset`
 

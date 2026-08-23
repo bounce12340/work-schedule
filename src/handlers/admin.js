@@ -1,6 +1,7 @@
 import { json, adminEmails } from './auth.js';
 import { hashPassword, generateToken } from '../crypto.js';
 import { destroyAllSessions } from '../session.js';
+import { logAdminAction } from './backup.js';
 
 const VALID_STATUS = ['pending', 'approved', 'rejected', 'suspended'];
 const VALID_ROLE = ['user', 'admin'];
@@ -67,6 +68,17 @@ export async function handleUpdateUser(request, env, actingUser, targetId) {
     await destroyAllSessions(env, targetId);
   }
 
+  // 描述由伺服器依實際的前後值產生，不採用前端送來的字串——讓操作者自己決定
+  // 記錄要寫什麼，記錄就沒有意義了。理由與 share_activity 相同。
+  const changes = [];
+  if (nextStatus !== undefined && nextStatus !== target.status) {
+    changes.push(`狀態 ${target.status} → ${nextStatus}`);
+  }
+  if (nextRole !== undefined && nextRole !== target.role) {
+    changes.push(`角色 ${target.role} → ${nextRole}`);
+  }
+  if (changes.length) await logAdminAction(env, actingUser, target, changes.join('、'));
+
   const updated = await env.DB
     .prepare('SELECT id, email, role, status, created_at, approved_at FROM users WHERE id = ?')
     .bind(targetId).first();
@@ -97,6 +109,7 @@ export async function handleResetPassword(env, actingUser, targetId) {
   await env.DB.prepare('UPDATE users SET password_hash = ? WHERE id = ?')
     .bind(await hashPassword(tempPassword), targetId).run();
   await destroyAllSessions(env, targetId);
+  await logAdminAction(env, actingUser, target, '重設密碼（所有裝置已登出）');
 
   return json({ ok: true, tempPassword, email: target.email });
 }
@@ -110,8 +123,24 @@ export async function handleDeleteUser(env, actingUser, targetId) {
     return json({ error: '這是設定檔指定的管理者，無法刪除' }, 403);
   }
 
+  // 先記錄再刪除：刪完之後 target 的 email 就沒有地方可以讀了，而「當時刪掉的是誰」
+  // 正是這種記錄最需要回答的問題
+  await logAdminAction(env, actingUser, target, '刪除帳號（含其雲端排程資料）');
+
   await destroyAllSessions(env, targetId);
   await env.DB.prepare('DELETE FROM user_state WHERE user_id = ?').bind(targetId).run();
   await env.DB.prepare('DELETE FROM users WHERE id = ?').bind(targetId).run();
   return json({ ok: true });
+}
+
+/**
+ * 管理者操作記錄。任何管理者都看得到全部——這種記錄的用途就是互相監督，
+ * 只讓自己看自己做過什麼等於沒有記錄。
+ */
+export async function handleAdminActivity(env) {
+  const { results } = await env.DB.prepare(
+    `SELECT actor_email, target_email, action, created_at
+       FROM admin_activity ORDER BY created_at DESC LIMIT 200`
+  ).all();
+  return json({ activity: results || [] });
 }

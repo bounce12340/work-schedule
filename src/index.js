@@ -1,6 +1,7 @@
 import { handleRegister, handleLogin, handleLogout, handleMe, handleChangePassword, json } from './handlers/auth.js';
 import { handleGetState, handlePutState } from './handlers/state.js';
-import { handleListUsers, handleUpdateUser, handleDeleteUser, handleResetPassword } from './handlers/admin.js';
+import { handleListUsers, handleUpdateUser, handleDeleteUser, handleResetPassword, handleAdminActivity } from './handlers/admin.js';
+import { runBackup, purgeExpired } from './handlers/backup.js';
 import { handleListShares, handleCreateShare, handleDeleteShare, handleUpdateShared, handleListActivity } from './handlers/share.js';
 import { handleIcsStatus, handleIcsEnable, handleIcsDisable, handleIcsPut, handleIcsFeed } from './handlers/ics.js';
 import { handleReminderStatus, handleReminderEnable, handleReminderPut, sendOverdueReminders } from './handlers/reminder.js';
@@ -17,17 +18,18 @@ import { getSessionUser } from './session.js';
 export default {
   /**
    * Cron 進入點（wrangler.jsonc 的 triggers.crons）。
+   *
+   * 三件事各自獨立 try/catch，**不能串在一起**：備份失敗不該連帶讓當天的提醒
+   * 不寄，反過來也一樣。它們只是剛好在同一個時間點跑，彼此沒有依賴。
+   *
    * 例外一律吞掉並記 log：排程失敗不該讓 Cloudflare 反覆重試而放大寄信量，
    * 而寄信本身在 sendOverdueReminders 內就已經是逐人容錯的。
    */
   async scheduled(event, env, ctx) {
     ctx.waitUntil((async () => {
-      try {
-        const r = await sendOverdueReminders(env);
-        console.log('reminder cron', JSON.stringify(r));
-      } catch (e) {
-        console.error('reminder cron failed', e?.stack || String(e));
-      }
+      await step('reminder', () => sendOverdueReminders(env));
+      await step('backup', () => runBackup(env));
+      await step('purge', () => purgeExpired(env));
     })());
   },
 
@@ -158,6 +160,9 @@ async function route(request, env, ctx) {
     if (path === '/api/admin/users') {
       return request.method === 'GET' ? handleListUsers(env) : methodNotAllowed();
     }
+    if (path === '/api/admin/activity') {
+      return request.method === 'GET' ? handleAdminActivity(env) : methodNotAllowed();
+    }
     const mr = path.match(/^\/api\/admin\/users\/([^/]+)\/reset-password$/);
     if (mr) {
       return request.method === 'POST'
@@ -178,6 +183,20 @@ async function route(request, env, ctx) {
 
 function methodNotAllowed() {
   return json({ error: 'Method not allowed' }, 405);
+}
+
+/**
+ * 跑一段 cron 工作並記錄結果。
+ *
+ * **成功也要印**：只在失敗時印的話，「備份從三週前就沒在跑了」看起來與
+ * 「一切正常」一模一樣——log 裡什麼都沒有。備份最可怕的失敗模式正是這種。
+ */
+async function step(name, fn) {
+  try {
+    console.log(`cron ${name}`, JSON.stringify(await fn()));
+  } catch (e) {
+    console.error(`cron ${name} failed`, e?.stack || String(e));
+  }
 }
 
 /**

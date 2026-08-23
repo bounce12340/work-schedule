@@ -20,6 +20,18 @@ const MAX_DIGEST_BYTES = 200_000;
 // 一次信裡最多列這麼多筆，其餘用「還有 N 項」帶過——把兩百行倒進信裡沒有人會讀
 const MAX_LISTED = 20;
 
+/** 預設提前 3 天。0 代表只在逾期時寄（原本的行為），上限 30 天。 */
+export const DEFAULT_LEAD_DAYS = 3;
+const MAX_LEAD_DAYS = 30;
+
+/** 回 null 代表「沒有指定」，呼叫端據此決定要不要沿用舊值 */
+function normalizeLeadDays(v) {
+  if (v === undefined || v === null || v === '') return null;
+  const n = Math.round(Number(v));
+  if (!Number.isFinite(n)) return null;
+  return Math.min(MAX_LEAD_DAYS, Math.max(0, n));
+}
+
 /** 台北時間的今天（UTC+8，台灣自 1980 年起無夏令時間，固定偏移即可） */
 export function taipeiYmd(nowMs) {
   const d = new Date(nowMs + 8 * 3600_000);
@@ -38,12 +50,36 @@ export function pickOverdue(digest, todayYmd) {
     .sort((a, b) => a.d.localeCompare(b.d));
 }
 
+/**
+ * 即將到期：今天（含）之後、leadDays 天之內尚未完成的項目。
+ *
+ * **包含今天**——與逾期的分界剛好互補：pickOverdue 取 `d < today`，這裡取
+ * `today <= d <= 截止`，兩者不重疊也不漏接。今天到期的東西放在「即將」這一段
+ * 是對的，它還沒遲到，但確實是今天要做的。
+ *
+ * leadDays 為 0 代表使用者只想在逾期時被通知，直接回空陣列。
+ */
+export function pickUpcoming(digest, todayYmd, leadDays) {
+  if (!Array.isArray(digest) || !(leadDays > 0)) return [];
+  const until = addDays(todayYmd, leadDays);
+  return digest
+    .filter(r => r && !r.done && typeof r.d === 'string' && r.d >= todayYmd && r.d <= until)
+    .sort((a, b) => a.d.localeCompare(b.d));
+}
+
+/** YYYY-MM-DD 加上 n 天。用 UTC 的 Date 算，不碰時區——輸入輸出都只是日期字串。 */
+export function addDays(ymd, n) {
+  const t = Date.parse(ymd + 'T00:00:00Z');
+  return new Date(t + n * 86400_000).toISOString().slice(0, 10);
+}
+
 export async function handleReminderStatus(env, user) {
   const row = await env.DB
-    .prepare('SELECT enabled, last_sent_ymd, updated_at FROM reminder_feed WHERE user_id = ?')
+    .prepare('SELECT enabled, last_sent_ymd, lead_days, updated_at FROM reminder_feed WHERE user_id = ?')
     .bind(user.id).first();
   return json({
     enabled: !!(row && row.enabled),
+    leadDays: row ? row.lead_days : DEFAULT_LEAD_DAYS,
     lastSent: row ? row.last_sent_ymd : null,
     updatedAt: row ? row.updated_at : null,
     email: user.email
@@ -54,11 +90,18 @@ export async function handleReminderEnable(request, env, user) {
   let body = {};
   try { body = await request.json(); } catch { /* 沒有 body 就當成開啟 */ }
   const enabled = body && body.enabled === false ? 0 : 1;
+  // 沒有帶 leadDays 就沿用現有值——這支端點也用於單純開關提醒，
+  // 不該因為前端少送一個欄位就把使用者設好的提前天數重設掉
+  const lead = normalizeLeadDays(body?.leadDays);
   const now = Date.now();
   await env.DB.prepare(
-    `INSERT INTO reminder_feed (user_id, enabled, digest, updated_at) VALUES (?, ?, '[]', ?)
-     ON CONFLICT(user_id) DO UPDATE SET enabled = excluded.enabled, updated_at = excluded.updated_at`
-  ).bind(user.id, enabled, now).run();
+    `INSERT INTO reminder_feed (user_id, enabled, digest, lead_days, updated_at)
+     VALUES (?, ?, '[]', ?, ?)
+     ON CONFLICT(user_id) DO UPDATE SET
+       enabled = excluded.enabled,
+       lead_days = COALESCE(?, reminder_feed.lead_days),
+       updated_at = excluded.updated_at`
+  ).bind(user.id, enabled, lead ?? DEFAULT_LEAD_DAYS, now, lead).run();
   return json({ ok: true, enabled: !!enabled });
 }
 
@@ -91,51 +134,106 @@ export async function handleReminderPut(request, env, user) {
 
 const TYPE_LABEL = { work: '工作項目', meeting: '會議安排', assignment: '作業' };
 
-export function buildReminderEmail(rows, todayYmd, appUrl) {
-  const shown = rows.slice(0, MAX_LISTED);
-  const rest = rows.length - shown.length;
-  const esc = s => String(s).replace(/[&<>"']/g,
-    c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const esc = s => String(s).replace(/[&<>"']/g,
+  c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-  const daysLate = d => Math.round((Date.parse(todayYmd) - Date.parse(d)) / 86400000);
-
-  const textLines = shown.map(r => `・${r.d}（逾期 ${daysLate(r.d)} 天）  ${r.t}`);
-  if (rest > 0) textLines.push(`・…還有 ${rest} 項`);
-
-  const text = [
-    `你有 ${rows.length} 個逾期未完成的項目：`, '',
-    ...textLines, '',
-    appUrl ? `開啟系統：${appUrl}` : '',
-    '', '— 工作排程確認系統'
-  ].filter(l => l !== undefined).join('\n');
-
-  const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;line-height:1.7;color:#2A2A26">
-<p style="margin:0 0 14px">你有 <b style="color:#C0392B">${rows.length}</b> 個逾期未完成的項目：</p>
-<table style="border-collapse:collapse;width:100%;max-width:560px">
-${shown.map(r => `<tr>
-<td style="padding:6px 10px 6px 0;white-space:nowrap;font-family:ui-monospace,monospace;font-size:12px;color:#C0392B;vertical-align:top">${esc(r.d)}</td>
-<td style="padding:6px 10px 6px 0;white-space:nowrap;font-size:12px;color:#71706A;vertical-align:top">逾期 ${daysLate(r.d)} 天</td>
-<td style="padding:6px 0;vertical-align:top">${esc(r.t)}<span style="color:#A2A099;font-size:12px"> · ${esc(TYPE_LABEL[r.k] || '')}</span></td>
-</tr>`).join('')}
-${rest > 0 ? `<tr><td colspan="3" style="padding:8px 0;color:#A2A099;font-size:12.5px">…還有 ${rest} 項</td></tr>` : ''}
-</table>
-${appUrl ? `<p style="margin:18px 0 0"><a href="${esc(appUrl)}" style="color:#C9822E">開啟工作排程確認系統 →</a></p>` : ''}
-<p style="margin:22px 0 0;color:#A2A099;font-size:12px">這封信只在有逾期項目時寄出。要停止接收，可在系統內關閉逾期提醒。</p>
-</div>`;
-
-  return { subject: `【逾期提醒】${rows.length} 個項目已過期`, text, html };
+/** 兩個日期字串相差幾天。只算日期，不牽涉時區。 */
+function dayDiff(fromYmd, toYmd) {
+  return Math.round((Date.parse(toYmd) - Date.parse(fromYmd)) / 86400000);
 }
 
 /**
- * Cron 進入點：掃出「已開啟提醒、今天還沒寄過、且真的有逾期項目」的使用者並寄信。
+ * 信件內容。逾期與即將到期分成兩段，**逾期永遠排在前面**。
  *
- * 沒有逾期就完全不寄——使用者明確選了這個行為。每天一封「你沒有逾期項目」的信
- * 只會訓練收件者忽略這個寄件人，真的有事時反而看不到。
+ * 分段而不是混成一張表，是因為兩者要的行動不同：逾期是「已經遲了，現在就處理」，
+ * 即將到期是「先看一眼，安排時間」。混在一起會讓真正遲交的東西被淹沒——那正是
+ * 原本「今天到期的不算逾期」想避免的事，這裡沿用同一個判斷。
+ */
+export function buildReminderEmail(overdue, upcoming, todayYmd, appUrl) {
+  const parts = [];
+  const htmlParts = [];
+
+  if (overdue.length) {
+    const shown = overdue.slice(0, MAX_LISTED);
+    const rest = overdue.length - shown.length;
+    parts.push(
+      `【已逾期】${overdue.length} 項`, '',
+      ...shown.map(r => `・${r.d}（逾期 ${dayDiff(r.d, todayYmd)} 天）  ${r.t}`),
+      ...(rest > 0 ? [`・…還有 ${rest} 項`] : []), ''
+    );
+    htmlParts.push(section('已逾期', '#C0392B', shown, rest,
+      r => `逾期 ${dayDiff(r.d, todayYmd)} 天`));
+  }
+
+  if (upcoming.length) {
+    const shown = upcoming.slice(0, MAX_LISTED);
+    const rest = upcoming.length - shown.length;
+    parts.push(
+      `【即將到期】${upcoming.length} 項`, '',
+      ...shown.map(r => `・${r.d}（${whenLabel(dayDiff(todayYmd, r.d))}）  ${r.t}`),
+      ...(rest > 0 ? [`・…還有 ${rest} 項`] : []), ''
+    );
+    htmlParts.push(section('即將到期', '#C9822E', shown, rest,
+      r => whenLabel(dayDiff(todayYmd, r.d))));
+  }
+
+  const text = [
+    ...parts,
+    appUrl ? `開啟系統：${appUrl}` : '',
+    '', '— 工作排程確認系統'
+  ].join('\n');
+
+  const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;line-height:1.7;color:#2A2A26">
+${htmlParts.join('')}
+${appUrl ? `<p style="margin:18px 0 0"><a href="${esc(appUrl)}" style="color:#C9822E">開啟工作排程確認系統 →</a></p>` : ''}
+<p style="margin:22px 0 0;color:#A2A099;font-size:12px">沒有逾期、也沒有即將到期的項目時，這封信不會寄出。要調整提前天數或停止接收，可在系統內設定。</p>
+</div>`;
+
+  return { subject: buildSubject(overdue.length, upcoming.length), text, html };
+}
+
+/** 「今天到期」「明天到期」比「0 天後」「1 天後」好讀太多 */
+function whenLabel(days) {
+  if (days <= 0) return '今天到期';
+  if (days === 1) return '明天到期';
+  return `${days} 天後到期`;
+}
+
+/**
+ * 主旨要一眼看得出嚴重程度。有逾期就讓逾期當主角——收件匣裡通常只看得到主旨，
+ * 把「3 個已逾期」藏在「5 個提醒」後面等於把最重要的資訊丟掉。
+ */
+function buildSubject(overdueN, upcomingN) {
+  if (overdueN && upcomingN) return `【工作排程】${overdueN} 個已逾期、${upcomingN} 個即將到期`;
+  if (overdueN) return `【逾期提醒】${overdueN} 個項目已過期`;
+  return `【即將到期】${upcomingN} 個項目即將到期`;
+}
+
+function section(title, color, rows, rest, whenText) {
+  return `<p style="margin:0 0 10px"><b style="color:${color}">${title}</b> · ${rows.length + rest} 項</p>
+<table style="border-collapse:collapse;width:100%;max-width:560px;margin:0 0 22px">
+${rows.map(r => `<tr>
+<td style="padding:6px 10px 6px 0;white-space:nowrap;font-family:ui-monospace,monospace;font-size:12px;color:${color};vertical-align:top">${esc(r.d)}</td>
+<td style="padding:6px 10px 6px 0;white-space:nowrap;font-size:12px;color:#71706A;vertical-align:top">${esc(whenText(r))}</td>
+<td style="padding:6px 0;vertical-align:top">${esc(r.t)}<span style="color:#A2A099;font-size:12px"> · ${esc(TYPE_LABEL[r.k] || '')}</span></td>
+</tr>`).join('')}
+${rest > 0 ? `<tr><td colspan="3" style="padding:8px 0;color:#A2A099;font-size:12.5px">…還有 ${rest} 項</td></tr>` : ''}
+</table>`;
+}
+
+/**
+ * Cron 進入點：掃出「已開啟提醒、今天還沒寄過、且真的有東西要說」的使用者並寄信。
+ *
+ * **沒有逾期、也沒有即將到期就完全不寄。** 每天一封「你今天沒事」的信只會訓練
+ * 收件者忽略這個寄件人，真的有事時反而看不到。加了事前提醒之後這條更重要，
+ * 不是更不重要——會觸發寄信的條件變寬了，那個「沒事就閉嘴」的閘門就更要守住。
+ *
+ * 提前幾天由每個人自己的 lead_days 決定，0 代表只在逾期時通知（原本的行為）。
  */
 export async function sendOverdueReminders(env, nowMs = Date.now()) {
   const today = taipeiYmd(nowMs);
   const rows = await env.DB.prepare(
-    `SELECT r.user_id, r.digest, r.last_sent_ymd, u.email, u.status
+    `SELECT r.user_id, r.digest, r.last_sent_ymd, r.lead_days, u.email, u.status
        FROM reminder_feed r JOIN users u ON u.id = r.user_id
       WHERE r.enabled = 1`
   ).all();
@@ -151,10 +249,13 @@ export async function sendOverdueReminders(env, nowMs = Date.now()) {
     let digest = [];
     try { digest = JSON.parse(row.digest); } catch { digest = []; }
     const overdue = pickOverdue(digest, today);
-    if (!overdue.length) { out.skipped++; continue; }
+    const upcoming = pickUpcoming(digest, today,
+      row.lead_days == null ? DEFAULT_LEAD_DAYS : row.lead_days);
+    if (!overdue.length && !upcoming.length) { out.skipped++; continue; }
 
     try {
-      await sendMail(env, row.email, buildReminderEmail(overdue, today, env.APP_URL || ''));
+      await sendMail(env, row.email,
+        buildReminderEmail(overdue, upcoming, today, env.APP_URL || ''));
       await env.DB.prepare('UPDATE reminder_feed SET last_sent_ymd = ? WHERE user_id = ?')
         .bind(today, row.user_id).run();
       out.sent++;

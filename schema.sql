@@ -113,11 +113,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_ics_token ON ics_feed(token_hash);
 -- 逾期了。存展開後的日期，cron 每天自己比對，前端沒開也不影響正確性。
 --
 -- last_sent_ymd 讓同一天不會因為 cron 重試而寄第二封。
+--
+-- lead_days：提前幾天開始提醒。0 代表只在逾期時寄——那是原本的行為，保留給
+-- 「不想被事前打擾」的人。預設 3 天：提醒的價值本來就在事前，只在逾期時才說
+-- 等於永遠慢一步。
 CREATE TABLE IF NOT EXISTS reminder_feed (
   user_id       TEXT PRIMARY KEY,
   enabled       INTEGER NOT NULL DEFAULT 0,
   digest        TEXT NOT NULL DEFAULT '[]',
   last_sent_ymd TEXT,
+  lead_days     INTEGER NOT NULL DEFAULT 3,
   updated_at    INTEGER NOT NULL
 );
 
@@ -149,3 +154,36 @@ CREATE TABLE IF NOT EXISTS password_resets (
 );
 
 CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id, created_at);
+
+-- 登入失敗次數。Turnstile 擋得住機器人大軍，擋不住有耐心的人慢慢試——
+-- 前者是「一秒鐘一萬次」，後者是「一分鐘三次、試一整天」，兩者要分開擋。
+--
+-- key 同時用於 email 與 IP 兩種維度（前綴區分）：只擋 email 的話，換一個 email
+-- 就能繼續打；只擋 IP 的話，同一間辦公室的人會互相牽連。兩個都擋、任一超限就停。
+--
+-- 刻意不做成「鎖定帳號」而是「這個窗口內先擋著」：真的鎖定帳號的話，攻擊者
+-- 只要一直打錯就能把別人鎖在門外，那反而變成一種阻斷服務。
+CREATE TABLE IF NOT EXISTS login_attempts (
+  key          TEXT PRIMARY KEY,   -- 'email:someone@x.test' 或 'ip:1.2.3.4'
+  fails        INTEGER NOT NULL DEFAULT 0,
+  window_start INTEGER NOT NULL
+);
+
+-- 管理者操作記錄。
+--
+-- 原本只有 share_activity（別人動我的分享資源），管理者停用帳號、改角色、重設
+-- 密碼卻一筆都沒留。系統有兩位以上管理者時，「是誰把我停用的」必須答得出來。
+--
+-- 記 actor_email 與 target_email 的**當下快照**而不是只存 id：帳號被刪掉之後，
+-- 記錄仍然要讀得懂當時動的是誰。理由與 share_activity 的 resource_name 相同。
+CREATE TABLE IF NOT EXISTS admin_activity (
+  id           TEXT PRIMARY KEY,
+  actor_id     TEXT NOT NULL,
+  actor_email  TEXT NOT NULL,
+  target_id    TEXT NOT NULL,
+  target_email TEXT NOT NULL,
+  action       TEXT NOT NULL,      -- 人可讀的簡述
+  created_at   INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_activity_time ON admin_activity(created_at);
