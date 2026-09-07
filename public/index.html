@@ -225,6 +225,21 @@
   .empty-state span{ color: var(--amber); }
 
   .occ-row{ background: var(--panel); border:1px solid var(--hairline); border-radius:12px; padding: 12px 16px; display:flex; align-items:center; gap:12px; flex-wrap:wrap; box-shadow: var(--shadow-xs); }
+  /* 看板列數在預設的年度檢視下輕易破千（64 個項目就有 1461 列），而實測顯示
+     成本的 95% 不在 JS，是瀏覽器對那幾千列重跑樣式計算與版面配置。
+
+     content-visibility:auto 讓瀏覽器**跳過畫面外元素的版面與繪製**，捲到才算。
+     DOM 完全沒有改變——所有列仍然存在、仍然找得到、仍然可以被 querySelector
+     取到，所以〈勾選不重建看板〉那條增量路徑與 verify-toggle 的等價驗證都不受
+     影響。這是它比虛擬捲動好的地方：虛擬捲動要動到「畫面上有哪些列」這件事，
+     那是明確的產品決定；這個純粹是讓瀏覽器少做白工。
+
+     contain-intrinsic-size 的 auto 會記住該列真正量到的高度，之後沿用；沒有它
+     的話捲動時捲軸長度會一直跳。前面的長度是還沒量過時的估計值。
+
+     不支援的瀏覽器完全照舊渲染，只是沒有這個好處——與雲端同步同一個漸進增強
+     模式，壞不了任何東西。 */
+  .occ-row{ content-visibility:auto; contain-intrinsic-size:auto 52px; }
   .occ-row.type-work{ border-left:3px solid var(--teal); }
   .occ-row.type-meeting{ border-left:3px solid var(--violet); }
   .occ-row.type-assignment{ border-left:3px solid var(--amber); }
@@ -2977,7 +2992,20 @@
     renderMajorChips(); renderModeTabs(); renderPeriodRow(); renderScopeStrip(); renderFilterBar(); renderBoard();
   }
 
-  document.getElementById('inputSearch').oninput = (e)=>{ searchText = e.target.value.trim(); renderBoard(); };
+  // 搜尋每打一個字就重建整個看板，而重建的成本隨列數成長——實測 64 個項目
+  // （1461 列）打五個字要卡 2.5 秒。debounce 之後那五次變成一次。
+  //
+  // 這與〈高頻輸入用 persistSoon 做 400ms debounce〉是同一個判斷，只是那邊
+  // 延後的是寫入、這邊延後的是重繪。180ms 是「打字中途不重畫、停下來就立刻
+  // 有反應」的分界；再長會開始感覺遲鈍。
+  let searchTimer = null;
+  document.getElementById('inputSearch').oninput = (e)=>{
+    const v = e.target.value.trim();
+    clearTimeout(searchTimer);
+    // 清空是例外，要立刻回應：那是「我不找了」，等 180ms 會像卡住
+    if(!v){ searchText = ''; renderBoard(); return; }
+    searchTimer = setTimeout(()=>{ searchText = v; renderBoard(); }, 180);
+  };
   document.getElementById('btnHideDone').onclick = ()=>{ hideDone = !hideDone; renderScheduleView(); };
 
   // ================= calendar view =================
