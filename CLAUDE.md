@@ -42,10 +42,11 @@ public/manifest.webmanifest, public/icon*.png|svg
 | `tests/richtext.test.mjs` | 富文字過濾器的安全決策、v1→v2 遷移 | 從 `index.html` 抽真正的原始碼求值 |
 | `tests/shadow.test.mjs` | 頂層函式被區域變數／參數遮蔽 | 對 `index.html` 做靜態掃描（追大括號深度） |
 | `tests/holidays.test.mjs` | 內建國定假日清單的完整性 | 從 `index.html` 取出 `BUILTIN_HOLIDAYS` 求值 |
+| `tests/ops.test.mjs` | cron 執行記錄、功能使用狀況 | 直接 import Worker 端模組 |
 
 前三者的挑選理由：前兩者近乎純函式、零 DOM 依賴；第三者是**競態**——靠併發碰運氣測不到，但可以把空窗做成確定性的。
 
-`tests/holidays.test.mjs` 守的是另一類東西：假日貼錯不會壞掉畫面，只會讓順延算出看似合理的錯誤日期——沒有人會發現，所以只能靠測試把它變成看得見的。
+`tests/holidays.test.mjs` 與 `tests/ops.test.mjs` 是另一類：兩者守的都是**「看不見」本身就是 bug**。假日貼錯不會壞掉畫面，只會讓順延算出看似合理的錯誤日期；cron 沒在跑不會有任何徵兆，因為失敗只留在 console。這兩種錯誤的共同點是「沒有人會發現」，所以只能靠測試把它們變成看得見的。
 
 `tests/shadow.test.mjs` 是另一種性質：它不驗行為，而是擋掉一個已經發生兩次的 bug class（見下方「多語系」章節）。這種錯誤 `node --check` 過、其餘測試也過，執行時卻整段 render 消失，只能靠靜態掃描或人眼。
 
@@ -63,7 +64,7 @@ npm run db:init:local  # 對本機 miniflare D1 建表（--local 的資料庫與
 npm run db:init        # 對遠端 D1 建表
 npm run admin:reset    # 破窗鎚：直接改密碼（見〈破窗鎚〉）
 npm run deploy         # 部署
-npm test               # 全部測試檔（node:test，不需安裝任何東西；目前 182 個測試）
+npm test               # 全部測試檔（node:test，不需安裝任何東西；目前 192 個測試）
 ```
 
 跑單一測試檔或單一測試（`npm test` 沒有轉發參數的管道，直接用 node）：
@@ -410,6 +411,28 @@ grep -nE '(const|let|var)[[:space:]]+(tr|tf|weekName)\b' public/index.html
 **看得見的備份才是備份。** cron 的 log 只有翻 Cloudflare 後台才看得到，而沒有人會每天去翻——所以 `/admin` 有一區列出目前有哪些備份（日期、大小、幾個帳號、幾份排程），最新一份超過 36 小時就標成警示色。一份三週前的備份在「有備份」這個問題上看起來也是綠燈，但它其實早就沒在跑了。
 
 `GET /api/admin/backups` 只回 metadata，不回內容：用途是確認「有沒有、對不對」，沒有理由為了確認而把全系統所有人的排程送到瀏覽器。`POST` 立刻跑一次，讓「設定改動或第一次上線」能當場驗證，不必等到隔天早上；檔名以日期為 key，同一天重跑是覆蓋而不是長出第二份。
+
+### 執行記錄（`cron_runs`，見 `handlers/ops.js`）
+
+`step()` 除了 `console.log`，現在把每一次的結果寫進 `cron_runs`，並由 `/admin` 的「排程狀態」顯示。
+
+理由是一次真實事故：**逾期提醒信整整兩週沒有寄出**，而所有條件都成立——`reminder_feed.enabled` 是 1、帳號是 `approved`、digest 裡確實有即將到期的項目。系統沒有任何徵兆，因為寄信失敗只留了一行 `console.warn`，而那行字在 Cloudflare 後台，沒有人會去翻。這正是備份那一節已經寫過的道理（**看得見的備份才是備份**），只是當時只套用到備份。
+
+幾個不能拿掉的判斷：
+
+- **失敗的那一筆才是重點**，所以 `ok = 0` 一樣要寫，而且 `detail` 存的是錯誤訊息而不只是狀態。只記成功等於重蹈 `console.log` 的覆轍。
+- **管理頁看的是「最後一次成功」，不是「最後一次執行」。** 兩者在一份只有時間戳的清單裡看起來很像，意義卻相反——把失敗算進 `lastOkAt`，這個功能就會親手製造出它要防的那種假綠燈。有測試守著。
+- **從未執行過 ≠ 執行成功。** 伺服器端刻意不寫死步驟清單（cron 多一件事，它會自動被監看）；前端則刻意寫死已知的三個（沒有記錄的東西不會自己出現在回應裡，那樣「從來沒跑過」會變成一片空白）。兩邊的方向相反，是互補的。
+- **寫記錄失敗只 `console.warn`。** 記錄寫不進去，不該讓一次成功的備份看起來像失敗。同 `share_activity` / `admin_activity`。
+- `sendOverdueReminders` 的 `skipped` 已拆成 `nothingToSay` / `alreadySent` / `notApproved`，並回傳 `errors[]`。原本三種原因共用一個數字，於是「今天大家都沒事」與「這個帳號被停用了」在統計裡完全一樣——與〈降級可以，沉默不行〉要求區分 `absent` 與 `failed` 是同一件事。
+
+### 使用狀況（`/api/admin/usage`）
+
+「做好了但沒有人用」是產品訊號，而它原本只有**直接查 D1** 才知道。系統上線至今 `ics_feed` 與 `shares` 都是 0——那件事應該要在管理頁上看得到，而不是靠有人想起來去查。
+
+- **只回數量與狀態，不回任何排程內容**（有測試守著）。要回答的是「有沒有人在用、正不正常」，沒有理由為此把全系統所有人的排程送到瀏覽器——與 `listBackups` 只回 metadata 是同一個判斷。
+- 項目數用 SQL 的 `json_array_length` 就地算，不把 `state` 讀進 Worker 再解析：那條路不該隨人數線性放大。`json_valid` 的守衛讓一份壞掉的 `state` 只影響那一列的數字，而不是讓整張表查不出來。
+- **從未同步過的帳號也要列出來。**「註冊了但沒在用」本身就是訊號，讓它消失等於把那個訊號丟掉。
 
 ### 清理（`purgeExpired`）
 

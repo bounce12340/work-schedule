@@ -102,6 +102,25 @@
   .log-what{color:var(--text);}
   .empty{padding:34px 20px;text-align:center;border:1px dashed #D2CDBB;border-radius:12px;
          font-family:var(--mono);font-size:12.5px;color:var(--text-dim);background:var(--panel);}
+  /* 排程狀態與使用狀況。沿用備份那一區的色彩語彙（teal=好、amber=該看一下、
+     red=壞了），讓三個維運區塊在同一頁上讀起來是同一套規則。 */
+  .ops-row{display:flex;gap:10px;padding:9px 0;border-bottom:1px solid var(--hairline);
+           font-size:12.5px;align-items:baseline;flex-wrap:wrap;}
+  .ops-row:last-child{border-bottom:none;}
+  .ops-name{font-weight:600;min-width:96px;}
+  .ops-ok{color:var(--teal);font-weight:600;}
+  .ops-warn{color:var(--amber);font-weight:600;}
+  .ops-bad{color:var(--red);font-weight:600;}
+  .ops-meta{color:var(--text-muted);font-size:11.5px;}
+  .ops-err{font-family:var(--mono);font-size:11px;color:var(--red);width:100%;
+           word-break:break-all;line-height:1.6;}
+  .ops-tbl{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .ops-tbl th{text-align:left;font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;
+              color:var(--text-dim);text-transform:uppercase;padding:0 10px 7px 0;font-weight:600;}
+  .ops-tbl td{padding:7px 10px 7px 0;border-top:1px solid var(--hairline);vertical-align:top;}
+  .ops-tbl td.num{font-family:var(--mono);text-align:right;padding-right:14px;}
+  /* 窄螢幕放不下就讓表格自己捲，不要把整頁撐寬 */
+  .ops-scroll{overflow-x:auto;}
   .msg{margin-bottom:16px;padding:11px 13px;border-radius:8px;font-size:13px;display:none;}
   .msg.err{display:block;background:var(--red-dim);border:1px solid rgba(199,75,67,.3);color:var(--red);}
   .msg.ok{display:block;background:var(--teal-dim);border:1px solid rgba(31,140,104,.3);color:var(--teal);}
@@ -135,6 +154,16 @@
       <button class="btn" id="btnBackupNow" type="button">立即備份一次</button>
     </div>
     <div id="backups"><div class="empty">載入中…</div></div>
+  </div>
+
+  <div class="log">
+    <h2>排程狀態（每天台北時間早上 8 點）</h2>
+    <div id="cron"><div class="empty">載入中…</div></div>
+  </div>
+
+  <div class="log">
+    <h2>使用狀況</h2>
+    <div id="usage"><div class="empty">載入中…</div></div>
   </div>
 
   <div class="log">
@@ -187,6 +216,8 @@
     // 操作記錄、備份與帳號清單各自獨立：其中一項讀不到不該讓整個管理頁變成錯誤畫面
     loadLog();
     loadBackups();
+    opsLoadCron();
+    opsLoadUsage();
   }
 
   async function loadBackups(){
@@ -254,6 +285,161 @@
       btn.textContent = was;
     }
   };
+
+  // ===================== 排程狀態與使用狀況 =====================
+  //
+  // 這一整段存在的理由是一次真實事故：逾期提醒信整整兩週沒有寄出，而所有條件
+  // 都成立（提醒開著、帳號 approved、確實有即將到期的項目）。系統沒有任何徵兆——
+  // 寄信失敗只留了一行 console.warn，而那行字在 Cloudflare 後台，沒有人會去翻。
+  //
+  // 與備份那一區同一個判斷：**看得見的備份才是備份**，看不見的 cron 同樣不算在跑。
+  //
+  // 新增的頂層函式一律加 ops 前綴。這一段一次加了好幾個，而「頂層函式被區域變數
+  // 遮蔽」在這個 repo 發生過兩次（見 CLAUDE.md 的〈多語系〉）——tests/shadow.test.mjs
+  // 會擋，但取名時先避開比事後被擋下來省事。
+
+  // 已知的三件排程工作。伺服器端刻意不寫死這份清單（新工作才不會靜靜地不被監看），
+  // 而這裡要寫死，理由相反：**從未執行過的工作必須看得到**，而沒有記錄的東西
+  // 不會自己出現在回應裡。多出來的步驟則照樣顯示，兩邊互補。
+  var OPS_STEPS = [
+    ['reminder', '逾期提醒信'],
+    ['backup',   '每日備份'],
+    ['purge',    '過期資料清理']
+  ];
+
+  // 幾小時內算「新鮮」。與備份那一區的 36 小時一致：cron 一天跑一次，
+  // 留一點餘裕才不會因為執行時間前後飄移就誤報。
+  var OPS_FRESH_MS = 36 * 3600 * 1000;
+
+  async function opsLoadCron(){
+    var el = document.getElementById('cron');
+    try { opsRenderCron(await api('/api/admin/cron')); }
+    catch (e) { el.innerHTML = '<div class="empty">排程狀態讀取失敗：' + esc(e.message) + '</div>'; }
+  }
+
+  function opsRenderCron(d){
+    var el = document.getElementById('cron');
+    var now = d.now || Date.now();
+    var seen = {};
+    var names = OPS_STEPS.slice();
+    OPS_STEPS.forEach(function(p){ seen[p[0]] = 1; });
+    Object.keys(d.steps || {}).forEach(function(k){ if (!seen[k]) names.push([k, k]); });
+
+    var html = names.map(function(p){
+      var key = p[0], label = p[1], st = (d.steps || {})[key];
+
+      // 從未執行過 ≠ 執行成功。沒有記錄時要明說，不能留白讓人自己猜。
+      if (!st) {
+        return '<div class="ops-row"><span class="ops-name">' + esc(label) + '</span>' +
+          '<span class="ops-warn">— 尚無記錄</span>' +
+          '<span class="ops-meta">還沒跑過，或這是剛上線的第一天（記錄從部署後才開始累積）</span></div>';
+      }
+
+      // 真正要看的是**最後一次成功**，不是最後一次執行。「昨天跑過」與
+      // 「昨天跑過但失敗了」在只有時間戳的清單裡看起來很像，意義卻相反。
+      var fresh = st.lastOkAt != null && (now - st.lastOkAt) < OPS_FRESH_MS;
+      var cls = fresh ? 'ops-ok' : (st.lastOkAt == null ? 'ops-bad' : 'ops-warn');
+      var head = fresh ? '✓ 正常'
+        : (st.lastOkAt == null ? '✗ 從來沒有成功過' : '⚠️ 最後成功：' + opsAgo(st.lastOkAt, now));
+
+      var meta = '最後執行 ' + opsAgo(st.lastRunAt, now);
+      if (st.lastOkAt != null && !fresh) meta += '（跑了，但沒成功）';
+
+      return '<div class="ops-row">' +
+        '<span class="ops-name">' + esc(label) + '</span>' +
+        '<span class="' + cls + '">' + head + '</span>' +
+        '<span class="ops-meta">' + esc(meta) + '</span>' +
+        // 錯誤訊息是這整張表存在的理由：「金鑰失效」與「inbox 不存在」
+        // 在一個 failed 數字底下看起來一模一樣，處理方向卻完全不同
+        (st.lastError && !fresh ? '<span class="ops-err">最近的錯誤：' + esc(st.lastError) + '</span>' : '') +
+        '</div>';
+    }).join('');
+
+    var runs = d.runs || [];
+    if (runs.length) {
+      html += '<div class="section-label">最近的執行記錄（保留 ' + (d.keepDays || 30) + ' 天）</div>' +
+        runs.slice(0, 30).map(function(r){
+          return '<div class="ops-row">' +
+            '<span class="log-when">' + esc(opsStamp(r.startedAt)) + '</span>' +
+            '<span class="' + (r.ok ? 'ops-ok' : 'ops-bad') + '">' + (r.ok ? '✓' : '✗') + '</span>' +
+            '<span class="ops-name">' + esc(opsLabel(r.step)) + '</span>' +
+            '<span class="ops-meta">' + esc(String(r.detail == null ? '' : r.detail).slice(0, 160)) +
+            ' · ' + r.ms + 'ms</span></div>';
+        }).join('');
+    }
+    el.innerHTML = html;
+  }
+
+  function opsLabel(step){
+    for (var i = 0; i < OPS_STEPS.length; i++) if (OPS_STEPS[i][0] === step) return OPS_STEPS[i][1];
+    return step;
+  }
+
+  /** 「14 天前」比一個時間戳好懂太多——要回答的問題本來就是「多久沒成功了」 */
+  function opsAgo(ms, now){
+    if (ms == null) return '—';
+    var s = Math.max(0, Math.round((now - ms) / 1000));
+    if (s < 90) return '剛剛';
+    var m = Math.round(s / 60); if (m < 90) return m + ' 分鐘前';
+    var h = Math.round(m / 60); if (h < 36) return h + ' 小時前';
+    return Math.round(h / 24) + ' 天前';
+  }
+
+  function opsStamp(ms){
+    var d = new Date(ms);
+    return fmt(ms) + ' ' + String(d.getHours()).padStart(2,'0') + ':' +
+           String(d.getMinutes()).padStart(2,'0');
+  }
+
+  async function opsLoadUsage(){
+    var el = document.getElementById('usage');
+    try { opsRenderUsage(await api('/api/admin/usage')); }
+    catch (e) { el.innerHTML = '<div class="empty">使用狀況讀取失敗：' + esc(e.message) + '</div>'; }
+  }
+
+  function opsRenderUsage(d){
+    var el = document.getElementById('usage');
+    var users = d.users || [], t = d.totals || {}, now = d.now || Date.now();
+    var today = ymdTaipei(now);
+
+    var rows = users.map(function(u){
+      // 提醒開著、卻很久沒寄成功——這一格就是那次事故在畫面上的樣子。
+      // 「今天還沒寄」不算異常（沒事就不寄是刻意的設計），所以門檻放寬到 7 天。
+      var stale = u.reminderOn && u.lastSentYmd &&
+                  u.lastSentYmd < ymdTaipei(now - 7 * 86400000);
+      var rem = !u.reminderOn ? '<span class="ops-meta">關閉</span>'
+        : '<span class="' + (stale ? 'ops-warn' : 'ops-ok') + '">' +
+          (stale ? '⚠️ 開啟，但最後寄出是 ' + esc(u.lastSentYmd) : '開啟') + '</span>' +
+          // 已經在警示裡講過日期就不要再講一次；正常時才把它補在說明裡
+          '<span class="ops-meta">（提前 ' + (u.leadDays == null ? 3 : u.leadDays) + ' 天' +
+          (stale ? '' : (u.lastSentYmd
+            ? '，最後寄出 ' + esc(u.lastSentYmd) + (u.lastSentYmd === today ? '（今天）' : '')
+            : '，還沒寄過')) +
+          '）</span>';
+
+      return '<tr>' +
+        '<td>' + esc(u.email) + '</td>' +
+        '<td class="num">' + u.items + '</td>' +
+        '<td class="num">' + u.gantt + '</td>' +
+        '<td class="num">' + u.devices + '</td>' +
+        '<td>' + (u.syncedAt ? esc(opsAgo(u.syncedAt, now)) : '<span class="ops-meta">從未同步</span>') + '</td>' +
+        '<td>' + rem + '</td>' +
+        '</tr>';
+    }).join('');
+
+    el.innerHTML =
+      '<div class="ops-scroll"><table class="ops-tbl">' +
+      '<thead><tr><th>帳號</th><th>項目</th><th>專案</th><th>裝置</th><th>最後同步</th><th>逾期提醒</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody></table></div>' +
+      // 0 是有意義的數字，不是「沒資料」。這兩個功能做好之後一直沒有人用，
+      // 而那件事原本要直接查資料庫才知道——看不到的訊號等於不存在。
+      '<div class="ops-row" style="margin-top:12px">' +
+        '<span class="ops-name">全站</span>' +
+        '<span class="ops-meta">行事曆訂閱 ' + (t.ics || 0) + ' 筆 · ' +
+        '跨帳號分享 ' + (t.shares || 0) + ' 筆 · ' +
+        '共享操作記錄 ' + (t.shareActivity || 0) + ' 筆 · ' +
+        '管理者操作記錄 ' + (t.adminActivity || 0) + ' 筆</span></div>';
+  }
 
   async function loadLog(){
     var el = document.getElementById('log');

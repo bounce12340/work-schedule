@@ -2,6 +2,7 @@ import { handleRegister, handleLogin, handleLogout, handleMe, handleChangePasswo
 import { handleGetState, handlePutState } from './handlers/state.js';
 import { handleListUsers, handleUpdateUser, handleDeleteUser, handleResetPassword, handleAdminActivity } from './handlers/admin.js';
 import { runBackup, purgeExpired, listBackups } from './handlers/backup.js';
+import { recordCronRun, handleCronStatus, handleUsage } from './handlers/ops.js';
 import { handleListShares, handleCreateShare, handleDeleteShare, handleUpdateShared, handleListActivity } from './handlers/share.js';
 import { handleIcsStatus, handleIcsEnable, handleIcsDisable, handleIcsPut, handleIcsFeed } from './handlers/ics.js';
 import { handleReminderStatus, handleReminderEnable, handleReminderPut, sendOverdueReminders } from './handlers/reminder.js';
@@ -27,9 +28,9 @@ export default {
    */
   async scheduled(event, env, ctx) {
     ctx.waitUntil((async () => {
-      await step('reminder', () => sendOverdueReminders(env));
-      await step('backup', () => runBackup(env));
-      await step('purge', () => purgeExpired(env));
+      await step(env, 'reminder', () => sendOverdueReminders(env));
+      await step(env, 'backup', () => runBackup(env));
+      await step(env, 'purge', () => purgeExpired(env));
     })());
   },
 
@@ -185,6 +186,14 @@ async function route(request, env, ctx) {
       }
       return methodNotAllowed();
     }
+    // cron 的執行記錄與功能使用狀況。兩者都只回統計與狀態，不回任何排程內容——
+    // 要回答的是「系統在不在跑、有沒有人在用」，不需要看見資料本身。
+    if (path === '/api/admin/cron') {
+      return request.method === 'GET' ? handleCronStatus(env) : methodNotAllowed();
+    }
+    if (path === '/api/admin/usage') {
+      return request.method === 'GET' ? handleUsage(env) : methodNotAllowed();
+    }
     const mr = path.match(/^\/api\/admin\/users\/([^/]+)\/reset-password$/);
     if (mr) {
       return request.method === 'POST'
@@ -213,11 +222,23 @@ function methodNotAllowed() {
  * **成功也要印**：只在失敗時印的話，「備份從三週前就沒在跑了」看起來與
  * 「一切正常」一模一樣——log 裡什麼都沒有。備份最可怕的失敗模式正是這種。
  */
-async function step(name, fn) {
+async function step(env, name, fn) {
+  const startedAt = Date.now();
   try {
-    console.log(`cron ${name}`, JSON.stringify(await fn()));
+    const result = await fn();
+    console.log(`cron ${name}`, JSON.stringify(result));
+    await recordCronRun(env, {
+      step: name, ok: true, detail: JSON.stringify(result),
+      startedAt, endedAt: Date.now()
+    });
   } catch (e) {
     console.error(`cron ${name} failed`, e?.stack || String(e));
+    // 錯誤訊息而不是 stack：這一欄是給人在管理頁上讀的，stack 在那裡是雜訊，
+    // 真要追行號的話 console.error 仍然留著完整的一份
+    await recordCronRun(env, {
+      step: name, ok: false, detail: String(e?.message || e),
+      startedAt, endedAt: Date.now()
+    });
   }
 }
 
