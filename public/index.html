@@ -1737,8 +1737,32 @@
   const RT_MARKS  = ['#FFF3A3','#C8F0DC','#DCD6FA','#FFD9CC'];
   const RT_SIZES  = { s:'0.86em', m:'1em', l:'1.28em' };
 
-  const rtNormColor = v => String(v == null ? '' : v).trim().toUpperCase()
-    .replace(/^#([0-9A-F])([0-9A-F])([0-9A-F])$/, '#$1$1$2$2$3$3');
+  /**
+   * 把顏色值收斂成 `#RRGGBB` 再拿去比對白名單。
+   *
+   * **必須認得 `rgb()`。** 我們傳給 execCommand 的是 `#FFF3A3`，但瀏覽器把
+   * 行內樣式序列化成 `background-color: rgb(255, 243, 163)`——比對不到就整條
+   * 丟掉，於是**醒目提示按下去看得到、失焦或重新載入之後就不見了**（實際
+   * 踩過，`tools/check-calendar.mjs` 那一輪順手量出來的）。
+   *
+   * 這裡放寬的是「同一個顏色的另一種寫法」，不是放寬白名單本身：認不得的格式
+   * 原樣回傳，接著一樣會因為不在清單裡而被丟掉。
+   */
+  const rtNormColor = v => {
+    const raw = String(v == null ? '' : v).trim();
+    const m = raw.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*(?:,\s*(0|1|0?\.\d+)\s*)?\)$/i);
+    if(m){
+      // 半透明不會是我們自己塞進去的值，直接讓它比對不到
+      if(m[4] !== undefined && parseFloat(m[4]) !== 1) return raw.toUpperCase();
+      const hex = [m[1], m[2], m[3]].map(n=>{
+        const x = Number(n);
+        return x > 255 ? null : x.toString(16).padStart(2, '0');
+      });
+      if(hex.every(Boolean)) return ('#' + hex.join('')).toUpperCase();
+      return raw.toUpperCase();
+    }
+    return raw.toUpperCase().replace(/^#([0-9A-F])([0-9A-F])([0-9A-F])$/, '#$1$1$2$2$3$3');
+  };
 
   /** 回傳可用的 CSS 宣告字串，或 null 代表整條丟掉 */
   function rtStyleDecl(prop, value){
@@ -2129,7 +2153,23 @@
   let persistTimer = null;
   function persistSoon(){
     clearTimeout(persistTimer);
-    persistTimer = setTimeout(()=>{ persist(); pushSoon(); }, 400);
+    persistTimer = setTimeout(()=>{ persistTimer = null; persist(); pushSoon(); }, 400);
+  }
+
+  /**
+   * 把還在等 debounce 的寫入立刻做掉。
+   *
+   * 每日記錄與專案筆記走的是 `persistSoon()`（400ms）→ `pushSoon()`（再 1500ms），
+   * 所以**最後打的那幾個字有將近兩秒鐘只存在記憶體裡**。切頁籤沒事（記憶體還在），
+   * 但關掉分頁、重新整理、或手機切到別的 app 之後回來，那段就沒了——而且畫面上
+   * 完全看不出來，使用者以為打過的東西自己消失了（實際重現過）。
+   *
+   * debounce 本身是對的（每個字元寫一次 localStorage 太貴），要補的是「離開前
+   * 結一次帳」。
+   */
+  function flushPendingWrites(){
+    if(persistTimer){ clearTimeout(persistTimer); persistTimer = null; persist(); }
+    if(pushTimer){ clearTimeout(pushTimer); pushTimer = null; cloudPush(); }
   }
 
   // ================= 三方合併 =================
@@ -2362,7 +2402,7 @@
   function pushSoon(){
     if(!cloudEnabled) return;
     clearTimeout(pushTimer);
-    pushTimer = setTimeout(cloudPush, 1500);
+    pushTimer = setTimeout(()=>{ pushTimer = null; cloudPush(); }, 1500);
   }
 
   // 兩台裝置各自改過同一份資料時不能靜默挑一邊，否則一定有人的編輯會消失
@@ -4002,6 +4042,8 @@
       const clean = rtSanitize(ed.innerHTML);
       if(clean !== ed.innerHTML) ed.innerHTML = clean;
       syncEmpty();
+      // 失焦通常代表「我打完了」——不要讓最後幾個字留在 debounce 裡等
+      flushPendingWrites();
     });
 
     // 貼上一律過濾。從網頁複製過來的內容是這個欄位最主要的外部輸入。
@@ -6032,6 +6074,18 @@
   if(!loadedFromStorage) persist();   // 首次開啟即建立存檔，之後重整才接得回來
   applyLang();                        // 內含 renderAll()：語言要在第一次繪製前就套好
   setTimeout(showReminderToast, 700);
+
+  // 離開前把還在等 debounce 的寫入結一次帳。三個時機涵蓋不同的離開方式，缺一不可：
+  //   編輯器 blur      —— 點去別的欄位或按頁籤（最常見，掛在 buildRichEditor 裡）
+  //   visibilitychange —— 切到別的分頁／手機按 home（頁面還活著，網路請求還送得出去）
+  //   pagehide         —— 關掉或重新整理（此時 fetch 不保證送得完，但 localStorage
+  //                       是同步的，一定寫得進去）
+  //
+  // 掛在這裡而不是 flushPendingWrites() 旁邊，是因為那個區段會被
+  // tests/richtext.test.mjs 抽出來在 Node 裡求值（為了測 migrateSnapshot），
+  // 頂層碰 document 會讓整支測試爆掉——那支測試已經實際擋下來一次。
+  document.addEventListener('visibilitychange', ()=>{ if(document.hidden) flushPendingWrites(); });
+  window.addEventListener('pagehide', flushPendingWrites);
   initCloudSync(loadedFromStorage);   // 不 await：雲端偵測不得拖慢啟動
 })();
 </script>
