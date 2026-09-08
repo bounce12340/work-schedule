@@ -65,7 +65,7 @@ npm run db:init:local  # 對本機 miniflare D1 建表（--local 的資料庫與
 npm run db:init        # 對遠端 D1 建表
 npm run admin:reset    # 破窗鎚：直接改密碼（見〈破窗鎚〉）
 npm run deploy         # 部署
-npm test               # 全部測試檔（node:test，不需安裝任何東西；目前 211 個測試）
+npm test               # 全部測試檔（node:test，不需安裝任何東西；目前 222 個測試）
 ```
 
 跑單一測試檔或單一測試（`npm test` 沒有轉發參數的管道，直接用 node）：
@@ -141,6 +141,7 @@ Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.Comm
 | `tools/verify-toggle.mjs` | 勾選的就地更新與完整重繪結果完全相同 | 動到 `renderBoard()` 或 `moveOccRowToDone()` |
 | `tools/verify-richtext.mjs` | 富文字過濾器的整條管線（含 DOM 走訪）擋得住 16 種攻擊向量 | 動到富文字 |
 | `tools/measure-board.mjs` | 切換檢視／篩選／搜尋卡住主執行緒多久（自己造 64／150／300 項的資料） | 動到 `renderBoard()` 或看板的 CSS。**不在 CI**：數字隨環境浮動，設門檻只會製造沒有人相信的紅燈，用途是改動前後各跑一次自己比對 |
+| `tools/check-mobile.mjs` | 手機（iPhone 13、CPU 降速 4 倍、64 個項目）：五頁都不橫向溢出、切換與互動的停頓、**點擊目標大小** | 動到任何版面或 CSS。同樣不在 CI |
 
 （`tools/check-syntax.mjs` 不在這張表裡：它零相依、跑不到一秒，已經放進 CI 的 `check` job 與上面〈驗證方式〉第 2 條。）
 
@@ -154,7 +155,7 @@ Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.Comm
 
 **而且不同的降級原因必須分得出來。** `cloudPull()` 原本對任何非 2xx 都回 `null`，於是「沒有這個端點（單檔／未部署）」與「端點在但這次失敗（5xx、網路中斷、回應不是 JSON）」變成同一個值——後端一次 502 就靜默變成單機模式、狀態列被清空，**畫面與雙擊檔案離線開啟完全一樣**，使用者以為還在同步，實際上變更只留在本機。現在它回 `{ kind: 'ok' | 'absent' | 'failed' | 'expired' }`，只有 `absent` 靜默，`failed` 會 `console.error` 並在狀態列顯示「連線失敗，暫時只用本機資料」。
 
-UI 類的改動（版面、行動版、主題）**必須真的用瀏覽器看過**，靜態檢查看不出破版。這批改動就是靠實測才抓到三個問題：側欄變成看不見的全屏遮罩、任務列撐破卡片、甘特圖把行動版的版面視窗從 390px 撐成 425px。
+UI 類的改動（版面、行動版、主題）**必須真的用瀏覽器看過**，靜態檢查看不出破版。行動版另有 `tools/check-mobile.mjs`——它把 CPU 降速 4 倍並自己造 64 個項目，因為**開發時踩不到手機**：桌機視窗寬、CPU 快、示範資料只有 6 項。兩個真實的 bug 是它抓到的：AI 面板把送出鍵擠成 20px 寬（完全按不到），以及勾選框只有 24×24 而它是整個 app 最常按的東西。這批改動就是靠實測才抓到三個問題：側欄變成看不見的全屏遮罩、任務列撐破卡片、甘特圖把行動版的版面視窗從 390px 撐成 425px。
 
 **改動同步邏輯時，必須把六個情境都測過**（見下方「雲端同步」章節），因為它們彼此的差異只在啟動時的分支條件，很容易只修好一條路徑。
 
@@ -623,7 +624,9 @@ Authorization: Bearer <API_KEY>
 
 ## AI 小幫手（`src/handlers/ai.js`）
 
-接 DeepSeek 官方 API（`https://api.deepseek.com/chat/completions`，OpenAI 相容）。**第一階段唯讀**：AI 看得到排程、答得出問題，但沒有任何寫入路徑。
+接 DeepSeek 官方 API（`https://api.deepseek.com/chat/completions`，OpenAI 相容）。兩個端點：`/api/ai/ask`（問答，唯讀）與 `/api/ai/plan`（**提案**）。
+
+**AI 永遠不直接寫入。** `/api/ai/plan` 只回一份提案，寫入發生在使用者在畫面上勾選並按下「加入」的那一刻，走既有的 `commit()`。這個形狀比「AI 直接寫、寫錯了按復原」安全一個層級：復原是**事後補救**，勾選是**事前確認**——最壞情況因此從「資料被改錯、等人發現」變成「畫面上多了一份沒被採納的清單」。
 
 設計文件在 `docs/superpowers/specs/2026-09-08-ai-sidebar-design.md`，以下是實作後不能拿掉的判斷：
 
@@ -639,6 +642,23 @@ Authorization: Bearer <API_KEY>
 | AI 的回覆一律 `textContent`，絕不 `innerHTML` | 那是外部內容 |
 
 **`.ai-panel[hidden]{ display:none; }` 這一行不能拿掉。** `display:flex` 的優先度高於瀏覽器內建的 `[hidden]{display:none}`，少了它，「關著」的面板仍然佔滿右半邊並吃掉所有點擊——一個看不見的全屏遮罩。這是瀏覽器測試抓到的真實 bug，靜態檢查與單元測試都不會紅。
+
+### 提案（`/api/ai/plan`）不能拿掉的判斷
+
+| 決定 | 理由 |
+|---|---|
+| **`complete` 只接受真的出現在送出去那份清單裡的 `(id, occ)`** | 模型編一個 id 出來，伺服器就要濾掉。這是伺服器端擋得住、也應該擋的錯誤。**有測試守著** |
+| 日期不合法的項目**標記起來、不丟掉** | 丟掉的話使用者不會知道 AI 本來想排在哪天；標記則讓她看得到、也改得動。前端把它預設成不勾 |
+| 用 `response_format: json_object`，但**仍然自己驗一次** | 不要叫模型「回 JSON」再自己 parse 一段可能壞掉的文字；也不要因為用了結構化輸出就相信內容 |
+| 「加入哪一種專案」讓使用者選 | `majorProjects` 與 `ganttProjects` 是兩套互不相干的東西（見〈兩套互不相干的「專案」概念〉）。猜錯再改比多一個下拉貴 |
+
+### `withUndo()` 的快照必須是深拷貝
+
+`snapshot()` 回傳的 `items` / `ganttProjects` 是**活的陣列參照**，不是副本。
+
+刪除之所以一直復原得了，是因為它用 `items = items.filter(...)` **換掉整個陣列**，快照裡的舊參照因此還指著原本那一份。但只要有人改成**就地修改**（`items.push(...)`、`item.done = true`），快照就會跟著一起被改——等於根本沒有快照，而且**畫面看起來完全正常**，只有按下復原時才發現沒反應。
+
+AI 的批次寫入正是就地修改，第一版因此復原不了，是瀏覽器測試抓到的。現在 `withUndo()` 一律 `JSON.parse(JSON.stringify(snapshot()))`；成本可以忽略（實測 300 個項目的 `JSON.stringify` 是 1.1ms）。
 
 模型固定 `deepseek-v4-flash`。pro 貴三倍而「這週有什麼」看不出差別——先量再調。
 
