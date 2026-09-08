@@ -74,6 +74,9 @@
     --red-dim: rgba(199,75,67,0.10);
     --violet: #6C5CE0;
     --violet-dim: rgba(108,92,224,0.10);
+    --span-teal: rgba(31,140,104,0.20);
+    --span-amber: rgba(201,130,46,0.22);
+    --span-violet: rgba(108,92,224,0.20);
     --mono: 'JetBrains Mono', monospace;
     --sans: 'Noto Sans TC', 'Inter', sans-serif;
   }
@@ -115,6 +118,9 @@
     --red-dim: rgba(232,117,107,0.14);
     --violet: #9B8CF5;
     --violet-dim: rgba(155,140,245,0.14);
+    --span-teal: rgba(63,191,146,0.24);
+    --span-amber: rgba(227,160,82,0.26);
+    --span-violet: rgba(155,140,245,0.24);
   }
   *{box-sizing:border-box; margin:0; padding:0;}
   html,body{height:100%;}
@@ -431,6 +437,50 @@
   .cal-item-row.assignment .cal-item-text{ color: var(--amber); }
   .cal-item-text.done{ color: var(--text-dim); text-decoration: line-through; }
   .cal-more{ font-family: var(--mono); font-size:9.5px; color: var(--text-dim); padding-left:2px; }
+
+  /* ---- 跨多天事項的色條 ----
+     它們不再以「每天各一列文字」呈現，而是一條貫穿整段日期的橫帶。
+     連續感靠兩件事撐起來：
+       1. 負的左右外距把色條拉出格子的 padding，並多蓋掉 grid 的 6px 間隙
+          （各蓋一半，相鄰兩格剛好接起來）。週的頭尾格子要收回去，否則整排
+          會凸出網格外面。
+       2. **同一個項目在每一格都必須落在同一條 lane 上**，否則相鄰兩段會錯開。
+          因此沒有色條的 lane 也要留一個等高的空位（.cal-span.gap）。 */
+  .cal-spans{ display:flex; flex-direction:column; gap:2px; align-self:stretch; }
+  .cal-span{ height:15px; display:flex; align-items:center; gap:4px;
+             margin-left:-12px; margin-right:-12px; padding:0 5px;
+             font-family: var(--sans); font-size:10px; font-weight:600; line-height:1;
+             white-space:nowrap; overflow:hidden; }
+  .cal-span.gap{ background:none; }
+  .cal-span.wk-start{ margin-left:-9px; }
+  .cal-span.wk-end{ margin-right:-9px; }
+  /* 真正的起訖才收邊並切圓角——週界一律維持平的，那樣才讀得出「還沒結束」 */
+  .cal-span.start{ margin-left:0; border-radius:5px 0 0 5px; }
+  .cal-span.end{ margin-right:0; border-radius:0 5px 5px 0; }
+  .cal-span.work{ background: var(--span-teal); color: var(--teal); }
+  .cal-span.meeting{ background: var(--span-violet); color: var(--violet); }
+  .cal-span.assignment{ background: var(--span-amber); color: var(--amber); }
+  .cal-span.done{ opacity:.45; }
+  .cal-span.done .cal-span-text{ text-decoration: line-through; }
+  .cal-span-text{ overflow:hidden; text-overflow:ellipsis; min-width:0; }
+  .cal-span-check{ width:11px; height:11px; border-radius:3px; border:1.3px solid;
+                   flex-shrink:0; display:flex; align-items:center; justify-content:center;
+                   cursor:pointer; font-size:7.5px; color:transparent; position:relative; }
+  .cal-span.work .cal-span-check{ border-color: var(--teal); }
+  .cal-span.meeting .cal-span-check{ border-color: var(--violet); }
+  .cal-span.assignment .cal-span-check{ border-color: var(--amber); }
+  .cal-span.work .cal-span-check.done{ background: var(--teal); color: var(--on-accent); }
+  .cal-span.meeting .cal-span-check.done{ background: var(--violet); color: var(--on-accent); }
+  .cal-span.assignment .cal-span-check.done{ background: var(--amber); color: var(--on-accent); }
+  /* 11px 的方塊按不到——把判定區撐開，外觀不變（同 .checkbox 的作法） */
+  .cal-span-check::after{ content:''; position:absolute; inset:-7px; }
+
+  /* ---- 每日記錄的標記 ----
+     絕對定位而不是塞進 .cal-daynum：那個元素在手機版是置中的，改成 flex
+     排版會把日期數字推歪。 */
+  .cal-cell{ position:relative; }
+  .cal-log-mark{ position:absolute; top:5px; right:6px; font-size:9.5px; line-height:1;
+                 color: var(--amber); opacity:.85; }
 
   .cal-detail-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; flex-wrap:wrap; gap:10px; }
   .cal-detail-title{ font-family: var(--mono); font-size:16px; font-weight:700; }
@@ -795,6 +845,16 @@
     .cal-dots{ display:none; }                      /* 桌機的逐項文字在手機上收起 */
     .cal-pips{ display:flex; align-items:center; justify-content:center; gap:3px; flex-wrap:wrap; }
     .cal-daynum{ font-size:13px; text-align:center; }
+    /* 手機格子只有 ~46px 寬，塞不下字：色條只留顏色。
+       間隙是 3px、padding 是 2px，所以外距收成 -3.5px 才剛好接得起來。 */
+    .cal-spans{ gap:1.5px; width:100%; }
+    .cal-span{ height:5px; padding:0; margin-left:-3.5px; margin-right:-3.5px; border-radius:0; }
+    .cal-span.wk-start{ margin-left:-2px; }
+    .cal-span.wk-end{ margin-right:-2px; }
+    .cal-span.start{ margin-left:0; border-radius:3px 0 0 3px; }
+    .cal-span.end{ margin-right:0; border-radius:0 3px 3px 0; }
+    .cal-span-text, .cal-span-check{ display:none; }
+    .cal-log-mark{ top:2px; right:3px; font-size:8.5px; }
     .cal-cell.selected{ box-shadow: inset 0 0 0 2px var(--amber); }
     .cal-weekday{ padding:4px 0; font-size:10px; }
     .cal-nav{ width:100%; }
@@ -1435,6 +1495,9 @@
       '已選取一段區間 — 按上方按鈕建立跨多天的項目（例如出差、請假、專案期間）':
         'Range selected — use the button above to create a multi-day item (a trip, leave, a project window)',
       '每日記錄':'Daily note',
+      '這天有每日記錄':'Daily note on this day',
+      '+ 還有 {0} 段':'+ {0} more span',
+      '記錄今天的想法、備忘、心得...（寫了之後日曆格子上會出現 ✎ 記號）':'Notes, reminders, thoughts for the day… (a ✎ mark appears on the calendar cell)',
       '此日期尚無工作項目、會議或作業':'Nothing scheduled on this date',
       // —— 專案 ——
       '專案名稱':'Project name', '＋ 新增專案':'+ New project',
@@ -3375,6 +3438,72 @@
   document.getElementById('btnHideDone').onclick = ()=>{ hideDone = !hideDone; renderScheduleView(); };
 
   // ================= calendar view =================
+  /**
+   * 這一天的每日記錄有沒有內容。`rtIsEmpty` 是既有的判斷（只有空標籤、空白、
+   * `<br>` 都算空），沿用它而不是自己寫一份——編輯器留下的空殼形狀就是它認得的
+   * 那些，另寫一份遲早會對不上，症狀是「明明沒打字卻標了記號」。
+   */
+  function hasDayLog(dateStr){
+    const v = dailyLogs[dateStr];
+    return !!v && !rtIsEmpty(v);
+  }
+
+  /** 每日記錄的純文字摘要，給格子上的 title 提示用。 */
+  function dayLogExcerpt(dateStr, max){
+    const txt = String(dailyLogs[dateStr] || '')
+      .replace(/<(br|\/p|\/div|\/li)[^>]*>/gi, ' ')
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+      .replace(/&quot;/gi, '"').replace(/&#39;/gi, "'")
+      .replace(/\s+/g, ' ').trim();
+    return txt.length > max ? txt.slice(0, max) + '…' : txt;
+  }
+
+  /**
+   * 打字時就地補上／拿掉那一格的標記。
+   *
+   * **不能改成呼叫 renderCalendar()**：那會連下方的詳情區一起重建，正在打字的
+   * 編輯器當場被銷毀，游標與注音組字都會斷掉。這裡動的只有一個字元節點，
+   * 與〈勾選不重建看板〉是同一個判斷。
+   */
+  function syncDayLogMark(dateStr){
+    const cell = document.querySelector('.cal-cell[data-date="' + dateStr + '"]');
+    if(!cell) return;
+    const existing = cell.querySelector('.cal-log-mark');
+    if(hasDayLog(dateStr)){
+      const mark = existing || document.createElement('span');
+      mark.className='cal-log-mark'; mark.textContent='✎';
+      mark.title = tr('這天有每日記錄') + '：' + dayLogExcerpt(dateStr, 60);
+      if(!existing) cell.appendChild(mark);
+    } else if(existing){
+      existing.remove();
+    }
+  }
+
+  /**
+   * 把跨多天事項排進「軌道」（lane），讓同一個項目在每一格都落在同一個高度。
+   *
+   * **這是色條看起來連續的唯一關鍵。** 少了它，兩段相鄰的色條會因為那一格裡
+   * 剛好有幾個項目而上下錯開，看起來像兩個不相干的東西——而畫面上完全看不出
+   * 原因，只覺得「怪怪的」。
+   *
+   * 貪婪法：依開始日排序，逐一放進第一個「上一段已經結束」的軌道。因為是照
+   * 開始日的順序放，軌道裡最後一段的結束日就是該軌道的佔用邊界。
+   */
+  function calSpanLanes(spans){
+    const sorted = spans.slice().sort((a, b) =>
+      a.from === b.from ? b.to.localeCompare(a.to) : a.from.localeCompare(b.from));
+    const laneEnd = [];
+    sorted.forEach(sp => {
+      let i = 0;
+      while(laneEnd[i] !== undefined && laneEnd[i] >= sp.from) i++;
+      laneEnd[i] = sp.to;
+      sp.lane = i;
+    });
+    return sorted;
+  }
+
   function renderCalendar(){
     document.getElementById('calTitle').textContent = tf('{0} 年 {1} 月', calYear, calMonth);
     const grid=document.getElementById('calGrid'); grid.innerHTML='';
@@ -3387,6 +3516,7 @@
     const rangeEnd=new Date(calYear, calMonth-1, dim, 23,59,59);
     const monthOcc=getAllOccurrences(rangeStart, rangeEnd);
     const byDate={};
+    const spanList=[];      // 跨多天事項，改以貫穿的色條呈現
     monthOcc.forEach(o=>{
       // 跨多天事項：期間內（且落在本月內）的每一天都要出現，不只開始日。
       // 引擎只回一筆（完成狀態整段共用），逐日鋪排是日曆自己的顯示邏輯。
@@ -3396,9 +3526,21 @@
         for(let d=new Date(from); d<=to; d.setDate(d.getDate()+1)){
           (byDate[ymd(d)]=byDate[ymd(d)]||[]).push(o);
         }
+        // byDate 仍然逐日收著（下方的當日清單靠它），但格子裡改畫色條，
+        // 否則同一件事會同時以兩種形式出現在同一格
+        spanList.push({ occ:o, from:ymd(from), to:ymd(to) });
         return;
       }
       (byDate[o.date]=byDate[o.date]||[]).push(o);
+    });
+
+    // 每一格要畫的色條：先排軌道，再按日期索引起來
+    const MAX_SPAN_LANES = 3;
+    const spansByDate={};
+    calSpanLanes(spanList).forEach(sp=>{
+      for(let d=parseYMD(sp.from); d<=parseYMD(sp.to); d.setDate(d.getDate()+1)){
+        (spansByDate[ymd(d)]=spansByDate[ymd(d)]||[]).push(sp);
+      }
     });
 
     for(let i=0;i<startWeekday;i++){ const blank=document.createElement('div'); blank.className='cal-cell blank'; grid.appendChild(blank); }
@@ -3406,14 +3548,67 @@
     for(let day=1; day<=dim; day++){
       const dateStr = calYear+'-'+String(calMonth).padStart(2,'0')+'-'+String(day).padStart(2,'0');
       const dayOcc = byDate[dateStr] || [];
-      const meetings = dayOcc.filter(o=>o.item.type==='meeting').sort((a,b)=>(a.item.meetingTime||'99:99').localeCompare(b.item.meetingTime||'99:99'));
+      // 跨多天的改畫色條，逐項文字這裡就不再列一次
+      const daySingle = dayOcc.filter(o=>!(o.item.endDate && o.occKey==='single'));
+      const meetings = daySingle.filter(o=>o.item.type==='meeting').sort((a,b)=>(a.item.meetingTime||'99:99').localeCompare(b.item.meetingTime||'99:99'));
       // 有時間的排前面，其餘維持原順序——工作項目現在也可能有時間
-      const tasks = dayOcc.filter(o=>o.item.type!=='meeting')
+      const tasks = daySingle.filter(o=>o.item.type!=='meeting')
         .sort((x,y)=>(x.item.meetingTime||'99:99').localeCompare(y.item.meetingTime||'99:99'));
 
       const cell=document.createElement('div');
       cell.className='cal-cell'+(dateStr===todayStr?' today':'')+(inCalSelection(dateStr)?' selected':'');
       const daynum=document.createElement('div'); daynum.className='cal-daynum'; daynum.textContent=day; cell.appendChild(daynum);
+
+      // 每日記錄的標記：有寫東西就在格子右上角留一筆，不必點進去才知道
+      if(hasDayLog(dateStr)){
+        const mark=document.createElement('span'); mark.className='cal-log-mark'; mark.textContent='✎';
+        mark.title = tr('這天有每日記錄') + '：' + dayLogExcerpt(dateStr, 60);
+        cell.appendChild(mark);
+      }
+
+      // 色條要貼在日期數字底下（「每一天的頂端」），所以排在逐項文字之前
+      const cellSpans = spansByDate[dateStr] || [];
+      if(cellSpans.length){
+        const wrap=document.createElement('div'); wrap.className='cal-spans';
+        const col = (startWeekday + day - 1) % 7;
+        const shown = cellSpans.filter(sp=> sp.lane < MAX_SPAN_LANES);
+        const top = shown.reduce((m,sp)=> Math.max(m, sp.lane), -1);
+        for(let lane=0; lane<=top; lane++){
+          const sp = shown.find(x=>x.lane===lane);
+          if(!sp){
+            // 空軌道也要佔位，否則下方的色條會往上跳、與隔壁格對不齊
+            const gap=document.createElement('div'); gap.className='cal-span gap';
+            wrap.appendChild(gap); continue;
+          }
+          const it = sp.occ.item;
+          const isStart = dateStr === it.date;
+          const isEnd = dateStr === it.endDate;
+          const bar=document.createElement('div');
+          bar.className='cal-span '+it.type
+            + (isStart?' start':'') + (isEnd?' end':'')
+            + (col===0?' wk-start':'') + (col===6?' wk-end':'')
+            + (sp.occ.done?' done':'');
+          bar.title = it.title + '（' + it.date + ' → ' + it.endDate + '）';
+          // 勾選只放在**本月第一段**上：整段共用一個完成狀態，四天各放一個
+          // 方塊會讓人以為勾的是「那一天」
+          if(dateStr === sp.from){
+            const chk=document.createElement('span');
+            chk.className='cal-span-check'+(sp.occ.done?' done':'');
+            const o = sp.occ;
+            chk.onclick=(e)=>{ e.stopPropagation(); toggleOccDone(o, chk, bar); };
+            bar.appendChild(chk);
+          }
+          const txt=document.createElement('span'); txt.className='cal-span-text'; txt.textContent=it.title;
+          bar.appendChild(txt);
+          wrap.appendChild(bar);
+        }
+        if(cellSpans.length > shown.length){
+          const more=document.createElement('div'); more.className='cal-more';
+          more.textContent=tf('+ 還有 {0} 段', cellSpans.length - shown.length);
+          wrap.appendChild(more);
+        }
+        cell.appendChild(wrap);
+      }
 
       const dotsWrap=document.createElement('div'); dotsWrap.className='cal-dots';
       const MAXM=3;
@@ -3517,7 +3712,7 @@
 
     grid.addEventListener('mousedown', e=>{
       // 格子裡的核取方塊有自己的行為，不能被拖曳選取搶走
-      if(e.target.closest('.cal-item-check')) return;
+      if(e.target.closest('.cal-item-check, .cal-span-check')) return;
       const d = dateOfEvent(e.target);
       if(!d) return;
       e.preventDefault();          // 避免拖曳時選到文字
@@ -3529,7 +3724,7 @@
 
     // 觸控：touchmove 的 target 一直是起始元素，必須用座標反查目前指到哪一格
     grid.addEventListener('touchstart', e=>{
-      if(e.target.closest('.cal-item-check')) return;
+      if(e.target.closest('.cal-item-check, .cal-span-check')) return;
       const d = dateOfEvent(e.target);
       if(d) startAt(d);
     }, { passive:true });
@@ -3586,7 +3781,7 @@
     if(list.length===0){ calBoard.innerHTML='<div class="empty-state">'+escapeHtml(tr('此日期尚無工作項目、會議或作業'))+' — <span>'+escapeHtml(tr('＋ 為此日期新增'))+'</span></div>'; }
     else{ list.forEach(occ=> calBoard.appendChild(buildOccRow(occ)) ); }
 
-    // 每日記錄：只在此處顯示，不顯示於日曆格子
+    // 每日記錄：內容只在此處顯示，日曆格子上只留一個「有寫東西」的記號
     daylogBox.style.display='block';
     const slot = document.getElementById('daylogSlot');
     slot.innerHTML='';
@@ -3595,9 +3790,10 @@
     const dateKey = calSelectedDate;   // 綁定當下的日期，之後切換日期會整段重建
     const rt = buildRichEditor({
       value: dailyLogs[dateKey] || '',
-      placeholder: '記錄今天的想法、備忘、心得...（僅顯示於此，不會出現在日曆格子中）',
+      placeholder: '記錄今天的想法、備忘、心得...（寫了之後日曆格子上會出現 ✎ 記號）',
       onInput: html=>{
         dailyLogs[dateKey] = html;
+        syncDayLogMark(dateKey);
         persistSoon();
         savedTag.classList.add('show');
         clearTimeout(saveTimer);
