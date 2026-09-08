@@ -3,6 +3,7 @@ import { handleGetState, handlePutState } from './handlers/state.js';
 import { handleListUsers, handleUpdateUser, handleDeleteUser, handleResetPassword, handleAdminActivity } from './handlers/admin.js';
 import { runBackup, purgeExpired, listBackups } from './handlers/backup.js';
 import { recordCronRun, handleCronStatus, handleUsage } from './handlers/ops.js';
+import { handleAiStatus, handleAiAsk } from './handlers/ai.js';
 import { handleListShares, handleCreateShare, handleDeleteShare, handleUpdateShared, handleListActivity } from './handlers/share.js';
 import { handleIcsStatus, handleIcsEnable, handleIcsDisable, handleIcsPut, handleIcsFeed } from './handlers/ics.js';
 import { handleReminderStatus, handleReminderEnable, handleReminderPut, sendOverdueReminders } from './handlers/reminder.js';
@@ -160,6 +161,14 @@ async function route(request, env, ctx) {
         ? handleUpdateShared(request, env, user, decodeURIComponent(m[1]), ctx)
         : methodNotAllowed();
     }
+  }
+
+  // AI 小幫手。第一階段唯讀：這裡沒有任何會改到 user_state 的路徑。
+  if (path === '/api/ai/status') {
+    return request.method === 'GET' ? handleAiStatus(env, user) : methodNotAllowed();
+  }
+  if (path === '/api/ai/ask') {
+    return request.method === 'POST' ? handleAiAsk(request, env, user) : methodNotAllowed();
   }
 
   if (path.startsWith('/api/admin/')) {

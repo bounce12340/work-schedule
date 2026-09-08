@@ -43,6 +43,7 @@ public/manifest.webmanifest, public/icon*.png|svg
 | `tests/shadow.test.mjs` | 頂層函式被區域變數／參數遮蔽 | 對 `index.html` 做靜態掃描（追大括號深度） |
 | `tests/holidays.test.mjs` | 內建國定假日清單的完整性 | 從 `index.html` 取出 `BUILTIN_HOLIDAYS` 求值 |
 | `tests/ops.test.mjs` | cron 執行記錄、功能使用狀況 | 直接 import Worker 端模組 |
+| `tests/ai.test.mjs` | AI 端點的限流、記錄、金鑰不外洩 | 直接 import，並注入假的 `fetch` |
 
 前三者的挑選理由：前兩者近乎純函式、零 DOM 依賴；第三者是**競態**——靠併發碰運氣測不到，但可以把空窗做成確定性的。
 
@@ -64,7 +65,7 @@ npm run db:init:local  # 對本機 miniflare D1 建表（--local 的資料庫與
 npm run db:init        # 對遠端 D1 建表
 npm run admin:reset    # 破窗鎚：直接改密碼（見〈破窗鎚〉）
 npm run deploy         # 部署
-npm test               # 全部測試檔（node:test，不需安裝任何東西；目前 192 個測試）
+npm test               # 全部測試檔（node:test，不需安裝任何東西；目前 211 個測試）
 ```
 
 跑單一測試檔或單一測試（`npm test` 沒有轉發參數的管道，直接用 node）：
@@ -619,6 +620,27 @@ Authorization: Bearer <API_KEY>
 `tests/holidays.test.mjs` 守的是第 4 步之後：日期真的存在、年份與鍵一致、同年不重複且已排序、天數在合理範圍，以及**不能出現週六日**。最後一條是這份資料唯一不必連網就驗得到的內在性質——腳本輸出的是「平日放假」，週末本來就被 `isHoliday()` 當成假日，列進來只可能是貼錯或月份整批位移（就是上面那個十一月／十二月的坑，位移後約 2/7 的日期會落到週末）。它不是萬無一失，所以**它不能取代第 3 步**。
 
 **補班日沒有內建結構。** 2026、2027 都是 0 天，所以 `BUILTIN_WORKDAYS` 還不存在。哪一年真的有補班日，要先加那個結構——不要把補班日塞進 `BUILTIN_HOLIDAYS`，那會讓「要上班的週六」變成假日，方向剛好相反。
+
+## AI 小幫手（`src/handlers/ai.js`）
+
+接 DeepSeek 官方 API（`https://api.deepseek.com/chat/completions`，OpenAI 相容）。**第一階段唯讀**：AI 看得到排程、答得出問題，但沒有任何寫入路徑。
+
+設計文件在 `docs/superpowers/specs/2026-09-08-ai-sidebar-design.md`，以下是實作後不能拿掉的判斷：
+
+| 決定 | 理由 |
+|---|---|
+| 金鑰只在 Worker（`DEEPSEEK_API_KEY` secret） | `index.html` 是任何人都下載得到的檔案。同 `AGENTMAIL_API_KEY` |
+| **排程由前端展開後送上來** | occurrence 引擎只存在前端單檔內。在 Worker 重寫一份必然分歧，而「AI 根據錯誤的日期回答」比沒有 AI 更糟。同 ICS 與逾期提醒 |
+| **上游的錯誤原文絕不轉發給前端** | 那是最容易漏金鑰的一條路（上游可能把 key 回吐在錯誤訊息裡）。完整內容留在 `ai_activity` 與 console。**有測試守著** |
+| `ai_activity` 的那一列**在呼叫之前**就先寫 | 這張表同時是花費記錄與限流依據。順序反過來的話，寫入失敗＝沒有限流，而「記錄失敗只 console.warn」那條慣例在這裡會變成可以無限花錢的洞。所以佔不到位子就不呼叫 |
+| 限流分鐘與天兩層，且回得出還要等多久 | 「請稍後再試」等於沒說。同〈降級可以，沉默不行〉 |
+| token 數顯示在 `/admin` | 看不見的花費會失控。同〈看得見的備份才是備份〉 |
+| 偵測不到 `/api/ai/status` 就**完全不顯示入口** | `cloudPull()` 的 `absent` 分支，不是 `failed` |
+| AI 的回覆一律 `textContent`，絕不 `innerHTML` | 那是外部內容 |
+
+**`.ai-panel[hidden]{ display:none; }` 這一行不能拿掉。** `display:flex` 的優先度高於瀏覽器內建的 `[hidden]{display:none}`，少了它，「關著」的面板仍然佔滿右半邊並吃掉所有點擊——一個看不見的全屏遮罩。這是瀏覽器測試抓到的真實 bug，靜態檢查與單元測試都不會紅。
+
+模型固定 `deepseek-v4-flash`。pro 貴三倍而「這週有什麼」看不出差別——先量再調。
 
 ## 認證與權限
 
