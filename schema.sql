@@ -201,3 +201,32 @@ CREATE TABLE IF NOT EXISTS admin_activity (
 );
 
 CREATE INDEX IF NOT EXISTS idx_admin_activity_time ON admin_activity(created_at);
+
+-- 每日 cron 的執行記錄。
+--
+-- 為什麼需要這張表
+-- ---------------------------------------------------------------------------
+-- 三件排程工作（提醒、備份、清理）原本只把結果寫進 console.log。那行字躺在
+-- Cloudflare 後台，而**沒有人會每天去翻**——於是「提醒信兩週沒寄出去」與
+-- 「一切正常」在畫面上長得一模一樣。這正是備份那一節已經寫過的道理：
+-- 看得見的備份才是備份。這裡把同一個道理套到整組 cron。
+--
+-- 它要能回答的問題只有兩個，而現在兩個都答不出來：
+--   1. 鬧鐘到底有沒有響？（沒有記錄 = 沒跑）
+--   2. 響了但事情沒做成的話，是為什麼？（detail 存錯誤訊息，不只是狀態碼）
+--
+-- **失敗的那一筆才是重點**，所以 ok = 0 一樣要寫進來。只記成功等於重蹈
+-- console.log 的覆轍。
+--
+-- 保留 30 天，寫入時順手清理（同 share_activity）。一天三列，量極小；
+-- 而這些記錄的價值只存在於事發後的短期內，留更久沒有意義。
+CREATE TABLE IF NOT EXISTS cron_runs (
+  id         TEXT PRIMARY KEY,
+  step       TEXT NOT NULL,      -- 'reminder' / 'backup' / 'purge'
+  ok         INTEGER NOT NULL,   -- 1 成功、0 失敗
+  detail     TEXT,               -- 成功時是統計 JSON；失敗時是錯誤訊息
+  started_at INTEGER NOT NULL,
+  ended_at   INTEGER NOT NULL    -- 與 started_at 的差就是耗時：每次都跑很久也是一種徵兆
+);
+
+CREATE INDEX IF NOT EXISTS idx_cron_runs_time ON cron_runs(started_at);

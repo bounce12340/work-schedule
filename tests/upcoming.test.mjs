@@ -139,7 +139,7 @@ test('cron：兩段都空就完全不寄——「沒事就閉嘴」的閘門要�
   await withMail(async sent => {
     const r = await sendOverdueReminders(env, NOW);
     assert.equal(r.sent, 0);
-    assert.equal(r.skipped, 1);
+    assert.equal(r.nothingToSay, 1, '要能看出是「真的沒事」，而不是被停用或今天已寄過');
     assert.equal(sent.length, 0, '一封都不能寄');
   });
 });

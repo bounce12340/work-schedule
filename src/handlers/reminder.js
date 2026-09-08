@@ -20,6 +20,10 @@ const MAX_DIGEST_BYTES = 200_000;
 // 一次信裡最多列這麼多筆，其餘用「還有 N 項」帶過——把兩百行倒進信裡沒有人會讀
 const MAX_LISTED = 20;
 
+// 統計裡最多留幾筆錯誤訊息。同一個原因失敗一百次，看前幾筆就夠了；
+// 全部留下來只會把 cron_runs.detail 撐爆而更難讀
+const MAX_ERRORS = 5;
+
 /** 預設提前 3 天。0 代表只在逾期時寄（原本的行為），上限 30 天。 */
 export const DEFAULT_LEAD_DAYS = 3;
 const MAX_LEAD_DAYS = 30;
@@ -246,20 +250,23 @@ export async function sendOverdueReminders(env, nowMs = Date.now()) {
       WHERE r.enabled = 1`
   ).all();
 
-  const out = { checked: 0, sent: 0, skipped: 0, failed: 0 };
+  // 跳過的三種原因**分開計數**。原本它們共用一個 skipped，於是「今天大家都沒事」
+  // 與「這個帳號被停用了」在統計裡完全一樣——而這份統計現在會進 cron_runs 給人看，
+  // 分不出原因的數字等於沒有記。這與 cloudPull() 要區分 absent 與 failed 是同一件事。
+  const out = { checked: 0, sent: 0, nothingToSay: 0, alreadySent: 0, notApproved: 0, failed: 0, errors: [] };
   for (const row of rows.results || []) {
     out.checked++;
     // 停用中的帳號不該繼續收到信
-    if (row.status !== 'approved') { out.skipped++; continue; }
+    if (row.status !== 'approved') { out.notApproved++; continue; }
     // 同一天不重寄：cron 可能重試，重試不該變成第二封
-    if (row.last_sent_ymd === today) { out.skipped++; continue; }
+    if (row.last_sent_ymd === today) { out.alreadySent++; continue; }
 
     let digest = [];
     try { digest = JSON.parse(row.digest); } catch { digest = []; }
     const overdue = pickOverdue(digest, today);
     const upcoming = pickUpcoming(digest, today,
       row.lead_days == null ? DEFAULT_LEAD_DAYS : row.lead_days);
-    if (!overdue.length && !upcoming.length) { out.skipped++; continue; }
+    if (!overdue.length && !upcoming.length) { out.nothingToSay++; continue; }
 
     try {
       await sendMail(env, row.email,
@@ -272,6 +279,12 @@ export async function sendOverdueReminders(env, nowMs = Date.now()) {
       // 沒寄成功就不算寄過，下一次排程會再試。
       console.warn('reminder send failed', row.user_id, String(e));
       out.failed++;
+      // **錯誤訊息要留下來。** 只有 failed 的數字的話，「金鑰失效」與「inbox 不存在」
+      // 看起來一模一樣，而它們要做的事完全不同。收件人用 email 而不是 user_id：
+      // 這份統計是給管理者在管理頁上讀的，而管理者本來就看得到所有人的 email。
+      if (out.errors.length < MAX_ERRORS) {
+        out.errors.push({ email: row.email, error: String(e?.message || e).slice(0, 200) });
+      }
     }
   }
   return out;

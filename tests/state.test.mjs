@@ -335,7 +335,8 @@ test('cron：有逾期才寄，沒有逾期完全不寄', async () => {
   await withFakeMail(async sent => {
     const out = await sendOverdueReminders({ ...MAIL_ENV, DB: base.DB }, now);
     assert.equal(out.sent, 1);
-    assert.equal(out.skipped, 1, '沒有逾期的人完全不寄——每天一封「你沒有逾期」只會被忽略');
+    assert.equal(out.nothingToSay, 1, '沒有逾期的人完全不寄——每天一封「你沒有逾期」只會被忽略');
+    assert.equal(out.notApproved, 0, '兩人都是 approved，不該被算成停用');
     assert.equal(sent.length, 1);
     assert.equal(sent[0].body.to, 'has@x.com');
     // 路徑必須完全符合官方 OpenAPI 規格。/v0 前綴特別容易漏——文件正文與部分
@@ -378,7 +379,13 @@ test('cron：停用中的帳號不寄；寄失敗不記錄已寄，下次會重�
     const env = { ...MAIL_ENV, DB: base.DB };
     const out = await sendOverdueReminders(env, now);
     assert.equal(out.failed, 1, '只有 u1 該被嘗試');
-    assert.equal(out.skipped, 1, '停用中的帳號不寄');
+    assert.equal(out.notApproved, 1, '停用中的帳號不寄');
+    assert.equal(out.nothingToSay, 0, '兩人都有逾期，不該被算成「沒事要說」');
+    // 失敗的原因要留得下來：只有一個 failed 數字的話，「金鑰失效」與
+    // 「inbox 不存在」在管理頁上看起來一模一樣，而處理方向完全不同
+    assert.equal(out.errors.length, 1);
+    assert.equal(out.errors[0].email, 'ok@x.com');
+    assert.match(out.errors[0].error, /500/, '狀態碼要出現在訊息裡');
     assert.equal(base.DB.prepare('SELECT last_sent_ymd FROM reminder_feed WHERE user_id = ?').bind('u1').first().last_sent_ymd,
       null, '沒寄成功就不算寄過，下次排程要能重試');
   } finally { globalThis.fetch = real; }
