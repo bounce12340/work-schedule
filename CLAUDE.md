@@ -93,7 +93,7 @@ node tools/verify-richtext.mjs
 | job | 內容 | 何時跑 |
 |---|---|---|
 | `check` | `npm test`、`tools/check-syntax.mjs`、`wrangler deploy --dry-run` | 每個 PR 與 main |
-| `smoke` | `smoke.mjs`、`verify-toggle.mjs`、`verify-richtext.mjs`（要 Chromium） | 每個 PR 與 main |
+| `smoke` | `smoke.mjs`、`verify-toggle.mjs`、`verify-richtext.mjs`、`check-calendar.mjs`（要 Chromium） | 每個 PR 與 main |
 | `deploy` | `npx wrangler deploy`，完成後打一次線上 `/` 確認回 302 | 只有 push 到 `main` |
 
 幾個刻意的決定：
@@ -140,6 +140,7 @@ Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.Comm
 | `tools/smoke.mjs` | 四個頁籤 × 中英文 × 單檔／已登入共四輪，零 pageerror、零 console.error、每頁關鍵錨點存在 | **任何前端改動**。第 0 條的自動化版本 |
 | `tools/verify-toggle.mjs` | 勾選的就地更新與完整重繪結果完全相同 | 動到 `renderBoard()` 或 `moveOccRowToDone()` |
 | `tools/verify-richtext.mjs` | 富文字過濾器的整條管線（含 DOM 走訪）擋得住 16 種攻擊向量 | 動到富文字 |
+| `tools/check-calendar.mjs` | 日曆的色條軌道對齊、跨月與週界的收邊、每日記錄的 ✎ 記號 | 動到 `renderCalendar()` 或日曆的 CSS |
 | `tools/measure-board.mjs` | 切換檢視／篩選／搜尋卡住主執行緒多久（自己造 64／150／300 項的資料） | 動到 `renderBoard()` 或看板的 CSS。**不在 CI**：數字隨環境浮動，設門檻只會製造沒有人相信的紅燈，用途是改動前後各跑一次自己比對 |
 | `tools/check-mobile.mjs` | 手機（iPhone 13、CPU 降速 4 倍、64 個項目）：五頁都不橫向溢出、切換與互動的停頓、**點擊目標大小** | 動到任何版面或 CSS。同樣不在 CI |
 
@@ -805,6 +806,23 @@ DOM 建構有兩種寫法，請依情境沿用：
 - 觸控的 `touchmove` 事件其 `target` 一直是起始元素，必須用 `elementFromPoint` 反查目前指到哪一格；而且只有真的跨格才 `preventDefault`，否則單指上下捲動會被卡住。
 - 格子內的核取方塊要在 `mousedown`／`touchstart` 就排除（`closest('.cal-item-check')`），否則勾選會被拖曳選取搶走。
 - 區間模式不顯示逐日清單與每日記錄——那兩者都是「某一天」的概念。
+
+### 跨多天事項畫成貫穿的色條
+
+`renderCalendar` 把 `item.endDate` 的項目從逐項文字裡抽掉，改畫一條橫帶。**兩件事撐起「連續」的錯覺，少一件就散掉：**
+
+1. **軌道（lane）**：同一個項目在每一格都必須落在同一個高度。`calSpanLanes()` 依開始日排序做貪婪配置，而**沒有色條的軌道也要留一個等高的空位**（`.cal-span.gap`）——否則下方的色條會往上跳，與隔壁格錯開。症狀特別難查：畫面上看不出原因，只覺得「怪怪的」。
+2. **負外距**：`margin: 0 -12px` 把色條拉出格子的 padding（8px＋1px 邊框）並各多蓋掉 grid 間隙（6px）的一半，相鄰兩格因此剛好接起來。週的頭尾格子要用 `.wk-start` / `.wk-end` 收回去，否則整排會凸出網格外面。
+
+`.start` / `.end` 只在**真正的起訖日**才加（比對 `dateStr`，不是 `sp.from`／`sp.to`——`sp` 是同一個物件被塞進區間內的每一格，拿它比會讓四格全部被判成起點，色條斷成四塊而且長出四個勾選框；實際踩過，`tools/check-calendar.mjs` 抓到的）。週界一律維持平的，那樣才讀得出「還沒結束」。
+
+**勾選框只放在本月的第一段上**：整段共用一個完成狀態，四天各放一個會讓人以為勾的是「那一天」。它與 `.cal-item-check` 一樣要排除在拖曳選取之外。
+
+### 每日記錄在格子上只留一個記號
+
+有內容就在右上角放 `✎`（絕對定位，不塞進 `.cal-daynum`——那個元素在手機版是置中的，改成 flex 排版會把日期推歪）。判斷用既有的 `rtIsEmpty()`，不自己寫一份：編輯器留下的空殼形狀（`<div><br></div>`）就是它認得的那些。
+
+**打字時只做就地更新（`syncDayLogMark`），絕對不能呼叫 `renderCalendar()`**——那會連下方的詳情區一起重建，正在打字的編輯器當場被銷毀，游標與注音組字都會斷掉。同〈勾選不重建看板〉。
 
 ### 勾選走樂觀回饋，是全量重繪唯一的緩衝
 

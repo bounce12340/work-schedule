@@ -94,6 +94,12 @@ jobs:
       - name: 富文字管線驗證
         run: node tools/verify-richtext.mjs
 
+      # 日曆的色條軌道對齊、每日記錄的標記。放進 CI 的理由與上面兩支相同：
+      # 軌道算錯的話色條會上下錯開，而畫面上看不出原因——這種只有把它畫出來
+      # 才看得見的錯誤，正是人眼審 diff 最容易放過的一類。
+      - name: 日曆顯示驗證
+        run: node tools/check-calendar.mjs
+
   deploy:
     name: 部署到 Cloudflare
     needs: [check, smoke]
