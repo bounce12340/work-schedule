@@ -240,6 +240,40 @@
      不支援的瀏覽器完全照舊渲染，只是沒有這個好處——與雲端同步同一個漸進增強
      模式，壞不了任何東西。 */
   .occ-row{ content-visibility:auto; contain-intrinsic-size:auto 52px; }
+  /* 標籤與步驟清單。顏色一律取自 :root 的變數，暗色那一組由 [data-theme="dark"]
+     覆寫同一批變數——這裡不硬寫任何色碼。 */
+  .tag-chip{ font-family:var(--mono); font-size:10.5px; padding:2px 7px; border-radius:5px;
+             background:var(--panel-2); color:var(--text-muted); border:1px solid var(--hairline);
+             cursor:pointer; white-space:nowrap; }
+  .tag-chip:hover{ color:var(--amber); border-color:var(--amber); }
+  .qbtn.tag{ font-family:var(--mono); }
+  .filter-sep{ width:1px; align-self:stretch; background:var(--hairline); margin:0 4px; }
+  .sub-badge{ font-family:var(--mono); font-size:10.5px; padding:2px 7px; border-radius:5px;
+              background:var(--panel-2); color:var(--text-muted); border:1px solid var(--hairline);
+              cursor:pointer; white-space:nowrap; }
+  .sub-badge.all{ color:var(--teal); border-color:var(--teal); }
+  .sub-list{ flex:1 1 100%; margin:8px 0 0; padding:8px 0 0; border-top:1px solid var(--hairline);
+             display:flex; flex-direction:column; gap:5px; }
+  .sub-line{ display:flex; align-items:baseline; gap:8px; font-size:13px; cursor:pointer; }
+  .sub-text.done{ text-decoration:line-through; color:var(--text-dim); }
+  .tag-edit{ display:flex; flex-wrap:wrap; gap:5px; margin-bottom:6px; }
+  .tag-edit .tag-chip{ cursor:default; }
+  .tag-edit .tag-chip button{ border:none; background:none; color:inherit; cursor:pointer;
+                              margin-left:4px; padding:0; font-size:11px; }
+  .tag-suggest{ display:flex; flex-wrap:wrap; gap:5px; margin-top:6px; }
+  .tag-suggest button{ font-family:var(--mono); font-size:10.5px; padding:2px 7px; border-radius:5px;
+                       background:transparent; color:var(--text-dim); border:1px dashed var(--hairline);
+                       cursor:pointer; }
+  .tag-suggest button:hover{ color:var(--amber); border-color:var(--amber); }
+  .sub-row{ display:flex; gap:6px; align-items:center; margin-bottom:6px; }
+  .sub-row input{ flex:1; }
+  .sub-row button{ border:1px solid var(--hairline); background:var(--panel); color:var(--text-muted);
+                   border-radius:6px; cursor:pointer; padding:6px 9px; font-size:12px; }
+  .sub-row button:hover{ color:var(--red); border-color:var(--red); }
+  .sub-add{ font-family:var(--mono); font-size:11.5px; padding:6px 10px; border-radius:6px;
+            border:1px dashed var(--hairline); background:transparent; color:var(--text-muted); cursor:pointer; }
+  .sub-add:hover{ color:var(--amber); border-color:var(--amber); }
+  .field-hint{ font-size:11px; color:var(--text-dim); margin-top:6px; line-height:1.6; }
   .occ-row.type-work{ border-left:3px solid var(--teal); }
   .occ-row.type-meeting{ border-left:3px solid var(--violet); }
   .occ-row.type-assignment{ border-left:3px solid var(--amber); }
@@ -974,6 +1008,18 @@
     <div class="field" id="itemMeetingTimeField"><label data-i18n>時間（選填）</label><input type="time" id="inputItemMeetingTime"></div>
     <div class="field"><label data-i18n>連結（選填，例如會議連結或文件）</label><input type="url" id="inputItemLink" placeholder="https://…"></div>
     <div class="field"><label data-i18n>歸屬大項目</label><select id="selectParent"><option value="" data-i18n>獨立項目（不歸屬任何大項目）</option></select></div>
+    <div class="field">
+      <label data-i18n>標籤（選填，可多個）</label>
+      <div class="tag-edit" id="modalTagChips"></div>
+      <input type="text" id="inputItemTag" placeholder="輸入後按 Enter 加入" data-i18n-ph>
+      <div class="tag-suggest" id="modalTagSuggest"></div>
+    </div>
+    <div class="field">
+      <label data-i18n>步驟清單（選填）</label>
+      <div id="modalSubList"></div>
+      <button type="button" class="sub-add" id="btnAddSubtask" data-i18n>＋ 加一個步驟</button>
+      <div class="field-hint" id="subHint" data-i18n>循環項目每一次都會有自己的一份勾選，步驟本身共用。</div>
+    </div>
     <div class="field-row">
       <div class="field"><label id="itemDateLabel" data-i18n>日期</label><input type="date" id="inputItemDate"></div>
       <div class="field" id="itemEndDateField"><label data-i18n>結束日期（選填，跨多天）</label><input type="date" id="inputItemEndDate"></div>
@@ -1690,6 +1736,48 @@
     };
   }
 
+  // 標籤與子清單的上限。存在的理由不是怕爆炸，是**怕它們變成另一個可以塞任意
+  // 內容的地方**——這兩個欄位會跟著雲端同步、進備份、也會出現在分享出去的資料裡。
+  const MAX_TAGS = 12, MAX_TAG_LEN = 24, MAX_SUBTASKS = 20, MAX_SUB_LEN = 120;
+
+  /**
+   * 標籤：去空白、去重、**排序**。
+   *
+   * 排序不是為了好看，是為了 canonical 形狀：三方合併以 stableStringify 比對整個
+   * 項目，順序不同會被誤判成「兩邊都改過」而跳出根本不存在的衝突。
+   */
+  function normalizeTags(raw){
+    if(!Array.isArray(raw)) return [];
+    return [...new Set(raw.map(t => String(t == null ? '' : t).trim().slice(0, MAX_TAG_LEN)).filter(Boolean))]
+      .sort().slice(0, MAX_TAGS);
+  }
+
+  /** 子清單的「步驟範本」。順序是使用者排的，**不排序**——那是資料的一部分。 */
+  function normalizeSubtasks(raw){
+    if(!Array.isArray(raw)) return [];
+    return raw.filter(x => x && x.id)
+      .slice(0, MAX_SUBTASKS)
+      .map(x => ({ id: String(x.id), text: String(x.text == null ? '' : x.text).slice(0, MAX_SUB_LEN) }));
+  }
+
+  /**
+   * 子清單的勾選狀態：`{ [occKey]: { [subId]: 1 } }`。
+   * 只留下真的存在的 occKey 與 subId，讓改過步驟或改過頻率之後不會留下孤兒。
+   */
+  function normalizeSubDone(raw, subtasks){
+    if(!raw || typeof raw !== 'object') return {};
+    const valid = new Set((subtasks || []).map(x => x.id));
+    const out = {};
+    for(const k of Object.keys(raw)){
+      const m = raw[k];
+      if(!m || typeof m !== 'object') continue;
+      const keep = {};
+      for(const id of Object.keys(m)) if(valid.has(id) && m[id]) keep[id] = 1;
+      if(Object.keys(keep).length) out[k] = keep;
+    }
+    return out;
+  }
+
   function normalizeItems(raw){
     return (Array.isArray(raw) ? raw : []).filter(it => it && it.id && isYmd(it.date)).map(it => ({
       id: it.id,
@@ -1703,6 +1791,9 @@
       endDate: (!it.recurrence && isYmd(it.endDate) && it.endDate > it.date) ? it.endDate : null,
       date: it.date,
       recurrence: normalizeRecurrence(it.recurrence),
+      tags: normalizeTags(it.tags),
+      subtasks: normalizeSubtasks(it.subtasks),
+      subDone: normalizeSubDone(it.subDone, normalizeSubtasks(it.subtasks)),
       done: !!it.done,
       doneMap: (it.doneMap && typeof it.doneMap==='object') ? it.doneMap : {},
       overrides: (it.overrides && typeof it.overrides==='object') ? it.overrides : {},
@@ -1834,12 +1925,22 @@
   }
 
   // 所有會改動資料的操作都必須走這裡：確保「改資料 → 存檔 → 重繪」三步永遠成套發生。
-  function commit(mutate){
+  /**
+   * 唯一的寫入入口。
+   *
+   * `opts.skipRender` 是一個**窄而明確**的例外：呼叫端已經就地把畫面改成新狀態，
+   * 而這次變更不影響「畫面上有哪些列」或頂部的指標。目前只有子清單的勾選用它——
+   * 勾一個步驟不會改變逾期數，也不會讓任何一列出現或消失。
+   *
+   * 它仍然走完 persist 與 pushSoon，所以「畫面對了但沒存檔」那個靜默 bug
+   * 不會回來。這正是把選項加在 commit 上、而不是讓呼叫端自己 persist() 的理由。
+   */
+  function commit(mutate, opts){
     if(mutate) mutate();
     refreshAvailableYears();
     persist();
     pushSoon();
-    renderAll();
+    if(!(opts && opts.skipRender)) renderAll();
   }
 
   // 供 textarea 這類高頻輸入使用，避免每個字元都寫一次 localStorage
@@ -2428,6 +2529,43 @@
     items.forEach(it=>{ all = all.concat(getOccurrencesInRange(it, rangeStart, rangeEnd)); });
     return all;
   }
+  /**
+   * 子清單的進度：範本共用、勾選各自。
+   *
+   * `item.subtasks` 是這個項目的步驟範本（每個月都跑同一套），
+   * `item.subDone[occKey]` 是**這一次**勾到哪裡。這正是 occurrence 引擎既有的
+   * 分工——`recurrence` 是規則、`doneMap[occKey]` 是那一次的狀態——只是再用一次，
+   * 沒有引入新的概念。
+   */
+  function subProgress(item, occKey){
+    const list = item.subtasks || [];
+    if(!list.length) return null;
+    const m = (item.subDone && item.subDone[occKey]) || {};
+    return { done: list.filter(x => m[x.id]).length, total: list.length };
+  }
+
+  function isSubDone(item, occKey, subId){
+    return !!(item.subDone && item.subDone[occKey] && item.subDone[occKey][subId]);
+  }
+
+  /**
+   * 勾／取消一個步驟。取消到全空時把整個 occKey 拿掉——留下空物件會讓
+   * 三方合併看到一個「有變更但內容相同」的形狀，也會讓存檔越積越大。
+   */
+  function setSubDone(item, occKey, subId, val){
+    if(!item.subDone) item.subDone = {};
+    const m = item.subDone[occKey] || (item.subDone[occKey] = {});
+    if(val) m[subId] = 1; else delete m[subId];
+    if(!Object.keys(m).length) delete item.subDone[occKey];
+  }
+
+  /** 目前所有項目用過的標籤，給篩選列與 modal 的建議清單用。 */
+  function allTagsInUse(){
+    const set = new Set();
+    items.forEach(it => (it.tags || []).forEach(t => set.add(t)));
+    return [...set].sort();
+  }
+
   function setOccurrenceDone(occ, val){
     if(occ.occKey==='single'){ occ.item.done = val; }
     else{ occ.item.doneMap = occ.item.doneMap || {}; occ.item.doneMap[occ.occKey] = val; }
@@ -2857,6 +2995,35 @@
     cb.onclick=()=> toggleOccDone(occ, cb, title);
     const pname = majorProjectName(it.parentId);
     if(pname){ const tag=document.createElement('span'); tag.className='parent-tag'; tag.textContent=pname; row.appendChild(tag); }
+    (it.tags || []).forEach(t=>{
+      const chip=document.createElement('span'); chip.className='tag-chip'; chip.textContent='#'+t;
+      chip.title=tr('點一下只看這個標籤');
+      chip.onclick=(e)=>{
+        e.stopPropagation();
+        tagFilter.clear(); tagFilter.add(t);
+        renderScheduleView();
+      };
+      row.appendChild(chip);
+    });
+    // 子清單：列上只放一個數字徽章，點開才展開細項。
+    // 每個項目直接攤開五列的話，剛做完的效能優化（1461 列 1292ms → 68ms）
+    // 會立刻被吃掉——列數是這個看板唯一真正的成本。
+    const prog = subProgress(it, occ.occKey);
+    if(prog){
+      const sb=document.createElement('button');
+      sb.className='sub-badge'+(prog.done===prog.total?' all':'');
+      sb.type='button';
+      sb.textContent='☑ '+prog.done+'/'+prog.total;
+      sb.title=tr('展開步驟清單');
+      const list=document.createElement('div'); list.className='sub-list'; list.hidden=true;
+      sb.onclick=(e)=>{
+        e.stopPropagation();
+        if(list.hidden){ buildSubList(list, occ, sb); list.hidden=false; }
+        else list.hidden=true;
+      };
+      row.appendChild(sb);
+      row.appendChild(list);
+    }
     if(it.recurrence){
       const rb=document.createElement('span'); rb.className='recur-badge';
       rb.textContent='🔁 '+recurrenceLabel(it)+(it.recurrence.until?'（至'+it.recurrence.until+'）':'');
@@ -2896,24 +3063,63 @@
     return row;
   }
 
+  /**
+   * 展開後的步驟清單。**懶建構**：沒有點開就完全不建這些節點——
+   * 這是「列上只放徽章」那個決定的另一半，少了它等於白做。
+   *
+   * 勾一個步驟走 commit()（是資料變更，要存檔），但**刻意不重繪整個看板**：
+   * 只就地更新徽章數字與那一列的樣式。理由同〈勾選不重建看板〉——這裡連
+   * 「哪些列該出現」都沒有改變，重繪一整份是純粹的浪費。
+   */
+  function buildSubList(box, occ, badgeEl){
+    box.innerHTML='';
+    const it = occ.item;
+    (it.subtasks || []).forEach(st=>{
+      const line=document.createElement('label'); line.className='sub-line';
+      const cb=document.createElement('input'); cb.type='checkbox';
+      cb.checked = isSubDone(it, occ.occKey, st.id);
+      const txt=document.createElement('span');
+      txt.className='sub-text'+(cb.checked?' done':'');
+      txt.textContent = st.text;
+      cb.onchange=()=>{
+        commit(()=> setSubDone(it, occ.occKey, st.id, cb.checked), { skipRender:true });
+        txt.classList.toggle('done', cb.checked);
+        const p = subProgress(it, occ.occKey);
+        if(p && badgeEl){
+          badgeEl.textContent='☑ '+p.done+'/'+p.total;
+          badgeEl.classList.toggle('all', p.done===p.total);
+        }
+      };
+      line.appendChild(cb); line.appendChild(txt);
+      box.appendChild(line);
+    });
+  }
+
   // 篩選條件屬於檢視狀態，與年份／頁籤同一類：不進 snapshot()、不存檔，
   // 重整後回到預設。存起來的話，使用者下次打開會看到一份被篩選過的清單卻
   // 不知道為什麼有些項目不見了。
   let searchText = '';
   let typeFilter = new Set();     // 空集合代表不限類型
+  let tagFilter = new Set();      // 同上；同一維度內是 OR，跨維度是 AND
   let hideDone = false;
 
   function matchesFilter(occ){
     if(typeFilter.size && !typeFilter.has(occ.item.type)) return false;
+    // 標籤是多對多，所以「符合任一個選取的標籤」就算通過（同維度 OR）。
+    // 與類型之間仍然是 AND：選了「管制藥品」再選「作業」= 兩者都要成立。
+    if(tagFilter.size && !(occ.item.tags || []).some(t => tagFilter.has(t))) return false;
     if(hideDone && occ.done) return false;
     if(searchText){
       const q = searchText.toLowerCase();
       const parent = (majorProjectName(occ.item.parentId) || '').toLowerCase();
-      if(!occ.item.title.toLowerCase().includes(q) && !parent.includes(q)) return false;
+      // 標籤也要搜得到：她原本把分類寫在標題裡，搬到標籤之後若搜不到，
+      // 等於把一個本來找得到的東西弄丟了
+      const tags = (occ.item.tags || []).join(' ').toLowerCase();
+      if(!occ.item.title.toLowerCase().includes(q) && !parent.includes(q) && !tags.includes(q)) return false;
     }
     return true;
   }
-  function filterActive(){ return !!searchText || typeFilter.size > 0 || hideDone; }
+  function filterActive(){ return !!searchText || typeFilter.size > 0 || tagFilter.size > 0 || hideDone; }
 
   function renderFilterBar(){
     const wrap=document.getElementById('filterTypes'); wrap.innerHTML='';
@@ -2927,6 +3133,26 @@
       };
       wrap.appendChild(b);
     });
+    // 標籤按鈕只列出**真的有人在用**的標籤。列出全部可能的字串沒有意義，
+    // 而空的篩選列比沒有篩選列更讓人困惑。
+    const tags = allTagsInUse();
+    if(tags.length){
+      const sep=document.createElement('span'); sep.className='filter-sep'; wrap.appendChild(sep);
+      tags.forEach(t=>{
+        const b=document.createElement('button');
+        b.className='qbtn tag'+(tagFilter.has(t)?' active':'');
+        b.type='button'; b.textContent='#'+t;
+        b.onclick=()=>{
+          if(tagFilter.has(t)) tagFilter.delete(t); else tagFilter.add(t);
+          renderScheduleView();        // 純檢視變更，不走 commit()
+        };
+        wrap.appendChild(b);
+      });
+    } else {
+      // 已經被選起來的標籤，若最後一個用它的項目被刪掉，按鈕會消失而篩選還留著
+      // ——那會變成「畫面上空無一物但看不出為什麼」
+      tagFilter.clear();
+    }
     document.getElementById('btnHideDone').classList.toggle('active', hideDone);
   }
 
@@ -3494,6 +3720,53 @@
   // ================= 小項目 modal =================
   const itemOverlay=document.getElementById('itemOverlay');
   let modalType='work';
+  // modal 內編輯中的標籤與步驟。與 modalWeekdays 同一類：只在 modal 開著時有意義，
+  // 按下確認才寫進 items，取消就整份丟掉。
+  let modalTags = new Set();
+  let modalSubtasks = [];
+
+  function renderModalTags(){
+    const box=document.getElementById('modalTagChips'); box.innerHTML='';
+    [...modalTags].sort().forEach(t=>{
+      const chip=document.createElement('span'); chip.className='tag-chip';
+      chip.appendChild(document.createTextNode('#'+t));
+      const x=document.createElement('button'); x.type='button'; x.textContent='✕';
+      x.onclick=()=>{ modalTags.delete(t); renderModalTags(); };
+      chip.appendChild(x); box.appendChild(chip);
+    });
+    // 建議清單只列**還沒選**的既有標籤。這是「標籤存字串」那個決定的補償措施：
+    // 讓她點選而不是每次重打，打錯字才不會靜靜長出第二個標籤。
+    const sug=document.getElementById('modalTagSuggest'); sug.innerHTML='';
+    allTagsInUse().filter(t=>!modalTags.has(t)).forEach(t=>{
+      const b=document.createElement('button'); b.type='button'; b.textContent='#'+t;
+      b.onclick=()=>{ if(modalTags.size < MAX_TAGS){ modalTags.add(t); renderModalTags(); } };
+      sug.appendChild(b);
+    });
+  }
+
+  function addModalTag(){
+    const inp=document.getElementById('inputItemTag');
+    const v=inp.value.trim().slice(0, MAX_TAG_LEN);
+    if(v && modalTags.size < MAX_TAGS) modalTags.add(v);
+    inp.value=''; renderModalTags();
+  }
+
+  function renderModalSubtasks(){
+    const box=document.getElementById('modalSubList'); box.innerHTML='';
+    modalSubtasks.forEach((st, i)=>{
+      const rowEl=document.createElement('div'); rowEl.className='sub-row';
+      const inp=document.createElement('input'); inp.type='text'; inp.value=st.text;
+      inp.placeholder=tr('步驟內容'); inp.maxLength=MAX_SUB_LEN;
+      // 就地改陣列，不重繪——重繪會銷毀正在輸入的 input，Tab 換欄位就斷了
+      inp.oninput=()=>{ st.text=inp.value; };
+      const del=document.createElement('button'); del.type='button'; del.textContent='✕';
+      del.title=tr('移除這個步驟');
+      del.onclick=()=>{ modalSubtasks.splice(i,1); renderModalSubtasks(); };
+      rowEl.appendChild(inp); rowEl.appendChild(del); box.appendChild(rowEl);
+    });
+    const btn=document.getElementById('btnAddSubtask');
+    btn.style.display = modalSubtasks.length >= MAX_SUBTASKS ? 'none' : '';
+  }
   let editingItemId=null;
   let editingOrigFreq=null;   // 編輯前的循環頻率，用來偵測 occKey 命名規則是否即將失效
 
@@ -3698,6 +3971,9 @@
       document.getElementById('inputItemMeetingTime').value = existingItem.meetingTime || '';
       document.getElementById('inputItemLink').value = existingItem.link || '';
       document.getElementById('selectParent').value = existingItem.parentId || '';
+      modalTags = new Set(existingItem.tags || []);
+      // 複製一份再編輯：直接改原陣列的話，按「取消」也已經改掉了
+      modalSubtasks = (existingItem.subtasks || []).map(x => ({ id:x.id, text:x.text }));
       document.getElementById('inputItemDate').value = existingItem.date;
       document.getElementById('inputItemEndDate').value = existingItem.endDate || '';
       document.getElementById('selectRecurrence').value = existingItem.recurrence ? existingItem.recurrence.freq : 'none';
@@ -3716,6 +3992,8 @@
       document.getElementById('inputItemMeetingTime').value='';
       document.getElementById('inputItemLink').value='';
       document.getElementById('selectParent').value='';
+      modalTags = new Set();
+      modalSubtasks = [];
       document.getElementById('inputItemDate').value = defaultDate || selDate;
       // 從日曆拖出一段區間時預填結束日，使用者不必再輸入一次
       document.getElementById('inputItemEndDate').value = defaultEndDate || '';
@@ -3729,10 +4007,30 @@
       document.getElementById('selectNth').value='1';
       document.getElementById('selectNthWeekday').value='1';
     }
+    document.getElementById('inputItemTag').value='';
+    renderModalTags();
+    renderModalSubtasks();
     updateRecurrenceExtra();
     itemOverlay.classList.add('show');
     setTimeout(()=>document.getElementById('inputItemTitle').focus(), 50);
   }
+
+  document.getElementById('inputItemTag').onkeydown=(e)=>{
+    // Enter 在 modal 裡預設會送出表單／觸發確認，這裡要攔下來——
+    // 「輸入標籤按 Enter」不該把整個項目存掉
+    if(e.key==='Enter'){ e.preventDefault(); addModalTag(); }
+  };
+  // 打完沒按 Enter 就去點別的地方，那個字也算數：少了這一條，
+  // 使用者會以為加好了，實際上什麼都沒有
+  document.getElementById('inputItemTag').onblur=()=>addModalTag();
+  document.getElementById('btnAddSubtask').onclick=()=>{
+    if(modalSubtasks.length >= MAX_SUBTASKS) return;
+    modalSubtasks.push({ id: uid('sub'), text: '' });
+    renderModalSubtasks();
+    const inputs=document.querySelectorAll('#modalSubList input');
+    if(inputs.length) inputs[inputs.length-1].focus();
+  };
+
   document.getElementById('btnCancelItem').onclick=()=>itemOverlay.classList.remove('show');
   itemOverlay.addEventListener('click',(e)=>{ if(e.target===itemOverlay) itemOverlay.classList.remove('show'); });
 
@@ -3789,14 +4087,24 @@
           // 頻率一改，舊 key 全部對不上：不清就變成孤兒資料，改回原頻率時還會整批「復活」。
           const nextFreq = recurrence ? recurrence.freq : null;
           if(editingOrigFreq !== nextFreq){
-            it.done=false; it.doneMap={}; it.overrides={}; it.skipped={};
+            // subDone 也以 occKey 為 key，所以它跟 doneMap／overrides／skipped
+            // 是同一件事——漏掉它就會留下孤兒，改回原頻率時舊勾選整批「復活」
+            it.done=false; it.doneMap={}; it.overrides={}; it.skipped={}; it.subDone={};
           }
           it.title=title; it.type=modalType; it.parentId=parentId;
           it.meetingTime=meetingTime; it.link=link;
+          it.tags=normalizeTags([...modalTags]);
+          it.subtasks=normalizeSubtasks(modalSubtasks.filter(x=>x.text.trim()));
+          // 步驟被刪掉之後，它留下的勾選要一起清乾淨
+          it.subDone=normalizeSubDone(it.subDone, it.subtasks);
           it.date=dateVal; it.endDate=endDate; it.recurrence=recurrence;
         }
       } else {
-        items.push({ id: uid('item'), title, type: modalType, parentId, meetingTime, link, date: dateVal, endDate, recurrence, done:false, doneMap:{}, overrides:{}, skipped:{} });
+        items.push({ id: uid('item'), title, type: modalType, parentId, meetingTime, link,
+          tags: normalizeTags([...modalTags]),
+          subtasks: normalizeSubtasks(modalSubtasks.filter(x=>x.text.trim())),
+          subDone: {},
+          date: dateVal, endDate, recurrence, done:false, doneMap:{}, overrides:{}, skipped:{} });
       }
       if(currentView==='calendar'){ const dp=parseYMD(dateVal); calYear=dp.getFullYear(); calMonth=dp.getMonth()+1; calSelectedDate=dateVal; calSelectedEnd=null; }
       else{ if(mode==='date') selDate=dateVal; }
@@ -4995,13 +5303,22 @@
     majorProjects.push({ id: uid('mp'), name:'年度策略規劃' });
     const mp1 = majorProjects[0].id, mp2 = majorProjects[1].id;
 
-    items.push({ id: uid('item'), title:'客戶提案會議', type:'meeting', parentId:null, meetingTime:'10:30', date: ymd(t), recurrence:null, done:false, doneMap:{}, overrides:{}, skipped:{} });
+    items.push({ id: uid('item'), title:'客戶提案會議', type:'meeting', parentId:null, meetingTime:'10:30', tags:['客戶'], date: ymd(t), recurrence:null, done:false, doneMap:{}, overrides:{}, skipped:{} });
     items.push({ id: uid('item'), title:'需求確認', type:'work', parentId:mp1, meetingTime:null, date: ymd(t), recurrence:null, done:true, doneMap:{}, overrides:{}, skipped:{} });
-    items.push({ id: uid('item'), title:'整理個人學習筆記', type:'assignment', parentId:null, meetingTime:null, date: ymd(t), recurrence:null, done:false, doneMap:{}, overrides:{}, skipped:{} });
+    items.push({ id: uid('item'), title:'整理個人學習筆記', type:'assignment', parentId:null, meetingTime:null, tags:['自我進修'], date: ymd(t), recurrence:null, done:false, doneMap:{}, overrides:{}, skipped:{} });
 
     const t3=new Date(t); t3.setDate(t.getDate()+9);
     items.push({ id: uid('item'), title:'季度營運檢討會議', type:'meeting', parentId:mp2, meetingTime:'14:00', date: ymd(t3), recurrence:{ freq:'quarterly', day:t3.getDate(), holidayRule:'postpone' }, done:false, doneMap:{}, overrides:{}, skipped:{} });
-    items.push({ id: uid('item'), title:'每月部門會議', type:'meeting', parentId:null, meetingTime:'09:00', date: t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-05', recurrence:{ freq:'monthly', day:5, holidayRule:'postpone' }, done:false, doneMap:{}, overrides:{}, skipped:{} });
+    // 這一項刻意是循環＋帶步驟清單：那是子清單唯一有意思的組合——
+    // 步驟本身每個月共用，勾選則每個月各自重來
+    items.push({ id: uid('item'), title:'每月部門會議', type:'meeting', parentId:null, meetingTime:'09:00',
+      tags:['例會'],
+      subtasks:[
+        { id: uid('sub'), text:'收集各組回報事項' },
+        { id: uid('sub'), text:'寄出議程' },
+        { id: uid('sub'), text:'會後整理決議' }
+      ], subDone:{},
+      date: t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-05', recurrence:{ freq:'monthly', day:5, holidayRule:'postpone' }, done:false, doneMap:{}, overrides:{}, skipped:{} });
     items.push({ id: uid('item'), title:'盤點各部門年度目標', type:'work', parentId:mp2, meetingTime:null, date: t.getFullYear()+'-01-05', recurrence:null, done:true, doneMap:{}, overrides:{}, skipped:{} });
 
     const gp = { id: uid('gp'), name:'官網改版專案', tasks: [], notes:'' };
