@@ -93,7 +93,7 @@ node tools/verify-richtext.mjs
 | job | 內容 | 何時跑 |
 |---|---|---|
 | `check` | `npm test`、`tools/check-syntax.mjs`、`wrangler deploy --dry-run` | 每個 PR 與 main |
-| `smoke` | `smoke.mjs`、`verify-toggle.mjs`、`verify-richtext.mjs`、`check-calendar.mjs`（要 Chromium） | 每個 PR 與 main |
+| `smoke` | `smoke.mjs`、`verify-toggle.mjs`、`verify-richtext.mjs`、`check-calendar.mjs`、`check-notes.mjs`（要 Chromium） | 每個 PR 與 main |
 | `deploy` | `npx wrangler deploy`，完成後打一次線上 `/` 確認回 302 | 只有 push 到 `main` |
 
 幾個刻意的決定：
@@ -141,6 +141,7 @@ Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.Comm
 | `tools/verify-toggle.mjs` | 勾選的就地更新與完整重繪結果完全相同 | 動到 `renderBoard()` 或 `moveOccRowToDone()` |
 | `tools/verify-richtext.mjs` | 富文字過濾器的整條管線（含 DOM 走訪）擋得住 16 種攻擊向量 | 動到富文字 |
 | `tools/check-calendar.mjs` | 日曆的色條軌道對齊、跨月與週界的收邊、每日記錄的 ✎ 記號 | 動到 `renderCalendar()` 或日曆的 CSS |
+| `tools/check-notes.mjs` | 每日記錄／專案筆記的格式（醒目提示、顏色、字級）與內容在離開後仍在 | 動到富文字、`persistSoon()` 或任何 debounce 寫入 |
 | `tools/measure-board.mjs` | 切換檢視／篩選／搜尋卡住主執行緒多久（自己造 64／150／300 項的資料） | 動到 `renderBoard()` 或看板的 CSS。**不在 CI**：數字隨環境浮動，設門檻只會製造沒有人相信的紅燈，用途是改動前後各跑一次自己比對 |
 | `tools/check-mobile.mjs` | 手機（iPhone 13、CPU 降速 4 倍、64 個項目）：五頁都不橫向溢出、切換與互動的停頓、**點擊目標大小** | 動到任何版面或 CSS。同樣不在 CI |
 
@@ -270,7 +271,7 @@ commit(()=>{ /* 改資料 */ });   // → 重算年份 → 存檔 → renderAll(
 
 例外只有兩類，都是刻意的：
 - **純檢視切換**（mode tabs、年份／季別／月份選擇、日曆翻月、選日期）直接呼叫 `renderScheduleView()`／`renderCalendar()`——不改資料，不需存檔
-- **高頻輸入**（每日記錄、專案筆記 textarea、甘特任務改名）用 `persistSoon()` 做 400ms debounce，避免每個字元寫一次 localStorage
+- **高頻輸入**（每日記錄、專案筆記 textarea、甘特任務改名）用 `persistSoon()` 做 400ms debounce，避免每個字元寫一次 localStorage。**但離開前必須結帳**——見〈高頻輸入的 debounce 必須在離開前結帳〉
 
 ### 儲存層的三個設計約束
 
@@ -335,6 +336,24 @@ grep -nE '(const|let|var)[[:space:]]+(tr|tf|weekName)\b' public/index.html
 工具列按鈕必須在 `mousedown` 就 `preventDefault`：execCommand 作用在目前的選取範圍上，按鈕一旦搶走焦點，範圍就沒了。
 
 選色盤的「點別處關閉」監聽器要延到下一個 tick 才掛上 document，否則開啟用的那一次點擊會繼續冒泡，當場把自己關掉（實際踩過）。
+
+### 顏色白名單必須認得 `rgb()`
+
+我們傳給 `execCommand` 的是 `#FFF3A3`，但**瀏覽器把行內樣式序列化成 `background-color: rgb(255, 243, 163)`**。`rtNormColor` 原本只處理 `#RGB`／`#RRGGBB`，比對不到就整條丟掉——症狀是**醒目提示按下去看得到，失焦或重新載入之後就不見了**。
+
+單元測試當時全綠，因為它餵的是我們自己寫的十六進位值，而不是瀏覽器實際吐出來的東西。**白名單的測試必須用「真的會流進來的形狀」當輸入**，否則守的是一個不存在的介面。
+
+放寬的是**同一個顏色的另一種寫法**，不是白名單本身：認不得的格式原樣回傳，接著一樣因為不在清單裡而被丟掉。半透明（alpha ≠ 1）刻意不放行——那不會是我們自己塞進去的值。
+
+### 高頻輸入的 debounce 必須在離開前結帳
+
+每日記錄與專案筆記走 `persistSoon()`（400ms）→ `pushSoon()`（再 1500ms），所以**最後打的那幾個字有將近兩秒鐘只存在記憶體裡**。切頁籤沒事（記憶體還在），但關掉分頁、重新整理、或手機切到別的 app 之後回來，那段就沒了——而且畫面上完全看不出來。
+
+`flushPendingWrites()` 補的是「離開前結一次帳」，掛在三個時機：編輯器 `blur`、`visibilitychange`（頁面還活著，網路請求送得出去）、`pagehide`（fetch 不保證送得完，但 localStorage 是同步的）。debounce 本身沒有錯，不要為了這個 bug 把它拿掉。
+
+**監聽器不能掛在 `flushPendingWrites()` 旁邊**：〈持久化〉區段會被 `tests/richtext.test.mjs` 抽出來在 Node 裡求值（為了測 `migrateSnapshot`），頂層碰 `document` 會讓整支測試爆掉。掛在〈啟動〉區段——那支測試已經實際擋下來一次。
+
+**驗這件事不能用「打完字然後 `page.reload()`」**：那是在跟 400ms 賽跑，誰快誰慢看當天的機器（第一版就是這樣寫的，拿掉修正之後測試照樣綠）。`tools/check-notes.mjs` 改成在同一次 `evaluate` 裡發出 `pagehide` 再讀 `localStorage`，中間沒有非同步空隙；並且**額外斷言「那一刻確實還沒寫進去」**，證明測到的是結帳而不是 debounce 剛好跑完。
 
 ### 測試的切分
 

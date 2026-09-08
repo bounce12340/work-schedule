@@ -100,6 +100,12 @@ jobs:
       - name: 日曆顯示驗證
         run: node tools/check-calendar.mjs
 
+      # 每日記錄／專案筆記的格式與內容不能在離開後消失。兩個真的發生過的原因都
+      # 是單元測試碰不到的：瀏覽器把顏色寫成 rgb() 而白名單只認 hex，以及最後
+      # 打的字還在 debounce 裡就被帶走。
+      - name: 筆記保存驗證
+        run: node tools/check-notes.mjs
+
   deploy:
     name: 部署到 Cloudflare
     needs: [check, smoke]
