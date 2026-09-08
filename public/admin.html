@@ -433,6 +433,17 @@
       '<tbody>' + rows + '</tbody></table></div>' +
       // 0 是有意義的數字，不是「沒資料」。這兩個功能做好之後一直沒有人用，
       // 而那件事原本要直接查資料庫才知道——看不到的訊號等於不存在。
+      (d.ai ? '<div class="ops-row" style="margin-top:12px">' +
+        '<span class="ops-name">AI 小幫手</span>' +
+        (!d.ai.configured
+          ? '<span class="ops-meta">尚未設定金鑰</span>'
+          : '<span class="' + (d.ai.failed ? 'ops-warn' : 'ops-ok') + '">' +
+            d.ai.calls + ' 次 / 30 天' + (d.ai.failed ? '（' + d.ai.failed + ' 次失敗）' : '') + '</span>' +
+            // token 數是唯一看得到花費的地方。DeepSeek 的後台沒有人會每天去翻，
+            // 而看不見的花費會失控——同〈看得見的備份才是備份〉
+            '<span class="ops-meta">送出 ' + d.ai.promptTokens.toLocaleString() +
+            ' / 回覆 ' + d.ai.completionTokens.toLocaleString() + ' tokens</span>') +
+        '</div>' : '') +
       '<div class="ops-row" style="margin-top:12px">' +
         '<span class="ops-name">全站</span>' +
         '<span class="ops-meta">行事曆訂閱 ' + (t.ics || 0) + ' 筆 · ' +

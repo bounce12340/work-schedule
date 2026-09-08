@@ -17,6 +17,7 @@
  */
 import { uuid } from '../crypto.js';
 import { json } from './auth.js';
+import { aiUsageSummary, aiConfigured } from './ai.js';
 
 /** 執行記錄保留幾天。一天三列，量極小；價值只存在於事發後的短期內。 */
 const KEEP_DAYS = 30;
@@ -152,7 +153,17 @@ export async function usageSummary(env, nowMs = Date.now()) {
             (SELECT COUNT(*) FROM admin_activity) AS adminActivity`
   ).first();
 
-  return { now: nowMs, users, totals };
+  // AI 是唯一會直接花錢的功能，所以它的用量跟其他統計放在一起——
+  // 「有沒有人在用」與「花了多少」在這一頁上是同一個問題
+  let ai = null;
+  try {
+    ai = { configured: aiConfigured(env), ...(await aiUsageSummary(env, nowMs)) };
+  } catch (e) {
+    // ai_activity 還沒建表（migration 沒跑）不該讓整張使用狀況表消失
+    console.warn('ai usage failed', String(e));
+  }
+
+  return { now: nowMs, users, totals, ai };
 }
 
 /** 路由層：兩支都只給管理者，權限在 index.js 的 /api/admin/ 前綴一次擋掉。 */

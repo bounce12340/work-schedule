@@ -230,3 +230,31 @@ CREATE TABLE IF NOT EXISTS cron_runs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_cron_runs_time ON cron_runs(started_at);
+
+-- AI 小幫手的每一次呼叫。
+--
+-- 這張表同時做兩件事，而那是刻意的：
+--
+--   1. **花費看得見。** 呼叫 DeepSeek 要錢，而 Cloudflare 與 DeepSeek 的後台
+--      都不是有人會每天去翻的地方。看不見的花費會失控——理由與〈看得見的備份
+--      才是備份〉完全相同。
+--   2. **限流的依據。** 「這個人最近一分鐘打了幾次」直接數這張表就有，不必
+--      再開一張計數表。記錄本身就是計數器。
+--
+-- 因此這一列是**在呼叫 DeepSeek 之前**就先寫進去的（ok = 0、detail = 'pending'），
+-- 拿到結果再回頭更新。順序反過來的話，寫入失敗就等於沒有限流——而「記錄失敗
+-- 只 console.warn」那條慣例在這裡會變成一個可以無限呼叫的洞。
+--
+-- 保留 90 天，寫入時順手清理（同 share_activity）。
+CREATE TABLE IF NOT EXISTS ai_activity (
+  id                TEXT PRIMARY KEY,
+  user_id           TEXT NOT NULL,
+  kind              TEXT NOT NULL,      -- 'ask'；日後會有 'breakdown' 等
+  ok                INTEGER NOT NULL,   -- 1 成功、0 失敗或進行中
+  detail            TEXT,               -- 成功時人可讀的簡述；失敗時錯誤訊息
+  prompt_tokens     INTEGER,
+  completion_tokens INTEGER,
+  created_at        INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_activity_user ON ai_activity(user_id, created_at);
