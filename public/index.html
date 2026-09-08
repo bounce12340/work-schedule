@@ -1030,8 +1030,12 @@
     <span class="ai-title" data-i18n>✨ AI 小幫手</span>
     <button id="aiClose" class="ai-close" type="button">✕</button>
   </div>
+  <!-- 這段文字是使用者唯一會看到的告知，所以它必須**跟著功能一起改**。
+       第一階段寫的是「改不了任何資料」；開放提案之後那句話就變成假的，
+       而一句過期的保證比沒有那句話更糟。 -->
   <div class="ai-note" id="aiNotice" data-i18n>
-    目前只能<b>查詢與摘要</b>，改不了任何資料。你問的問題與目前檢視範圍的排程內容，會送到 DeepSeek 處理。
+    你問的問題與目前檢視範圍的<b>排程內容</b>，會送到 DeepSeek 處理。<br>
+    AI <b>不會自己改資料</b>——「拆解」只會提出建議，<b>你勾選並按下加入</b>才會寫進去。
   </div>
   <div class="ai-body" id="aiBody"></div>
   <div class="ai-foot">
