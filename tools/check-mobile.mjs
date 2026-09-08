@@ -180,43 +180,92 @@ if (await badge.count()) {
   if (ov > 0) problems.push(`子清單展開後溢出 ${ov}px`);
 }
 
-// ---------- AI 面板：手機上要貼在底部，而且輸入框構得到 ----------
-const aiStatus = await page.evaluate(async () => {
-  const r = await fetch('/api/ai/status').catch(() => null);
-  return r && r.ok;
+// ---------- AI 面板：手機上整頁，而且每一塊都在看得到的範圍內 ----------
+//
+// 這一段原本斷言「不是整頁蓋掉」。那條規則的來源是一個真實的 bug：**關著的**
+// 面板因為 display:flex 蓋過 [hidden] 而變成看不見的全屏遮罩，吃掉所有點擊。
+// 但它守錯了東西——會咬人的是「關著卻佔著」，不是「開著時佔滿」。手機上開著
+// 就該佔滿：440px 寬的螢幕分一半給背景，兩邊都不好用。
+//
+// 所以改成分開驗兩件事：關著時必須完全不佔位；開著時每一塊都要在安全區域內。
+//
+// **關著時佔不佔位，一定要在改 hidden 之前先量**——量完再打開，順序反了就
+// 等於沒驗。
+const closedBox = await page.evaluate(() => {
+  const el = document.getElementById('aiPanel');
+  const r = el.getBoundingClientRect();
+  return { hidden: el.hidden, w: Math.round(r.width), h: Math.round(r.height),
+           display: getComputedStyle(el).display };
 });
+console.log('\n  AI 面板（手機）:');
+console.log(`    關著時不佔位    ${closedBox.display === 'none' && !closedBox.w && !closedBox.h
+  ? '✓' : '✗ display=' + closedBox.display + ' ' + closedBox.w + '×' + closedBox.h}`);
+if (closedBox.display !== 'none') problems.push('關著的 AI 面板仍然佔位——那是一張看不見的全屏遮罩');
+
 // 沒有後端時 aiBtn 不會出現，直接把它顯示出來驗版面（驗的是 CSS，不是流程）
 await page.evaluate(() => {
   document.getElementById('aiBtn').style.display = '';
   document.getElementById('aiPanel').hidden = false;
+  document.body.classList.add('ai-open');
 });
 await page.waitForTimeout(300);
 const panel = await page.evaluate(() => {
   const p = document.getElementById('aiPanel').getBoundingClientRect();
+  const cs = getComputedStyle(document.getElementById('aiPanel'));
   const inp = document.getElementById('aiInput').getBoundingClientRect();
   const send = document.getElementById('aiSend').getBoundingClientRect();
   const close = document.getElementById('aiClose').getBoundingClientRect();
+  const usage = document.getElementById('aiUsage');
+  const head = document.querySelector('.ai-head');
   return {
     vh: window.innerHeight, vw: window.innerWidth,
     top: Math.round(p.top), bottom: Math.round(p.bottom), width: Math.round(p.width),
-    inputBottom: Math.round(inp.bottom), inputH: Math.round(inp.height),
+    padTop: cs.paddingTop, padBottom: cs.paddingBottom,
+    headTop: head ? Math.round(head.getBoundingClientRect().top) : null,
+    usageBottom: usage ? Math.round(usage.getBoundingClientRect().bottom) : null,
+    inputBottom: Math.round(inp.bottom),
     sendW: Math.round(send.width), sendH: Math.round(send.height),
     closeW: Math.round(close.width), closeH: Math.round(close.height),
+    bodyLocked: getComputedStyle(document.body).overflow === 'hidden',
   };
 });
-console.log('\n  AI 面板（手機）:');
-console.log(`    貼齊底部        ${panel.bottom >= panel.vh - 1 ? '✓' : '✗ bottom=' + panel.bottom + ' vh=' + panel.vh}`);
-console.log(`    不是整頁蓋掉    ${panel.top > 40 ? '✓ 上緣在 ' + panel.top + 'px' : '✗ 從最上面就開始'}`);
-console.log(`    滿版寬          ${panel.width >= panel.vw - 1 ? '✓' : '✗ ' + panel.width}`);
+console.log(`    開著時佔滿      ${panel.top <= 0 && panel.bottom >= panel.vh - 1 && panel.width >= panel.vw - 1
+  ? '✓' : '✗ top=' + panel.top + ' bottom=' + panel.bottom + ' w=' + panel.width}`);
+// Chromium 沒有瀏海，env() 一律回 0——所以**不能用計算後的值驗**（第一版是那樣
+// 寫的，永遠印綠字，等於沒驗）。要驗的是原始碼裡到底有沒有寫這個內距：缺了它，
+// 真機上最底下的用量與按鈕下緣會被 home indicator 或 Safari 的底部工具列蓋住。
+const safeAreaDeclared = await page.evaluate(() => {
+  const hit = rules => {
+    for (const r of rules) {
+      if (r.cssRules && hit(r.cssRules)) return true;
+      if (r.selectorText && r.selectorText.includes('.ai-panel')
+          && /safe-area-inset-bottom/.test(r.cssText)) return true;
+    }
+    return false;
+  };
+  for (const sheet of document.styleSheets) {
+    try { if (hit(sheet.cssRules)) return true; } catch (e) { /* 跨網域樣式表讀不到 */ }
+  }
+  return false;
+});
+console.log(`    有補安全區域    ${safeAreaDeclared ? '✓ CSS 裡有 env(safe-area-inset-bottom)' : '✗ 沒寫——真機上底部會被蓋住'}`);
+if (!safeAreaDeclared) problems.push('AI 面板沒有補 env(safe-area-inset-bottom)，真機上底部會被蓋住');
+console.log(`    最底下那一行    ${panel.usageBottom !== null && panel.usageBottom <= panel.vh
+  ? '✓ 在畫面內（bottom=' + panel.usageBottom + '，視窗 ' + panel.vh + '）' : '✗ 掉出畫面'}`);
+console.log(`    背景鎖住捲動    ${panel.bodyLocked ? '✓' : '✗'}`);
 console.log(`    送出鍵大小      ${panel.sendW}×${panel.sendH}` + (panel.sendW < 60 ? '  ✗ 太窄' : '  ✓'));
+console.log(`    關閉鍵大小      ${panel.closeW}×${panel.closeH}`);
 if (panel.sendW < 60 || panel.sendH < 40) problems.push(`AI 送出鍵 ${panel.sendW}×${panel.sendH} 按不到`);
 if (panel.inputBottom > panel.vh) problems.push('AI 輸入框跑到可視區域外');
-console.log(`    關閉鍵大小      ${panel.closeW}×${panel.closeH}`);
-if (panel.bottom < panel.vh - 1) problems.push('AI 面板沒有貼齊底部');
-if (panel.top <= 40) problems.push('AI 面板仍然整頁蓋掉');
+if (panel.usageBottom !== null && panel.usageBottom > panel.vh) problems.push('AI 面板最底下那一行掉出畫面');
+if (!(panel.top <= 0 && panel.bottom >= panel.vh - 1)) problems.push('AI 面板沒有佔滿畫面');
+if (!panel.bodyLocked) problems.push('AI 面板開著時背景仍然捲得動');
 const aiOv = await overflowOf();
 if (aiOv > 0) problems.push(`AI 面板讓版面溢出 ${aiOv}px`);
-await page.evaluate(() => { document.getElementById('aiPanel').hidden = true; });
+await page.evaluate(() => {
+  document.getElementById('aiPanel').hidden = true;
+  document.body.classList.remove('ai-open');
+});
 
 // ---------- 再量一次點擊目標 ----------
 const small2 = await page.evaluate(() => {
