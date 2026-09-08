@@ -301,7 +301,28 @@
   .ai-send:disabled{ opacity:.5; cursor:default; }
   .ai-usage{ font-family:var(--mono); font-size:10.5px; color:var(--text-dim);
              padding:0 16px 12px; }
-  @media (max-width:520px){ .ai-panel{ width:100vw; } }
+  @media (max-width:640px){
+    /* 手機改成底部彈出，而不是整頁蓋掉。兩個理由：
+       1. 底部是拇指構得到的地方，而輸入框在最下面——桌機的右側欄在手機上
+          等於把輸入框推到螢幕另一端
+       2. **高度用 dvh 不用 vh。** vh 不管虛擬鍵盤，鍵盤一跳出來輸入框就被
+          蓋在下面，使用者看不到自己在打什麼。dvh 會跟著可視區域縮。
+          先寫 vh 當後備，舊瀏覽器仍然可用。 */
+    .ai-panel{ width:100vw; left:0; right:0; top:auto; bottom:0;
+               height:85vh; height:85dvh;
+               border-left:none; border-top:1px solid var(--hairline);
+               border-radius:14px 14px 0 0;
+               box-shadow:0 -8px 32px rgba(0,0,0,.16); }
+    /* 拇指按得到的關閉鍵，而不是右上角那個 22px 的叉 */
+    .ai-close{ font-size:20px; padding:4px 8px; }
+    /* 輸入區改成兩行：文字框自己一行，兩顆按鈕在下面各佔一半。
+       第一版只把按鈕改成橫排，結果它們被擠成 20px 寬——完全按不到。
+       手機上寬度是稀缺資源，橫向擠三個東西一定有人被犧牲。 */
+    .ai-foot{ flex-wrap:wrap; }
+    .ai-foot textarea{ flex:1 1 100%; }
+    .ai-btns{ flex-direction:row; flex:1 1 100%; }
+    .ai-send{ flex:1; padding:11px 0; min-height:42px; }
+  }
   .tag-chip{ font-family:var(--mono); font-size:10.5px; padding:2px 7px; border-radius:5px;
              background:var(--panel-2); color:var(--text-muted); border:1px solid var(--hairline);
              cursor:pointer; white-space:nowrap; }
@@ -748,8 +769,21 @@
     .occ-title{ flex:1 1 100%; order:-1; font-size:15px; }
     .occ-spacer{ display:none; }
     .occ-actions{ margin-left:auto; }
-    .checkbox{ width:24px; height:24px; }
-    .icon-btn{ padding:8px 10px; font-size:15px; }
+    /* 點擊目標。實測（iPhone 13）勾選框只有 24×24、步驟徽章高 18px、
+       大項目的 ✎✕ 是 22×22——而勾選框是整個 app 最常按的東西。
+       Apple 與 Google 都建議 44px。
+
+       勾選框用**看不見的擴大範圍**而不是把方框畫大：畫大會改掉桌機的視覺，
+       而真正要解決的是「按得到」不是「看得清楚」。它是列的第一個元素，
+       往外擴不會搶到其他按鈕的點擊（旁邊的類型徽章本來就不可點）。 */
+    .checkbox{ width:26px; height:26px; position:relative; }
+    .checkbox::after{ content:''; position:absolute; inset:-9px; }
+    .icon-btn{ padding:10px 12px; font-size:15px; min-height:40px; }
+    /* 這幾個是相鄰的小按鈕，不能用擴大範圍的作法（會互相重疊而按錯），
+       只能真的做大並拉開間距 */
+    .chip button{ width:34px; height:34px; font-size:15px; }
+    .sub-badge{ min-height:32px; padding:6px 10px; font-size:12px; }
+    .tag-chip{ min-height:28px; padding:5px 9px; font-size:11.5px; }
 
     /* 手機版日曆改成 Google 日曆的作法：格子裡只放顏色圓點，點選日期才在下方
        展開當日內容。把三、四列文字塞進 50px 寬的格子，字小到讀不了、項目一多
