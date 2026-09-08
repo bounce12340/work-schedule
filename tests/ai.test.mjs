@@ -16,7 +16,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { handleAiStatus, handleAiAsk, aiUsageSummary } from '../src/handlers/ai.js';
+import { handleAiStatus, handleAiAsk, handleAiPlan, aiUsageSummary } from '../src/handlers/ai.js';
 import { makeEnv, addUser, unwrap } from './d1.mjs';
 
 const KEY = 'sk-super-secret-do-not-leak';
@@ -277,4 +277,161 @@ test('全站用量只回數量與 token，不回問題內容', async () => {
   assert.equal(sum.calls, 1);
   assert.equal(sum.promptTokens, 900);
   assert.ok(!JSON.stringify(sum).includes('極機密'));
+});
+
+// ============================ 提案（可寫的那一半） ============================
+//
+// 這一組守的是「AI 提案 → 使用者勾選 → 才寫入」裡**伺服器該擋的那一半**。
+// 前端的勾選是最後一道，但有些錯誤在這裡就擋得住，而擋得住的就不該讓它過去。
+
+const planReq = body => new Request('https://app.test/api/ai/plan', {
+  method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+});
+
+const WITH_IDS = [
+  { t: '管制藥品申報', d: '2026-09-08', k: 'assignment', done: 0, tags: ['管制藥品'], id: 'i1', occ: '2026-09' },
+  { t: '客服部月會', d: '2026-09-10', k: 'meeting', done: 0, tags: [], id: 'i2', occ: 'single' },
+];
+
+const planReply = obj => () => new Response(JSON.stringify({
+  choices: [{ message: { content: JSON.stringify(obj) } }],
+  usage: { prompt_tokens: 1200, completion_tokens: 300 },
+}), { status: 200 });
+
+test('提案：拆出來的項目帶回標題、日期、類型、標籤與步驟', async () => {
+  const env = aiEnv();
+  await withFakeApi(planReply({
+    message: '拆成三步',
+    create: [{ title: '確認特賣品項', type: 'work', date: '2026-10-03',
+               tags: ['特賣'], subtasks: ['跟採購確認庫存', '產出價格表'] }],
+    complete: [],
+  }), async () => {
+    const res = await unwrap(await handleAiPlan(
+      planReq({ request: '10 月要做中秋特賣', schedule: WITH_IDS }), env, USER, T0));
+    assert.equal(res.status, 200);
+    assert.equal(res.body.create.length, 1);
+    assert.equal(res.body.create[0].date, '2026-10-03');
+    assert.deepEqual(res.body.create[0].subtasks, ['跟採購確認庫存', '產出價格表']);
+    assert.equal(res.body.create[0].invalidDate, false);
+  });
+});
+
+test('提案用結構化輸出，不是叫模型「回 JSON」再自己 parse', async () => {
+  const env = aiEnv();
+  await withFakeApi(planReply({ create: [], complete: [] }), async calls => {
+    await handleAiPlan(planReq({ request: 'x', schedule: WITH_IDS }), env, USER, T0);
+    assert.deepEqual(calls[0].body.response_format, { type: 'json_object' });
+  });
+});
+
+test('提示詞帶上既有標籤與大項目，拆出來的東西才會跟她原本的寫法一致', async () => {
+  const env = aiEnv();
+  await withFakeApi(planReply({ create: [], complete: [] }), async calls => {
+    await handleAiPlan(planReq({
+      request: 'x', schedule: WITH_IDS, tags: ['管制藥品', 'PVF'], majors: ['年度策略'],
+    }), env, USER, T0);
+    const sys = calls[0].body.messages[0].content;
+    assert.match(sys, /管制藥品、PVF/);
+    assert.match(sys, /年度策略/);
+    assert.match(sys, /id=i1 occ=2026-09/, 'complete 只能從這份清單挑，所以 id 要給它');
+  });
+});
+
+test('**AI 編一個不存在的項目 id 出來，伺服器就要濾掉**', async () => {
+  const env = aiEnv();
+  await withFakeApi(planReply({
+    create: [],
+    complete: [
+      { id: 'i1', occ: '2026-09' },        // 真的存在
+      { id: '我編的', occ: 'single' },      // 不存在
+      { id: 'i1', occ: '2099-01' },         // id 對但那一次不存在
+    ],
+  }), async () => {
+    const res = await unwrap(await handleAiPlan(
+      planReq({ request: 'x', schedule: WITH_IDS }), env, USER, T0));
+    assert.equal(res.body.complete.length, 1, '只有真的在清單裡的那一筆能留下');
+    assert.equal(res.body.complete[0].id, 'i1');
+    assert.equal(res.body.complete[0].title, '管制藥品申報', '標題由我們補，不採用模型說的');
+  });
+});
+
+test('日期不合法的項目要留下來並標記，不是丟掉', async () => {
+  const env = aiEnv();
+  await withFakeApi(planReply({
+    create: [{ title: '這一項日期壞掉', type: 'work', date: '下週三' }],
+    complete: [],
+  }), async () => {
+    const res = await unwrap(await handleAiPlan(
+      planReq({ request: 'x', schedule: WITH_IDS }), env, USER, T0));
+    assert.equal(res.body.create.length, 1, '丟掉的話使用者不會知道 AI 想排在哪天');
+    assert.equal(res.body.create[0].invalidDate, true);
+    assert.equal(res.body.create[0].date, null);
+    assert.equal(res.body.create[0].rawDate, '下週三', '原本說什麼要留著給人看');
+  });
+});
+
+test('沒有標題的項目直接濾掉——那不是一件事', async () => {
+  const env = aiEnv();
+  await withFakeApi(planReply({
+    create: [{ title: '   ', type: 'work', date: '2026-10-01' },
+             { title: '正常的', type: 'work', date: '2026-10-02' }],
+    complete: [],
+  }), async () => {
+    const res = await unwrap(await handleAiPlan(planReq({ request: 'x', schedule: WITH_IDS }), env, USER, T0));
+    assert.equal(res.body.create.length, 1);
+    assert.equal(res.body.create[0].title, '正常的');
+  });
+});
+
+test('不認得的 type 退回 work，不是原封不動塞進去', async () => {
+  const env = aiEnv();
+  await withFakeApi(planReply({
+    create: [{ title: 'x', type: '<script>', date: '2026-10-01' }], complete: [],
+  }), async () => {
+    const res = await unwrap(await handleAiPlan(planReq({ request: 'x', schedule: WITH_IDS }), env, USER, T0));
+    assert.equal(res.body.create[0].type, 'work');
+  });
+});
+
+test('模型回的不是 JSON 時，回錯誤而不是把壞東西丟給前端', async () => {
+  const env = aiEnv();
+  const junk = () => new Response(JSON.stringify({
+    choices: [{ message: { content: '我覺得你應該先做 A 再做 B' } }],
+  }), { status: 200 });
+  await withFakeApi(junk, async () => {
+    const res = await unwrap(await handleAiPlan(planReq({ request: 'x', schedule: WITH_IDS }), env, USER, T0));
+    assert.equal(res.status, 502);
+  });
+  assert.equal(rows(env)[0].ok, 0);
+  assert.match(rows(env)[0].detail, /JSON/);
+});
+
+test('空提案不是錯誤，但要說得出來', async () => {
+  const env = aiEnv();
+  await withFakeApi(planReply({ message: '沒有可以拆的', create: [], complete: [] }), async () => {
+    const res = await unwrap(await handleAiPlan(planReq({ request: 'x', schedule: WITH_IDS }), env, USER, T0));
+    assert.equal(res.status, 200);
+    assert.equal(res.body.empty, true);
+    assert.equal(res.body.message, '沒有可以拆的');
+  });
+  assert.equal(rows(env)[0].ok, 1, '空提案仍然花了錢，要記');
+});
+
+test('提案也吃同一份限流額度', async () => {
+  const env = aiEnv();
+  await withFakeApi(planReply({ create: [], complete: [] }), async () => {
+    for (let i = 0; i < 5; i++) {
+      await handleAiPlan(planReq({ request: 'q' + i, schedule: WITH_IDS }), env, USER, T0 + i);
+    }
+    const res = await unwrap(await handleAiPlan(planReq({ request: 'x', schedule: WITH_IDS }), env, USER, T0 + 6));
+    assert.equal(res.status, 429);
+  });
+});
+
+test('提案的回應裡不會有金鑰', async () => {
+  const env = aiEnv();
+  await withFakeApi(() => new Response(`{"error":"bad key ${KEY}"}`, { status: 401 }), async () => {
+    const res = await unwrap(await handleAiPlan(planReq({ request: 'x', schedule: WITH_IDS }), env, USER, T0));
+    assert.ok(!JSON.stringify(res.body).includes(KEY));
+  });
 });

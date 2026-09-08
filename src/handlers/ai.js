@@ -1,9 +1,16 @@
 /**
- * AI 小幫手（DeepSeek）——第一階段：**唯讀**。
+ * AI 小幫手（DeepSeek）。
  *
- * 這一階段沒有任何寫入路徑：AI 看得到排程、答得出問題，但改不了任何一個字。
- * 因此可以放心在真實資料上試，順便回答一個測不到的問題——它到底看不看得懂
- * 這份排程。寫入留到第二階段，而且會走「AI 提案 → 使用者勾選 → 才寫入」。
+ * 兩個端點：
+ *   - `/api/ai/ask`   問答與摘要（唯讀，一個字都不會改）
+ *   - `/api/ai/plan`  **提案**：把「這段時間要做哪些事」拆成可勾選的清單
+ *
+ * **AI 永遠不直接寫入。** `/api/ai/plan` 只回一份提案；寫入發生在使用者
+ * 在畫面上勾選並按下「加入」的那一刻，走既有的 `commit()`。
+ *
+ * 這個形狀比「AI 直接寫、寫錯了按復原」安全一個層級：復原是**事後補救**，
+ * 勾選是**事前確認**。最壞的情況因此從「資料被改錯、等人發現」變成
+ * 「畫面上多了一份沒被採納的清單」。
  *
  * 為什麼一定要經過 Worker
  * ---------------------------------------------------------------------------
@@ -39,6 +46,8 @@ const MAX_QUESTION = 500;
 const MAX_ROWS = 400;        // 送進提示詞的排程列數上限
 const MAX_ANSWER_CHARS = 4000;
 const TIMEOUT_MS = 45_000;
+const MAX_PLAN_ITEMS = 30;   // 一次提案最多幾項
+const MAX_SUBTASKS = 8;
 
 export function aiConfigured(env) {
   return !!env.DEEPSEEK_API_KEY;
@@ -109,17 +118,23 @@ async function settle(env, id, patch) {
  * 外部輸入一律在自己這一側再驗一次：長度、型別、日期格式。前端是我們寫的，
  * 但送進來的東西不會因此就自動可信——瀏覽器上的任何東西都改得動。
  */
-function compactRows(raw) {
+function compactRows(raw, withIds = false) {
   if (!Array.isArray(raw)) return [];
   return raw.slice(0, MAX_ROWS)
     .filter(r => r && typeof r.d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(r.d))
-    .map(r => ({
-      t: String(r.t == null ? '' : r.t).slice(0, 120),
-      d: r.d,
-      k: ['work', 'meeting', 'assignment'].includes(r.k) ? r.k : 'work',
-      done: r.done ? 1 : 0,
-      tags: Array.isArray(r.tags) ? r.tags.slice(0, 8).map(x => String(x).slice(0, 24)) : [],
-    }));
+    .map(r => {
+      const out = {
+        t: String(r.t == null ? '' : r.t).slice(0, 120),
+        d: r.d,
+        k: ['work', 'meeting', 'assignment'].includes(r.k) ? r.k : 'work',
+        done: r.done ? 1 : 0,
+        tags: Array.isArray(r.tags) ? r.tags.slice(0, 8).map(x => String(x).slice(0, 24)) : [],
+      };
+      // 「標記完成」要指得到「哪一個項目的哪一次」，而 occurrence 從不被儲存——
+      // AI 拼不出 occKey，只能從我們給它的清單裡挑。這是兩個功能之間的契約。
+      if (withIds) { out.id = String(r.id || ''); out.occ = String(r.occ || ''); }
+      return out;
+    });
 }
 
 const TYPE_LABEL = { work: '工作項目', meeting: '會議安排', assignment: '作業' };
@@ -239,6 +254,196 @@ export async function handleAiAsk(request, env, user, nowMs = Date.now()) {
     await settle(env, recordId, { ok: false, detail: msg });
     // 錯誤訊息**不回傳給前端原文**：它可能含有上游的內部細節。
     // 完整內容留在 ai_activity 與 console，管理者看得到。
+    return json({ error: 'AI 回應失敗，請稍後再試' }, 502);
+  }
+}
+
+// ============================ 提案（可寫的那一半） ============================
+
+/**
+ * 提案的提示詞。
+ *
+ * 三件事一定要交代給模型，少一件產出就不可用：
+ *   1. **今天是幾號**——沒有錨點，相對日期一定算錯
+ *   2. **既有的標籤與大項目**——拆出來的東西要跟她原本的寫法一致，
+ *      而不是模型自己的風格
+ *   3. **既有排程的 id 與 occ**——「標記完成」只能從這份清單裡挑，
+ *      不能自己編一個出來
+ */
+function buildPlanPrompt(rows, todayYmd, ctx) {
+  const lines = rows.map(r =>
+    `${r.d} [${TYPE_LABEL[r.k]}]${r.done ? '（已完成）' : ''} ${r.t}` +
+    (r.tags.length ? ` #${r.tags.join(' #')}` : '') +
+    ` <id=${r.id} occ=${r.occ}>`
+  );
+  return [
+    '你是一個工作排程系統的助理。使用者會描述「某段時間要做哪些事」，',
+    '你的工作是把它拆成可以直接排進系統的小項目。',
+    '',
+    `今天是 ${todayYmd}。`,
+    '',
+    '**只回傳 JSON**，格式如下（不要有其他文字）：',
+    '{',
+    '  "message": "一句話說明你怎麼拆的",',
+    '  "create": [',
+    '    { "title": "項目名稱", "type": "work|meeting|assignment",',
+    '      "date": "YYYY-MM-DD", "tags": ["標籤"], "subtasks": ["步驟一","步驟二"] }',
+    '  ],',
+    '  "complete": [ { "id": "既有項目的 id", "occ": "那一次的 occ" } ]',
+    '}',
+    '',
+    '規則：',
+    '- 日期一律用絕對的 YYYY-MM-DD，不要用「下週三」這種相對說法。',
+    '- type 只能是 work、meeting、assignment 三者之一。',
+    '- 標籤盡量沿用下面「已在使用的標籤」，不要另創同義的新詞。',
+    '- complete 只能填下面排程清單裡真的存在的 id 與 occ，不可以自己編。',
+    '- 使用者沒有要求標記完成時，complete 就留空陣列。',
+    '- 拆解要具體可執行，不要拆成「規劃」「執行」「檢討」這種空話。',
+    `- 最多 ${MAX_PLAN_ITEMS} 項。`,
+    '',
+    ctx.tags.length ? '已在使用的標籤：' + ctx.tags.join('、') : '（目前還沒有任何標籤）',
+    ctx.majors.length ? '已有的大項目：' + ctx.majors.join('、') : '',
+    '',
+    '目前的排程（供參考，避免重複；也是 complete 唯一可以挑選的來源）：',
+    ...(lines.length ? lines : ['（這個範圍沒有任何項目）']),
+  ].filter(Boolean).join('\n');
+}
+
+const isYmd = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+
+/**
+ * 驗證模型回來的提案。
+ *
+ * **日期不合法的那一項標記起來，而不是丟掉。** 丟掉的話使用者不會知道 AI 本來
+ * 想排在哪天；標記則讓她看得到、也改得動。前端會把它預設成不勾。
+ *
+ * complete 只接受**真的出現在我們送出去那份清單裡**的 (id, occ)。模型編一個
+ * 出來的話直接濾掉——這是伺服器端擋得住、也應該擋的一種錯誤。
+ */
+function validatePlan(raw, rows) {
+  const known = new Set(rows.map(r => r.id + '|' + r.occ));
+  const byKey = new Map(rows.map(r => [r.id + '|' + r.occ, r]));
+
+  const create = (Array.isArray(raw?.create) ? raw.create : [])
+    .slice(0, MAX_PLAN_ITEMS)
+    .map(x => {
+      const title = String(x?.title == null ? '' : x.title).trim().slice(0, 120);
+      const date = isYmd(x?.date) ? x.date : null;
+      return {
+        title,
+        type: ['work', 'meeting', 'assignment'].includes(x?.type) ? x.type : 'work',
+        date,
+        invalidDate: !date,
+        rawDate: date ? null : String(x?.date == null ? '' : x.date).slice(0, 40),
+        tags: Array.isArray(x?.tags)
+          ? [...new Set(x.tags.map(t => String(t).trim().slice(0, 24)).filter(Boolean))].slice(0, 6)
+          : [],
+        subtasks: Array.isArray(x?.subtasks)
+          ? x.subtasks.map(t => String(t).trim().slice(0, 120)).filter(Boolean).slice(0, MAX_SUBTASKS)
+          : [],
+      };
+    })
+    .filter(x => x.title);
+
+  const complete = (Array.isArray(raw?.complete) ? raw.complete : [])
+    .slice(0, MAX_PLAN_ITEMS)
+    .map(x => ({ id: String(x?.id || ''), occ: String(x?.occ || '') }))
+    .filter(x => known.has(x.id + '|' + x.occ))
+    .map(x => {
+      const r = byKey.get(x.id + '|' + x.occ);
+      return { id: x.id, occ: x.occ, title: r.t, date: r.d, alreadyDone: !!r.done };
+    });
+
+  return {
+    message: String(raw?.message == null ? '' : raw.message).slice(0, 400),
+    create,
+    complete,
+  };
+}
+
+export async function handleAiPlan(request, env, user, nowMs = Date.now()) {
+  if (!aiConfigured(env)) return json({ error: 'AI 尚未設定' }, 503);
+
+  let body;
+  try { body = await request.json(); } catch { return json({ error: '請求格式錯誤' }, 400); }
+
+  const ask = String(body?.request == null ? '' : body.request).trim().slice(0, MAX_QUESTION);
+  if (!ask) return json({ error: '請先描述要做什麼' }, 400);
+
+  const today = isYmd(body?.today) ? body.today
+    : new Date(nowMs + 8 * 3600_000).toISOString().slice(0, 10);
+  const rows = compactRows(body?.schedule, true);
+  const ctx = {
+    tags: Array.isArray(body?.tags) ? body.tags.slice(0, 40).map(t => String(t).slice(0, 24)) : [],
+    majors: Array.isArray(body?.majors) ? body.majors.slice(0, 20).map(t => String(t).slice(0, 60)) : [],
+  };
+
+  const u = await usage(env, user.id, nowMs);
+  if (u.lastMin >= LIMIT_PER_MIN) {
+    return json({ error: `太快了，請等 1 分鐘再試（每分鐘上限 ${LIMIT_PER_MIN} 次）`, retryAfterSec: 60 }, 429);
+  }
+  if (u.lastDay >= LIMIT_PER_DAY) {
+    return json({ error: `今天的 AI 用量已達上限（${LIMIT_PER_DAY} 次），明天會重置`, retryAfterSec: 3600 }, 429);
+  }
+
+  let recordId;
+  try {
+    recordId = await reserve(env, user.id, 'plan', nowMs);
+  } catch (e) {
+    console.error('ai reserve failed', e?.stack || String(e));
+    return json({ error: '暫時無法使用 AI，請稍後再試' }, 503);
+  }
+
+  try {
+    const r = await fetch(API_URL, {
+      method: 'POST',
+      headers: {
+        'authorization': `Bearer ${env.DEEPSEEK_API_KEY}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        messages: [
+          { role: 'system', content: buildPlanPrompt(rows, today, ctx) },
+          { role: 'user', content: ask },
+        ],
+        // 用結構化輸出，不要叫模型「回 JSON」然後自己 parse 一段可能壞掉的文字。
+        // 即便如此下面仍然要驗——外部輸入永遠要在自己這一側再驗一次。
+        response_format: { type: 'json_object' },
+        temperature: 0.4,
+        max_tokens: 2400,
+      }),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+
+    if (!r.ok) throw new Error(`DeepSeek ${r.status}: ${(await r.text()).slice(0, 300)}`);
+
+    const data = await r.json();
+    const text = String(data?.choices?.[0]?.message?.content || '');
+    let parsed;
+    try { parsed = JSON.parse(text); }
+    catch { throw new Error('模型回的不是合法 JSON'); }
+
+    const plan = validatePlan(parsed, rows);
+    if (!plan.create.length && !plan.complete.length) {
+      // 空提案不是錯誤，但要說得出來——回一份空清單讓前端顯示訊息
+      await settle(env, recordId, { ok: true, detail: ask.slice(0, 200) + '（無提案）',
+        promptTokens: data?.usage?.prompt_tokens ?? null,
+        completionTokens: data?.usage?.completion_tokens ?? null });
+      return json({ ...plan, empty: true });
+    }
+
+    await settle(env, recordId, {
+      ok: true,
+      detail: `${ask.slice(0, 150)} → 提案 ${plan.create.length} 新增 / ${plan.complete.length} 完成`,
+      promptTokens: data?.usage?.prompt_tokens ?? null,
+      completionTokens: data?.usage?.completion_tokens ?? null,
+    });
+    return json(plan);
+  } catch (e) {
+    const msg = String(e?.message || e);
+    console.error('ai plan failed', msg);
+    await settle(env, recordId, { ok: false, detail: msg });
     return json({ error: 'AI 回應失敗，請稍後再試' }, 502);
   }
 }

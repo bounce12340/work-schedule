@@ -3,7 +3,7 @@ import { handleGetState, handlePutState } from './handlers/state.js';
 import { handleListUsers, handleUpdateUser, handleDeleteUser, handleResetPassword, handleAdminActivity } from './handlers/admin.js';
 import { runBackup, purgeExpired, listBackups } from './handlers/backup.js';
 import { recordCronRun, handleCronStatus, handleUsage } from './handlers/ops.js';
-import { handleAiStatus, handleAiAsk } from './handlers/ai.js';
+import { handleAiStatus, handleAiAsk, handleAiPlan } from './handlers/ai.js';
 import { handleListShares, handleCreateShare, handleDeleteShare, handleUpdateShared, handleListActivity } from './handlers/share.js';
 import { handleIcsStatus, handleIcsEnable, handleIcsDisable, handleIcsPut, handleIcsFeed } from './handlers/ics.js';
 import { handleReminderStatus, handleReminderEnable, handleReminderPut, sendOverdueReminders } from './handlers/reminder.js';
@@ -169,6 +169,11 @@ async function route(request, env, ctx) {
   }
   if (path === '/api/ai/ask') {
     return request.method === 'POST' ? handleAiAsk(request, env, user) : methodNotAllowed();
+  }
+  // 提案。**這裡不寫入任何東西**——它只回一份清單，寫入發生在前端使用者
+  // 勾選並按下「加入」的那一刻，走既有的 PUT /api/state 同步路徑。
+  if (path === '/api/ai/plan') {
+    return request.method === 'POST' ? handleAiPlan(request, env, user) : methodNotAllowed();
   }
 
   if (path.startsWith('/api/admin/')) {

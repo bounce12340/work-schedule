@@ -65,7 +65,7 @@ npm run db:init:local  # 對本機 miniflare D1 建表（--local 的資料庫與
 npm run db:init        # 對遠端 D1 建表
 npm run admin:reset    # 破窗鎚：直接改密碼（見〈破窗鎚〉）
 npm run deploy         # 部署
-npm test               # 全部測試檔（node:test，不需安裝任何東西；目前 211 個測試）
+npm test               # 全部測試檔（node:test，不需安裝任何東西；目前 222 個測試）
 ```
 
 跑單一測試檔或單一測試（`npm test` 沒有轉發參數的管道，直接用 node）：
@@ -623,7 +623,9 @@ Authorization: Bearer <API_KEY>
 
 ## AI 小幫手（`src/handlers/ai.js`）
 
-接 DeepSeek 官方 API（`https://api.deepseek.com/chat/completions`，OpenAI 相容）。**第一階段唯讀**：AI 看得到排程、答得出問題，但沒有任何寫入路徑。
+接 DeepSeek 官方 API（`https://api.deepseek.com/chat/completions`，OpenAI 相容）。兩個端點：`/api/ai/ask`（問答，唯讀）與 `/api/ai/plan`（**提案**）。
+
+**AI 永遠不直接寫入。** `/api/ai/plan` 只回一份提案，寫入發生在使用者在畫面上勾選並按下「加入」的那一刻，走既有的 `commit()`。這個形狀比「AI 直接寫、寫錯了按復原」安全一個層級：復原是**事後補救**，勾選是**事前確認**——最壞情況因此從「資料被改錯、等人發現」變成「畫面上多了一份沒被採納的清單」。
 
 設計文件在 `docs/superpowers/specs/2026-09-08-ai-sidebar-design.md`，以下是實作後不能拿掉的判斷：
 
@@ -639,6 +641,23 @@ Authorization: Bearer <API_KEY>
 | AI 的回覆一律 `textContent`，絕不 `innerHTML` | 那是外部內容 |
 
 **`.ai-panel[hidden]{ display:none; }` 這一行不能拿掉。** `display:flex` 的優先度高於瀏覽器內建的 `[hidden]{display:none}`，少了它，「關著」的面板仍然佔滿右半邊並吃掉所有點擊——一個看不見的全屏遮罩。這是瀏覽器測試抓到的真實 bug，靜態檢查與單元測試都不會紅。
+
+### 提案（`/api/ai/plan`）不能拿掉的判斷
+
+| 決定 | 理由 |
+|---|---|
+| **`complete` 只接受真的出現在送出去那份清單裡的 `(id, occ)`** | 模型編一個 id 出來，伺服器就要濾掉。這是伺服器端擋得住、也應該擋的錯誤。**有測試守著** |
+| 日期不合法的項目**標記起來、不丟掉** | 丟掉的話使用者不會知道 AI 本來想排在哪天；標記則讓她看得到、也改得動。前端把它預設成不勾 |
+| 用 `response_format: json_object`，但**仍然自己驗一次** | 不要叫模型「回 JSON」再自己 parse 一段可能壞掉的文字；也不要因為用了結構化輸出就相信內容 |
+| 「加入哪一種專案」讓使用者選 | `majorProjects` 與 `ganttProjects` 是兩套互不相干的東西（見〈兩套互不相干的「專案」概念〉）。猜錯再改比多一個下拉貴 |
+
+### `withUndo()` 的快照必須是深拷貝
+
+`snapshot()` 回傳的 `items` / `ganttProjects` 是**活的陣列參照**，不是副本。
+
+刪除之所以一直復原得了，是因為它用 `items = items.filter(...)` **換掉整個陣列**，快照裡的舊參照因此還指著原本那一份。但只要有人改成**就地修改**（`items.push(...)`、`item.done = true`），快照就會跟著一起被改——等於根本沒有快照，而且**畫面看起來完全正常**，只有按下復原時才發現沒反應。
+
+AI 的批次寫入正是就地修改，第一版因此復原不了，是瀏覽器測試抓到的。現在 `withUndo()` 一律 `JSON.parse(JSON.stringify(snapshot()))`；成本可以忽略（實測 300 個項目的 `JSON.stringify` 是 1.1ms）。
 
 模型固定 `deepseek-v4-flash`。pro 貴三倍而「這週有什麼」看不出差別——先量再調。
 

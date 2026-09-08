@@ -257,6 +257,33 @@
             border-bottom:1px solid var(--hairline); }
   .ai-title{ font-weight:600; font-size:14px; flex:1; }
   .ai-close{ border:none; background:none; cursor:pointer; color:var(--text-muted); font-size:15px; }
+  .ai-btns{ display:flex; flex-direction:column; gap:6px; }
+  .ai-send.alt{ background:transparent; color:var(--amber); }
+  /* 提案卡片。每一項都是一個勾選框——**沒有勾就不會被寫進去**，
+     這是整個寫入功能的安全前提，不是裝飾。 */
+  .ai-plan{ border:1px solid var(--amber); border-radius:10px; padding:10px 12px;
+            background:var(--panel-2); display:flex; flex-direction:column; gap:8px; }
+  .ai-plan-head{ font-size:12px; color:var(--text-muted); line-height:1.7; }
+  .ai-plan-row{ display:flex; gap:8px; align-items:flex-start; font-size:12.5px; }
+  .ai-plan-row input[type=checkbox]{ margin-top:3px; flex-shrink:0; }
+  .ai-plan-main{ flex:1; display:flex; flex-direction:column; gap:3px; min-width:0; }
+  .ai-plan-title{ width:100%; font-family:inherit; font-size:12.5px; padding:4px 6px;
+                  border:1px solid var(--hairline); border-radius:5px;
+                  background:var(--panel); color:var(--text); }
+  .ai-plan-meta{ display:flex; gap:6px; align-items:center; flex-wrap:wrap;
+                 font-family:var(--mono); font-size:10.5px; color:var(--text-dim); }
+  .ai-plan-meta input[type=date]{ font-family:var(--mono); font-size:10.5px; padding:2px 4px;
+                                  border:1px solid var(--hairline); border-radius:4px;
+                                  background:var(--panel); color:var(--text); }
+  .ai-plan-bad{ color:var(--red); }
+  .ai-plan-foot{ display:flex; gap:8px; align-items:center; padding-top:4px;
+                 border-top:1px solid var(--hairline); flex-wrap:wrap; }
+  .ai-plan-foot select{ font-size:11.5px; padding:4px 6px; border:1px solid var(--hairline);
+                        border-radius:5px; background:var(--panel); color:var(--text); }
+  .ai-apply{ font-family:var(--mono); font-size:11.5px; padding:5px 12px; border-radius:6px;
+             cursor:pointer; border:1px solid var(--teal); background:var(--teal);
+             color:var(--on-accent); margin-left:auto; }
+  .ai-apply:disabled{ opacity:.45; cursor:default; }
   .ai-note{ font-size:11.5px; line-height:1.7; color:var(--text-dim); padding:10px 16px;
             border-bottom:1px solid var(--hairline); background:var(--panel-2); }
   .ai-body{ flex:1; overflow-y:auto; padding:14px 16px; display:flex; flex-direction:column; gap:12px; }
@@ -1008,8 +1035,11 @@
   </div>
   <div class="ai-body" id="aiBody"></div>
   <div class="ai-foot">
-    <textarea id="aiInput" rows="2" placeholder="例如：這週有哪些還沒完成？" data-i18n-ph></textarea>
-    <button id="aiSend" class="ai-send" type="button" data-i18n>問</button>
+    <textarea id="aiInput" rows="2" placeholder="問問題，或描述要做的事讓我拆解" data-i18n-ph></textarea>
+    <div class="ai-btns">
+      <button id="aiSend" class="ai-send" type="button" data-i18n>問</button>
+      <button id="aiPlanBtn" class="ai-send alt" type="button" title="把描述拆成可勾選的項目清單" data-i18n-title>拆解</button>
+    </div>
   </div>
   <div class="ai-usage" id="aiUsage"></div>
 </div>
@@ -2927,14 +2957,33 @@
   // 撤銷這幾秒內的其他小變更，以刪除到復原的間隔而言可以接受。
   let undoState=null, undoTimer=null;
   function hideUndo(){ document.getElementById('undoToast').classList.remove('show'); undoState=null; }
-  function deleteWithUndo(desc, mutate){
-    const before = snapshot();
+  /**
+   * 通用的「做了一件事，六秒內可以整份還原」。
+   *
+   * 原本只有刪除用得到，所以文案寫死「已刪除」。AI 的寫入需要同一套機制但
+   * 不同的說法，因此把文案抽成參數——**不是為了 AI 另做一套**，共用同一個
+   * 已經測過的 applySnapshot 還原路徑才是重點。
+   */
+  function withUndo(message, mutate){
+    // **必須是深拷貝。** snapshot() 回傳的 items / ganttProjects 是**活的陣列參照**，
+    // 而不是副本。刪除之所以一直復原得了，是因為它用 `items = items.filter(...)`
+    // 換掉整個陣列，舊參照因此還指著原本那份；但只要有人改成就地修改
+    // （`items.push(...)`、`item.done = true`），快照就會跟著一起被改——
+    // 等於根本沒有快照，而且**畫面看起來完全正常**，只有按下復原時才發現沒反應。
+    //
+    // AI 的批次寫入正是就地修改，第一版因此復原不了（瀏覽器測試抓到的）。
+    // 序列化一次的成本可以忽略：實測 300 個項目的 JSON.stringify 是 1.1ms。
+    const before = JSON.parse(JSON.stringify(snapshot()));
     commit(mutate);
     undoState = before;
-    document.getElementById('undoText').textContent = tf('已刪除「{0}」', desc);
+    document.getElementById('undoText').textContent = message;
     document.getElementById('undoToast').classList.add('show');
     clearTimeout(undoTimer);
     undoTimer = setTimeout(hideUndo, 6000);
+  }
+
+  function deleteWithUndo(desc, mutate){
+    withUndo(tf('已刪除「{0}」', desc), mutate);
   }
   document.getElementById('undoBtn').onclick=()=>{
     if(!undoState) return;
@@ -5376,7 +5425,11 @@
       d: (o.item.endDate && o.occKey==='single') ? o.item.endDate : o.date,
       k: o.item.type,
       done: o.done ? 1 : 0,
-      tags: o.item.tags || []
+      tags: o.item.tags || [],
+      // 「標記完成」要指得到「哪一個項目的哪一次」。occurrence 從不被儲存，
+      // AI 拼不出 occKey——它只能從我們給的這份清單裡挑。兩個功能之間的契約。
+      id: o.item.id,
+      occ: o.occKey
     }));
   }
 
@@ -5428,6 +5481,168 @@
     }
   }
 
+  /**
+   * 提案 → 勾選 → 加入。
+   *
+   * **AI 永遠不直接寫入。** 這個函式只把回來的提案畫成一份可勾選的清單；
+   * 真正的寫入在 aiApplyPlan()，也就是使用者按下「加入」的那一刻。
+   *
+   * 這個形狀比「AI 直接寫、寫錯了按復原」安全一個層級：復原是事後補救，
+   * 勾選是事前確認。最壞情況從「資料被改錯」變成「多了一份沒被採納的清單」。
+   */
+  async function aiPlan(){
+    if(aiBusy) return;
+    const inp=document.getElementById('aiInput');
+    const q=inp.value.trim();
+    if(!q) return;
+    const first=document.querySelector('#aiBody .ai-empty');
+    if(first) first.remove();
+    aiAppend('q', q);
+    inp.value='';
+    aiBusy=true;
+    const btns=[document.getElementById('aiSend'), document.getElementById('aiPlanBtn')];
+    btns.forEach(b=>b.disabled=true);
+    const pending=aiAppend('a', tr('拆解中…'));
+    try{
+      const r=await fetch('/api/ai/plan', {
+        method:'POST', headers:{'content-type':'application/json'},
+        body: JSON.stringify({
+          request:q, today:ymd(new Date()), schedule: aiBuildSchedule(),
+          tags: allTagsInUse(),
+          majors: majorProjects.map(m=>m.name)
+        })
+      });
+      const d=await r.json().catch(()=>({}));
+      if(!r.ok){ pending.className='ai-msg err'; pending.textContent=d.error || tr('AI 回應失敗'); return; }
+      if(d.empty){ pending.textContent = d.message || tr('這次沒有可以提案的項目。'); return; }
+      pending.remove();
+      aiRenderPlan(d);
+      aiRefreshUsage();
+    }catch(e){
+      console.error('ai plan failed', e?.stack || String(e));
+      pending.className='ai-msg err';
+      pending.textContent=tr('連線失敗，請稍後再試');
+    }finally{
+      aiBusy=false; btns.forEach(b=>b.disabled=false); inp.focus();
+    }
+  }
+
+  function aiRenderPlan(plan){
+    const box=document.getElementById('aiBody');
+    const card=document.createElement('div'); card.className='ai-plan';
+
+    const head=document.createElement('div'); head.className='ai-plan-head';
+    head.textContent = plan.message || tr('以下是建議，勾選要加入的項目。');
+    card.appendChild(head);
+
+    // 每一列都保留自己的一份狀態，按「加入」時才讀——就地編輯不重繪，
+    // 重繪會銷毀正在輸入的 input（同甘特頁表格那個例外的理由）
+    const rows=[];
+
+    (plan.create||[]).forEach(it=>{
+      const row=document.createElement('div'); row.className='ai-plan-row';
+      const cb=document.createElement('input'); cb.type='checkbox';
+      // **日期不合法的預設不勾**，但仍然顯示出來——丟掉的話使用者不會知道
+      // AI 本來想排在哪天
+      cb.checked = !it.invalidDate;
+      const main=document.createElement('div'); main.className='ai-plan-main';
+      const title=document.createElement('input'); title.className='ai-plan-title';
+      title.type='text'; title.value=it.title;
+      const meta=document.createElement('div'); meta.className='ai-plan-meta';
+      const dateInp=document.createElement('input'); dateInp.type='date';
+      if(it.date) dateInp.value=it.date;
+      meta.appendChild(dateInp);
+      const kind=document.createElement('span'); kind.textContent=typeLabel(it.type);
+      meta.appendChild(kind);
+      (it.tags||[]).forEach(t=>{ const c=document.createElement('span'); c.textContent='#'+t; meta.appendChild(c); });
+      if(it.subtasks && it.subtasks.length){
+        const st=document.createElement('span'); st.textContent='☑ '+it.subtasks.length+' 步驟';
+        meta.appendChild(st);
+      }
+      if(it.invalidDate){
+        const bad=document.createElement('span'); bad.className='ai-plan-bad';
+        bad.textContent=tf('AI 給的日期看不懂（{0}），請自己選', it.rawDate || '—');
+        meta.appendChild(bad);
+      }
+      main.appendChild(title); main.appendChild(meta);
+      row.appendChild(cb); row.appendChild(main);
+      card.appendChild(row);
+      rows.push({ kind:'create', cb, title, dateInp, src:it });
+    });
+
+    (plan.complete||[]).forEach(it=>{
+      const row=document.createElement('div'); row.className='ai-plan-row';
+      const cb=document.createElement('input'); cb.type='checkbox';
+      cb.checked = !it.alreadyDone;
+      const main=document.createElement('div'); main.className='ai-plan-main';
+      const label=document.createElement('div');
+      label.textContent = tf('標記完成：{0}', it.title);
+      const meta=document.createElement('div'); meta.className='ai-plan-meta';
+      meta.textContent = it.date + (it.alreadyDone ? tr('（本來就已完成）') : '');
+      main.appendChild(label); main.appendChild(meta);
+      row.appendChild(cb); row.appendChild(main);
+      card.appendChild(row);
+      rows.push({ kind:'complete', cb, src:it });
+    });
+
+    const foot=document.createElement('div'); foot.className='ai-plan-foot';
+    // 「加入哪一種專案」有歧義：majorProjects 與 ganttProjects 是兩套互不相干的
+    // 東西。與其猜，不如讓她選——猜錯再改比多一個下拉貴。
+    const sel=document.createElement('select');
+    const o0=document.createElement('option'); o0.value=''; o0.textContent=tr('獨立項目'); sel.appendChild(o0);
+    majorProjects.forEach(m=>{ const o=document.createElement('option'); o.value=m.id; o.textContent=tr('大項目：')+m.name; sel.appendChild(o); });
+    if((plan.create||[]).length) foot.appendChild(sel);
+
+    const apply=document.createElement('button'); apply.className='ai-apply'; apply.type='button';
+    apply.textContent=tr('加入勾選的項目');
+    apply.onclick=()=> aiApplyPlan(rows, sel.value, card, apply);
+    foot.appendChild(apply);
+    card.appendChild(foot);
+
+    box.appendChild(card);
+    box.scrollTop=box.scrollHeight;
+  }
+
+  /** 真正的寫入。只有**勾起來的**會進去，而且整批走一次 deleteWithUndo 的快照機制。 */
+  function aiApplyPlan(rows, parentId, card, applyBtn){
+    const picked = rows.filter(r=>r.cb.checked);
+    if(!picked.length){ aiAppend('err', tr('沒有勾選任何項目')); return; }
+
+    let added=0, marked=0, skipped=0;
+    withUndo(tf('已加入 AI 建議的 {0} 項', picked.length), ()=>{
+      picked.forEach(r=>{
+        if(r.kind==='create'){
+          const d=r.dateInp.value;
+          const t=r.title.value.trim();
+          // 日期沒填就跳過。這裡不猜一個日期填進去——猜錯的日期正是這整個
+          // 功能最不能出的錯
+          if(!t || !isYmd(d)){ skipped++; return; }
+          items.push({
+            id: uid('item'), title: t, type: r.src.type, parentId: parentId || null,
+            meetingTime: null, link: null,
+            tags: normalizeTags(r.src.tags || []),
+            subtasks: normalizeSubtasks((r.src.subtasks||[]).map(x=>({ id: uid('sub'), text: x }))),
+            subDone: {},
+            date: d, endDate: null, recurrence: null,
+            done:false, doneMap:{}, overrides:{}, skipped:{}
+          });
+          added++;
+        } else {
+          const it = items.find(x=>x.id===r.src.id);
+          if(!it){ skipped++; return; }
+          if(r.src.occ==='single') it.done = true;
+          else { it.doneMap = it.doneMap || {}; it.doneMap[r.src.occ] = true; }
+          marked++;
+        }
+      });
+    });
+
+    applyBtn.disabled=true;
+    applyBtn.textContent=tf('已加入 {0} 項', added + marked);
+    card.querySelectorAll('input').forEach(x=>x.disabled=true);
+    if(skipped) aiAppend('err', tf('有 {0} 項因為日期或標題不完整而跳過', skipped));
+  }
+
   async function aiRefreshUsage(){
     try{
       const r=await fetch('/api/ai/status');
@@ -5462,6 +5677,7 @@
   };
   document.getElementById('aiClose').onclick=()=>{ document.getElementById('aiPanel').hidden=true; };
   document.getElementById('aiSend').onclick=aiSend;
+  document.getElementById('aiPlanBtn').onclick=aiPlan;
   document.getElementById('aiInput').onkeydown=(e)=>{
     // Enter 送出、Shift+Enter 換行。問題通常是一行，多按一次鍵是多餘的
     if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); aiSend(); }
