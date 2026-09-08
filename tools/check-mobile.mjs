@@ -180,6 +180,33 @@ if (await badge.count()) {
   if (ov > 0) problems.push(`子清單展開後溢出 ${ov}px`);
 }
 
+// ---------- iOS 自動放大：任何可聚焦控制項都不能小於 16px ----------
+//
+// iOS Safari 在聚焦字級小於 16px 的輸入框時**會把整頁放大** 16/字級 倍。畫面因此
+// 比視窗寬，右邊的東西被推出去——看起來像版面壞掉，完全不像字級問題，是最難從
+// 症狀推回原因的那一種。而且**只在真機上發生**：桌機瀏覽器與模擬器都不會放大，
+// 所以量版面永遠量不到它。
+//
+// 使用者實際回報的畫面就是這個：AI 的輸入框是 13px，點下去整頁放大 1.23 倍，
+// 「拆解」按鈕整個跑出螢幕右邊。防放大的規則其實早就寫了，但優先度只有 (0,0,1)，
+// 被 `.ai-foot textarea` 這種帶 class 的規則蓋掉。
+//
+// 所以這裡不量版面，直接量**計算後的字級**——那是這個 bug 唯一測得到的形狀。
+await page.evaluate(() => { document.getElementById('aiPanel').hidden = false; });
+const zoomers = await page.evaluate(() => {
+  const out = [];
+  document.querySelectorAll('input, textarea, select, [contenteditable="true"]').forEach(el => {
+    if (el.type === 'checkbox' || el.type === 'radio' || el.type === 'hidden') return;
+    const fs = parseFloat(getComputedStyle(el).fontSize);
+    if (fs < 16) out.push({ id: el.id || el.tagName.toLowerCase(), fs });
+  });
+  return out;
+});
+await page.evaluate(() => { document.getElementById('aiPanel').hidden = true; });
+console.log(`\n  iOS 自動放大：${zoomers.length ? '✗ ' + zoomers.length + ' 個控制項小於 16px' : '✓ 沒有小於 16px 的可聚焦控制項'}`);
+for (const z of zoomers) console.log(`    ${z.fs}px  ${z.id}  → 會讓整頁放大 ${(16 / z.fs).toFixed(2)}×`);
+if (zoomers.length) problems.push(`${zoomers.length} 個控制項小於 16px，iOS 聚焦時會把整頁放大（${zoomers.map(z => z.id).join('、')}）`);
+
 // ---------- AI 面板：手機上整頁，而且每一塊都在看得到的範圍內 ----------
 //
 // 這一段原本斷言「不是整頁蓋掉」。那條規則的來源是一個真實的 bug：**關著的**

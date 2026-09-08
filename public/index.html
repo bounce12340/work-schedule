@@ -808,8 +808,20 @@
     .nav-item.active{ background: var(--amber-dim); }
     .nav-item .nav-dot{ width:6px; height:6px; }
 
-    /* 表單控制項：16px 以避免 iOS 聚焦時自動放大 */
-    select, input[type=date], input[type=time], input[type=number], input[type=text], textarea{ font-size:16px; padding:9px 10px; }
+    /* 表單控制項：16px 以避免 iOS 聚焦時自動放大。
+       **這條必須 !important，而且必須涵蓋所有可聚焦的控制項。**
+       原本寫成 `select, input[type=...], textarea{ font-size:16px }`，優先度只有
+       (0,0,1)——**任何帶 class 的規則都比它強**。`.ai-foot textarea` 是 13px，
+       於是 AI 的輸入框一被點，iOS 就把整頁放大 16/13 ≈ 1.23 倍，「拆解」按鈕
+       整個被推出螢幕右邊（使用者回報的實際畫面就是這個）。
+       當時漏掉的還有 #inputSearch(13.5)、#reminderLead(11)、#importFile(13.3)、
+       #inputHolidayBulk(12)。
+       不用 !important 的話，就得維護一份「所有帶 class 的控制項」清單，而漏掉
+       一個的後果正是這個 bug：只在 iOS 上發生，而且看起來像版面壞掉、不像字級
+       問題——最難從症狀推回原因的那一種。
+       **不要改用 `maximum-scale=1` 擋放大**：那會連使用者自己要放大也一起擋掉。 */
+    select, input, textarea, [contenteditable="true"]{ font-size:16px !important; }
+    select, input[type=date], input[type=time], input[type=number], input[type=text], textarea{ padding:9px 10px; }
     /* 富文字：同樣 16px 防自動放大；按鈕加大到好按，工具列換行而不是橫向撐開 */
     .rt-edit{ font-size:16px; }
     .rt-bar{ gap:3px; padding:7px 6px; }
