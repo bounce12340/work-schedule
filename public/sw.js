@@ -15,8 +15,17 @@
  *    `/login`，把那個回應存起來就會變成「永遠被導向登入頁」的假象。
  *
  * 改版時把 CACHE 的版本號往上加，activate 會自動清掉舊的。
+ *
+ * **這件事實際上被忘記過。** 新皮膚（#25）與前置作業／「不在」（#26）兩次上線
+ * 都沒有動這個版本號，使用者回報「為何我沒看到任何改動」——部署是成功的
+ * （GET / 回 302、版本 ID 換了），只是他的瀏覽器端出舊的那一份。
+ *
+ * 導覽走 network-first 本來就該擋住這件事，但**下面那條「其餘靜態資源快取優先」
+ * 會端出舊的 index.html**：`req.mode === 'navigate'` 不是每次開啟頁面都成立
+ * （PWA 的某些啟動路徑、iOS 的返回上一頁、預抓）。少了版本號的話，舊的那一份
+ * 沒有任何時機會被清掉。
  */
-const CACHE = 'work-schedule-v1';
+const CACHE = 'work-schedule-v3';
 
 // 這幾個不需要登入就取得，install 階段預先抓下來
 const PRECACHE = [
@@ -71,7 +80,26 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // 其餘靜態資源：快取優先，但背景更新，下次載入就會是新版
+  // HTML 一律不走快取優先。導覽請求上面已經處理掉，能走到這裡的是
+  // 「不是導覽、但要的是一份 HTML」——PWA 的啟動、返回上一頁、預抓都可能是
+  // 這個形狀，而快取優先在這裡的後果正是「部署了但使用者看不到」。
+  // 網路失敗才回頭找快取，離線仍然打得開。
+  if (req.destination === 'document' || url.pathname === '/' || url.pathname.endsWith('.html')) {
+    event.respondWith(
+      fetch(req)
+        .then(res => {
+          if (cacheable(res)) {
+            const copy = res.clone();
+            caches.open(CACHE).then(c => c.put(req, copy));
+          }
+          return res;
+        })
+        .catch(() => caches.match(req).then(hit => hit || caches.match('/index.html')))
+    );
+    return;
+  }
+
+  // 其餘靜態資源（圖示、manifest）：快取優先，但背景更新，下次載入就會是新版
   event.respondWith(
     caches.match(req).then(hit => {
       const network = fetch(req).then(res => {

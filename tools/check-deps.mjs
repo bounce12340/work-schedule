@@ -127,6 +127,31 @@ console.log('\n── 「不在」：標記歸標記，逾期照樣逾期 ──
 const awayRow = row('休假那天到期的事');
 ok('那天不在，列上有 🌴 標記', await awayRow.locator('.away-badge').count() === 1);
 ok('**而且逾期照樣是逾期**', await awayRow.locator('.occ-date.overdue').count() === 1);
+
+// 逾期不只要「有標記」，還要**看起來就是警告**。
+//
+// 〈視覺基調〉那條紅線是「氣質可以柔，警示不行」，而每一次視覺改版都是一次
+// 順手把它一起調柔的機會——調柔之後畫面會更好看，沒有任何檢查會紅，只有真的
+// 遲交的人會付代價。所以把它量出來：顏色要是警示色、字重要比旁邊的日期重。
+const redLine = await page.evaluate(() => {
+  const od = document.querySelector('.occ-date.overdue');
+  const plain = [...document.querySelectorAll('.occ-date')].find(e => !e.classList.contains('overdue'));
+  if (!od || !plain) return null;
+  const a = getComputedStyle(od), b = getComputedStyle(plain);
+  const red = getComputedStyle(document.documentElement).getPropertyValue('--red').trim();
+  // --red 是 hex，計算後的 color 是 rgb()。換算過再比，才不是在比兩種寫法。
+  const hex = c => '#' + (c.match(/\d+/g) || []).slice(0, 3)
+    .map(n => Number(n).toString(16).padStart(2, '0')).join('');
+  return {
+    isRed: hex(a.color).toLowerCase() === red.toLowerCase(),
+    heavier: parseInt(a.fontWeight) >= 700 && parseInt(a.fontWeight) > parseInt(b.fontWeight),
+    differs: a.color !== b.color,
+    detail: a.color + ' / ' + a.fontWeight + '　vs　' + b.color + ' / ' + b.fontWeight
+  };
+});
+ok('逾期用的是警示色（--red），不是被調柔成別的顏色', !!(redLine && redLine.isRed));
+ok('逾期比旁邊的日期重，而且顏色不同', !!(redLine && redLine.heavier && redLine.differs));
+if (redLine) console.log('    ' + redLine.detail);
 ok('不在的標記不影響沒標記的列', await row('沒有前置也不在的事').locator('.away-badge').count() === 0);
 
 console.log('\n── 日曆上的「不在」 ──');

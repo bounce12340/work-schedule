@@ -52,7 +52,7 @@ const TARGETS = [
   ['.nav-item', '頁籤'],
   ['.chip-name', '大項目名稱'],
   ['.qbtn', '篩選鈕'],
-  ['.empty-state', '空狀態'],
+  ['.brand-eyebrow', '招呼語'],
   ['.daylog-label', '每日記錄標題'],
 ];
 
@@ -65,6 +65,19 @@ const TARGETS = [
  */
 const AFTER_CLICKS = [
   ['#btnToggleAway', '「不在」按鈕'],
+];
+
+/**
+ * 空狀態原本掛在上面那份清單裡，但示範資料一定有項目，所以它每次都印
+ * 「畫面上沒有這個元素，略過」——**一條永遠不會執行的斷言，與沒有這條一樣**，
+ * 而且還會給出「已經量過了」的錯覺。空白時刻現在是這個介面刻意做柔的地方
+ * （宋體、放鬆的行高），更不能靠運氣。所以改成主動把畫面逼成空的：
+ * 搜尋一個不存在的字，篩選後的空狀態就會出現。
+ */
+const AFTER_SEARCH = [
+  ['.empty-state', '空狀態'],
+  ['.empty-state .empty-line2', '空狀態的第二行'],
+  ['.empty-state span:not(.empty-line2)', '空狀態裡的強調字'],
 ];
 
 /**
@@ -125,6 +138,13 @@ for (const theme of ['light', 'dark']) {
   await page.locator('.cal-cell[data-date]').first().click();
   await page.waitForTimeout(300);
   rows.push(...await page.evaluate(measure, AFTER_CLICKS));
+
+  // 逼出空狀態：回到項目安排頁，搜尋一個不會命中的字
+  await page.locator('.nav-item', { hasText: '項目安排' }).click();
+  await page.waitForSelector('#board');
+  await page.fill('#inputSearch', 'zzz不存在的東西zzz');
+  await page.waitForTimeout(400);            // 搜尋有 180ms debounce
+  rows.push(...await page.evaluate(measure, AFTER_SEARCH));
 
   console.log(`\n===== ${theme === 'light' ? '亮色' : '暗色'} =====`);
   for (const r of rows) {
