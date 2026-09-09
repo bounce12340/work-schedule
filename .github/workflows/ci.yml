@@ -37,6 +37,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # service worker 的版本號檢查要比對「這次改動之前」的內容，
+          # 預設的淺 clone（depth 1）拿不到 base commit。取不到時那支腳本會
+          # 大聲失敗而不是靜默跳過——靜默跳過的檢查等於沒有檢查。
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -55,6 +60,22 @@ jobs:
       # CLAUDE.md〈驗證方式〉第 2 條。抽出 inline script 編譯一次，只驗語法。
       - name: 前端語法檢查
         run: node tools/check-syntax.mjs
+
+      # service worker 的快取版本號有沒有跟著前端一起加。
+      #
+      # 這是**已經發生過兩次**的事故，而且它最惡劣的地方是每一項檢查都是綠的：
+      # 測試綠、瀏覽器檢查綠、wrangler deploy 成功、線上 GET / 回 302、Cloudflare
+      # 的版本 ID 也換了——然後使用者打開網站看到舊版，回報「為何我沒看到任何改動」。
+      # CLAUDE.md 早就寫著要加，但寫在文件裡的規則會被忘記，寫成檢查的不會。
+      - name: service worker 版本號
+        run: |
+          base="${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}"
+          # main 的第一次推送 before 會是全 0，那時沒有「之前」可以比
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            echo "沒有可比對的 base commit，略過（這只會發生在分支的第一次推送）"
+            exit 0
+          fi
+          node tools/check-sw-version.mjs "$base" "${{ github.sha }}"
 
       # 第 3 條。dry-run 不需要任何憑證，純粹驗 wrangler.jsonc 與 bindings 寫得對不對。
       - name: wrangler 設定檢查
