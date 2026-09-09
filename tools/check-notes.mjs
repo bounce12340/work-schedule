@@ -56,8 +56,17 @@ page.on('pageerror', e => errors.push('pageerror: ' + e.message));
 page.on('console', m => { if (m.type() === 'error' && !/net::|Failed to load/.test(m.text())) errors.push('console: ' + m.text()); });
 
 const checks = [];
-const ok = (n, c, extra) => checks.push([n + (extra ? '（' + extra + '）' : ''), !!c]);
+// 邊跑邊印，不要只在最後印。
+// 遇到當掉（例如 Playwright 嚴格模式一次撈到多個元素）時，最後那段總結根本
+// 跑不到——先前累積的每一條結果會一起消失，只剩一段看不出脈絡的堆疊。
+// 用突變驗證時實際踩到：斷言明明紅了，畫面上卻什麼都看不到。
+const ok = (n, c, extra) => {
+  const label = n + (extra ? '（' + extra + '）' : '');
+  checks.push([label, !!c]);
+  console.log((c ? '  \u2713 ' : '  \u2717 ') + label);
+};
 const nav = t => page.locator('.nav-item', { hasText: t }).click();
+const rtEmptyish = h => String(h || '').replace(/<[^>]*>/g, '').replace(/&nbsp;/gi, ' ').trim() === '';
 
 async function boot() {
   await page.waitForSelector('#board');
@@ -217,7 +226,58 @@ const noteProbe = await page.evaluate(() => {
 ok('專案筆記：pagehide 也會結帳', /筆記打完立刻走/.test(noteProbe.after));
 ok('專案筆記：那一刻確實還沒寫進去', !/筆記打完立刻走/.test(noteProbe.before));
 
-// ---------- 5. 工具列的收合偏好跨頁籤一致 ----------
+// ---------- 5.「今天先不寫」：給使用者一個不做事的出口 ----------
+//
+// 它**什麼都不寫入**——只是把編輯器收起來換成一句話。刻意不存狀態：存了就變成
+// 另一種要求（「你今天已經表態過了」），而這顆按鈕的用意剛好相反。
+//
+// **順序很重要。** 第一版是「按下按鈕 → 換一天 → 檢查按鈕不見了」，那三條斷言
+// 全部會過，但**過的理由是錯的**：按鈕在點擊當下就被 remove() 了，所以不管它
+// 掛在哪一層都測不到。用突變驗過才發現（把按鈕掛回父層，測試照樣綠）。
+// 現在改成「**不要按**它，直接換一天」——那才測得到跨重繪的存活問題。
+await nav('日曆');
+await page.waitForSelector('#calGrid .cal-cell[data-date]');
+const blankCell = page.locator('.cal-cell[data-date]').nth(20);
+const blankDate = await blankCell.getAttribute('data-date');
+const otherCell = page.locator('.cal-cell[data-date]').nth(22);
+
+await blankCell.click();
+await page.waitForTimeout(400);
+ok('空白的日子會出現「今天先不寫」', await page.locator('.daylog-skip button').count() === 1);
+
+// 不按它，直接換一天：按鈕必須跟著那一次的重繪一起消失
+await otherCell.click();
+await page.waitForTimeout(400);
+ok('換一天之後不會留下前一天的按鈕（只能有一顆）',
+   await page.locator('.daylog-skip').count() === 1);
+
+// 有內容的日子根本不該問——那時候該問的不是「要不要寫」
+await page.locator(`.cal-cell[data-date="${dateStr}"]`).click();
+await page.waitForTimeout(400);
+ok('寫過的日子完全不出現那顆按鈕', await page.locator('.daylog-skip').count() === 0);
+
+// 真的按下去的行為
+await blankCell.click();
+await page.waitForTimeout(400);
+await page.locator('.daylog-skip button').click();
+await page.waitForTimeout(300);
+ok('按下去編輯器收起來', await page.locator('#daylogSlot .rt-edit').count() === 0);
+ok('換成一句軟話', /今天先這樣/.test(await page.locator('.daylog-rest').innerText()));
+
+// 離開再回來：**沒有留下任何東西**。只讀 localStorage 不夠——記憶體裡被寫髒
+// 但還沒存檔的話讀不到，所以也看畫面：編輯器要是空的、格子上不能長出 ✎。
+await otherCell.click();
+await page.waitForTimeout(300);
+await blankCell.click();
+await page.waitForTimeout(400);
+ok('回來之後編輯器還是空的', rtEmptyish(await page.locator('#daylogSlot .rt-edit').innerHTML()));
+ok('格子上沒有長出 ✎ 記號',
+   await page.locator(`.cal-cell[data-date="${blankDate}"] .cal-log-mark`).count() === 0);
+const afterSkip = await page.evaluate(
+  d => ((JSON.parse(localStorage.getItem('workSchedule.v1')).dailyLogs || {})[d] || ''), blankDate);
+ok('存檔裡也沒有這一天', rtEmptyish(afterSkip));
+
+// ---------- 6. 工具列的收合偏好跨頁籤一致 ----------
 const barHidden = async sel => ((await page.locator(sel).first().getAttribute('class')) || '')
   .includes('rt-bar-hidden');
 ok('專案筆記的工具列維持展開', !(await barHidden('#viewGantt .daylog-box .rt-wrap')));
@@ -229,7 +289,7 @@ ok('每日記錄的工具列也維持展開', !(await barHidden('#daylogSlot .rt
 
 console.log('');
 let bad = 0;
-for (const [n, c] of checks) { console.log((c ? '  ✓ ' : '  ✗ ') + n); if (!c) bad++; }
+for (const [n, c] of checks) if (!c) { bad++; console.log('  ✗ 未通過：' + n); }
 console.log(errors.length ? '\n✗ ' + errors.join('\n') : '\n✓ 零 pageerror、零 console.error');
 await br.close(); srv.close();
 process.exit(bad || errors.length ? 1 : 0);

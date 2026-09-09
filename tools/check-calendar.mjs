@@ -95,7 +95,12 @@ await page.evaluate(() => {
 await page.waitForTimeout(300);
 
 const checks = [];
-const ok = (n, c) => checks.push([n, !!c]);
+// 邊跑邊印，不要只在最後印——當掉時最後那段總結跑不到，
+// 先前累積的結果會一起消失（用突變驗證時實際踩到）。
+const ok = (n, c) => {
+  checks.push([n, !!c]);
+  console.log((c ? '  \u2713 ' : '  \u2717 ') + n);
+};
 ok('開到 2026 年 9 月', /2026 年 9 月/.test(await page.locator('#calTitle').innerText()));
 
 const cell = d => page.locator(`.cal-cell[data-date="2026-09-${d}"]`);
@@ -206,7 +211,7 @@ ok('刪掉之後記號也跟著不見', await cell('13').locator('.cal-log-mark'
 
 console.log('');
 let bad = 0;
-for (const [n, c] of checks) { console.log((c ? '  ✓ ' : '  ✗ ') + n); if (!c) bad++; }
+for (const [n, c] of checks) if (!c) { bad++; console.log('  ✗ 未通過：' + n); }
 console.log(errors.length ? '\n✗ ' + errors.join('\n') : '\n✓ 零 pageerror、零 console.error');
 await br.close(); srv.close();
 process.exit(bad || errors.length ? 1 : 0);
