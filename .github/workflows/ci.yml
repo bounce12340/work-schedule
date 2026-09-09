@@ -106,6 +106,12 @@ jobs:
       - name: 筆記保存驗證
         run: node tools/check-notes.mjs
 
+      # 文字對比度。改配色最容易壞、而且**眼睛最看不出來**的就是這個：它不拋錯、
+      # 不破版，在自己那台螢幕上「看起來還行」，在陽光下的手機上就是讀不到。
+      # 兩種主題都量——亮色與暗色是兩組各自獨立的變數。
+      - name: 文字對比度
+        run: node tools/check-contrast.mjs
+
   deploy:
     name: 部署到 Cloudflare
     needs: [check, smoke]

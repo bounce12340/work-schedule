@@ -44,17 +44,26 @@
   :root{
     color-scheme: light;
     --bg: #F6F4EE;
-    --panel: #FFFFFF;
+    --panel: #FFFDF7;
+    --paper: #FDFAF1;   /* 每日記錄專用的紙色，比 panel 再暖一點 */
+    --art-far: #DCE3D0;   /* 空狀態插畫：遠山 */
+    --art-near: #C7D3BA;  /* 空狀態插畫：近坡 */
     --panel-2: #F1EEE5;
-    --hairline: #E4E0D3;
+    --hairline: #E8E3D6;
     --hairline-soft: #ECE8DD;
     --hairline-strong: #CDC8B8;
     --dash: #D2CDBB;
     --scroll-thumb: #D8D4C6;
     --grid-line: rgba(0,0,0,0.025);
+    /* 療癒系氛圍層。三團光暈疊出「遠處的森林與光」，不是照片也不是插畫——
+       單檔零依賴是這個專案的前提，外部圖檔會讓雙擊開啟失效。 */
+    --halo-a: rgba(118,152,106,0.42);   /* 苔綠，左上 */
+    --halo-b: rgba(206,168,102,0.34);   /* 暖沙，右上 */
+    --halo-c: rgba(132,160,134,0.34);   /* 遠山，下方 */
+    --grain-alpha: 0.030;
     --text: #2A2A26;
     --text-strong: #20201C;
-    --text-muted: #71706A;
+    --text-muted: #5F5E58;
     --text-dim: #A2A099;
     --on-accent: #FFFDF9;
     --checkbox-border: #C9C4B4;
@@ -63,11 +72,15 @@
     --today-selected-bg: #F2E1C6;
     --shadow-xs: 0 1px 2px rgba(0,0,0,0.02);
     --shadow-sm: 0 1px 2px rgba(0,0,0,0.03);
+    /* 拿掉邊框之後，卡片靠這個「浮」起來。範圍大、透明度低——
+       邊框是把東西框住，陰影是讓它落在紙上。 */
+    --shadow-soft: 0 1px 2px rgba(90,80,60,0.04), 0 6px 18px rgba(90,80,60,0.05);
     --shadow-btn: 0 2px 0 rgba(0,0,0,0.08);
     --shadow-md: 0 16px 40px rgba(0,0,0,0.14);
     --shadow-lg: 0 20px 60px rgba(0,0,0,0.18);
     --amber: #C9822E;
     --amber-dim: rgba(201,130,46,0.12);
+    --amber-ink: #8A5716;   /* 淺底上的琥珀字。--amber 只有 2.84:1，讀不了 */
     --teal: #1F8C68;
     --teal-dim: rgba(31,140,104,0.10);
     --red: #C74B43;
@@ -89,6 +102,9 @@
     color-scheme: dark;
     --bg: #1A1917;
     --panel: #232220;
+    --paper: #24211C;
+    --art-far: #2C332B;
+    --art-near: #363E33;
     --panel-2: #2B2A27;
     --hairline: #3A3833;
     --hairline-soft: #322F2B;
@@ -96,6 +112,12 @@
     --dash: #4A4740;
     --scroll-thumb: #45423B;
     --grid-line: rgba(255,255,255,0.022);
+    /* 暗色是「夜裡的森林」，不是把亮色調暗：光暈更冷、更收斂，
+       紙紋要更淡，否則在深色底上會變成看得見的雜訊。 */
+    --halo-a: rgba(84,124,94,0.40);
+    --halo-b: rgba(126,102,62,0.30);
+    --halo-c: rgba(66,98,86,0.38);
+    --grain-alpha: 0.022;
     --text: #E8E5DC;
     --text-strong: #F4F1E8;
     --text-muted: #A8A49A;
@@ -107,11 +129,13 @@
     --today-selected-bg: #4A3A22;
     --shadow-xs: 0 1px 2px rgba(0,0,0,0.30);
     --shadow-sm: 0 1px 2px rgba(0,0,0,0.35);
+    --shadow-soft: 0 1px 2px rgba(0,0,0,0.28), 0 6px 18px rgba(0,0,0,0.22);
     --shadow-btn: 0 2px 0 rgba(0,0,0,0.40);
     --shadow-md: 0 16px 40px rgba(0,0,0,0.50);
     --shadow-lg: 0 20px 60px rgba(0,0,0,0.60);
     --amber: #E3A052;
     --amber-dim: rgba(227,160,82,0.16);
+    --amber-ink: var(--amber);   /* 暗色是深底淺字，原色就夠 */
     --teal: #3FBF92;
     --teal-dim: rgba(63,191,146,0.14);
     --red: #E8756B;
@@ -126,24 +150,51 @@
   html,body{height:100%;}
   body{
     background: var(--bg); color: var(--text); font-family: var(--sans); -webkit-font-smoothing: antialiased;
-    background-image: linear-gradient(var(--grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
-    background-size: 32px 32px;
+  }
+  /**
+   * 氛圍層。三團光暈 ＋ 一層紙紋，鋪在所有內容底下。
+   *
+   * **用 position:fixed 的偽元素，不用 `background-attachment: fixed`。**
+   * 後者在 iOS Safari 上支援得很差（實際行為接近 scroll，而且會逼出重繪）。
+   * 固定的偽元素則是合成一次就好，捲動時完全不重畫。
+   *
+   * z-index:-1 讓它待在所有內容後面。`.sidebar`(50)、`.ai-panel`(60) 等固定元素
+   * 都在它上面，不會被蓋住。
+   *
+   * **內容面板刻意維持不透明**（`--panel` 是實色）。療癒感來自四周的留白與光暈，
+   * 不是來自「讓字浮在圖上」——那會讓對比掉下去，而這個工具的看板一頁有上千列。
+   */
+  body::before{
+    content:''; position:fixed; inset:0; z-index:-1; pointer-events:none;
+    background-color: var(--bg);
+    background-image:
+      radial-gradient(1100px 620px at 12% -8%, var(--halo-a), transparent 62%),
+      radial-gradient(900px 520px at 92% -4%, var(--halo-b), transparent 58%),
+      radial-gradient(1200px 760px at 50% 108%, var(--halo-c), transparent 64%);
+  }
+  /* 紙紋另外一層：feTurbulence 產生的細顆粒，讓大面積漸層不會看起來像塑膠。
+     inline SVG data URI，不是外部檔案——單檔開啟仍然有效。 */
+  body::after{
+    content:''; position:fixed; inset:0; z-index:-1; pointer-events:none;
+    opacity: var(--grain-alpha);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+    background-size: 160px 160px;
   }
   ::-webkit-scrollbar{ width:8px; height:8px; }
   ::-webkit-scrollbar-thumb{ background: var(--scroll-thumb); border-radius:4px; }
   ::-webkit-scrollbar-track{ background: transparent; }
   .app{ max-width: 1280px; margin: 0 auto; padding: 24px 20px 70px; }
 
-  header.top{ display:flex; align-items:flex-end; justify-content:space-between; padding-bottom: 18px; margin-bottom: 16px; border-bottom: 1px solid var(--hairline); flex-wrap: wrap; gap:16px; }
-  .brand-eyebrow{ font-family: var(--mono); font-size: 11px; letter-spacing: 3px; color: var(--text-dim); text-transform: uppercase; margin-bottom:8px; }
-  .brand-title{ font-size: 24px; font-weight: 900; letter-spacing: 0.5px; color:var(--text-strong); }
+  header.top{ display:flex; align-items:flex-end; justify-content:space-between; padding-bottom: 22px; margin-bottom: 22px; flex-wrap: wrap; gap:16px; }
+  .brand-eyebrow{ font-family: var(--mono); font-size: 10px; letter-spacing: 4px; color: var(--text-dim); text-transform: uppercase; margin-bottom:10px; opacity:.72; }
+  .brand-title{ font-size: 27px; font-weight: 600; letter-spacing: 3px; color:var(--text-strong); }
   .clock-block{ font-family: var(--mono); text-align:right; }
   .clock-block .now-date{ font-size:13px; color:var(--text-muted); }
   .clock-block .now-time{ font-size:19px; font-weight:700; color:var(--amber); letter-spacing:1px; }
 
   .metric-strip{ display:grid; grid-template-columns: repeat(4, 1fr); gap:10px; margin-bottom:22px; }
   @media (max-width: 980px){ .metric-strip{ grid-template-columns: repeat(2, 1fr); } }
-  .metric-card{ background: var(--panel); border:1px solid var(--hairline); border-radius:12px; padding: 14px 18px; position:relative; overflow:hidden; box-shadow: var(--shadow-sm); }
+  .metric-card{ background: var(--panel); border:1px solid transparent; border-radius:18px; padding: 16px 20px; position:relative; overflow:hidden; box-shadow: var(--shadow-soft); }
   .metric-card::before{ content:''; position:absolute; left:0; top:0; bottom:0; width:3px; background: var(--amber); }
   .metric-card.week::before{ background: var(--teal); }
   .metric-card.meeting::before{ background: var(--violet); }
@@ -172,7 +223,7 @@
   .nav-item{ display:flex; align-items:center; gap:10px; padding: 13px 14px; border-radius:10px; background: var(--panel); border:1px solid var(--hairline); cursor:pointer; color: var(--text-muted); font-weight:700; font-size:14px; transition: all .15s ease; }
   .nav-item .nav-dot{ width:7px; height:7px; border-radius:50%; background: var(--hairline); flex-shrink:0; }
   .nav-item:hover{ color: var(--text); border-color:var(--hairline-strong); }
-  .nav-item.active{ background: var(--amber-dim); border-color: var(--amber); color: var(--amber); }
+  .nav-item.active{ background: var(--amber-dim); border-color: var(--amber); color: var(--amber-ink); }
   .nav-item.active .nav-dot{ background: var(--amber); }
   .nav-item{ position:relative; }
   .nav-badge{ position:absolute; top:6px; right:8px; background:var(--red); color:var(--on-accent); font-family:var(--mono); font-size:10px; font-weight:700; border-radius:9px; min-width:17px; height:17px; padding:0 4px; display:flex; align-items:center; justify-content:center; }
@@ -227,10 +278,12 @@
   .add-project-btn:active{ transform: translateY(1px); box-shadow:none; }
 
   .board{ display:flex; flex-direction:column; gap:10px; }
-  .empty-state{ padding: 46px 20px; text-align:center; color: var(--text-dim); border: 1px dashed var(--dash); border-radius:12px; font-family: var(--mono); font-size:13px; line-height:1.9; background:var(--panel); }
+  .empty-state{ padding: 52px 24px; text-align:center; color: var(--text-dim); border: 1px dashed var(--dash); border-radius:20px; font-family: var(--mono); font-size:13px; line-height:1.9; background:var(--panel); }
   .empty-state span{ color: var(--amber); }
+  .empty-art{ width:216px; height:auto; display:block; margin:0 auto 16px; }
+  .empty-state .empty-line2{ display:block; margin-top:8px; font-family:var(--sans); font-size:12.5px; color:var(--text-dim); }
 
-  .occ-row{ background: var(--panel); border:1px solid var(--hairline); border-radius:12px; padding: 12px 16px; display:flex; align-items:center; gap:12px; flex-wrap:wrap; box-shadow: var(--shadow-xs); }
+  .occ-row{ background: var(--panel); border:1px solid transparent; border-radius:16px; padding: 13px 17px; display:flex; align-items:center; gap:12px; flex-wrap:wrap; box-shadow: var(--shadow-soft); }
   /* 看板列數在預設的年度檢視下輕易破千（64 個項目就有 1461 列），而實測顯示
      成本的 95% 不在 JS，是瀏覽器對那幾千列重跑樣式計算與版面配置。
 
@@ -512,8 +565,19 @@
   .done-board{ margin-top:8px; opacity:.72; }
   .done-board:hover{ opacity:1; }
 
-  .daylog-box{ background: var(--panel); border:1px solid var(--hairline); border-radius:12px; padding:16px; margin-top:18px; }
-  .daylog-label{ font-family: var(--mono); font-size:10.5px; letter-spacing:2px; color: var(--text-dim); text-transform:uppercase; margin-bottom:8px; display:flex; align-items:center; gap:8px; }
+  /* 每日記錄是整個系統裡唯一「不是待辦」的地方——它是日記。
+     所以這一塊刻意做得比別處軟：更大的圓角、紙色底、沒有邊框。 */
+  .daylog-box{ background: var(--paper); border:1px solid transparent; border-radius:22px;
+               padding:22px 20px; margin-top:18px; box-shadow: var(--shadow-soft); }
+  .daylog-label{ font-family: var(--sans); font-size:13px; font-weight:600; letter-spacing:1px; color: var(--text-muted); margin-bottom:10px; display:flex; align-items:center; gap:8px; }
+  /* 「今天先不寫」——整個參考 App 我最欣賞的一個設計：它承認有些日子就是不想
+     記錄，而不是用連續天數逼人。按下去只是把編輯器收起來，**什麼都不寫入**。 */
+  .daylog-skip{ margin-top:12px; display:flex; align-items:center; gap:10px; }
+  .daylog-skip button{ font-family:var(--sans); font-size:12.5px; padding:7px 14px; border-radius:999px;
+                       border:1px solid var(--hairline-strong); background:transparent;
+                       color:var(--text-muted); cursor:pointer; }
+  .daylog-skip button:hover{ color:var(--teal); border-color:var(--teal); }
+  .daylog-rest{ font-size:13px; color:var(--text-muted); line-height:2; padding:18px 4px 6px; }
   .daylog-saved{ color: var(--teal); font-size:11px; letter-spacing:0; text-transform:none; opacity:0; transition: opacity .3s ease; }
   .daylog-saved.show{ opacity:1; }
 
@@ -1503,8 +1567,8 @@
       '編輯':'Edit', '刪除':'Delete', '更名':'Rename', '建立':'Create', '儲存':'Save',
       '取消':'Cancel', '復原':'Undo', '關閉':'Close',
       '獨立項目':'No group',
-      '此範圍尚無項目':'Nothing scheduled in this range',
-      '此範圍的 {0} 項全部完成了 🎉':'All {0} items in this range are done 🎉',
+      '這段時間還很空。':'Nothing scheduled yet.',
+      '辛苦了，今天可以到這裡。':'Nice work \u2014 you can stop here for today.',
       '此範圍有 {0} 項，但沒有符合目前篩選條件的項目':'{0} items in this range, none match the current filters',
       '已刪除「{0}」':'Deleted “{0}”',
       // —— 日曆 ——
@@ -1520,6 +1584,9 @@
       '已選取一段區間 — 按上方按鈕建立跨多天的項目（例如出差、請假、專案期間）':
         'Range selected — use the button above to create a multi-day item (a trip, leave, a project window)',
       '每日記錄':'Daily note',
+      '今天先不寫':'Not today',
+      '好，今天先這樣。想寫的時候再回來就好。':'That\u2019s fine. Come back whenever you feel like writing.',
+      '今天想把心裡的話，慢慢寫下來。（寫了之後日曆格子上會出現 ✎ 記號）':'Take your time \u2014 write down whatever\u2019s on your mind. (A \u270e appears on the calendar once you do.)',
       '這天有每日記錄':'Daily note on this day',
       '+ 還有 {0} 段':'+ {0} more span',
       '記錄今天的想法、備忘、心得...（寫了之後日曆格子上會出現 ✎ 記號）':'Notes, reminders, thoughts for the day… (a ✎ mark appears on the calendar cell)',
@@ -3251,6 +3318,25 @@
       '<div class="pill done">'+escapeHtml(tr('已完成'))+' <b>'+doneCount+'</b></div>';
   }
 
+  /**
+   * 空狀態的插畫。
+   *
+   * 手繪的 inline SVG，**不是外部圖檔**——「單檔雙擊開啟」是這個專案不可破壞的
+   * 前提，任何 <img src> 都會讓離線開啟時破圖。
+   *
+   * 顏色一律走 CSS 變數，暗色主題才不會變成一團黑。
+   */
+  function emptyArt(){
+    return '<svg class="empty-art" viewBox="0 0 240 92" aria-hidden="true">'
+      + '<circle cx="198" cy="26" r="12" fill="var(--halo-b)"/>'
+      + '<path d="M0 92 Q46 46 88 66 T162 56 T240 78 L240 92Z" fill="var(--art-far)"/>'
+      + '<path d="M0 92 Q58 66 112 80 T198 72 T240 88 L240 92Z" fill="var(--art-near)"/>'
+      + '<path d="M46 78 l7-19 7 19z" fill="var(--art-far)"/>'
+      + '<path d="M60 80 l6-15 6 15z" fill="var(--art-far)"/>'
+      + '<path d="M150 76 l8-21 8 21z" fill="var(--art-far)"/>'
+      + '</svg>';
+  }
+
   // ================= shared occurrence row builder =================
   function buildOccRow(occ){
     const it = occ.item;
@@ -3442,19 +3528,19 @@
     const done    = list.filter(o=> o.done);
 
     if(all.length===0){
-      board.innerHTML='<div class="empty-state">此範圍尚無項目 — 點選右上角 <span>「＋ 新增小項目」</span> 開始建立工作、會議或作業</div>';
+      board.innerHTML='<div class="empty-state">'+emptyArt()+'這段時間還很空。<span class="empty-line2">想安排什麼，從右上角的「＋ 新增小項目」開始就好。</span></div>';
       doneSection.style.display='none';
       return;
     }
     if(list.length===0){
-      board.innerHTML='<div class="empty-state">此範圍有 <span>'+all.length+'</span> 項，但沒有符合目前篩選條件的項目</div>';
+      board.innerHTML='<div class="empty-state">這段時間有 <span>'+all.length+'</span> 項，但沒有一項符合現在的篩選條件。<span class="empty-line2">把上面的條件取消掉就看得到了。</span></div>';
       doneSection.style.display='none';
       return;
     }
 
     if(pending.length===0){
       // 全部做完時給的是結果，不是「沒有東西」——後者會讓人以為篩選壞了
-      board.innerHTML='<div class="empty-state">此範圍的 <span>'+done.length+'</span> 項全部完成了 🎉</div>';
+      board.innerHTML='<div class="empty-state">'+emptyArt()+'這段時間的 <span>'+done.length+'</span> 項，都做完了。<span class="empty-line2">辛苦了，今天可以到這裡。</span></div>';
     } else {
       // 逐列 append 進活的 DOM 在項目多時成本明顯，先組在 fragment 裡再一次插入
       const frag=document.createDocumentFragment();
@@ -3855,7 +3941,7 @@
     const dateKey = calSelectedDate;   // 綁定當下的日期，之後切換日期會整段重建
     const rt = buildRichEditor({
       value: dailyLogs[dateKey] || '',
-      placeholder: '記錄今天的想法、備忘、心得...（寫了之後日曆格子上會出現 ✎ 記號）',
+      placeholder: '今天想把心裡的話，慢慢寫下來。（寫了之後日曆格子上會出現 ✎ 記號）',
       onInput: html=>{
         dailyLogs[dateKey] = html;
         syncDayLogMark(dateKey);
@@ -3867,6 +3953,31 @@
     });
     slot.appendChild(rt.el);
     slot.appendChild(buildRichToggle());
+
+    /**
+     * 「今天先不寫」。
+     *
+     * **它什麼都不寫入**——只是把編輯器收起來，換成一句話。刻意不存任何狀態：
+     * 存了就變成另一種要求（「你今天已經表態過了」），而這顆按鈕的用意剛好相反，
+     * 是給使用者一個「今天不想記錄」的正當出口。重新整理就回到原樣，那是對的。
+     *
+     * 已經寫過東西的日子不顯示它：那時候該問的不是「要不要寫」。
+     */
+    if(rtIsEmpty(dailyLogs[dateKey] || '')){
+      const skip = document.createElement('div'); skip.className = 'daylog-skip';
+      const b = document.createElement('button'); b.type = 'button';
+      b.textContent = tr('今天先不寫');
+      b.onclick = ()=>{
+        slot.innerHTML = '';
+        skip.remove();
+        const rest = document.createElement('div'); rest.className = 'daylog-rest';
+        rest.textContent = tr('好，今天先這樣。想寫的時候再回來就好。');
+        slot.appendChild(rest);
+      };
+      skip.appendChild(b);
+      slot.appendChild(skip);
+    }
+
     syncRichToggles();
   }
 
