@@ -56,6 +56,55 @@ const TARGETS = [
   ['.daylog-label', '每日記錄標題'],
 ];
 
+/**
+ * 要按幾下才看得到的元素。
+ *
+ * 「不在」的按鈕帶了一個**新的顏色 token**（`--away`），而這支腳本存在的理由
+ * 正是「新顏色在其中一個主題下靜靜地變成看不見」。它預設不在畫面上，所以
+ * 不能只靠上面那份清單——不量等於這個 token 完全沒有被守到。
+ */
+const AFTER_CLICKS = [
+  ['#btnToggleAway', '「不在」按鈕'],
+];
+
+/**
+ * 在頁面裡量一份清單。兩份清單（一進頁面就在的、要按幾下才有的）共用同一套
+ * 判準——分兩份寫遲早會分歧，而分歧的那一份會給出一個看起來很漂亮的假數字。
+ */
+const measure = sels => {
+  // sRGB → 相對亮度（WCAG 2.1）
+  const lum = ([r, g, b]) => {
+    const f = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+    return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+  };
+  const parse = s => (s.match(/[\d.]+/g) || []).slice(0, 4).map(Number);
+  // 背景要往上找到第一個不透明的祖先——元素自己通常是 transparent，
+  // 拿 transparent 去算對比會得到一個漂亮但完全假的數字。
+  const bgOf = el => {
+    for (let n = el; n && n !== document.documentElement; n = n.parentElement) {
+      const c = parse(getComputedStyle(n).backgroundColor);
+      if (c.length >= 3 && (c[3] === undefined || c[3] > 0.92)) return c.slice(0, 3);
+    }
+    const c = parse(getComputedStyle(document.body).backgroundColor);
+    return c.length >= 3 ? c.slice(0, 3) : [255, 255, 255];
+  };
+  const out = [];
+  for (const [sel, label] of sels) {
+    const el = document.querySelector(sel);
+    if (!el) { out.push({ sel, label, missing: true }); continue; }
+    const cs = getComputedStyle(el);
+    const fg = parse(cs.color).slice(0, 3);
+    const bg = bgOf(el);
+    const L1 = lum(fg), L2 = lum(bg);
+    const ratio = (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05);
+    const px = parseFloat(cs.fontSize);
+    const w = parseInt(cs.fontWeight) || 400;
+    const large = px >= 18.66 || (px >= 14 && w >= 700);
+    out.push({ sel, label, ratio: +ratio.toFixed(2), px, large, need: large ? 3 : 4.5 });
+  }
+  return out;
+};
+
 const br = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM });
 const problems = [];
 
@@ -68,39 +117,14 @@ for (const theme of ['light', 'dark']) {
   await page.locator('#reminderClose').click().catch(() => {});
   await page.waitForTimeout(200);
 
-  const rows = await page.evaluate(sels => {
-    // sRGB → 相對亮度（WCAG 2.1）
-    const lum = ([r, g, b]) => {
-      const f = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
-      return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
-    };
-    const parse = s => (s.match(/[\d.]+/g) || []).slice(0, 4).map(Number);
-    // 背景要往上找到第一個不透明的祖先——元素自己通常是 transparent，
-    // 拿 transparent 去算對比會得到一個漂亮但完全假的數字。
-    const bgOf = el => {
-      for (let n = el; n && n !== document.documentElement; n = n.parentElement) {
-        const c = parse(getComputedStyle(n).backgroundColor);
-        if (c.length >= 3 && (c[3] === undefined || c[3] > 0.92)) return c.slice(0, 3);
-      }
-      const c = parse(getComputedStyle(document.body).backgroundColor);
-      return c.length >= 3 ? c.slice(0, 3) : [255, 255, 255];
-    };
-    const out = [];
-    for (const [sel, label] of sels) {
-      const el = document.querySelector(sel);
-      if (!el) { out.push({ sel, label, missing: true }); continue; }
-      const cs = getComputedStyle(el);
-      const fg = parse(cs.color).slice(0, 3);
-      const bg = bgOf(el);
-      const L1 = lum(fg), L2 = lum(bg);
-      const ratio = (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05);
-      const px = parseFloat(cs.fontSize);
-      const w = parseInt(cs.fontWeight) || 400;
-      const large = px >= 18.66 || (px >= 14 && w >= 700);
-      out.push({ sel, label, ratio: +ratio.toFixed(2), px, large, need: large ? 3 : 4.5 });
-    }
-    return out;
-  }, TARGETS);
+  const rows = await page.evaluate(measure, TARGETS);
+
+  // 切到日曆、選一天，才量得到那顆按鈕
+  await page.locator('.nav-item', { hasText: '日曆' }).click();
+  await page.waitForSelector('#calGrid .cal-cell[data-date]');
+  await page.locator('.cal-cell[data-date]').first().click();
+  await page.waitForTimeout(300);
+  rows.push(...await page.evaluate(measure, AFTER_CLICKS));
 
   console.log(`\n===== ${theme === 'light' ? '亮色' : '暗色'} =====`);
   for (const r of rows) {

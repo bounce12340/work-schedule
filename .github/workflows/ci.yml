@@ -112,6 +112,12 @@ jobs:
       - name: 文字對比度
         run: node tools/check-contrast.mjs
 
+      # 前置作業與「不在」。這兩個功能的規格有一半是「什麼都沒發生」——
+      # 「不在」不影響逾期、前置作業不阻擋勾選——而「什麼都沒發生」正是靜態
+      # 檢查與單元測試看不到的形狀：改成「更聰明一點」之後畫面看起來還是對的。
+      - name: 前置作業與「不在」
+        run: node tools/check-deps.mjs
+
   deploy:
     name: 部署到 Cloudflare
     needs: [check, smoke]

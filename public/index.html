@@ -87,6 +87,10 @@
     --red-dim: rgba(199,75,67,0.10);
     --violet: #6C5CE0;
     --violet-dim: rgba(108,92,224,0.10);
+    /* 「不在」的顏色。刻意**不是**三種項目類型的任何一色，也不是紅色——
+       它不是一件要做的事，也不是警示，它只是一個事實。 */
+    --away: #4F6070;
+    --away-dim: rgba(79,96,112,0.10);
     --span-teal: rgba(31,140,104,0.20);
     --span-amber: rgba(201,130,46,0.22);
     --span-violet: rgba(108,92,224,0.20);
@@ -142,6 +146,8 @@
     --red-dim: rgba(232,117,107,0.14);
     --violet: #9B8CF5;
     --violet-dim: rgba(155,140,245,0.14);
+    --away: #9DB0C1;
+    --away-dim: rgba(157,176,193,0.14);
     --span-teal: rgba(63,191,146,0.24);
     --span-amber: rgba(227,160,82,0.26);
     --span-violet: rgba(155,140,245,0.24);
@@ -405,6 +411,12 @@
               background:var(--panel-2); color:var(--text-muted); border:1px solid var(--hairline);
               cursor:pointer; white-space:nowrap; }
   .sub-badge.all{ color:var(--teal); border-color:var(--teal); }
+  /* 前置作業未完成。用琥珀（介面主色＝「注意一下」）而不是紅色：紅色是逾期
+     的顏色，而前置沒做完**不是**逾期，混用會讓真正遲交的東西被稀釋。 */
+  .dep-badge{ font-family:var(--mono); font-size:10.5px; padding:2px 7px; border-radius:5px;
+              background:var(--amber-dim); color:var(--amber-ink); white-space:nowrap; cursor:help; }
+  .away-badge{ font-family:var(--mono); font-size:10.5px; padding:2px 7px; border-radius:5px;
+               background:var(--away-dim); color:var(--away); white-space:nowrap; }
   .sub-list{ flex:1 1 100%; margin:8px 0 0; padding:8px 0 0; border-top:1px solid var(--hairline);
              display:flex; flex-direction:column; gap:5px; }
   .sub-line{ display:flex; align-items:baseline; gap:8px; font-size:13px; cursor:pointer; }
@@ -548,6 +560,19 @@
   .cal-log-mark{ position:absolute; top:5px; right:6px; font-size:9.5px; line-height:1;
                  color: var(--amber); opacity:.85; }
 
+  /* ---- 「不在」的格子 ----
+     用斜線紋而不是換底色：底色已經被「今天」與「已選取」用掉兩層了，再加一層
+     三者疊起來會分不出誰是誰。斜線是另一個維度，疊在任何底色上都還看得出來。 */
+  .cal-cell.away{ background-image: repeating-linear-gradient(-45deg,
+      var(--away-dim) 0 6px, transparent 6px 12px); }
+  .cal-away-mark{ position:absolute; top:5px; left:6px; font-size:9.5px; line-height:1; opacity:.9; }
+  .cal-cell.away .cal-daynum{ color: var(--away); }
+  .cal-cell.today.away .cal-daynum{ color: var(--amber); }
+  .away-btn{ background:var(--away-dim); border:1px solid var(--away); color:var(--away);
+             font-family:var(--mono); font-size:12px; padding:7px 12px; border-radius:8px;
+             cursor:pointer; white-space:nowrap; }
+  .away-btn:hover{ background:var(--panel-2); }
+
   .cal-detail-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; flex-wrap:wrap; gap:10px; }
   .cal-detail-title{ font-family: var(--mono); font-size:16px; font-weight:700; }
 
@@ -649,6 +674,10 @@
   .undo-toast.show{ opacity:1; transform:translate(-50%,0); pointer-events:auto; }
   .undo-toast span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .undo-toast button{ background:transparent; border:none; color:var(--amber); font-weight:700; font-size:13.5px; cursor:pointer; flex-shrink:0; padding:2px 4px; }
+  /* 提示 toast 沿用同一套外觀，但抬高一層：復原 toast 也可能同時在，
+     疊在一起就有一個看不到。 */
+  .hint-toast{ bottom:78px; }
+  .hint-toast span{ white-space:normal; }
 
   .reminder-toast{ position: fixed; top: 22px; right: 22px; z-index: 60; width: 320px; max-width: calc(100vw - 32px); background: var(--panel); border: 1px solid var(--amber); border-radius: 12px; box-shadow: var(--shadow-md); opacity:0; transform: translateY(-12px); pointer-events:none; transition: opacity .2s ease, transform .2s ease; }
   .reminder-toast.show{ opacity:1; transform: translateY(0); pointer-events:auto; }
@@ -975,6 +1004,7 @@
 
     .reminder-toast{ left:12px; right:12px; width:auto; top:12px; }
     .undo-toast{ bottom: calc(78px + env(safe-area-inset-bottom)); }
+    .hint-toast{ bottom: calc(140px + env(safe-area-inset-bottom)); }
     footer.storage-note{ margin-top:24px; }
   }
 </style>
@@ -1086,6 +1116,7 @@
 
         <div class="cal-detail-head">
           <div class="cal-detail-title" id="calDetailTitle" data-i18n>選擇日期以查看當日安排</div>
+          <button class="away-btn" id="btnToggleAway" style="display:none;" type="button">🌴 標記為不在</button>
           <button class="add-project-btn" id="openItemModalFromCal" style="display:none;" data-i18n>＋ 為此日期新增</button>
         </div>
         <div class="board" id="calBoard"></div>
@@ -1231,6 +1262,10 @@
   <div class="ai-usage" id="aiUsage"></div>
 </div>
 
+<div id="hintToast" class="undo-toast hint-toast">
+  <span id="hintText"></span>
+</div>
+
 <div id="undoToast" class="undo-toast">
   <span id="undoText"></span>
   <button id="undoBtn" type="button" data-i18n>復原</button>
@@ -1287,6 +1322,12 @@
       <div id="modalSubList"></div>
       <button type="button" class="sub-add" id="btnAddSubtask" data-i18n>＋ 加一個步驟</button>
       <div class="field-hint" id="subHint" data-i18n>循環項目每一次都會有自己的一份勾選，步驟本身共用。</div>
+    </div>
+    <div class="field">
+      <label data-i18n>前置作業（選填）</label>
+      <div class="tag-edit" id="modalDepChips"></div>
+      <select id="selectAddDep"><option value="" data-i18n>＋ 選一個要先完成的項目</option></select>
+      <div class="field-hint" id="depHint" data-i18n>只顯示狀態：前置沒完成時這一列會標「待前置」，但不會自動移動任何日期，也不會擋住勾選。</div>
     </div>
     <div class="field-row">
       <div class="field"><label id="itemDateLabel" data-i18n>日期</label><input type="date" id="inputItemDate"></div>
@@ -1468,6 +1509,10 @@
   let items = [];
   let customHolidays = new Set();
   let customWorkdays = new Set();   // 補班日：週六日但要上班
+  // 「不在」的日子（請假、出差、在別的地方）。形狀刻意與 customHolidays 相同，
+  // 但**語意完全不同**：它不參與 isHoliday()，不移動任何項目的日期，也不改變
+  // 逾期的判斷。它只回答一個問題——「那天我不在」。
+  let awayDates = new Set();
   let dailyLogs = {}; // 'YYYY-MM-DD' -> text
   let ganttProjects = []; // {id,name,tasks:[{id,name,start,end,progress,done}]}
   let selectedGanttProjectId = null;
@@ -1515,6 +1560,18 @@
     const wd=d.getDay(); if(wd===0||wd===6) return true;
     return customHolidays.has(ymd(d));
   }
+  /**
+   * 那天使用者不在。
+   *
+   * **刻意不寫進 isHoliday()。** 假日順延是**事前規則**（使用者在 modal 裡明確
+   * 選過 holidayRule，而且國定假日全年已知）；「不在」是**事後才知道的事實**
+   * （臨時請假）。拿它去回頭移動日期，會讓歷史紀錄變成假的：那件事本來就排在
+   * 那天，只是人不在。
+   *
+   * 它也**不影響逾期**。這是使用者明確定下的：「不在就是不在，逾期就照樣逾期」。
+   * 沒做完就是沒做完，人在不在不改變這件事的後果。
+   */
+  function isAway(dateStr){ return awayDates.has(dateStr); }
   function adjustForHoliday(d, rule){
     if(!rule || rule==='none') return d;
     let cur = new Date(d); const step = rule==='postpone' ? 1 : -1; let guard=0;
@@ -1640,6 +1697,21 @@
       '分享這個大項目（含底下所有項目）':'Share this group (including all its items)',
       '這個大項目底下目前沒有任何項目。':'This group has no items yet.',
       '已逾期':'Overdue', '複製':'Copy', '已複製':'Copied',
+      // —— 前置作業與「不在」——
+      '待前置':'Blocked', '這些前置還沒完成：{0}':'These prerequisites are not done yet: {0}',
+      '先做完了嗎？{0} 還沒完成。':'Did you finish it first? {0} is still open.',
+      '前置作業（選填）':'Prerequisites (optional)',
+      '＋ 選一個要先完成的項目':'+ Pick an item that must be done first',
+      '最多 {0} 個前置作業':'At most {0} prerequisites',
+      '只顯示狀態：前置沒完成時這一列會標「待前置」，但不會自動移動任何日期，也不會擋住勾選。':
+        'Status only: the row is flagged “Blocked” while a prerequisite is open. Nothing is rescheduled, and nothing is blocked from being checked off.',
+      '（已刪除）':'(deleted)',
+      '不在':'Away', '這天你不在':'You are away this day',
+      '這天你標記為不在。逾期判斷不受影響。':'You marked yourself away this day. Overdue is judged the same way regardless.',
+      '標記為不在':'Mark as away', '取消不在':'Clear away',
+      '標記為不在（{0} 天）':'Mark {0} days as away', '取消不在（{0} 天）':'Clear away on {0} days',
+      '只是標記「那天我不在」：不會移動任何日期，也不會讓逾期變成不逾期。':
+        'Just a note that you are away: nothing is rescheduled, and nothing overdue stops being overdue.',
       // —— 共享 ——
       '你只有檢視權限':'You only have view access',
       '取消分享':'Stop sharing', '從我的畫面移除':'Remove from my view',
@@ -1999,6 +2071,7 @@
       majorProjects, items, ganttProjects, dailyLogs,
       customHolidays: [...customHolidays],
       customWorkdays: [...customWorkdays],
+      awayDates: [...awayDates],
       selectedGanttProjectId, availableYears
     };
   }
@@ -2037,6 +2110,26 @@
   // 標籤與子清單的上限。存在的理由不是怕爆炸，是**怕它們變成另一個可以塞任意
   // 內容的地方**——這兩個欄位會跟著雲端同步、進備份、也會出現在分享出去的資料裡。
   const MAX_TAGS = 12, MAX_TAG_LEN = 24, MAX_SUBTASKS = 20, MAX_SUB_LEN = 120;
+  const MAX_DEPS = 5;
+
+  /**
+   * 前置作業：`item.dependsOn = ['<item id>', ...]`。
+   *
+   * **排序**的理由同 normalizeTags：三方合併以 stableStringify 比對整個項目，
+   * 順序不同會被誤判成「兩邊都改過」而跳出根本不存在的衝突。
+   *
+   * `validIds` 有給的時候會順手剪掉指不到東西的 id（前置被刪掉了）。不剪的話
+   * 那個孤兒會永遠留在存檔裡，而且改回同名項目時不會復活——只是一直躺著。
+   * 執行時仍然有「找不到就當作沒有前置」的守衛，兩道都要留：applySnapshot
+   * 之外還有很多條路徑會動到 items。
+   */
+  function normalizeDependsOn(raw, selfId, validIds){
+    if(!Array.isArray(raw)) return [];
+    return [...new Set(raw.map(x => String(x == null ? '' : x)).filter(Boolean))]
+      .filter(id => id !== selfId)
+      .filter(id => !validIds || validIds.has(id))
+      .sort().slice(0, MAX_DEPS);
+  }
 
   /**
    * 標籤：去空白、去重、**排序**。
@@ -2077,7 +2170,9 @@
   }
 
   function normalizeItems(raw){
-    return (Array.isArray(raw) ? raw : []).filter(it => it && it.id && isYmd(it.date)).map(it => ({
+    const kept = (Array.isArray(raw) ? raw : []).filter(it => it && it.id && isYmd(it.date));
+    const validIds = new Set(kept.map(it => it.id));
+    return kept.map(it => ({
       id: it.id,
       title: String(it.title == null ? '' : it.title),
       type: ['work','meeting','assignment'].includes(it.type) ? it.type : 'work',
@@ -2092,6 +2187,7 @@
       tags: normalizeTags(it.tags),
       subtasks: normalizeSubtasks(it.subtasks),
       subDone: normalizeSubDone(it.subDone, normalizeSubtasks(it.subtasks)),
+      dependsOn: normalizeDependsOn(it.dependsOn, it.id, validIds),
       done: !!it.done,
       doneMap: (it.doneMap && typeof it.doneMap==='object') ? it.doneMap : {},
       overrides: (it.overrides && typeof it.overrides==='object') ? it.overrides : {},
@@ -2174,6 +2270,7 @@
     }
     customHolidays = new Set((Array.isArray(s.customHolidays) ? s.customHolidays : []).filter(isYmd));
     customWorkdays = new Set((Array.isArray(s.customWorkdays) ? s.customWorkdays : []).filter(isYmd));
+    awayDates = new Set((Array.isArray(s.awayDates) ? s.awayDates : []).filter(isYmd));
     selectedGanttProjectId = s.selectedGanttProjectId || (ganttProjects[0] ? ganttProjects[0].id : null);
     if(Array.isArray(s.availableYears) && s.availableYears.length){
       availableYears = s.availableYears.filter(y => Number.isInteger(y));
@@ -2359,6 +2456,7 @@
       dailyLogs: logs.merged,
       customHolidays: tmMergeSets(base.customHolidays, local.customHolidays, remote.customHolidays),
       customWorkdays: tmMergeSets(base.customWorkdays, local.customWorkdays, remote.customWorkdays),
+      awayDates: tmMergeSets(base.awayDates, local.awayDates, remote.awayDates),
       availableYears: [...new Set([...(local.availableYears||[]), ...(remote.availableYears||[])])].sort((a,b)=>a-b)
     };
     return { merged, conflicts };
@@ -2413,7 +2511,8 @@
       localStorage.removeItem(CLOUD_META_KEY);
     }catch(e){ /* 記憶體模式下略過 */ }
     majorProjects = []; items = []; ganttProjects = [];
-    dailyLogs = {}; customHolidays = new Set(); customWorkdays = new Set(); selectedGanttProjectId = null;
+    dailyLogs = {}; customHolidays = new Set(); customWorkdays = new Set();
+    awayDates = new Set(); selectedGanttProjectId = null;
   }
 
   function setCloudNote(text, cls){
@@ -2875,6 +2974,94 @@
     if(!Object.keys(m).length) delete item.subDone[occKey];
   }
 
+  /**
+   * ---- 前置作業 ----
+   *
+   * 「A 做完了 B 才該做」。這一段的每一個函式都**只回答狀態，不動任何資料**。
+   *
+   * 「A 延後了，B 自動跟著延後」聽起來才是這個功能的重點，但它做的事是**在使用者
+   * 沒看的時候改掉一個日期**——與「AI 把日期改錯一天」是同一種失敗模式，差別只在
+   * 誰動的手，而那種錯誤使用者永遠不會發現：畫面看起來完全正常，只是日期默默地
+   * 不對了。所以前置作業只顯示，不順延。
+   */
+
+  /** 這一次做完了沒有。單次看 item.done，循環看 doneMap[occKey]。 */
+  function occDoneOf(item, occKey){
+    return occKey === 'single' ? !!item.done : !!(item.doneMap && item.doneMap[occKey]);
+  }
+
+  /**
+   * 前置項目 A 對應到 B 這一次的是哪一次。
+   *
+   * 規則：**A 在 B 這一次的日期或之前，最近的那一次。** 刻意不要求兩邊頻率
+   * 相同（那條管制藥品的鏈本來就月／週混用），也不需要 occKey 對得上。
+   * 找不到就回 null＝這一次沒有前置（例如 B 的第一次早於 A 的第一次）。
+   */
+  function latestOccOnOrBefore(depItem, dateStr){
+    const end = parseYMD(dateStr);
+    // 起點往前挪一點：holidayRule='advance' 會讓第一次落在錨點之前，
+    // 從錨點當日開始展開的話那一次會被 pushOcc 的區間判斷濾掉。
+    // 45 天 > adjustForHoliday 的 40 天上限，足夠涵蓋。
+    const start = parseYMD(depItem.date); start.setDate(start.getDate() - 45);
+    // 循環項目還要**收斂窗口**：從錨點展開的話，成本會隨資料的**年齡**成長——
+    // 一個三年前開始的每週前置，每一列都要重新展開一百多次。而「最近的那一次」
+    // 不可能比 400 天更早（最疏的頻率是每年＝365 天），所以往前 400 天就夠。
+    //
+    // 量過：30 對「每週依賴每週」、前置從三年前開始、3120 列，切換頁籤 5 次——
+    // 沒有前置 558ms、有前置但不收斂 2991ms、收斂後 1476ms。收斂把多出來的成本
+    // 砍掉一半，而且從此不再隨年齡成長。剩下的那一半是每一列真的要做的展開；
+    // 真實資料是 45 個項目、前置頂多幾條，量不到差別。
+    //
+    // **非循環的前置不能套這個下限**：它只有一次，五年前的那一次仍然是它。
+    if(depItem.recurrence){
+      const floor = parseYMD(dateStr); floor.setDate(floor.getDate() - 400);
+      if(floor > start) start.setTime(floor.getTime());
+    }
+    const list = getOccurrencesInRange(depItem, start, end);
+    let best = null;
+    for(const o of list) if(o.date <= dateStr && (!best || o.date > best.date)) best = o;
+    return best;
+  }
+
+  /** B 的這一次，還有哪些前置沒做完。空陣列＝沒有東西擋著。 */
+  function depPending(occ){
+    const ids = occ.item.dependsOn || [];
+    if(!ids.length) return [];
+    const out = [];
+    for(const id of ids){
+      const dep = items.find(x => x.id === id);
+      // 前置被刪掉了就當作沒有前置。normalizeItems 已經會剪掉這種孤兒，
+      // 但動到 items 的路徑不只 applySnapshot 一條，所以這裡也要守。
+      if(!dep) continue;
+      const prior = latestOccOnOrBefore(dep, occ.date);
+      if(!prior || occDoneOf(dep, prior.occKey)) continue;
+      out.push({ id: dep.id, title: dep.title, date: prior.date });
+    }
+    return out;
+  }
+
+  /**
+   * 讓 fromId 依賴 toId 會不會繞成一個圈。
+   *
+   * 必須擋：`A → B → A` 會讓顯示邏輯無限遞迴。從 toId 往外走，走得回 fromId
+   * 就是圈。編輯中的項目在 items 裡還是舊的 dependsOn，但那不影響判斷——
+   * 走到 fromId 的當下就已經回 true 了，它自己的出邊根本沒機會被走到。
+   */
+  function depWouldCycle(fromId, toId){
+    if(!fromId || !toId || fromId === toId) return true;
+    const seen = new Set();
+    const stack = [toId];
+    while(stack.length){
+      const cur = stack.pop();
+      if(cur === fromId) return true;
+      if(seen.has(cur)) continue;
+      seen.add(cur);
+      const it = items.find(x => x.id === cur);
+      if(it && Array.isArray(it.dependsOn)) for(const d of it.dependsOn) stack.push(d);
+    }
+    return false;
+  }
+
   /** 目前所有項目用過的標籤，給篩選列與 modal 的建議清單用。 */
   function allTagsInUse(){
     const set = new Set();
@@ -2913,6 +3100,11 @@
    *
    * 回傳 true 代表已就地處理完，呼叫端就不必重繪。
    */
+  /** 有沒有別的項目把它當前置。是的話那些列的「待前置」徽章要跟著更新。 */
+  function isPrerequisiteOfAnything(itemId){
+    return items.some(x => Array.isArray(x.dependsOn) && x.dependsOn.includes(itemId));
+  }
+
   function moveOccRowToDone(row){
     if(hideDone || showDoneSection) return false;
     const board=document.getElementById('board');
@@ -2928,6 +3120,13 @@
 
   function toggleOccDone(occ, checkEl, labelEl){
     const next = !occ.done;
+    // **不阻擋，只提示。** 攔截式對話框擋不住「按太快」，事後看得到才擋得住
+    // （同 deleteWithUndo）。而且擋下來也不對——前置沒做完不代表這件事不能先做，
+    // 那是使用者的判斷，不是程式的。
+    if(next){
+      const pend = depPending(occ);
+      if(pend.length) showHint(tf('先做完了嗎？{0} 還沒完成。', pend.map(p=>p.title+'（'+p.date+'）').join('、')));
+    }
     occ.done = next;
     checkEl.classList.toggle('done', next); checkEl.textContent = next ? '✓' : '';
     if(labelEl) labelEl.classList.toggle('done', next);
@@ -2940,7 +3139,11 @@
       // 只有這一列的歸屬變了，其餘每一列的內容完全沒動。整份重建會讓瀏覽器對
       // 每一列重跑樣式計算與版面配置——實測 3247 列時光那部分就要 2.4 秒，
       // 而 JS 本身只佔 130ms。換句話說，貴的不是重算資料，是重建 DOM。
-      if(next && row && currentView==='schedule' && moveOccRowToDone(row)){
+      // 勾的是別人的前置作業時，別人那幾列的「待前置」徽章也變了——增量路徑
+      // 只搬走這一列，其餘原地不動，那些徽章會停在舊狀態（畫面看起來完全正常，
+      // 只是資訊是錯的）。這種情況少，落回完整重繪的代價可以接受。
+      if(next && row && currentView==='schedule'
+         && !isPrerequisiteOfAnything(occ.item.id) && moveOccRowToDone(row)){
         renderMetrics(); renderReminderList();
       } else {
         renderAll();
@@ -3188,6 +3391,21 @@
   // 作法是刪除前拍下整份 snapshot，復原＝整份套回去。逐項還原的閉包版本更精緻，
   // 但整份還原用的是既有且測過的 applySnapshot 機制，簡單得多；代價是復原也會
   // 撤銷這幾秒內的其他小變更，以刪除到復原的間隔而言可以接受。
+  /**
+   * 一句話的提示，說完就沒了。
+   *
+   * 前置作業**不阻擋**勾選——攔截式對話框擋不住「按太快」，而事後看得到才擋得住
+   * （理由同 deleteWithUndo）。所以擋不下來的時候至少要講一聲。
+   */
+  let hintTimer=null;
+  function showHint(text){
+    const el=document.getElementById('hintToast');
+    document.getElementById('hintText').textContent=text;
+    el.classList.add('show');
+    clearTimeout(hintTimer);
+    hintTimer=setTimeout(()=> el.classList.remove('show'), 5000);
+  }
+
   let undoState=null, undoTimer=null;
   function hideUndo(){ document.getElementById('undoToast').classList.remove('show'); undoState=null; }
   /**
@@ -3378,6 +3596,15 @@
       row.appendChild(sb);
       row.appendChild(list);
     }
+    // 前置作業：**只顯示狀態**。它不阻擋、不順延、也不改變逾期——
+    // 逾期是「到期了沒做完」，前置沒做完是另一回事，兩者不可混為一談。
+    const pend = depPending(occ);
+    if(pend.length){
+      const db=document.createElement('span'); db.className='dep-badge';
+      db.textContent='⛓ '+tr('待前置');
+      db.title=tf('這些前置還沒完成：{0}', pend.map(p=>p.title+'（'+p.date+'）').join('、'));
+      row.appendChild(db);
+    }
     if(it.recurrence){
       const rb=document.createElement('span'); rb.className='recur-badge';
       rb.textContent='🔁 '+recurrenceLabel(it)+(it.recurrence.until?'（至'+it.recurrence.until+'）':'');
@@ -3395,6 +3622,14 @@
     // 跨多天事項要整段結束後才算逾期，期間進行中不是
     if(!occ.done && (it.endDate || occ.date) < ymd(new Date())){ dateEl.classList.add('overdue'); dateEl.title=tr('已逾期'); }
     row.appendChild(dateEl);
+    // 「不在」只是**附註**，加在逾期判斷之後而且完全不碰它：那天你不在，
+    // 但事情本來就排在那天，沒做完就是沒做完。
+    if(isAway(occ.date)){
+      const aw=document.createElement('span'); aw.className='away-badge';
+      aw.textContent='🌴 '+tr('不在');
+      aw.title=tr('這天你標記為不在。逾期判斷不受影響。');
+      row.appendChild(aw);
+    }
     if(it.recurrence){
       const adjBtn=document.createElement('button'); adjBtn.className='icon-btn'; adjBtn.textContent='📅✎'; adjBtn.title=tr('調整本次日期');
       adjBtn.onclick=()=>openOccModal(occ); row.appendChild(adjBtn);
@@ -3411,7 +3646,16 @@
     editBtn.onclick=()=>openItemModal(it); row.appendChild(editBtn);
     const delBtn=document.createElement('button'); delBtn.className='icon-btn danger'; delBtn.textContent=tr('刪除'); delBtn.title=tr('刪除整個項目（含所有循環）');
     delBtn.onclick=()=>{
-      deleteWithUndo(it.title, ()=>{ items = items.filter(x=>x.id!==it.id); });
+      deleteWithUndo(it.title, ()=>{
+        items = items.filter(x=>x.id!==it.id);
+        // 別人指著它的那條線也要拆掉，否則留下一個永遠解析不到的孤兒 id。
+        // 執行時有「找不到就當作沒有前置」的守衛，所以畫面不會壞——正因為
+        // 不會壞，不清就會靜靜地一直留在存檔裡。
+        items.forEach(x=>{
+          if(Array.isArray(x.dependsOn) && x.dependsOn.includes(it.id))
+            x.dependsOn = x.dependsOn.filter(d=>d!==it.id);
+        });
+      });
     };
     row.appendChild(delBtn);
     return row;
@@ -3707,9 +3951,17 @@
         .sort((x,y)=>(x.item.meetingTime||'99:99').localeCompare(y.item.meetingTime||'99:99'));
 
       const cell=document.createElement('div');
-      cell.className='cal-cell'+(dateStr===todayStr?' today':'')+(inCalSelection(dateStr)?' selected':'');
+      cell.className='cal-cell'+(dateStr===todayStr?' today':'')+(inCalSelection(dateStr)?' selected':'')
+        +(isAway(dateStr)?' away':'');
       const daynum=document.createElement('div'); daynum.className='cal-daynum'; daynum.textContent=day; cell.appendChild(daynum);
 
+      // 「不在」的標記放**左上**，每日記錄放右上：兩個都是格子角落的小記號，
+      // 擠在同一邊會互相蓋住
+      if(isAway(dateStr)){
+        const am=document.createElement('span'); am.className='cal-away-mark'; am.textContent='🌴';
+        am.title=tr('這天你不在');
+        cell.appendChild(am);
+      }
       // 每日記錄的標記：有寫東西就在格子右上角留一筆，不必點進去才知道
       if(hasDayLog(dateStr)){
         const mark=document.createElement('span'); mark.className='cal-log-mark'; mark.textContent='✎';
@@ -3891,6 +4143,30 @@
     grid.addEventListener('touchcancel', finish);
   }
 
+  /**
+   * 「不在」的唯一設定入口。
+   *
+   * 刻意**只有這一個地方**能改：日曆本來就是使用者挑日子的地方，而多開一個
+   * 批次貼上框（像自訂假日那樣）等於同一份狀態有兩個入口，遲早不同步。
+   * 「不在」一次也就那幾天，逐日點選不是負擔。
+   */
+  function syncAwayBtn(range){
+    const btn=document.getElementById('btnToggleAway');
+    if(!range){ btn.style.display='none'; return; }
+    const days=[];
+    for(let d=parseYMD(range.start); ymd(d)<=range.end; d.setDate(d.getDate()+1)) days.push(ymd(d));
+    const allAway = days.every(isAway);
+    btn.style.display='';
+    btn.textContent = allAway
+      ? '🌴 ' + (days.length>1 ? tf('取消不在（{0} 天）', days.length) : tr('取消不在'))
+      : '🌴 ' + (days.length>1 ? tf('標記為不在（{0} 天）', days.length) : tr('標記為不在'));
+    btn.title = tr('只是標記「那天我不在」：不會移動任何日期，也不會讓逾期變成不逾期。');
+    btn.onclick = ()=> commit(()=>{
+      if(allAway) days.forEach(x=> awayDates.delete(x));
+      else days.forEach(x=> awayDates.add(x));
+    });
+  }
+
   function renderCalDetail(byDate){
     const titleEl=document.getElementById('calDetailTitle');
     const addBtn=document.getElementById('openItemModalFromCal');
@@ -3900,6 +4176,7 @@
     // 沒有選取＝整個詳情區不出現。「＋ 為此日期新增」是「你選了某一天」的結果，
     // 不該平時就掛在畫面上。
     const range = calRange();
+    syncAwayBtn(range);
     if(!range){
       titleEl.textContent = tr('點選日期以查看當日安排，或按住拖曳選出一段區間');
       addBtn.style.display='none'; daylogBox.style.display='none';
@@ -4238,6 +4515,7 @@
   // 按下確認才寫進 items，取消就整份丟掉。
   let modalTags = new Set();
   let modalSubtasks = [];
+  let modalDeps = [];
 
   function renderModalTags(){
     const box=document.getElementById('modalTagChips'); box.innerHTML='';
@@ -4263,6 +4541,41 @@
     const v=inp.value.trim().slice(0, MAX_TAG_LEN);
     if(v && modalTags.size < MAX_TAGS) modalTags.add(v);
     inp.value=''; renderModalTags();
+  }
+
+  /**
+   * 前置作業的挑選器。
+   *
+   * 候選清單**當場過濾掉會繞成圈的項目**，而不是讓使用者選完再跳錯誤訊息：
+   * 選不到的東西不會被選到，這比事後說「不行」省事，也不必解釋為什麼不行。
+   * `A → B → A` 會讓顯示邏輯無限遞迴，所以這道防線不能只是提示。
+   */
+  function renderModalDeps(){
+    const box=document.getElementById('modalDepChips'); box.innerHTML='';
+    modalDeps.forEach(id=>{
+      const dep=items.find(x=>x.id===id);
+      const chip=document.createElement('span'); chip.className='tag-chip';
+      chip.appendChild(document.createTextNode('⛓ '+(dep ? dep.title : tr('（已刪除）'))));
+      const x=document.createElement('button'); x.type='button'; x.textContent='✕';
+      x.onclick=()=>{ modalDeps=modalDeps.filter(d=>d!==id); renderModalDeps(); };
+      chip.appendChild(x); box.appendChild(chip);
+    });
+    const sel=document.getElementById('selectAddDep');
+    sel.innerHTML='';
+    const ph=document.createElement('option'); ph.value='';
+    ph.textContent = modalDeps.length >= MAX_DEPS
+      ? tf('最多 {0} 個前置作業', MAX_DEPS)
+      : tr('＋ 選一個要先完成的項目');
+    sel.appendChild(ph);
+    sel.disabled = modalDeps.length >= MAX_DEPS;
+    items.forEach(cand=>{
+      if(cand.id === editingItemId) return;
+      if(modalDeps.includes(cand.id)) return;
+      if(editingItemId && depWouldCycle(editingItemId, cand.id)) return;
+      const o=document.createElement('option'); o.value=cand.id; o.textContent=cand.title;
+      sel.appendChild(o);
+    });
+    sel.value='';
   }
 
   function renderModalSubtasks(){
@@ -4488,6 +4801,7 @@
       modalTags = new Set(existingItem.tags || []);
       // 複製一份再編輯：直接改原陣列的話，按「取消」也已經改掉了
       modalSubtasks = (existingItem.subtasks || []).map(x => ({ id:x.id, text:x.text }));
+      modalDeps = [...(existingItem.dependsOn || [])];
       document.getElementById('inputItemDate').value = existingItem.date;
       document.getElementById('inputItemEndDate').value = existingItem.endDate || '';
       document.getElementById('selectRecurrence').value = existingItem.recurrence ? existingItem.recurrence.freq : 'none';
@@ -4508,6 +4822,7 @@
       document.getElementById('selectParent').value='';
       modalTags = new Set();
       modalSubtasks = [];
+      modalDeps = [];
       document.getElementById('inputItemDate').value = defaultDate || selDate;
       // 從日曆拖出一段區間時預填結束日，使用者不必再輸入一次
       document.getElementById('inputItemEndDate').value = defaultEndDate || '';
@@ -4524,6 +4839,7 @@
     document.getElementById('inputItemTag').value='';
     renderModalTags();
     renderModalSubtasks();
+    renderModalDeps();
     updateRecurrenceExtra();
     itemOverlay.classList.add('show');
     setTimeout(()=>document.getElementById('inputItemTitle').focus(), 50);
@@ -4537,6 +4853,11 @@
   // 打完沒按 Enter 就去點別的地方，那個字也算數：少了這一條，
   // 使用者會以為加好了，實際上什麼都沒有
   document.getElementById('inputItemTag').onblur=()=>addModalTag();
+  document.getElementById('selectAddDep').onchange=(e)=>{
+    const v=e.target.value;
+    if(v && modalDeps.length < MAX_DEPS) modalDeps.push(v);
+    renderModalDeps();
+  };
   document.getElementById('btnAddSubtask').onclick=()=>{
     if(modalSubtasks.length >= MAX_SUBTASKS) return;
     modalSubtasks.push({ id: uid('sub'), text: '' });
@@ -4608,14 +4929,19 @@
           it.title=title; it.type=modalType; it.parentId=parentId;
           it.meetingTime=meetingTime; it.link=link;
           it.tags=normalizeTags([...modalTags]);
+          // 前置作業不以 occKey 為 key，所以**不隨頻率變更重置**——上面清掉的是
+          // doneMap/overrides/skipped/subDone 那一組，它不屬於那一組
+          it.dependsOn=normalizeDependsOn(modalDeps, it.id, new Set(items.map(x=>x.id)));
           it.subtasks=normalizeSubtasks(modalSubtasks.filter(x=>x.text.trim()));
           // 步驟被刪掉之後，它留下的勾選要一起清乾淨
           it.subDone=normalizeSubDone(it.subDone, it.subtasks);
           it.date=dateVal; it.endDate=endDate; it.recurrence=recurrence;
         }
       } else {
-        items.push({ id: uid('item'), title, type: modalType, parentId, meetingTime, link,
+        const newId = uid('item');
+        items.push({ id: newId, title, type: modalType, parentId, meetingTime, link,
           tags: normalizeTags([...modalTags]),
+          dependsOn: normalizeDependsOn(modalDeps, newId, new Set(items.map(x=>x.id))),
           subtasks: normalizeSubtasks(modalSubtasks.filter(x=>x.text.trim())),
           subDone: {},
           date: dateVal, endDate, recurrence, done:false, doneMap:{}, overrides:{}, skipped:{} });
@@ -6035,6 +6361,9 @@
             tags: normalizeTags(r.src.tags || []),
             subtasks: normalizeSubtasks((r.src.subtasks||[]).map(x=>({ id: uid('sub'), text: x }))),
             subDone: {},
+            // AI 不設前置作業：它看不到「哪件事要先做」的因果，猜錯的話那條線
+            // 會靜靜地掛在那裡。使用者自己在 modal 裡連才有意義。
+            dependsOn: [],
             date: d, endDate: null, recurrence: null,
             done:false, doneMap:{}, overrides:{}, skipped:{}
           });
@@ -6115,7 +6444,8 @@
     items.push({ id: uid('item'), title:'整理個人學習筆記', type:'assignment', parentId:null, meetingTime:null, tags:['自我進修'], date: ymd(t), recurrence:null, done:false, doneMap:{}, overrides:{}, skipped:{} });
 
     const t3=new Date(t); t3.setDate(t.getDate()+9);
-    items.push({ id: uid('item'), title:'季度營運檢討會議', type:'meeting', parentId:mp2, meetingTime:'14:00', date: ymd(t3), recurrence:{ freq:'quarterly', day:t3.getDate(), holidayRule:'postpone' }, done:false, doneMap:{}, overrides:{}, skipped:{} });
+    const quarterlyId = uid('item');
+    items.push({ id: quarterlyId, title:'季度營運檢討會議', type:'meeting', parentId:mp2, meetingTime:'14:00', date: ymd(t3), recurrence:{ freq:'quarterly', day:t3.getDate(), holidayRule:'postpone' }, done:false, doneMap:{}, overrides:{}, skipped:{} });
     // 這一項刻意是循環＋帶步驟清單：那是子清單唯一有意思的組合——
     // 步驟本身每個月共用，勾選則每個月各自重來
     items.push({ id: uid('item'), title:'每月部門會議', type:'meeting', parentId:null, meetingTime:'09:00',
@@ -6126,7 +6456,17 @@
         { id: uid('sub'), text:'會後整理決議' }
       ], subDone:{},
       date: t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-05', recurrence:{ freq:'monthly', day:5, holidayRule:'postpone' }, done:false, doneMap:{}, overrides:{}, skipped:{} });
-    items.push({ id: uid('item'), title:'盤點各部門年度目標', type:'work', parentId:mp2, meetingTime:null, date: t.getFullYear()+'-01-05', recurrence:null, done:true, doneMap:{}, overrides:{}, skipped:{} });
+    // 這一項刻意是上面那場季度會議的**前置作業**：目標沒盤點完，檢討會就開不下去。
+    // 示範資料不示範新功能的話，第一次打開的人根本不知道有這些東西。
+    const goalsId = uid('item');
+    items.push({ id: goalsId, title:'盤點各部門年度目標', type:'work', parentId:mp2, meetingTime:null, date: t.getFullYear()+'-01-05', recurrence:null, done:true, doneMap:{}, overrides:{}, skipped:{} });
+    items.find(x=>x.id===quarterlyId).dependsOn = [goalsId];
+
+    // 「不在」：示範兩天連假。它只在日曆上標出來——不移動任何日期，
+    // 也不讓那幾天到期的東西變成不逾期。
+    const a1=new Date(t); a1.setDate(t.getDate()+21);
+    const a2=new Date(t); a2.setDate(t.getDate()+22);
+    awayDates.add(ymd(a1)); awayDates.add(ymd(a2));
 
     const gp = { id: uid('gp'), name:'官網改版專案', tasks: [], notes:'' };
     ganttProjects.push(gp); selectedGanttProjectId = gp.id;
