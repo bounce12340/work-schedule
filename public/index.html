@@ -314,13 +314,26 @@
        2. **高度用 dvh 不用 vh。** vh 不管虛擬鍵盤，鍵盤一跳出來輸入框就被
           蓋在下面，使用者看不到自己在打什麼。dvh 會跟著可視區域縮。
           先寫 vh 當後備，舊瀏覽器仍然可用。 */
-    .ai-panel{ width:100vw; left:0; right:0; top:auto; bottom:0;
-               height:85vh; height:85dvh;
-               border-left:none; border-top:1px solid var(--hairline);
-               border-radius:14px 14px 0 0;
-               box-shadow:0 -8px 32px rgba(0,0,0,.16); }
+    .ai-panel{ width:100vw; left:0; right:0; top:0; bottom:0;
+               height:100vh; height:100dvh;
+               border-left:none; border-radius:0;
+               box-shadow:none;
+               /* `viewport-fit=cover` 讓頁面延伸到瀏海與 home indicator 底下。
+                  .app／.sidebar／.modal／.undo-toast 都補了這個內距，**只有這裡
+                  漏掉**——後果是最下面的「今天已用」與兩顆按鈕的下緣被 home
+                  indicator（約 34px）或 Safari 的底部工具列蓋住，看起來就像
+                  面板超出畫面。上緣同理，整頁時會撞到動態島。 */
+               padding-top: env(safe-area-inset-top, 0px);
+               padding-bottom: env(safe-area-inset-bottom, 0px); }
+    /* 面板開著時鎖住背景捲動。手指想捲面板卻捲到後面的看板，畫面會莫名其妙地
+       跟著動——那是「怎麼比一個畫面還大」最主要的來源。整頁之後背景本來就看
+       不到，但捲動鏈仍然會傳過去，所以還是要擋。 */
+    body.ai-open{ overflow:hidden; }
     /* 拇指按得到的關閉鍵，而不是右上角那個 22px 的叉 */
     .ai-close{ font-size:20px; padding:4px 8px; }
+    /* 告知不能拿掉（那是使用者唯一看得到的說明），但手機上寬度是稀缺資源，
+       收緊行距與內距換 20 幾個 px 給內容 */
+    .ai-note{ padding:9px 14px; font-size:11.5px; line-height:1.65; }
     /* 輸入區改成兩行：文字框自己一行，兩顆按鈕在下面各佔一半。
        第一版只把按鈕改成橫排，結果它們被擠成 20px 寬——完全按不到。
        手機上寬度是稀缺資源，橫向擠三個東西一定有人被犧牲。 */
@@ -795,8 +808,20 @@
     .nav-item.active{ background: var(--amber-dim); }
     .nav-item .nav-dot{ width:6px; height:6px; }
 
-    /* 表單控制項：16px 以避免 iOS 聚焦時自動放大 */
-    select, input[type=date], input[type=time], input[type=number], input[type=text], textarea{ font-size:16px; padding:9px 10px; }
+    /* 表單控制項：16px 以避免 iOS 聚焦時自動放大。
+       **這條必須 !important，而且必須涵蓋所有可聚焦的控制項。**
+       原本寫成 `select, input[type=...], textarea{ font-size:16px }`，優先度只有
+       (0,0,1)——**任何帶 class 的規則都比它強**。`.ai-foot textarea` 是 13px，
+       於是 AI 的輸入框一被點，iOS 就把整頁放大 16/13 ≈ 1.23 倍，「拆解」按鈕
+       整個被推出螢幕右邊（使用者回報的實際畫面就是這個）。
+       當時漏掉的還有 #inputSearch(13.5)、#reminderLead(11)、#importFile(13.3)、
+       #inputHolidayBulk(12)。
+       不用 !important 的話，就得維護一份「所有帶 class 的控制項」清單，而漏掉
+       一個的後果正是這個 bug：只在 iOS 上發生，而且看起來像版面壞掉、不像字級
+       問題——最難從症狀推回原因的那一種。
+       **不要改用 `maximum-scale=1` 擋放大**：那會連使用者自己要放大也一起擋掉。 */
+    select, input, textarea, [contenteditable="true"]{ font-size:16px !important; }
+    select, input[type=date], input[type=time], input[type=number], input[type=text], textarea{ padding:9px 10px; }
     /* 富文字：同樣 16px 防自動放大；按鈕加大到好按，工具列換行而不是橫向撐開 */
     .rt-edit{ font-size:16px; }
     .rt-bar{ gap:3px; padding:7px 6px; }
@@ -5946,12 +5971,20 @@
     }
   }
 
+  /**
+   * 開關面板。**開關一定要走這裡**，不要在別處直接改 `hidden`——
+   * `body.ai-open` 負責在手機上鎖住背景捲動，兩者一旦分家就會留下
+   * 「面板關了但整頁還捲不動」這種只有在手機上才踩得到的狀態。
+   */
+  function aiSetOpen(open){
+    document.getElementById('aiPanel').hidden = !open;
+    document.body.classList.toggle('ai-open', open);
+    if(open) document.getElementById('aiInput').focus();
+  }
   document.getElementById('aiBtn').onclick=()=>{
-    const p=document.getElementById('aiPanel');
-    p.hidden=!p.hidden;
-    if(!p.hidden) document.getElementById('aiInput').focus();
+    aiSetOpen(document.getElementById('aiPanel').hidden);
   };
-  document.getElementById('aiClose').onclick=()=>{ document.getElementById('aiPanel').hidden=true; };
+  document.getElementById('aiClose').onclick=()=> aiSetOpen(false);
   document.getElementById('aiSend').onclick=aiSend;
   document.getElementById('aiPlanBtn').onclick=aiPlan;
   document.getElementById('aiInput').onkeydown=(e)=>{
