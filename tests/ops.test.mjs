@@ -16,7 +16,8 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { recordCronRun, listCronRuns, usageSummary } from '../src/handlers/ops.js';
+import { recordCronRun, cronResultErrors, listCronRuns, usageSummary } from '../src/handlers/ops.js';
+import { step } from '../src/index.js';
 import { createSession } from '../src/session.js';
 import { makeEnv, addUser, seedState } from './d1.mjs';
 
@@ -28,6 +29,68 @@ const rows = env => env.DB.prepare('SELECT * FROM cron_runs ORDER BY started_at'
 function run(env, step, ok, detail, at) {
   return recordCronRun(env, { step, ok, detail, startedAt: at, endedAt: at + 1200 });
 }
+
+// ------------------------------------------------- 沒丟例外 ≠ 這一步做到了
+
+/**
+ * 實際發生過（2026-09-09）：helen 的提醒信被 AgentMail 以 403 擋下（她的信箱進了
+ * 退訂名單），`sendOverdueReminders` 把它收進 errors[] 之後**正常回傳**——因為
+ * 一個人寄不出去不該讓其他人的信也不寄。於是 step() 記成成功，管理頁顯示
+ * 「✓ 正常」，而實際上一封都沒送出去。
+ *
+ * **假綠燈正是 cron_runs 這張表要防的東西**，由它自己製造出來是最糟的形狀。
+ *
+ * 下面刻意測 `step()` 本身而不是只測 `cronResultErrors()`：純函式測過了，也只
+ * 證明「判斷寫對了」，證明不了 step() 真的有去問它。要測的是那條接線。
+ */
+test('回傳值裡有 errors 就不能記成成功——否則管理頁會亮假綠燈', async () => {
+  const env = makeEnv();
+  await step(env, 'reminder', async () => ({
+    checked: 1, sent: 0, failed: 1,
+    errors: [{ email: 'helen@x.test', error: 'AgentMail 403: message_rejected' }],
+  }));
+
+  const r = rows(env);
+  assert.equal(r.length, 1);
+  assert.equal(r[0].ok, 0, '一封都沒寄出去，不能算成功');
+  assert.match(r[0].detail, /403/, '錯誤原因要留在 detail 裡，那是這張表存在的理由');
+});
+
+test('部分成功也不算乾淨的成功——有人收不到就是有人收不到', async () => {
+  const env = makeEnv();
+  await step(env, 'reminder', async () => ({
+    checked: 5, sent: 4, failed: 1, errors: [{ email: 'a@x.test', error: 'boom' }],
+  }));
+  assert.equal(rows(env)[0].ok, 0);
+});
+
+test('沒有 errors 的步驟照樣算成功——不要把備份與清理一起判死', async () => {
+  const env = makeEnv();
+  await step(env, 'backup', async () => ({ key: 'backup/2026-09-09.json', users: 2, states: 2 }));
+  await step(env, 'purge', async () => ({ sessions: 0, resets: 0, attempts: 0 }));
+  assert.deepEqual(rows(env).map(x => x.ok), [1, 1]);
+});
+
+test('空的 errors 陣列是成功，不是失敗', async () => {
+  const env = makeEnv();
+  await step(env, 'reminder', async () => ({ checked: 2, sent: 2, errors: [] }));
+  assert.equal(rows(env)[0].ok, 1);
+});
+
+test('丟例外仍然記成失敗（原本的行為不能被弄壞）', async () => {
+  const env = makeEnv();
+  await step(env, 'backup', async () => { throw new Error('R2 掛了'); });
+  const r = rows(env)[0];
+  assert.equal(r.ok, 0);
+  assert.match(r.detail, /R2 掛了/);
+});
+
+test('errors 不是陣列時當作沒有——不要因為形狀怪就把好好的一步判死', () => {
+  assert.deepEqual(cronResultErrors({ errors: 'boom' }), []);
+  assert.deepEqual(cronResultErrors({}), []);
+  assert.deepEqual(cronResultErrors(null), []);
+  assert.deepEqual(cronResultErrors(undefined), []);
+});
 
 // ---------------------------------------------------------------- 寫入
 

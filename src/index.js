@@ -2,7 +2,7 @@ import { handleRegister, handleLogin, handleLogout, handleMe, handleChangePasswo
 import { handleGetState, handlePutState } from './handlers/state.js';
 import { handleListUsers, handleUpdateUser, handleDeleteUser, handleResetPassword, handleAdminActivity } from './handlers/admin.js';
 import { runBackup, purgeExpired, listBackups } from './handlers/backup.js';
-import { recordCronRun, handleCronStatus, handleUsage } from './handlers/ops.js';
+import { recordCronRun, cronResultErrors, handleCronStatus, handleUsage } from './handlers/ops.js';
 import { handleAiStatus, handleAiAsk, handleAiPlan } from './handlers/ai.js';
 import { handleListShares, handleCreateShare, handleDeleteShare, handleUpdateShared, handleListActivity } from './handlers/share.js';
 import { handleIcsStatus, handleIcsEnable, handleIcsDisable, handleIcsPut, handleIcsFeed } from './handlers/ics.js';
@@ -236,13 +236,17 @@ function methodNotAllowed() {
  * **成功也要印**：只在失敗時印的話，「備份從三週前就沒在跑了」看起來與
  * 「一切正常」一模一樣——log 裡什麼都沒有。備份最可怕的失敗模式正是這種。
  */
-async function step(env, name, fn) {
+export async function step(env, name, fn) {
   const startedAt = Date.now();
   try {
     const result = await fn();
-    console.log(`cron ${name}`, JSON.stringify(result));
+    // 沒有丟例外 ≠ 這一步做到了。回傳值裡有 errors[] 就不算乾淨的成功——
+    // 理由與判斷寫在 cronResultErrors() 上面，那是實際發生過的假綠燈。
+    const errs = cronResultErrors(result);
+    if (errs.length) console.error(`cron ${name} 有 ${errs.length} 筆失敗`, JSON.stringify(errs));
+    else console.log(`cron ${name}`, JSON.stringify(result));
     await recordCronRun(env, {
-      step: name, ok: true, detail: JSON.stringify(result),
+      step: name, ok: errs.length === 0, detail: JSON.stringify(result),
       startedAt, endedAt: Date.now()
     });
   } catch (e) {

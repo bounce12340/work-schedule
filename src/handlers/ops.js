@@ -61,6 +61,30 @@ export async function recordCronRun(env, run) {
 }
 
 /**
+ * 這一步的回傳值有沒有在說「其實沒做到」。
+ *
+ * `step()` 原本只看有沒有丟例外——但 `sendOverdueReminders` **刻意不往上丟**：
+ * 一個人的信寄不出去，不該讓其他人的信也跟著不寄，所以它把個別失敗收進
+ * `errors[]` 再正常回傳。於是「函式沒有丟例外」與「這一步真的做到了」分家了。
+ *
+ * 實際後果（2026-09-09 早上）：helen 的提醒信被 AgentMail 以 403
+ * `message_rejected` 擋下（她的信箱進了退訂名單），這一步卻被記成成功，
+ * `/admin` 顯示「✓ 正常」。**假綠燈正是 cron_runs 這張表存在要防的東西，
+ * 不能由它自己製造出來。**
+ *
+ * 約定：任何 cron 步驟只要回傳值裡的 `errors` 是非空陣列，就不算乾淨的成功。
+ * 這是通用約定而不是為提醒寫死的判斷——日後多一個步驟會自動適用，而寫死一份
+ * 「哪些步驟要檢查」的清單，漏掉的那一個就會靜靜地繼續發假綠燈。
+ *
+ * 只認 `errors`，不認 `failed` 這種數字欄位：數字說得出「有幾個」，說不出
+ * 「為什麼」，而錯誤原因才是這張表要留住的東西。
+ */
+export function cronResultErrors(result) {
+  const errs = result && result.errors;
+  return Array.isArray(errs) ? errs : [];
+}
+
+/**
  * 給管理頁的 cron 狀態。
  *
  * 除了原始記錄，另外算出每個 step 的**最後一次成功**——那才是真正要看的數字。
