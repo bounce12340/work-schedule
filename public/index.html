@@ -22,6 +22,12 @@
     var dark = (pref === 'dark') || (pref !== 'light' &&
       window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
     document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+    // 時段也在這裡先決定，理由同主題：晚上打開若先畫成早上的顏色再切過去，
+    // 就是一次閃爍。時段的判斷與主 IIFE 內 tick() 用的那一行完全相同，
+    // 改一邊一定要改另一邊。
+    var h = new Date().getHours();
+    document.documentElement.setAttribute('data-daypart',
+      h < 5 ? 'evening' : h < 11 ? 'morning' : h < 17 ? 'afternoon' : 'evening');
   })();
 </script>
 <!-- 兩個網域都要 preconnect：CSS 在 googleapis，實際的 woff2 在 gstatic。
@@ -181,6 +187,35 @@
    * **內容面板刻意維持不透明**（`--panel` 是實色）。療癒感來自四周的留白與光暈，
    * 不是來自「讓字浮在圖上」——那會讓對比掉下去，而這個工具的看板一頁有上千列。
    */
+  /* ---- 天空跟著時間變色 ----
+     招呼語已經知道現在是一天裡的什麼時候；讓底圖也知道。早上是苔綠與暖沙，
+     下午偏金，傍晚之後偏玫瑰與靛——像天黑前的那一小段。
+
+     兩種主題各自一組，共六個組合。選擇器寫成 :root[data-theme][data-daypart]
+     (0,3,0)，才壓得過 :root[data-theme="dark"] (0,2,0)，而且亮暗互不干擾。
+     內容面板都是不透明的，這裡只動底圖，任何文字對比都不受影響——
+     check-contrast 仍然會在傍晚時段量一次，因為 header 的字是直接坐在光暈上的。 */
+  :root[data-theme="light"][data-daypart="afternoon"]{
+    --halo-a: rgba(160,158,96,0.46);
+    --halo-b: rgba(222,176,96,0.50);
+    --halo-c: rgba(150,160,120,0.40);
+  }
+  :root[data-theme="light"][data-daypart="evening"]{
+    --halo-a: rgba(150,120,140,0.44);
+    --halo-b: rgba(214,150,120,0.46);
+    --halo-c: rgba(96,108,150,0.44);
+  }
+  :root[data-theme="dark"][data-daypart="afternoon"]{
+    --halo-a: rgba(110,120,70,0.44);
+    --halo-b: rgba(140,110,60,0.42);
+    --halo-c: rgba(80,100,80,0.44);
+  }
+  :root[data-theme="dark"][data-daypart="evening"]{
+    --halo-a: rgba(110,80,110,0.44);
+    --halo-b: rgba(140,90,80,0.40);
+    --halo-c: rgba(60,70,120,0.48);
+  }
+
   /* 光暈會非常慢地飄。兩分鐘走完一趟、位移只有 1.5%——不是要讓人看見它在動，
      是要讓底圖不像一張貼死的圖片。
 
@@ -223,8 +258,14 @@
   /* 這裡原本寫著大寫的 SCHEDULE CONTROL BOARD——「工程控制台」那個聲音的
      字面版本。換成一句招呼：右邊的時鐘負責精確報時（機器的聲音），左邊這句
      負責「現在是一天裡的什麼時候」（人的聲音），兩種聲音在 header 就先碰面。 */
-  .brand-eyebrow{ font-family: var(--serif); font-size: 14px; letter-spacing: 1px; color: var(--text-muted); margin-bottom:8px; }
+  /* 招呼語坐在左上角——剛好是苔綠光暈最濃的中心點。--text-muted 在那個位置只有
+     3.29:1（check-contrast 把光暈算進去之後抓到的）。改用 --text，階層靠字級
+     （14 vs 27）而不是靠把顏色淡掉，同空狀態那次的判斷。 */
+  .brand-eyebrow{ font-family: var(--serif); font-size: 14px; letter-spacing: 1px; color: var(--text); margin-bottom:8px; }
   .brand-title{ font-family: var(--serif); font-size: 27px; font-weight: 600; letter-spacing: 1.5px; color:var(--text-strong); }
+  /* 週一的回顧：只講做完的。沒做完的那些，逾期的紅字已經在講了 */
+  /* 顏色與字級刻意與招呼語相同：它也坐在光暈上，量招呼語就等於量它 */
+  .brand-lookback{ font-family: var(--serif); font-size: 14px; color: var(--text); margin-top: 8px; letter-spacing: .5px; }
   .clock-block{ font-family: var(--mono); text-align:right; }
   .clock-block .now-date{ font-size:13px; color:var(--text-muted); }
   .clock-block .now-time{ font-size:19px; font-weight:700; color:var(--amber); letter-spacing:1px; }
@@ -485,6 +526,14 @@
   .occ-row.type-assignment{ border-left:3px solid var(--amber); }
   .checkbox{ width:19px; height:19px; border-radius:5px; border:1.5px solid var(--checkbox-border); display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; font-size:12px; color:transparent; transition: all .15s ease; }
   .checkbox.done{ background: var(--teal); border-color: var(--teal); color:var(--on-accent); }
+  /* 勾選是整個 app 按最多次的動作。彈一下——只在**被點的那一個**上（.pop 由
+     toggleOccDone 加、animationend 拿掉），不是 .done 本身：掛在 .done 上的話
+     每次完整重繪都會讓幾千個已完成的框一起彈。 */
+  @keyframes check-pop{ 0%{ transform:scale(1); } 45%{ transform:scale(1.22); } 100%{ transform:scale(1); } }
+  .checkbox.pop, .cal-item-check.pop, .cal-span-check.pop{ animation: check-pop .2s ease-out; }
+  @media (prefers-reduced-motion: reduce){
+    .checkbox.pop, .cal-item-check.pop, .cal-span-check.pop{ animation:none; }
+  }
   .occ-row.type-meeting .checkbox.done{ background: var(--violet); border-color: var(--violet); }
   .occ-row.type-assignment .checkbox.done{ background: var(--amber); border-color: var(--amber); }
   .occ-title{ font-size:14px; font-weight:600; }
@@ -609,7 +658,9 @@
   .cal-away-mark{ position:absolute; top:5px; left:6px; font-size:9.5px; line-height:1; opacity:.9; }
   .cal-cell.away .cal-daynum{ color: var(--away); }
   .cal-cell.today.away .cal-daynum{ color: var(--amber); }
-  .away-btn{ background:var(--away-dim); border:1px solid var(--away); color:var(--away);
+  /* 底色要不透明：這顆按鈕在日曆詳情區的頭部，後面沒有面板，半透明的底會透出
+     光暈，最差處只剩 3.28:1。 */
+  .away-btn{ background:var(--panel); border:1px solid var(--away); color:var(--away);
              font-family:var(--mono); font-size:12px; padding:7px 14px; border-radius:999px;
              cursor:pointer; white-space:nowrap; }
   .away-btn:hover{ background:var(--panel-2); }
@@ -677,7 +728,9 @@
             font-family: var(--sans); font-size:13.5px; line-height:1.7; color: var(--text); outline:none; }
   /* 空的時候顯示提示字。用 ::before 而不是塞一個節點進去，否則使用者一打字
      就要先把它清掉，游標位置會亂跳。 */
-  .rt-edit.rt-empty::before{ content: attr(data-placeholder); color: var(--text-dim); pointer-events:none; }
+  .rt-edit.rt-empty::before{ content: attr(data-placeholder); color: var(--text-muted); pointer-events:none; }
+  /* 每日記錄的提示語是一句真的在問你的話，用人的聲音問 */
+  .daylog-box .rt-edit.rt-empty::before{ font-family: var(--serif); font-size:14.5px; }
   .rt-edit p{ margin:0 0 6px; }
   .rt-edit ul, .rt-edit ol{ margin:4px 0; padding-left:22px; }
   .rt-edit li{ margin:2px 0; }
@@ -1058,6 +1111,7 @@
     <div>
       <div class="brand-eyebrow" id="brandGreeting"></div>
       <div class="brand-title" data-i18n>工作排程確認系統</div>
+      <div class="brand-lookback" id="brandLookback" hidden></div>
     </div>
     <div style="display:flex; align-items:center; gap:14px;">
       <div class="account-box" id="accountBox" style="display:none;">
@@ -1740,6 +1794,17 @@
       '這個大項目底下目前沒有任何項目。':'This group has no items yet.',
       '已逾期':'Overdue', '複製':'Copy', '已複製':'Copied',
       '早安':'Good morning', '午安':'Good afternoon', '晚安':'Good evening',
+      '上週你做完了 {0} 件事。':'Last week you finished {0} things.',
+      '今天想把心裡的話，慢慢寫下來。':'Take your time — write down whatever\u2019s on your mind.',
+      '今天有什麼讓你鬆一口氣的事？':'What let you breathe a little easier today?',
+      '有哪件事，其實可以不用那麼急？':'Is there something that doesn\u2019t need to be rushed?',
+      '今天誰幫了你一把？':'Who gave you a hand today?',
+      '哪件事做完的時候，心裡最輕？':'Which thing felt lightest to finish?',
+      '今天有沒有一刻，是你覺得「還好」的？':'Was there a moment today that felt okay?',
+      '今天學到什麼小事？':'What small thing did you learn today?',
+      '想留一句話給以後的自己。':'Leave a line for your future self.',
+      '今天先寫一件就好。':'Just one thing today is enough.',
+      '有什麼是明天的你會感謝今天的你做了的？':'What will tomorrow-you thank today-you for?',
       // —— 前置作業與「不在」——
       '待前置':'Blocked', '這些前置還沒完成：{0}':'These prerequisites are not done yet: {0}',
       '先做完了嗎？{0} 還沒完成。':'Did you finish it first? {0} is still open.',
@@ -3172,6 +3237,11 @@
     }
     occ.done = next;
     checkEl.classList.toggle('done', next); checkEl.textContent = next ? '✓' : '';
+    if(next){
+      checkEl.classList.remove('pop'); void checkEl.offsetWidth;   // 連點時重新起跑
+      checkEl.classList.add('pop');
+      checkEl.addEventListener('animationend', ()=> checkEl.classList.remove('pop'), { once:true });
+    }
     if(labelEl) labelEl.classList.toggle('done', next);
     const row = checkEl.closest ? checkEl.closest('.occ-row') : null;
     requestAnimationFrame(()=> requestAnimationFrame(()=>{
@@ -3886,6 +3956,31 @@
     return !!v && !rtIsEmpty(v);
   }
 
+  /**
+   * 每日記錄的提示語。**照日期決定，不是隨機**——同一天重新整理不會跳來跳去，
+   * 而且昨天的格子與今天的格子問的是不同的問題。
+   *
+   * 這是「人在說話」那個聲音最後一個還沒用到的地方。問題刻意都很輕：沒有
+   * 「你今天完成了什麼」這種考卷式的句子，逾期的紅字已經在問那個了。
+   */
+  const DAILY_PROMPTS = [
+    '今天想把心裡的話，慢慢寫下來。',
+    '今天有什麼讓你鬆一口氣的事？',
+    '有哪件事，其實可以不用那麼急？',
+    '今天誰幫了你一把？',
+    '哪件事做完的時候，心裡最輕？',
+    '今天有沒有一刻，是你覺得「還好」的？',
+    '今天學到什麼小事？',
+    '想留一句話給以後的自己。',
+    '今天先寫一件就好。',
+    '有什麼是明天的你會感謝今天的你做了的？'
+  ];
+  function dailyPrompt(dateStr){
+    let h = 0;
+    for(const ch of String(dateStr)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    return tr(DAILY_PROMPTS[h % DAILY_PROMPTS.length]);
+  }
+
   /** 每日記錄的純文字摘要，給格子上的 title 提示用。 */
   function dayLogExcerpt(dateStr, max){
     const txt = String(dailyLogs[dateStr] || '')
@@ -4261,7 +4356,7 @@
     const dateKey = calSelectedDate;   // 綁定當下的日期，之後切換日期會整段重建
     const rt = buildRichEditor({
       value: dailyLogs[dateKey] || '',
-      placeholder: '今天想把心裡的話，慢慢寫下來。（寫了之後日曆格子上會出現 ✎ 記號）',
+      placeholder: dailyPrompt(dateKey),
       onInput: html=>{
         dailyLogs[dateKey] = html;
         syncDayLogMark(dateKey);
@@ -5114,9 +5209,14 @@
     // 這不違反〈時鐘與資料重算已解耦〉：那條擋的是「每秒把所有循環項目展開
     // 一次」，成本隨項目數放大。這裡是一次字串比較，與資料量無關。
     const greetEl = document.getElementById('brandGreeting');
+    const h = d.getHours();
+    // 與 <head> 開機腳本那一行完全相同，改一邊一定要改另一邊
+    const daypart = h < 5 ? 'evening' : h < 11 ? 'morning' : h < 17 ? 'afternoon' : 'evening';
+    if(document.documentElement.getAttribute('data-daypart') !== daypart){
+      document.documentElement.setAttribute('data-daypart', daypart);
+    }
     if(greetEl){
-      const h = d.getHours();
-      const want = tr(h < 5 ? '晚安' : h < 11 ? '早安' : h < 17 ? '午安' : '晚安');
+      const want = tr(daypart === 'morning' ? '早安' : daypart === 'afternoon' ? '午安' : '晚安');
       if(greetEl.textContent !== want) greetEl.textContent = want;
     }
     const curYmd = ymd(d);
@@ -5525,8 +5625,31 @@
     return table;
   }
 
+  /**
+   * 週一的一句回顧：「上週你做完了 N 件事。」
+   *
+   * 只在週一、而且 N > 0 才出現。N = 0 那句會變成一個小小的刺，不是回顧——
+   * 與逾期提醒信那條「沒事就完全不寄」是同一個判斷。只講做完的：沒做完的那些，
+   * 逾期的紅字已經在講了，這一行是往回看，不是往前逼。
+   *
+   * 從 renderAll() 呼叫而不是 tick()：它要展開上週七天的 occurrence，那是資料
+   * 重算，不能每秒做。renderAll 在每次 commit 與跨日時都會跑，足夠新。
+   */
+  function renderLookback(){
+    const el = document.getElementById('brandLookback');
+    if(!el) return;
+    const now = new Date();
+    if(now.getDay() !== 1){ el.hidden = true; return; }
+    const lastMon = new Date(now); lastMon.setDate(now.getDate() - 7); lastMon.setHours(0,0,0,0);
+    const lastSun = new Date(lastMon); lastSun.setDate(lastMon.getDate() + 6); lastSun.setHours(23,59,59,999);
+    const n = getAllOccurrences(lastMon, lastSun).filter(o => o.done).length;
+    if(!n){ el.hidden = true; return; }
+    el.textContent = tf('上週你做完了 {0} 件事。', n);
+    el.hidden = false;
+  }
+
   function renderAll(){
-    renderMetrics(); renderReminderList();
+    renderMetrics(); renderReminderList(); renderLookback();
     if(currentView==='calendar') renderCalendar();
     else if(currentView==='gantt') renderGanttView();
     else if(currentView==='shared') renderSharedView();

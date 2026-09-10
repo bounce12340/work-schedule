@@ -139,6 +139,12 @@ jobs:
       - name: 前置作業與「不在」
         run: node tools/check-deps.mjs
 
+      # 天空跟著時段變色、提示語照日期換、打勾彈一下、週一的回顧。四件事都
+      # 依賴時間，而依賴時間的東西最容易在開發時看起來對、在別的時段壞掉——
+      # 白天寫的程式碼從來沒有在晚上跑過。全部用 page.clock 釘死時間分別跑。
+      - name: 氛圍（時段／提示語／彈跳／回顧）
+        run: node tools/check-ambience.mjs
+
   deploy:
     name: 部署到 Cloudflare
     needs: [check, smoke]

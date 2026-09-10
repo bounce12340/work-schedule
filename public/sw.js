@@ -25,7 +25,7 @@
  * （PWA 的某些啟動路徑、iOS 的返回上一頁、預抓）。少了版本號的話，舊的那一份
  * 沒有任何時機會被清掉。
  */
-const CACHE = 'work-schedule-v3';
+const CACHE = 'work-schedule-v4';
 
 // 這幾個不需要登入就取得，install 階段預先抓下來
 const PRECACHE = [

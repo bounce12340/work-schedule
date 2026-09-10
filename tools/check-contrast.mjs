@@ -101,6 +101,33 @@ const measure = sels => {
     const c = parse(getComputedStyle(document.body).backgroundColor);
     return c.length >= 3 ? c.slice(0, 3) : [255, 255, 255];
   };
+  // 光暈畫在 body::before 上，不是任何元素的祖先，bgOf() 看不到它——所以直接
+  // 坐在 body 上的字（招呼語、標題）量到的一直是 --bg，而不是它實際壓在上面的
+  // 顏色。這裡改成算**最差情況**：把三團光暈各自以滿 alpha 疊在 --bg 上，取三者
+  // 之中對比最低的那一個。任何位置的真實對比都不會比這個更差。
+  const root = getComputedStyle(document.documentElement);
+  const token = n => parse(root.getPropertyValue(n));
+  const over = (top, base) => {           // top: [r,g,b,a] 疊在不透明的 base 上
+    const a = top.length >= 4 ? top[3] : 1;
+    return [0, 1, 2].map(i => Math.round(top[i] * a + base[i] * (1 - a)));
+  };
+  const haloWorst = (fg, bg) => {
+    const L1 = lum(fg);
+    let worst = Infinity;
+    for (const n of ['--halo-a', '--halo-b', '--halo-c']) {
+      const h = token(n); if (h.length < 3) continue;
+      const L2 = lum(over(h, bg));
+      worst = Math.min(worst, (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05));
+    }
+    return worst;
+  };
+  const sitsOnBody = el => {
+    for (let n = el; n && n !== document.body; n = n.parentElement) {
+      const c = parse(getComputedStyle(n).backgroundColor);
+      if (c.length >= 3 && (c[3] === undefined || c[3] > 0.92)) return false;
+    }
+    return true;
+  };
   const out = [];
   for (const [sel, label] of sels) {
     const el = document.querySelector(sel);
@@ -109,7 +136,8 @@ const measure = sels => {
     const fg = parse(cs.color).slice(0, 3);
     const bg = bgOf(el);
     const L1 = lum(fg), L2 = lum(bg);
-    const ratio = (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05);
+    let ratio = (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05);
+    if (sitsOnBody(el)) ratio = Math.min(ratio, haloWorst(fg, bg));
     const px = parseFloat(cs.fontSize);
     const w = parseInt(cs.fontWeight) || 400;
     const large = px >= 18.66 || (px >= 14 && w >= 700);
@@ -121,8 +149,18 @@ const measure = sels => {
 const br = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM });
 const problems = [];
 
-for (const theme of ['light', 'dark']) {
+// 天空會跟著時段變色，而 header 的字（招呼語、標題）直接坐在光暈上——
+// 所以除了亮暗兩種主題，傍晚那組光暈也要量一次。時間用 page.clock 釘死，
+// 不靠執行當下幾點；不然這個檢查會在白天過、晚上紅，沒有人會相信它。
+const PASSES = [
+  ['light', '亮色', null],
+  ['dark', '暗色', null],
+  ['light', '亮色・傍晚', '2026-09-09T20:30:00'],
+  ['dark', '暗色・傍晚', '2026-09-09T20:30:00'],
+];
+for (const [theme, label, fixedTime] of PASSES) {
   const page = await br.newPage({ viewport: { width: 1280, height: 900 }, locale: 'zh-TW' });
+  if (fixedTime) await page.clock.setFixedTime(new Date(fixedTime));
   await page.addInitScript(t => { try { localStorage.setItem('workSchedule.v1.theme', t); } catch (e) {} }, theme);
   await page.goto(`http://localhost:${PORT}/`);
   await page.waitForSelector('#board');
@@ -146,12 +184,12 @@ for (const theme of ['light', 'dark']) {
   await page.waitForTimeout(400);            // 搜尋有 180ms debounce
   rows.push(...await page.evaluate(measure, AFTER_SEARCH));
 
-  console.log(`\n===== ${theme === 'light' ? '亮色' : '暗色'} =====`);
+  console.log(`\n===== ${label} =====`);
   for (const r of rows) {
     if (r.missing) { console.log(`  ?  ${r.label}（畫面上沒有這個元素，略過）`); continue; }
     const ok = r.ratio >= r.need;
     console.log(`  ${ok ? '✓' : '✗'}  ${String(r.ratio).padStart(5)}:1  (需要 ${r.need}:1)  ${r.label}  ${r.px}px`);
-    if (!ok) problems.push(`${theme}｜${r.label}：${r.ratio}:1，低於 ${r.need}:1`);
+    if (!ok) problems.push(`${label}｜${r.label}：${r.ratio}:1，低於 ${r.need}:1`);
   }
   await page.close();
 }

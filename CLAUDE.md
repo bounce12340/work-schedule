@@ -93,8 +93,8 @@ node tools/verify-richtext.mjs
 
 | job | 內容 | 何時跑 |
 |---|---|---|
-| `check` | `npm test`、`tools/check-syntax.mjs`、`wrangler deploy --dry-run` | 每個 PR 與 main |
-| `smoke` | `smoke.mjs`、`verify-toggle.mjs`、`verify-richtext.mjs`、`check-calendar.mjs`、`check-notes.mjs`、`check-contrast.mjs`、`check-deps.mjs`（要 Chromium） | 每個 PR 與 main |
+| `check` | `npm test`、`tools/check-syntax.mjs`、`tools/check-sw-version.mjs`、`wrangler deploy --dry-run` | 每個 PR 與 main |
+| `smoke` | `smoke.mjs`、`verify-toggle.mjs`、`verify-richtext.mjs`、`check-calendar.mjs`、`check-notes.mjs`、`check-contrast.mjs`、`check-deps.mjs`、`check-ambience.mjs`（要 Chromium） | 每個 PR 與 main |
 | `deploy` | `npx wrangler deploy`，完成後打一次線上 `/` 確認回 302 | 只有 push 到 `main` |
 
 幾個刻意的決定：
@@ -144,7 +144,9 @@ Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.Comm
 | `tools/check-calendar.mjs` | 日曆的色條軌道對齊、跨月與週界的收邊、每日記錄的 ✎ 記號 | 動到 `renderCalendar()` 或日曆的 CSS |
 | `tools/check-notes.mjs` | 每日記錄／專案筆記的格式（醒目提示、顏色、字級）與內容在離開後仍在 | 動到富文字、`persistSoon()` 或任何 debounce 寫入 |
 | `tools/check-contrast.mjs` | 正文級文字在**兩種主題**下都達到 WCAG 對比（4.5:1／大字 3:1） | 動到任何顏色變數或文字顏色 |
-| `tools/check-deps.mjs` | 前置作業的「待前置」徽章、不阻擋勾選；「不在」的標記**與逾期並存** | 動到 `dependsOn`、`awayDates`、`toggleOccDone` 或逾期判斷 |
+| `tools/check-deps.mjs` | 前置作業的「待前置」徽章、不阻擋勾選；「不在」的標記**與逾期並存**；逾期的顏色就是 `--red` 且字重比旁邊重 | 動到 `dependsOn`、`awayDates`、`toggleOccDone`、逾期判斷或任何視覺改版 |
+| `tools/check-ambience.mjs` | 時段（早／午／晚）的 `data-daypart` 與光暈、每日記錄的提示語照日期決定、打勾的彈跳只在被點的那一個上、週一的回顧（含 N=0 不出現） | 動到 `tick()`、`<head>` 開機腳本、`DAILY_PROMPTS`、`renderLookback()` 或 `.checkbox` 的 CSS |
+| `tools/check-sw-version.mjs` | 動到 `public/*.html` 時 `sw.js` 的 `CACHE` 有沒有跟著加（零相依，在 `check` job） | 任何前端改動；CI 會自動跑，本機 `node tools/check-sw-version.mjs origin/main HEAD` |
 | `tools/measure-board.mjs` | 切換檢視／篩選／搜尋卡住主執行緒多久（自己造 64／150／300 項的資料） | 動到 `renderBoard()` 或看板的 CSS。**不在 CI**：數字隨環境浮動，設門檻只會製造沒有人相信的紅燈，用途是改動前後各跑一次自己比對 |
 | `tools/check-mobile.mjs` | 手機（iPhone 13、CPU 降速 4 倍、64 個項目）：五頁都不橫向溢出、切換與互動的停頓、**點擊目標大小** | 動到任何版面或 CSS。同樣不在 CI |
 
@@ -1076,6 +1078,30 @@ DOM 建構有兩種寫法，請依情境沿用：
 離線退回系統宋體，功能不受影響（同 `--sans` 的處理）。字型仍然非阻擋載入，理由見〈字型不阻擋首次繪製〉。
 
 **header 的 eyebrow 原本是大寫的 `SCHEDULE CONTROL BOARD`**——「工程控制台」那個聲音的字面版本。換成一句招呼（早安／午安／晚安）：右邊的時鐘負責精確報時，左邊這句負責「現在是一天裡的什麼時候」，兩種聲音在 header 就先碰面。它寫在 `tick()` 裡但**先比對現有文字才寫入**，所以切換語言時會自己更新，不必另外掛一條路徑；那也不違反〈時鐘與資料重算已解耦〉——那條擋的是「每秒展開所有循環項目」，成本隨項目數放大，而這裡是一次字串比較。
+
+### 天空跟著時間變色
+
+招呼語知道現在是一天裡的什麼時候，底圖也知道：早上苔綠與暖沙、下午偏金、傍晚之後偏玫瑰與靛。`<html data-daypart>` 由 **`<head>` 開機腳本先寫、`tick()` 再維持**——理由同主題：晚上打開若先畫成早上的顏色再切過去就是一次閃爍。兩處判斷時段的那一行完全相同，改一邊一定要改另一邊。
+
+選擇器寫成 `:root[data-theme="…"][data-daypart="…"]`（0,3,0）才壓得過 `:root[data-theme="dark"]`（0,2,0），六個組合各自一組變數。
+
+#### 對比工具原本看不到光暈
+
+`check-contrast.mjs` 的 `bgOf()` 往上找第一個不透明的祖先，而光暈畫在 `body::before`——**不是任何元素的祖先**。直接坐在 body 上的字（招呼語、標題、日曆詳情區的按鈕）量到的一直是 `--bg`，不是它實際壓在上面的顏色。加了「傍晚也量一次」之後數字一模一樣才發現這件事：那個 pass 原本是空的。
+
+現在改成算**最差情況**：三團光暈各自以滿 alpha 疊在 `--bg` 上，取對比最低的那一個。任何位置的真實對比都不會比它更差。改完當場抓到兩個：招呼語 3.29:1（它坐在左上角，正是苔綠光暈的中心）、「不在」按鈕 3.28:1（半透明底透出光暈）。前者改 `--text`（階層靠字級），後者底色改不透明的 `--panel`。
+
+### 每日記錄的提示語照日期決定
+
+`DAILY_PROMPTS` 十句，`dailyPrompt(dateStr)` 以日期字串 hash 選一句。**照日期不是隨機**：同一天重新整理不跳、昨天與今天問的是不同的問題。句子刻意都很輕——沒有「你今天完成了什麼」這種考卷式的問句，逾期的紅字已經在問那個了。這是「人在說話」最後一個還沒用到的位置。
+
+### 打勾的彈跳只掛在被點的那一個上
+
+`.pop` 由 `toggleOccDone()` 加、`animationend` 拿掉。**不能掛在 `.done` 上**：那樣每次完整重繪幾千個已完成的框會一起彈，畫面看起來只是「有點閃」，沒有任何檢查會紅。`check-ambience.mjs` 因此看的是計算後的 `animationName`，不是 class——要防的錯法正是「class 都對、動畫掛錯地方」。突變驗證過：掛回 `.done` 會紅。
+
+### 週一的一句回顧
+
+「上週你做完了 N 件事。」只在**週一**、而且 **N > 0** 才出現——N = 0 那句是一根刺，不是回顧，與逾期提醒信「沒事就完全不寄」是同一個判斷。只講做完的：沒做完的那些逾期的紅字已經在講了，這一行是往回看，不是往前逼。從 `renderAll()` 呼叫而不是 `tick()`，它要展開上週七天，那是資料重算。
 
 ### 光暈會動，但動得幾乎看不出來
 
