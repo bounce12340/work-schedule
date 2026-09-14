@@ -65,6 +65,12 @@ npx wrangler secret put APP_URL              # 選填，信件內的連結
 >
 > 沒設定時提醒功能不會運作，但不影響其他任何功能。
 
+**既有的資料庫要先跑最新的 migration 再部署**（`schema.sql` 補不了已存在資料表的新欄位）：
+
+```bash
+npx wrangler d1 execute work-schedule-db --remote --file=./migrations/005-app-purchase.sql
+```
+
 最後部署：
 
 ```bash
@@ -156,7 +162,14 @@ APP_URL=<選填>
 ### 👤 我的帳號
 - 主畫面第五個分頁，集中帳號資訊、變更密碼、逾期提醒、行事曆訂閱、登入中的裝置、顯示偏好與備份
 - **登入中的裝置**：看得到自己在哪些裝置登入、最後使用時間，可一鍵「登出其他所有裝置」（保留目前這台）；不記錄 IP
+- **刪除我的帳號**：分頁最下面；輸入密碼確認後，帳號、雲端上的所有排程、分享、行事曆訂閱與提醒設定立即刪除（每日備份 14 天後消失）。網頁版與 iOS app 都有
 - 未登入（單檔開啟）時，備份與顯示偏好照常可用，其餘顯示為需要登入
+
+### 📱 iOS app（付費下載）
+- 同一份 `index.html` 內建進原生 app（`mobile/`，Capacitor）。離線能開；登入用存在 Keychain 的 token；網頁版與 app 共用同一套帳號與同一份資料
+- 在 app 裡註冊會附上 Apple 的購買證明（StoreKit `AppTransaction`），Worker 離線驗簽：不用等管理者核准，一次購買一個帳號。六碼 email 驗證碼取代 Turnstile（它在 app 裡跑不起來）
+- 打包與上傳在 GitHub 的 Mac 上跑（`.github/workflows/ios.yml`，手動觸發），不需要自己有 Mac。四個 repository secrets：`ASC_KEY_ID`、`ASC_ISSUER_ID`、`ASC_API_KEY_P8`、`APPLE_TEAM_ID`。用 TestFlight 測試期間 Worker 要設 `APP_PURCHASE_ALLOW_SANDBOX=1`
+- 公開的[隱私權政策](./public/privacy.html)在 `/privacy.html`
 
 ### 💾 自動備份與提醒（部署後才啟用）
 - 每天自動把所有排程備份到 Cloudflare R2，保留最近 14 份（**不含密碼**，還原後各自走「忘記密碼」重設）
@@ -224,4 +237,5 @@ public/sw.js           service worker（加到主畫面／離線可用）
 | 「不在」 | 只是日曆與列上的標記：不移動任何日期，也**不影響逾期**、提醒信與行事曆訂閱 |
 | 週末補班 | 已支援：在「補班日」清單加入的週末視為工作日，循環不會被順延跳過 |
 | 甘特圖 | 長條不支援拖曳，日期透過表格輸入修改 |
+| iOS app | 付費下載；一次購買一個帳號；Apple 退款後帳號仍在。前端每次改版都要重新打包送審。陌生人只能在 app 裡註冊 |
 | 變更循環頻率 | 每月 ↔ 每季互換時，各次的完成／覆寫／略過紀錄會重置（存檔時會事先警告） |

@@ -15,7 +15,8 @@ src/index.js           路由與存取控制
 src/crypto.js          PBKDF2 密碼雜湊、token 產生
 src/session.js         session 建立／查詢／銷毀
 src/turnstile.js       Turnstile siteverify
-src/handlers/          auth / state / admin / share / password-reset 等 API
+src/handlers/          auth / state / admin / share / password-reset / appauth 等 API
+src/apppurchase.js     App Store 購買證明（AppTransaction JWS）的離線驗簽
 src/mail.js            AgentMail 寄信（逾期提醒與密碼重設共用）
 src/throttle.js        登入失敗節流（email 與 IP 兩個維度）
 migrations/            既有資料庫的欄位變更（schema.sql 的 IF NOT EXISTS 補不了欄位）
@@ -28,6 +29,9 @@ docs/postmortems/      事故紀錄（線上才會壞的坑，出過事就寫一
 docs/superpowers/specs/ 設計文件
 public/sw.js           service worker（加到主畫面／離線可用）
 public/manifest.webmanifest, public/icon*.png|svg
+public/privacy.html    隱私權政策（不用登入；App Store 審查要求）
+mobile/                iOS app 外殼（Capacitor；自己的 package.json，見〈iOS app〉）
+.github/workflows/ios.yml  在 GitHub 的 Mac 上打包、簽章、上傳到 App Store Connect（手動觸發）
 ```
 
 **前端沒有 build step。** 唯一的前端外部資源是 Google Fonts CDN，離線時退回系統字型但功能不受影響。
@@ -45,6 +49,8 @@ public/manifest.webmanifest, public/icon*.png|svg
 | `tests/ops.test.mjs` | cron 執行記錄、功能使用狀況 | 直接 import Worker 端模組 |
 | `tests/ai.test.mjs` | AI 端點的限流、記錄、金鑰不外洩 | 直接 import，並注入假的 `fetch` |
 | `tests/deps.test.mjs` | 前置作業的配對與擋環、「不在」不影響任何計算 | 從 `index.html` 抽真正的原始碼求值 |
+| `tests/appauth.test.mjs` | Bearer 與 cookie 並存、購買證明驗簽（五種失敗一種成功）、email 驗證碼、app 註冊／登入 | 直接 import；`tests/fake-apple.mjs` 用純 JS 的 DER 編碼器自己當 Apple 簽憑證鏈 |
+| `tests/account-delete.test.mjs` | 刪除自己的帳號：每張表清空、**別人的每一列原樣**、session 失效 | 直接 import Worker 端模組 |
 
 前三者的挑選理由：前兩者近乎純函式、零 DOM 依賴；第三者是**競態**——靠併發碰運氣測不到，但可以把空窗做成確定性的。
 
@@ -66,7 +72,7 @@ npm run db:init:local  # 對本機 miniflare D1 建表（--local 的資料庫與
 npm run db:init        # 對遠端 D1 建表
 npm run admin:reset    # 破窗鎚：直接改密碼（見〈破窗鎚〉）
 npm run deploy         # 部署
-npm test               # 全部測試檔（node:test，不需安裝任何東西；目前 258 個測試）
+npm test               # 全部測試檔（node:test，不需安裝任何東西；目前 285 個測試）
 ```
 
 跑單一測試檔或單一測試（`npm test` 沒有轉發參數的管道，直接用 node）：
@@ -138,7 +144,7 @@ Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.Comm
 
 | 腳本 | 驗什麼 | 什麼時候一定要跑 |
 |---|---|---|
-| `tools/smoke.mjs` | 四個頁籤 × 中英文 × 單檔／已登入共四輪，零 pageerror、零 console.error、每頁關鍵錨點存在 | **任何前端改動**。第 0 條的自動化版本 |
+| `tools/smoke.mjs` | 四個頁籤 × 中英文 × 單檔／已登入共四輪，加上「iOS app 外殼（假 Capacitor）」與「隱私頁」共六輪：零 pageerror、零 console.error、每頁關鍵錨點存在；app 那一輪還斷言**所有打到線上網址的請求都帶 Bearer** | **任何前端改動**。第 0 條的自動化版本 |
 | `tools/verify-toggle.mjs` | 勾選的就地更新與完整重繪結果完全相同 | 動到 `renderBoard()` 或 `moveOccRowToDone()` |
 | `tools/verify-richtext.mjs` | 富文字過濾器的整條管線（含 DOM 走訪）擋得住 16 種攻擊向量 | 動到富文字 |
 | `tools/check-calendar.mjs` | 日曆的色條軌道對齊、跨月與週界的收邊、每日記錄的 ✎ 記號 | 動到 `renderCalendar()` 或日曆的 CSS |
@@ -562,6 +568,39 @@ Turnstile 擋得住「一秒鐘一萬次」的機器人，擋不住「一分鐘�
 - 任何管理者都看得到全部——這種記錄的用途就是互相監督，只讓自己看自己做過什麼等於沒有記錄。
 - 寫入失敗只 `console.warn`，不讓已經成功的操作變成 500（帳號狀態已經改了，回錯誤會讓管理者重試而重複操作）。
 
+## iOS app（`mobile/`）
+
+設計文件在 `docs/superpowers/specs/2026-09-14-ios-app-design.md`，決策過程都在裡面。這裡只記實作後不能拿掉的判斷。
+
+**形狀：付費下載、`index.html` 內建、與網頁版共用同一套帳號與資料。** 錢在 App Store 那一刻收完，所以沒有 IAP、沒有訂閱、沒有刷卡；後端唯一要回答的是「這個帳號的主人買了 app 嗎」。
+
+| 決定 | 理由 |
+|---|---|
+| **內建 `index.html`，不是殼載入線上網站** | Ionic 團隊說 `server.url` 本來只給開發用；到 2026 年「把網站包起來」幾乎一定被 4.2 退件。代價是前端每次改版要重新送審 |
+| `mobile/` 有**自己的 `package.json`** | Capacitor 只裝在那裡，根目錄零相依不變；`npm test` 與現有 CI 不碰它 |
+| `mobile/www/` 是**建置產物，不進 git** | 它只是 `public/index.html` 的副本，副本一定走鐘。`prepare-www.mjs` 每次打包重新複製，並檢查〈原生外殼〉區段真的在裡面 |
+| 前端**包一層 `fetch`**，不改三十幾處呼叫 | 相對路徑 `/api/...` 在 `capacitor://localhost` 底下會打到 app 自己身上。大範圍機械式改名正是〈多語系〉那節遮蔽事故的形狀。只在 `window.Capacitor.isNativePlatform()` 為真時換掉，網頁版連這一層都沒有。這是全檔唯一改寫全域行為的地方 |
+| app 走 **Bearer token**，網頁走 cookie，**同一張 `sessions` 表** | WKWebView 對第三方 cookie 很嚴，靠它會時好時壞。`readSessionToken()` 先 cookie 後 Bearer；app 的 session 180 天 |
+| token 存 **Keychain**，不放 localStorage | WKWebView 的網頁儲存會跟著「清除網站資料」消失，也沒有 Keychain 的保護。自寫的 Swift 插件（約 60 行）做這件事，不裝第三方插件 |
+| 註冊附 **AppTransaction 的 JWS，離線驗簽**（`src/apppurchase.js`） | x5c 鏈逐段驗到內建的 Apple Root CA - G3、ES256 驗本體、比對 bundleId 與環境。不打 Apple 的 API：沒有網路依賴、沒有限流、沒有另一把金鑰。**根憑證可注入只為了測試**（`tests/fake-apple.mjs` 自己當 Apple） |
+| `app_transaction_id` **UNIQUE**：一次購買一個帳號 | 擋「買一份、開十個帳號」。同一個 Apple ID 重灌拿到同一個 id，換手機登入即可；刪掉帳號後 id 空出來可以再註冊。競態靠 UNIQUE 擋，不靠先 SELECT 再 INSERT |
+| **email 驗證碼取代 Turnstile** | Turnstile 在非 http 網域跑不起來。收得到寄到這個信箱的碼，同時證明信箱是本人的、也擋機器人。只存雜湊（以 email 為鹽）、10 分鐘、5 次、用過即刪 |
+| 註冊的順序：密碼長度 → 驗購買證明 → email／購買是否用過 → **最後才消費驗證碼** | 驗證碼用過即刪；若先消費再發現購買證明不對，使用者得回信箱重新索取 |
+| 驗證碼端點**無論 email 有沒有註冊都回 200** | 否則變成帳號列舉工具（同忘記密碼）。已註冊的人在註冊那一步才拿到 409——到那時他已經證明自己收得到那個信箱的信 |
+| `APP_PURCHASE_ALLOW_SANDBOX=1` 才放行 Sandbox／Xcode 環境 | TestFlight 測試期間開，上架後關。預設拒絕，忘記關比忘記開安全 |
+| 401 在 app 裡**清 Keychain、回登入畫面**，不導向 `/login` | app 裡沒有那一頁。`sessionExpired()` 分兩條路 |
+| 登入／註冊成功後 `location.reload()` | 與「帶著 token 開 app」走同一條啟動路徑（`nativeBoot`），不另外拼一份初始化 |
+| **刪除自己的帳號**（`DELETE /api/auth/account`）：先記錄再刪，`shares` 兩個方向都刪，`share_activity` 保留 | Apple 5.1.1(v) 硬規定。`ADMIN_EMAILS` 名單內的帳號也能刪自己：名單防的是另一位管理者的橫向操作，本人拿密碼刪自己是直向的。測試守著「別人的每一列原樣」 |
+| `public/privacy.html` 不用登入 | App Store 審查員與還沒註冊的人都會來看。`run_worker_first` 沒列它，靜態資產直接供應 |
+| AI 每日上限 50 → 20 | 付費下載一次收、永遠用，每次呼叫都要付 DeepSeek 錢 |
+| 打包**只在手動觸發或 `ios-v*` tag** 時跑，在 GitHub 的 `xcode-27` 映像 | Mac runner 貴而且慢；開發者沒有 Mac 也不需要。自動簽章帶 App Store Connect API 金鑰，四個 secrets：`ASC_KEY_ID`、`ASC_ISSUER_ID`、`ASC_API_KEY_P8`、`APPLE_TEAM_ID`。金鑰寫進 `~/private_keys`，跑完一律刪 |
+
+**改版時要做的事**：`mobile/package.json` 的 `version` 往上加（build 號是 GitHub 的 `run_number`，不用管）→ 手動跑 iOS workflow → App Store Connect 送審。`public/index.html` 改了 app 不會自己更新。
+
+**部署順序**：`migrations/005-app-purchase.sql` 要在部署新 Worker **之前**跑（`INSERT INTO users (... purchase_source ...)` 欄位不在會直接失敗），理由見〈資料庫結構變更〉。
+
+**驗證**：`tests/appauth.test.mjs`、`tests/account-delete.test.mjs`（突變驗證七種改法都會紅）；`tools/smoke.mjs` 的「iOS app 外殼」那一輪用假的 `window.Capacitor` 走登入畫面、寄驗證碼、登入、**所有線上請求都帶 Bearer**、登出清 Keychain（拿掉 Bearer 那一行當場紅）。真機只能靠 TestFlight。
+
 ## 跨帳號分享
 
 只分享**指標**，不複製內容。`shares` 一列＝「擁有者把某一個資源分享給某一位使用者」，資源本身永遠只有一份，存在擁有者的 `user_state` JSON 裡。
@@ -833,7 +872,7 @@ AI 的批次寫入正是就地修改，第一版因此復原不了，是瀏覽�
 新增欄位因此要在 `migrations/` 下留一支單獨的 SQL，並在**部署之前**跑過：
 
 ```bash
-npx wrangler d1 execute work-schedule-db --remote --file=./migrations/001-lead-days.sql
+npx wrangler d1 execute work-schedule-db --remote --file=./migrations/005-app-purchase.sql   # 最新的一支；舊的照編號
 ```
 
 **順序不能反。** 新程式碼 `SELECT r.lead_days`，欄位還沒加就會讓提醒的 cron 與 `/api/reminder` 直接失敗。新增**資料表**沒有這個問題（`db:init` 重跑 `schema.sql` 就會建），只有**欄位**需要 migration。
@@ -1177,6 +1216,9 @@ class 命名沿用 `type-<type>`（列）與 `type-badge <type>`（徽章）；�
 10. **前置作業只顯示，不順延也不阻擋**；一個項目最多五個前置。「A 延後 B 自動跟著延後」是刻意不做的（見上方章節）
 11. **「不在」不影響逾期、不影響提醒信、不影響 ICS**，只是日曆與列上的一個標記。使用者的裁決：「不在就是不在，逾期就照樣逾期」
 12. 前置作業的狀態不進提醒信與 ICS——那兩者的內容由前端展開後推上去，加進去等於再開一條會分歧的路
+13. **iOS app 是付費下載**：在 app 裡註冊要附 Apple 的購買證明，一次購買一個帳號；Apple 退款後帳號仍在（v1 不接 App Store Server Notifications）
+14. **前端每次改版，app 要重新打包送審**：`index.html` 內建在 app 裡（自動更新是之後的子專案）
+15. **網頁上不開放陌生人自己註冊**：註冊只在 app 裡發生；網頁註冊仍走管理者核准，留給例外
 
 ## 尚未做的重構
 

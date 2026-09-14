@@ -1,7 +1,7 @@
 # iOS app：付費下載、內建前端、購買證明註冊
 
 日期：2026-09-14
-狀態：**子專案 A 設計已定，開始實作**
+狀態：**子專案 A 已實作**（PR 見 git log）；B、C、D 待設計
 
 ## 這件事是怎麼變成現在這個形狀的
 
@@ -158,7 +158,7 @@ body `{ email, code, password, appTransactionJws }`。順序：
 
 **一次購買一個帳號。** 同一個 Apple ID 重灌 app 拿到的是同一個 `appTransactionId`，所以換手機不會被擋（登入即可）；刪掉帳號後那個 id 就空出來，可以再註冊。這是刻意的取捨：擋的是「買一份、開十個帳號」。
 
-### 資料表變更（`migrations/002-app-purchase.sql`）
+### 資料表變更（`migrations/005-app-purchase.sql`）
 
 ```sql
 ALTER TABLE users ADD COLUMN purchase_source TEXT;       -- 'ios_app' | NULL（既有帳號，視同管理者核准）
