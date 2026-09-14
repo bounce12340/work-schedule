@@ -28,7 +28,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { Script } from 'node:vm';
 
-const FILES = ['index.html', 'login.html', 'admin.html', 'reset.html', 'sw.js'];
+const FILES = ['index.html', 'login.html', 'admin.html', 'reset.html', 'sw.js'];   // privacy.html 沒有 script，不在此列
 const PUBLIC = fileURLToPath(new URL('../public/', import.meta.url));
 
 /**

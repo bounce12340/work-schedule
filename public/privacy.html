@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light dark">
+<title>隱私權政策 · 工作排程確認系統</title>
+<style>
+  :root{ --bg:#F6F4EE; --panel:#FFFFFF; --text:#26251F; --text-muted:#5F5E58; --hairline:#E3E0D6; --amber:#C9822E; --amber-ink:#8A5418; }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#1A1917; --panel:#232220; --text:#ECE9E1; --text-muted:#B4B0A5; --hairline:#3A3833; --amber:#E0A050; --amber-ink:#E0A050; }
+  }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:var(--bg); color:var(--text); font-family:'Noto Sans TC',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; line-height:1.75; font-size:15px; }
+  main{ max-width:720px; margin:0 auto; padding:32px 20px 64px; }
+  h1{ font-size:24px; margin:0 0 4px; }
+  .updated{ color:var(--text-muted); font-size:13px; margin-bottom:28px; }
+  h2{ font-size:17px; margin:28px 0 8px; color:var(--amber-ink); }
+  section{ background:var(--panel); border:1px solid var(--hairline); border-radius:12px; padding:20px 22px; margin-bottom:16px; }
+  section h2:first-child{ margin-top:0; }
+  ul{ padding-left:20px; margin:8px 0; }
+  li{ margin:4px 0; }
+  a{ color:var(--amber-ink); }
+  .lang{ font-size:13px; color:var(--text-muted); margin-bottom:20px; }
+  hr{ border:0; border-top:1px solid var(--hairline); margin:36px 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>隱私權政策</h1>
+  <div class="updated">工作排程確認系統 · 最後更新：2026-09-14</div>
+  <div class="lang"><a href="#en">English below</a></div>
+
+  <section>
+    <h2>我們存了什麼</h2>
+    <ul>
+      <li><b>你的排程</b>：項目、會議、循環規則、專案與甘特圖、每日記錄與專案筆記、標籤、假日設定。這些是你自己輸入的。</li>
+      <li><b>帳號資料</b>：email、密碼的雜湊（PBKDF2，永遠不存明文）、註冊時間、帳號狀態。</li>
+      <li><b>從 App Store 安裝的話</b>：Apple 提供的購買證明裡的購買識別碼與購買日期，用來確認這個帳號是付費下載的 app 建立的。不含你的 Apple ID、姓名或付款資訊。</li>
+      <li><b>登入中的裝置</b>：裝置類型（例如「iPhone app」或「Chrome on Windows」）與最後使用時間。<b>不記錄 IP 位址。</b></li>
+      <li><b>分享記錄</b>：你分享給誰、誰動過你分享的項目，保留 90 天。</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>存在哪裡</h2>
+    <p>Cloudflare（Workers、D1 資料庫、R2 儲存）。資料庫位於亞太區。每天自動備份一次到 R2，保留最近 14 份；備份不含密碼雜湊。</p>
+  </section>
+
+  <section>
+    <h2>誰看得到</h2>
+    <ul>
+      <li>你的排程只有你自己看得到，以及你<b>主動分享</b>給的帳號（只看到你分享的那幾個項目）。</li>
+      <li>管理者看得到帳號的 email、狀態與操作記錄，<b>看不到任何人的排程內容</b>。</li>
+      <li>我們不販售、不交換、不用於廣告。沒有第三方追蹤或分析工具。</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>會送到第三方的資料</h2>
+    <ul>
+      <li><b>AI 小幫手</b>（你按下去才會用）：你當下的排程摘要會送到 DeepSeek 的 API 產生回答。不用這個功能就不會送。</li>
+      <li><b>提醒信與驗證碼</b>：透過 AgentMail 寄到你註冊的信箱。</li>
+      <li><b>字型</b>：頁面會向 Google Fonts 取得字型檔；離線或封鎖時退回系統字型，功能不受影響。</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>怎麼刪除</h2>
+    <p>在 app 或網頁版的「我的帳號」分頁最下面按「刪除我的帳號」，輸入密碼確認。帳號、雲端上的所有排程、分享、行事曆訂閱與提醒設定會立即刪除；每日備份裡的副本會在 14 天輪替後自動消失。</p>
+    <p>你也可以隨時在「我的帳號」匯出一份完整的 JSON 備份。</p>
+  </section>
+
+  <section>
+    <h2>聯絡</h2>
+    <p>有任何問題，請透過 <a href="https://github.com/bounce12340/work-schedule">GitHub 專案頁</a> 聯絡我們。</p>
+  </section>
+
+  <hr>
+
+  <h1 id="en">Privacy Policy</h1>
+  <div class="updated">Work Schedule · Last updated 2026-09-14</div>
+
+  <section>
+    <h2>What we store</h2>
+    <ul>
+      <li><b>Your schedule</b>: items, meetings, recurrence rules, projects and Gantt charts, daily notes and project notes, tags, holiday settings. All of it is what you typed in.</li>
+      <li><b>Account data</b>: email, a password hash (PBKDF2; plaintext is never stored), registration time, account status.</li>
+      <li><b>If installed from the App Store</b>: the purchase identifier and purchase date from Apple's purchase proof, used to confirm that this account was created by the paid app. It does not include your Apple ID, name or payment details.</li>
+      <li><b>Signed-in devices</b>: device type (for example "iPhone app" or "Chrome on Windows") and last-used time. <b>IP addresses are not recorded.</b></li>
+      <li><b>Sharing log</b>: who you shared with and who changed a shared item, kept for 90 days.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Where it lives</h2>
+    <p>Cloudflare (Workers, D1 database, R2 storage). The database is in the Asia-Pacific region. A backup is taken daily to R2 and the latest 14 are kept; backups do not contain password hashes.</p>
+  </section>
+
+  <section>
+    <h2>Who can see it</h2>
+    <ul>
+      <li>Only you can see your schedule, plus the accounts you <b>choose to share with</b> (they see only the items you shared).</li>
+      <li>Administrators can see account emails, status and the admin activity log. They <b>cannot see anyone's schedule content</b>.</li>
+      <li>We do not sell, trade or use your data for advertising. There are no third-party trackers or analytics.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Data sent to third parties</h2>
+    <ul>
+      <li><b>AI assistant</b> (only when you use it): a summary of your current schedule is sent to DeepSeek's API to produce the answer. Nothing is sent if you don't use it.</li>
+      <li><b>Reminder and verification emails</b>: delivered through AgentMail to the address you registered with.</li>
+      <li><b>Fonts</b>: the page fetches font files from Google Fonts; offline or blocked, it falls back to system fonts with no loss of function.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>How to delete</h2>
+    <p>At the bottom of the "My account" tab in the app or on the web, press "Delete my account" and confirm with your password. The account, every schedule in the cloud, shares, calendar feed and reminder settings are deleted immediately; copies inside the daily backups expire after the 14-day rotation.</p>
+    <p>You can also export a full JSON backup from "My account" at any time.</p>
+  </section>
+
+  <section>
+    <h2>Contact</h2>
+    <p>Questions? Reach us through the <a href="https://github.com/bounce12340/work-schedule">GitHub project page</a>.</p>
+  </section>
+</main>
+</body>
+</html>
