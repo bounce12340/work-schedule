@@ -1,0 +1,17 @@
+{
+  "name": "work-schedule-mobile",
+  "version": "1.0.0",
+  "private": true,
+  "description": "iOS 外殼（Capacitor）。Capacitor 只裝在這裡，根目錄維持零相依。",
+  "type": "module",
+  "scripts": {
+    "prepare-www": "node scripts/prepare-www.mjs",
+    "sync": "npm run prepare-www && npx cap sync ios",
+    "open": "npx cap open ios"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.2",
+    "@capacitor/core": "^8.5.2",
+    "@capacitor/ios": "^8.5.2"
+  }
+}

@@ -1,0 +1,16 @@
+# 建置產物：每次打包從 public/index.html 重新複製（scripts/prepare-www.mjs）
+www/
+node_modules/
+# Xcode 的本機狀態與建置輸出
+ios/App/build/
+ios/App/DerivedData/
+ios/App/Pods/
+ios/App/App.xcworkspace/xcuserdata/
+ios/App/App.xcodeproj/xcuserdata/
+ios/App/App.xcodeproj/project.xcworkspace/xcuserdata/
+ios/App/public/
+ios/App/App/public/
+ios/App/App/capacitor.config.json
+ios/App/App/config.xml
+*.ipa
+*.xcarchive
