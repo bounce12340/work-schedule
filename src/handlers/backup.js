@@ -142,17 +142,20 @@ export async function listBackups(env) {
  */
 export async function purgeExpired(env, nowMs = Date.now()) {
   const usedGrace = nowMs - 7 * 86400_000;
-  const [sessions, resets, attempts] = await env.DB.batch([
+  const [sessions, resets, attempts, emailCodes] = await env.DB.batch([
     env.DB.prepare('DELETE FROM sessions WHERE expires_at < ?').bind(nowMs),
     env.DB.prepare('DELETE FROM password_resets WHERE expires_at < ? AND (used_at IS NULL OR used_at < ?)')
       .bind(nowMs, usedGrace),
     // 登入失敗計數的窗口只有幾分鐘，過了就沒有意義
     env.DB.prepare('DELETE FROM login_attempts WHERE window_start < ?').bind(nowMs - 86400_000),
+    // app 註冊用的 email 驗證碼只活 10 分鐘；沒被用掉的留著只是佔位
+    env.DB.prepare('DELETE FROM email_codes WHERE expires_at < ?').bind(nowMs),
   ]);
   return {
     sessions: sessions.meta.changes,
     resets: resets.meta.changes,
     attempts: attempts.meta.changes,
+    emailCodes: emailCodes.meta.changes,
   };
 }
 

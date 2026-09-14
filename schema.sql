@@ -9,8 +9,17 @@ CREATE TABLE IF NOT EXISTS users (
   status        TEXT NOT NULL DEFAULT 'pending',   -- 'pending' | 'approved' | 'rejected' | 'suspended'
   created_at    INTEGER NOT NULL,
   approved_at   INTEGER,
-  approved_by   TEXT
+  approved_by   TEXT,
+  -- iOS app 是付費下載：在 app 裡註冊的帳號帶著 Apple 簽過名的購買證明，驗過就
+  -- 自動核准。purchase_source 為 'ios_app'；既有帳號與網頁註冊的為 NULL（走管理者核准）。
+  -- app_transaction_id 代表「那一次購買」，UNIQUE：一次購買一個帳號，擋「買一份、
+  -- 開十個帳號」；刪掉帳號後那個 id 就空出來，可以再註冊。
+  purchase_source    TEXT,
+  app_transaction_id TEXT,
+  purchased_at       INTEGER
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_app_transaction ON users(app_transaction_id);
 
 -- Session。只存 token 的 SHA-256，不存原文：DB 若外洩，裡面的值無法直接拿來登入。
 -- 選 DB session 而非無狀態 JWT，是為了讓管理者停用帳號能立即生效。
@@ -168,6 +177,20 @@ CREATE TABLE IF NOT EXISTS password_resets (
 );
 
 CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id, created_at);
+
+-- iOS app 註冊用的 email 驗證碼。app 裡不能用 Turnstile（非 http 網域跑不起來），
+-- 「收得到寄到這個信箱的碼」同時證明信箱是本人的、也擋掉機器人。
+--
+-- 只存雜湊（以 email 為鹽），10 分鐘有效，每筆最多試 5 次；用過即刪、索取新碼時
+-- 刪掉舊的（同密碼重設連結的理由：使用者以為「我重新要了一次」，舊的不該還有效）。
+-- 一個 email 同時只有一筆，所以 email 直接當主鍵。
+CREATE TABLE IF NOT EXISTS email_codes (
+  email      TEXT PRIMARY KEY,
+  code_hash  TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  attempts   INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
+);
 
 -- 登入失敗次數。Turnstile 擋得住機器人大軍，擋不住有耐心的人慢慢試——
 -- 前者是「一秒鐘一萬次」，後者是「一分鐘三次、試一整天」，兩者要分開擋。

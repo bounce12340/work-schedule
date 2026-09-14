@@ -1,5 +1,5 @@
 import { hashPassword, verifyPassword, uuid } from '../crypto.js';
-import { createSession, destroySession, destroyOtherSessions, listSessions, sessionCookie, clearCookie, readCookie, COOKIE_NAME } from '../session.js';
+import { createSession, destroySession, destroyOtherSessions, listSessions, sessionCookie, clearCookie, readSessionToken } from '../session.js';
 import { verifyTurnstile } from '../turnstile.js';
 import { checkThrottle, recordFailure, clearFailures, throttleKeys } from '../throttle.js';
 
@@ -125,7 +125,7 @@ export async function handleChangePassword(request, env, user) {
     .bind(await hashPassword(newPassword), user.id).run();
 
   // 換密碼通常代表擔心密碼外洩：讓其他裝置全部登出，只保留目前這個 session
-  const token = readCookie(request, COOKIE_NAME);
+  const token = readSessionToken(request);
   if (token) {
     await destroyOtherSessions(env, user.id, token);
   }
@@ -133,7 +133,7 @@ export async function handleChangePassword(request, env, user) {
 }
 
 export async function handleLogout(request, env) {
-  await destroySession(env, readCookie(request, COOKIE_NAME));
+  await destroySession(env, readSessionToken(request));
   return json({ ok: true }, 200, { 'Set-Cookie': clearCookie() });
 }
 
@@ -145,7 +145,7 @@ export function handleMe(user) {
  * 登入中的裝置。只回自己的——user 來自這次請求的 session，沒有參數可以指定別人。
  */
 export async function handleListSessions(request, env, user) {
-  return json({ sessions: await listSessions(env, user.id, readCookie(request, COOKIE_NAME)) });
+  return json({ sessions: await listSessions(env, user.id, readSessionToken(request)) });
 }
 
 /**
@@ -156,7 +156,7 @@ export async function handleListSessions(request, env, user) {
  * 「登出」就好。
  */
 export async function handleLogoutOtherSessions(request, env, user) {
-  const token = readCookie(request, COOKIE_NAME);
+  const token = readSessionToken(request);
   if (!token) return json({ error: '尚未登入' }, 401);
   await destroyOtherSessions(env, user.id, token);
   return json({ ok: true });

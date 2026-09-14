@@ -37,7 +37,7 @@ const MODEL = 'deepseek-v4-flash';
 
 /** 限流：分鐘擋手滑連點，天擋「整天慢慢打」。與登入節流是同一種兩層形狀。 */
 const LIMIT_PER_MIN = 5;
-const LIMIT_PER_DAY = 50;
+const LIMIT_PER_DAY = 20;   // 付費下載是一次收、永遠用，每次呼叫都要付 DeepSeek 錢；20 次/天一年約台幣幾十元
 
 /** 保留幾天。同 share_activity——沒有保留上限的日誌表遲早會是最大的一張。 */
 const KEEP_DAYS = 90;

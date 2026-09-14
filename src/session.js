@@ -3,6 +3,13 @@ import { generateToken, sha256, uuid } from './crypto.js';
 const COOKIE_NAME = 'ws_session';
 const SESSION_DAYS = 30;
 
+/**
+ * iOS app 的 session 有效期。app 沒有「重新輸入密碼」的自然時機（網頁上 cookie
+ * 到期會看到登入頁，app 到期只會突然被登出），所以放長一點；token 在 Keychain
+ * 裡，不像 cookie 那樣會被同一台電腦的下一個人碰到。
+ */
+const APP_SESSION_DAYS = 180;
+
 /** user agent 截斷長度。它只是拿來顯示「哪一種裝置」，不需要完整保存。 */
 const MAX_UA = 300;
 
@@ -18,10 +25,10 @@ const SEEN_INTERVAL_MS = 60 * 60 * 1000;
  * @param {string|null} userAgent 由 handleLogin 從請求標頭取得後傳入。
  *   session.js 拿不到 request，所以這個值只能由呼叫端給。
  */
-export async function createSession(env, userId, userAgent = null) {
+export async function createSession(env, userId, userAgent = null, { app = false } = {}) {
   const token = generateToken();
   const now = Date.now();
-  const expiresAt = now + SESSION_DAYS * 86400000;
+  const expiresAt = now + (app ? APP_SESSION_DAYS : SESSION_DAYS) * 86400000;
   await env.DB
     .prepare(`INSERT INTO sessions (token_hash, user_id, created_at, expires_at, user_agent, last_seen_at)
               VALUES (?, ?, ?, ?, ?, ?)`)
@@ -32,11 +39,27 @@ export async function createSession(env, userId, userAgent = null) {
 }
 
 /**
- * 解析 cookie 並回傳對應使用者，順便帶出 role/status——授權判斷需要它們，
- * 分兩次查會讓「停用帳號」與「讀取資料」之間出現時間差。
+ * 這次請求帶的 session token：網頁走 cookie，iOS app 走 `Authorization: Bearer`。
+ *
+ * app 的網頁來源是 capacitor://localhost，對後端來說是另一個網域，WKWebView 對
+ * 第三方 cookie 又很嚴——靠 cookie 會時好時壞。所以 app 拿到 token 後存進
+ * Keychain，每次請求自己帶。兩條路進的是**同一張 sessions 表**，只是拿 token 的
+ * 地方不同。cookie 優先：同一個請求兩個都有的情況只會出在測試裡。
+ */
+export function readSessionToken(request) {
+  const fromCookie = readCookie(request, COOKIE_NAME);
+  if (fromCookie) return fromCookie;
+  const auth = request.headers.get('authorization') || '';
+  const m = /^Bearer\s+([A-Za-z0-9_-]{20,})$/.exec(auth);
+  return m ? m[1] : null;
+}
+
+/**
+ * 解析 cookie 或 Bearer 並回傳對應使用者，順便帶出 role/status——授權判斷需要
+ * 它們，分兩次查會讓「停用帳號」與「讀取資料」之間出現時間差。
  */
 export async function getSessionUser(request, env) {
-  const token = readCookie(request, COOKIE_NAME);
+  const token = readSessionToken(request);
   if (!token) return null;
 
   const hash = await sha256(token);
