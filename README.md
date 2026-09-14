@@ -1,36 +1,36 @@
-# 工作排程確認系統
+# Work Schedule
 
-**繁體中文** ・ [English](./README.en.md) ・ [日本語](./README.ja.md) ・ [한국어](./README.ko.md)
+**English** ・ [繁體中文](./README.zh-TW.md) ・ [日本語](./README.ja.md) ・ [한국어](./README.ko.md)
 
-單一 HTML 檔案的工作排程管理工具——工作項目、會議、循環任務、月曆檢視與甘特圖，全部裝在一個檔案裡，下載後用瀏覽器打開就能用。
+A work-scheduling tool that lives in a single HTML file: tasks, meetings, recurring items, a month calendar and a Gantt chart, all in one file. Download it, open it in a browser, and it works.
 
-> 純前端、零依賴、零安裝。不需要 Node.js、不需要伺服器、不需要資料庫。
+> Pure front end. No dependencies, no install. No Node.js, no server, no database required.
 
-## 使用方式
+## Getting started
 
-### 方式一：單機（零安裝）
+### Option 1: standalone (nothing to install)
 
-1. 下載 [`public/index.html`](./public/index.html)
-2. 用任何現代瀏覽器直接開啟
+1. Download [`public/index.html`](./public/index.html)
+2. Open it in any modern browser
 
-資料存在該瀏覽器的 `localStorage`，重新整理不會遺失。
+Data is stored in that browser's `localStorage` and survives a refresh.
 
-### 方式二：部署到 Cloudflare（多使用者 + 跨裝置同步）
+### Option 2: deploy to Cloudflare (multi-user + cross-device sync)
 
 ```bash
 npm install
-npx wrangler d1 create work-schedule-db   # 已建立則跳過，把 id 填入 wrangler.jsonc
-npm run db:init                            # 建表
+npx wrangler d1 create work-schedule-db   # skip if already created; put the id in wrangler.jsonc
+npm run db:init                            # create tables
 ```
 
-建立 Turnstile widget（真人驗證）：
+Create a Turnstile widget (bot protection):
 
 ```bash
-npx wrangler turnstile widget create "work-schedule" --domain <你的網域> --domain localhost --domain 127.0.0.1 --mode managed
+npx wrangler turnstile widget create "work-schedule" --domain <your-domain> --domain localhost --domain 127.0.0.1 --mode managed
 ```
 
-指令會印出 **sitekey**（公開，填進 `public/login.html` 的 `SITEKEY`）與 **secret**（機密）。
-接著設定兩個 secret：
+The command prints a **sitekey** (public, goes into `SITEKEY` in `public/login.html`) and a **secret** (confidential).
+Then set two secrets:
 
 ```bash
 npx wrangler secret put TURNSTILE_SECRET
@@ -40,188 +40,190 @@ npx wrangler secret put TURNSTILE_SECRET
 npx wrangler secret put ADMIN_EMAILS
 ```
 
-`ADMIN_EMAILS` 是逗號分隔的管理者 email 清單，名單內的帳號**註冊後自動成為已核准的管理者**。
-沒有它就沒有人能核准第一個帳號，系統會死鎖。
+`ADMIN_EMAILS` is a comma-separated list of administrator emails. Accounts on that list **become approved administrators automatically on registration**.
+Without it nobody can approve the first account and the system deadlocks.
 
-> 這兩項走 secret 而非 `vars`：`vars` 會被寫進版控（公開 repo 等於公開你的 email），
-> 且在 Dashboard 改的 `vars` 會被下次 `deploy` 覆蓋。
+> These two are secrets rather than `vars`: `vars` get committed to version control (in a public repo that means publishing your email),
+> and `vars` edited in the Dashboard are overwritten by the next `deploy`.
 
-**（選用）逾期提醒信**——要讓系統在有逾期項目時寄信，再設兩個 secret：
+**(Optional) overdue reminder emails.** To have the system email you when items are overdue, set two more secrets:
 
 ```bash
-npx wrangler secret put AGENTMAIL_API_KEY    # 帳號層級憑證，形如 am_us_inbox_b1e2…
-npx wrangler secret put AGENTMAIL_INBOX_ID   # 寄件信箱，email 位址形式如 you@agentmail.to
-npx wrangler secret put APP_URL              # 選填，信件內的連結
+npx wrangler secret put AGENTMAIL_API_KEY    # account-level credential, looks like am_us_inbox_b1e2…
+npx wrangler secret put AGENTMAIL_INBOX_ID   # the sending inbox, an email address such as you@agentmail.to
+npx wrangler secret put APP_URL              # optional, used for the link inside the email
 ```
 
-> 這兩個值**極容易搞反**：API key 的前綴雖然寫著 `inbox`，它是 key 不是 inbox id；
-> inbox id 反而是 email 位址的形式。不確定的話直接問 API：
+> These two are **very easy to mix up**: the API key's prefix says `inbox`, but it is the key, not the inbox id;
+> the inbox id is the one that looks like an email address. When in doubt, ask the API:
 >
 > ```bash
-> curl -H "Authorization: Bearer <你以為的 key>" https://api.agentmail.to/v0/inboxes
+> curl -H "Authorization: Bearer <the value you think is the key>" https://api.agentmail.to/v0/inboxes
 > ```
 >
-> 回 200 就代表那是 API key，而回應裡的 `inboxes[].inbox_id` 才是 `AGENTMAIL_INBOX_ID`。
+> A 200 means that value is the API key, and `inboxes[].inbox_id` in the response is your `AGENTMAIL_INBOX_ID`.
 >
-> 沒設定時提醒功能不會運作，但不影響其他任何功能。
+> Without these, reminders simply do not run; nothing else is affected.
 
-最後部署：
+Finally, deploy:
 
 ```bash
 npm run deploy
 ```
 
-**`TURNSTILE_SECRET` 未設定時所有註冊與登入都會被拒絕**，而不是放行——未設定就放行等於真人驗證形同虛設。
+**When `TURNSTILE_SECRET` is unset, all registration and login is rejected** rather than allowed through. Allowing it through would make bot protection meaningless.
 
-### 本機開發用的 `.dev.vars`
+### `.dev.vars` for local development
 
-`wrangler dev` 會讀專案根目錄的 `.dev.vars`。**這個檔已被 `.gitignore` 排除，不會進版控**——正式環境的值一律走 `wrangler secret put`。
-
-```
-TURNSTILE_SECRET=<Cloudflare 官方測試金鑰即可，本機不需要真的>
-ADMIN_EMAILS=<逗號分隔，本機測試用>
-AGENTMAIL_API_KEY=<選填，要在本機測寄信才需要>
-AGENTMAIL_INBOX_ID=<選填>
-APP_URL=<選填>
-```
-
-> **改完 `.dev.vars` 一定要完整重啟 dev server。** `wrangler dev` 只在啟動時讀一次這個檔，
-> 而且它的子進程樹不容易殺乾淨——留下的 `workerd` 孤兒會繼續佔住 port，
-> 造成「原始碼熱重載了、環境變數卻停在舊值」這種很難診斷的狀況。重啟前先確認 port 真的空了。
-
-### 部署疑難排解
-
-**註冊或登入回 Error 1101（Worker threw exception）**——Workers 正式環境的 PBKDF2 迭代次數上限是 100,000，超過會丟 `NotSupportedError`，而**本機 workerd 不強制這條規則**，因此本機測不出來。完整的症狀、排查過程與修正見
-[事故紀錄：線上註冊必定回 Error 1101](docs/postmortems/2026-07-30-register-error-1101.md)。
-
-## 功能
-
-### 📋 項目安排
-- **大項目**：純分類標籤（無日期），可新增、更名、刪除
-- **小項目**：三種類型——🟢 工作項目、🟣 會議安排、🟠 作業；三者都可以填選填的時間與**連結**（會議連結、文件等，列表上直接點開）
-- **跨多天事項**：非循環項目可設結束日期（例如 8/22–8/26 出差），日曆上會畫成一條貫穿整段日期的同色系色條（像 Google 日曆）；完成狀態整段共用，期間進行中不算逾期
-- 年度／季度／月份／特定日期四種範圍篩選
-- **已完成的項目自動收到下方「已完成」區**（可展開），上方只留還沒處理的
-- **循環規則**：每週／每兩週（可複選星期幾）、每月（固定日期或「第 N 個週 X」）、每季、每年；遇假日可選「順延／提前至工作天／不調整」，可設循環期限或重複次數
-- 循環的某一次可以單獨改日期或整次略過，不影響其他週期
-- 自訂假日清單（週六日已自動視為假日）：可**一鍵載入國定假日**（目前內建 2026、2027 年，各一顆按鈕；資料來自行政院人事行政總處的辦公日曆表），也可一次貼上多個日期批次加入
-- **標籤**：一個項目可以有多個（例如 `#管制藥品` `#標案`），點一下只看那一個標籤；建立時會列出既有標籤讓你點選
-- **步驟清單**：小項目底下的待辦步驟，列上只顯示 `☑ 2/5`，點開才展開。循環項目**共用同一份步驟，但每一次各自勾選**
-- **前置作業**：標明「這件事要先做完」。前置沒完成時那一列會標 `⛓ 待前置`，滑過去看得到是哪一個、哪一次。**它只顯示狀態**——不會自動移動任何日期，也不會擋住你勾選
-- **搜尋與篩選**：依關鍵字（標題、大項目或標籤）、類型、標籤、是否完成即時過濾
-
-### 📅 日曆
-- 月曆網格，今日醒目標示
-- 會議依時間排序顯示；工作與作業可直接在格子上打勾
-- **手機上採 Google 日曆的作法**：格子裡只用顏色圓點表示當天有什麼，點選日期才在下方展開完整內容——把三四列文字塞進 50px 寬的格子在手機上等於沒有資訊量
-- **點選日期**才展開當日完整項目卡片＋**每日記錄**備忘欄（支援格式設定，見下）；沒有選日期時不會有東西掛在下面。寫過記錄的日子，格子右上角會留一個 `✎` 記號
-- **按住拖曳跨過好幾天**即可選出一段區間，直接建立跨多天的項目（出差、請假、專案期間），起訖日期會自動帶進表單
-- **🌴 標記「不在」**：選一天或一段區間，按「標記為不在」，那幾格就會有淡淡的斜線紋與一個 🌴。休假不必再假裝成一件待辦事項排在清單裡等著被打勾。**但逾期照樣算逾期**——事情本來就排在那天，人不在不改變它的後果
-
-### 📊 專案（甘特圖）
-- 多專案管理，任務時間軸長條含進度百分比與今日標線
-- **時間軸可左右捲動**，四種時間刻度（週／月／季／年）可切換，跨年度的長期專案也讀得下去；年度邊界有明顯的分隔線，一鍵「跳到今天」
-- 待辦表格直接編輯日期與進度，即時反映到甘特圖
-- 每個待辦底下可再展開**代辦項目**，完成進度隨逐項勾選自動推進（有代辦項目時進度改為自動計算，不再手動輸入）
-- 專案以下拉選單切換
-- 專案筆記自動儲存（支援格式設定，見下）
-
-### ✍️ 格式設定（每日記錄與專案筆記）
-- 粗體、斜體、底線、刪除線；項目符號與編號清單；醒目提示、文字顏色、字級；引用、連結、程式碼；一鍵清除格式
-- 工具列**預設收起**，需要時再展開；按 `Ctrl+Shift+X` 或點欄位下方的按鈕切換，偏好記在這台裝置
-- 從網頁貼上的內容會自動清理格式，只保留支援的樣式
-
-### 🔔 儀表板與提醒
-- 頂部即時顯示：當日未完成、當週未完成、當日會議
-- 開啟頁面自動彈出今日待辦提醒，鈴鐺按鈕含未完成數量角標
-- **亮色／暗色**在「我的帳號」頁切換，預設跟隨系統設定
-- **兩種聲音**：人在說話的地方用宋體（招呼語、空白時刻、每日記錄），機器報數的地方用等寬字（日期、數量、**逾期**）——所以逾期反而**更醒目**，不是更柔和。氣質可以柔，警示不行
-- 底圖是三團柔和光暈加一層紙紋，會非常慢地飄，**而且會跟著時段變色**（早上苔綠、下午偏金、傍晚偏玫瑰與靛）；系統設定「減少動態效果」時停止飄動
-- 每日記錄的提示語每天換一句；打勾會輕輕彈一下；**週一會有一句「上週你做完了 N 件事」**——只講做完的
-- 手機上導覽列固定在畫面底部，表單與對話框都依觸控操作調整過
-
-### 👥 多使用者與權限（部署後才啟用）
-- 使用者自行以 email + 密碼註冊，註冊頁有 Cloudflare Turnstile 真人驗證
-- **註冊後需管理者核准才能使用**，未核准者連 session 都拿不到
-- 兩種角色：**使用者**（只能用自己的排程）與**管理者**（另可管理帳號）
-- 管理者可核准／拒絕／停用／刪除帳號、升降角色；**看不到任何人的排程內容**
-- 停用或刪除帳號會立即讓對方所有裝置登出，不需等待其重新登入
-- 密碼以 PBKDF2-SHA256（100,000 迭代，Workers 平台上限）雜湊儲存，永不存明文
-- **忘記密碼**：登入頁按「忘記密碼？」，系統寄一封含一次性連結的信（一小時內有效、只能用一次）；設定新密碼後所有裝置會登出
-- 連續登入失敗會暫時擋下（滑動窗口，時間到自動恢復，不需要人工解鎖）
-- 管理者的每一次核准／停用／改角色／重設密碼／刪除帳號都留下記錄，任何管理者都看得到
-- 管理者也可在 `/admin` 代為重設，產生只顯示一次的臨時密碼
-- 每個帳號註冊後從**空白介面**開始，看不到其他人的任何資料
-
-### 👤 我的帳號
-- 主畫面第五個分頁，集中帳號資訊、變更密碼、逾期提醒、行事曆訂閱、登入中的裝置、顯示偏好與備份
-- **登入中的裝置**：看得到自己在哪些裝置登入、最後使用時間，可一鍵「登出其他所有裝置」（保留目前這台）；不記錄 IP
-- 未登入（單檔開啟）時，備份與顯示偏好照常可用，其餘顯示為需要登入
-
-### 💾 自動備份與提醒（部署後才啟用）
-- 每天自動把所有排程備份到 Cloudflare R2，保留最近 14 份（**不含密碼**，還原後各自走「忘記密碼」重設）
-- 逾期提醒信**預設開啟**，可設定**提前幾天**開始通知（預設 3 天，也可改成只在逾期時通知或完全關閉）
-- 管理頁看得到備份清單（日期、大小、幾份排程），也可以按鈕立刻備份一次
-- 沒有逾期、也沒有即將到期的項目時完全不寄信
-
-### 🔗 分享（部署後才啟用）
-
-- 在任一小項目、**大項目（含底下所有項目）**或專案上按 **🔗**，輸入對方的帳號 email 即可分享
-- 兩種權限：**可檢視**（唯讀）與**可操作**（可勾選完成、勾選代辦項目、改進度）
-- 重新命名、改日期與刪除永遠只有擁有者能做
-- 分享的是同一份資料而不是複本，雙方看到的永遠一致；擁有者隨時可以收回
-- 收到的分享集中在「共享」頁，不會混進自己的項目安排與日曆
-- **操作記錄**：共享項目被誰在什麼時候改過都看得到，保留 90 天；有新變更時「共享」頁籤會出現未讀數字，頁面開著時每分鐘自動更新
-
-### 💾 自動儲存與跨裝置同步
-- 所有變更即時存入瀏覽器 `localStorage`，重新整理不會遺失
-- 部署到 Cloudflare 後額外啟用雲端同步：`localStorage` 仍是主要儲存（畫面即時、可離線），雲端在背景同步
-- 兩邊各自修改時**自動逐項合併**（例如你在編輯、同事同時勾選你分享給他的項目）；只有同一個項目兩邊都改過才會跳出提示讓你選
-- 偵測不到 API（單機開啟）或環境禁止本機儲存（Claude Artifact 沙盒）時自動降級，功能不受影響
-- **降級的原因分得出來**：「單機開啟」是安靜的（本來就沒有後端），但「後端暫時連不上」會明白顯示「連線失敗，暫時只用本機資料」——兩者若長得一樣，你會以為還在同步，實際上變更只留在這台裝置
-- **本機存檔套用不了時先備份再覆蓋**：存檔毀損、或存檔比目前開啟的頁面版本還新（開到瀏覽器快取住的舊版時會發生）而無法套用，原始內容會先被搬到 `workSchedule.v1.unreadable`，不會被示範資料直接蓋掉
-- **匯出／匯入備份**：頁面底部可把全部資料匯出成 JSON，或從備份檔還原
-- **可加到手機主畫面**：部署後支援 PWA，從桌面圖示直接開啟，離線也打得開
-- **逾期提醒信**：開啟後，有逾期未完成的項目時會寄信到你的註冊信箱；**沒有逾期就完全不寄**（每天一封「你沒有逾期」只會讓人忽略這個寄件人）。同一天不會重複寄，今天到期的不算逾期
-- **行事曆訂閱（ICS）**：產生一條私人連結，把排程訂閱進 Google／Apple 行事曆——會議帶時間、專案任務為區間事件，每次同步後自動更新；連結可隨時重新產生或停用
-
-## 技術說明
-
-- 前端是零依賴的單一 HTML 檔（HTML + CSS + Vanilla JavaScript），可獨立運作
-- 唯一外部資源為 Google Fonts CDN（JetBrains Mono + Noto Sans TC + Noto Serif TC），**採非阻擋方式載入**：字型還沒到、或根本連不上時先用系統字型把畫面畫出來，不會卡在白畫面
-- 勾選完成會立刻反應，存檔與雲端同步在背景進行；而且勾選**不重建整個清單**，只把那一列搬走——年度檢視動輒上千列，全部重建會讓畫面卡好幾秒（實測 300 項 5.5 秒 → 0.08 秒）
-- 雲端寫入以資料庫層的比較並寫入（compare-and-swap）做樂觀鎖，兩邊同時寫時不會有人的變更被無聲蓋掉
-- 循環項目採用「occurrence 引擎」設計：只儲存錨點日期與規則，每次顯示時即時展開，單次調整以 `occKey` 記錄在母項目上
-- 後端為 Cloudflare Worker + D1，自建 email/密碼認證，session 存於資料庫（僅存 token 雜湊）以便即時撤銷
+`wrangler dev` reads `.dev.vars` in the project root. **That file is gitignored and never enters version control.** Production values always go through `wrangler secret put`.
 
 ```
-public/index.html      主應用（單檔，可直接雙擊開啟）
-public/login.html      登入／註冊（含 Turnstile）
-public/admin.html      帳號管理（僅管理者）
-src/index.js           路由與存取控制
-src/crypto.js          PBKDF2 密碼雜湊、token 產生
-src/session.js         session 建立／查詢／銷毀
+TURNSTILE_SECRET=<Cloudflare's official test key is fine; you don't need a real one locally>
+ADMIN_EMAILS=<comma-separated, for local testing>
+AGENTMAIL_API_KEY=<optional, only if you want to test email locally>
+AGENTMAIL_INBOX_ID=<optional>
+APP_URL=<optional>
+```
+
+> **Fully restart the dev server after editing `.dev.vars`.** `wrangler dev` reads that file once at startup,
+> and its child process tree is hard to kill cleanly. An orphaned `workerd` keeps the port,
+> which produces the confusing "source code hot-reloaded, but environment variables are stale" situation. Make sure the port is really free before restarting.
+
+### Deployment troubleshooting
+
+**Registration or login returns Error 1101 (Worker threw exception).** The PBKDF2 iteration cap in Workers production is 100,000; anything higher throws `NotSupportedError`, and **local workerd does not enforce this rule**, so it cannot be reproduced locally. Full symptoms, diagnosis and fix in
+[Postmortem: registration always returned Error 1101](docs/postmortems/2026-07-30-register-error-1101.md) (Traditional Chinese).
+
+## Features
+
+### 📋 Schedule
+- **Groups**: plain category labels (no dates); create, rename, delete
+- **Items**: three types, 🟢 Task, 🟣 Meeting, 🟠 Assignment. All three can carry an optional time and a **link** (meeting URL, document, and so on) that opens straight from the list
+- **Multi-day items**: non-recurring items can have an end date (for example a business trip from 22 to 26 Aug). The calendar draws them as one continuous colour bar across the span, like Google Calendar; the done state is shared across the span, and an in-progress span is not counted as overdue
+- Four range filters: year / quarter / month / specific date
+- **Completed items collapse into a "Done" section** below (expandable); the top of the list only shows what still needs doing
+- **Recurrence**: weekly / fortnightly (multiple weekdays), monthly (fixed day or "Nth weekday"), quarterly, yearly. Holidays can push the occurrence forward, pull it earlier, or be ignored; you can set an end date or a repeat count
+- A single occurrence can be rescheduled or skipped without affecting the rest of the series
+- Custom holiday list (weekends are already treated as holidays): **load the built-in public holidays in one click** (2026 and 2027 are bundled, one button each, sourced from Taiwan's official government office calendar), or paste many dates at once
+- **Tags**: an item can carry several (for example `#controlled-drugs` `#tender`); click one to see only that tag. Existing tags are offered as you create an item
+- **Checklists**: to-do steps under an item. The row shows only `☑ 2/5`; open it to expand. Recurring items **share one checklist, but each occurrence is ticked separately**
+- **Prerequisites**: mark "this has to be done first". While a prerequisite is unfinished the row shows `⛓ waiting`, and hovering tells you which item and which occurrence. **It only displays the state**: it never moves a date and never blocks you from ticking
+- **Search and filter**: instant filtering by keyword (title, group or tag), type, tag, and completion state
+
+### 📅 Calendar
+- Month grid with today clearly marked
+- Meetings sorted by time; tasks and assignments can be ticked straight from the cell
+- **On phones it follows the Google Calendar approach**: cells show only coloured dots for what's on that day, and tapping a date expands the full content below. Cramming three or four lines of text into a 50px cell carries no usable information on a phone
+- **Tapping a date** expands the full item cards plus a **daily note** field (with formatting, see below); nothing hangs below the grid until you select a date. Days that have a note carry a small `✎` mark in the top-right corner of the cell
+- **Press and drag across several days** to select a range and create a multi-day item directly (trip, leave, project phase); the start and end dates are filled into the form
+- **🌴 Mark as away**: select a day or a range and press "Mark as away". Those cells get a faint hatch pattern and a 🌴. Leave no longer has to pretend to be a to-do item waiting to be ticked. **Overdue stays overdue, though**: the work was scheduled for that day, and your absence does not change its consequences
+
+### 📊 Projects (Gantt)
+- Multiple projects; timeline bars with progress percentage and a today marker
+- **The timeline scrolls horizontally** with four zoom levels (week / month / quarter / year), so long and cross-year projects stay readable; year boundaries are clearly marked and there's a one-click "Jump to today"
+- Edit dates and progress directly in the task table; the chart updates immediately
+- Each task can expand into **subtasks**; progress then follows the checklist automatically (the manual progress field becomes read-only)
+- Projects are switched from a dropdown
+- Project notes save automatically (with formatting, see below)
+
+### ✍️ Formatting (daily notes and project notes)
+- Bold, italic, underline, strikethrough; bulleted and numbered lists; highlight, text colour, text size; quote, link, code; and clear formatting
+- The toolbar is **collapsed by default**; press `Ctrl+Shift+X` or use the button under the field to toggle it. The preference is remembered on this device
+- Content pasted from the web is cleaned automatically; only supported styles survive
+
+### 🔔 Dashboard and reminders
+- Live at the top: due today, due this week, today's meetings
+- Today's outstanding items pop up when the page opens; the bell button carries an unread count
+- **Light / dark** appearance is switched on the "My account" page and follows the system setting by default
+- **Two voices**: where a person is speaking (greeting, empty states, daily notes) the interface uses a serif face; where the machine reports numbers (dates, counts, **overdue**) it uses monospace. Overdue therefore stands out **more**, not less. The mood may be soft; the warning may not
+- The backdrop is three soft halos over a paper grain that drift very slowly **and change colour with the time of day** (mossy green in the morning, golden in the afternoon, rose and indigo in the evening). Drifting stops when the system asks for reduced motion
+- The daily-note prompt changes every day; ticking a box gives a small pop; **on Mondays a single line says "Last week you finished N things"**, and it only counts what got done
+- On phones the navigation is pinned to the bottom of the screen, and forms and dialogs are tuned for touch
+
+### 👥 Users and permissions (after deployment)
+- Users register themselves with email + password; the registration page has Cloudflare Turnstile bot protection
+- **Registration requires administrator approval**; unapproved accounts never receive a session
+- Two roles: **user** (own schedule only) and **administrator** (can also manage accounts)
+- Administrators can approve / reject / suspend / delete accounts and change roles; they **cannot see anybody's schedule content**
+- Suspending or deleting an account signs that person out on every device immediately, without waiting for their next login
+- Passwords are stored as PBKDF2-SHA256 hashes (100,000 iterations, the Workers platform cap); plaintext is never stored
+- **Forgot password**: press "Forgot password?" on the sign-in page and the system emails a one-time link (valid for one hour, usable once); setting a new password signs out every device
+- Repeated failed logins are throttled (sliding window, recovers on its own, no manual unlock needed)
+- Every administrator action (approve / suspend / change role / reset password / delete) is logged, and every administrator can see the log
+- Administrators can also reset a password from `/admin`, producing a temporary password shown exactly once
+- Every account starts from a **blank interface** and sees nobody else's data
+
+### 👤 My account
+- The fifth tab on the main screen gathers account info, password change, overdue reminders, calendar subscription, signed-in devices, display preferences and backups
+- **Signed-in devices**: see which devices you are signed in on and when each was last used, with one-click "Sign out all other devices" (keeps the current one); IP addresses are not recorded
+- When not signed in (standalone file), backups and display preferences still work; the rest shows as requiring sign-in
+
+### 💾 Automatic backups and reminders (after deployment)
+- Every day all schedules are backed up to Cloudflare R2, keeping the latest 14 copies (**password hashes excluded**; after a restore everyone resets through "Forgot password")
+- Overdue reminder emails are **on by default**, with a configurable **lead time** (default 3 days; can also be set to overdue-only or turned off)
+- The admin page lists the backups (date, size, number of schedules) and has a button to run one right now
+- When nothing is overdue and nothing is coming due, no email is sent at all
+
+### 🔗 Sharing (after deployment)
+
+- Press **🔗** on any item, **group (including all its items)** or project, and enter the other person's account email
+- Two permissions: **can view** (read only) and **can edit** (tick items and subtasks, change progress)
+- Renaming, changing dates and deleting are always owner-only
+- What's shared is the same data rather than a copy, so both sides always see the same thing; the owner can revoke at any time
+- Incoming shares live on the "Shared" page and never mix into your own schedule or calendar
+- **Activity log**: who changed a shared item and when, kept for 90 days; the Shared tab shows an unread count and refreshes every minute while the page is open
+
+### 💾 Autosave and cross-device sync
+- Every change is written to `localStorage` immediately and survives a refresh
+- Deploying to Cloudflare adds cloud sync: `localStorage` stays the primary store (instant, works offline) and the cloud syncs in the background
+- When both sides changed, they are **merged item by item** (for example you are editing while a colleague ticks something you shared with them); you are only asked to choose when the *same* item changed on both sides
+- Falls back automatically when no API is detected (standalone) or local storage is blocked (Claude Artifact sandbox), with no loss of function
+- **The reason for falling back is distinguishable**: standalone is silent (there is no back end to begin with), but a back end that is temporarily unreachable says so: "Connection failed, using local data for now". If the two looked alike you would assume you were still syncing while changes stayed on this device
+- **An unusable local save is backed up before being overwritten**: if the save is corrupt, or newer than the page you have open (which happens with a browser-cached older version), the original is moved to `workSchedule.v1.unreadable` instead of being replaced by demo data
+- **Export / import backups**: dump everything to JSON from the page footer, or restore from a backup file
+- **Add to your phone's home screen**: PWA support after deployment; it opens from the home-screen icon and works offline
+- **Overdue reminder emails**: when enabled, an email goes to your registered address whenever unfinished items are overdue; **nothing is sent when nothing is overdue** (a daily "you have nothing overdue" only teaches people to ignore the sender). Never twice in one day, and items due today are not overdue
+- **Calendar subscription (ICS)**: generate a private link and subscribe your schedule into Google or Apple Calendar. Meetings carry their time, project tasks are date ranges, and it refreshes after every sync; the link can be regenerated or disabled at any time
+
+## Technical notes
+
+- The front end is a zero-dependency single HTML file (HTML + CSS + vanilla JavaScript) that runs on its own
+- The only external resource is the Google Fonts CDN (JetBrains Mono + Noto Sans TC + Noto Serif TC), **loaded without blocking rendering**: if the font hasn't arrived, or can't be reached at all, the page is painted with system fonts rather than sitting on a blank screen
+- Ticking an item responds immediately; saving and cloud sync happen in the background. Ticking also **does not rebuild the whole list**, it only moves that one row. The year view routinely holds thousands of rows, and rebuilding them all froze the page for seconds (measured: 300 items, 5.5 s → 0.08 s)
+- Cloud writes use a database-level compare-and-swap as an optimistic lock, so simultaneous writes never silently discard somebody's changes
+- Recurring items use an "occurrence engine": only the anchor date and the rule are stored, occurrences are expanded at render time, and per-occurrence adjustments are recorded on the parent item under an `occKey`
+- The back end is a Cloudflare Worker + D1 with self-hosted email/password auth; sessions live in the database (token hash only) so they can be revoked instantly
+
+```
+public/index.html      main app (single file, opens by double-click)
+public/login.html      sign in / register (with Turnstile)
+public/admin.html      account management (administrators only)
+src/index.js           routing and access control
+src/crypto.js          PBKDF2 password hashing, token generation
+src/session.js         session create / lookup / destroy
 src/turnstile.js       Turnstile siteverify
-src/handlers/          auth / state / admin / share 四組 API
-schema.sql             D1 資料表
-wrangler.jsonc         Worker 設定與綁定
-tests/                 occurrence 引擎、三方合併、樂觀鎖、富文字過濾、變數遮蔽、前置與「不在」（node:test，零相依，npm test）
-tools/                 冒煙測試、勾選等價驗證、富文字管線驗證、日曆／筆記／對比度／前置與「不在」（需 Playwright，故不在 npm test 內）
-                       ＋ 解析官方辦公日曆表的腳本（每年更新國定假日用）
-public/sw.js           service worker（加到主畫面／離線可用）
+src/handlers/          auth / state / admin / share APIs
+schema.sql             D1 tables
+wrangler.jsonc         Worker config and bindings
+tests/                 occurrence engine, three-way merge, optimistic locking, rich-text filter, variable shadowing,
+                       prerequisites and "away" (node:test, zero deps, npm test)
+tools/                 smoke test, toggle-equivalence check, rich-text pipeline check, calendar / notes / contrast /
+                       prerequisites-and-away checks (need Playwright, hence outside npm test)
+                       + script that parses the official office calendar (yearly holiday updates)
+public/sw.js           service worker (home screen / offline)
 ```
 
-詳細架構與資料模型請見 [`工作排程確認系統_專案說明.md`](./工作排程確認系統_專案說明.md)。
+For the full architecture and data model see [`工作排程確認系統_專案說明.md`](./工作排程確認系統_專案說明.md) (Traditional Chinese).
 
-## 已知限制
+## Known limitations
 
-| 限制 | 說明 |
+| Limitation | Detail |
 |---|---|
-| 單機模式的儲存範圍 | 未部署時資料只存在「這個瀏覽器」，不跨裝置；清除瀏覽器資料會一併清掉 |
-| 同步衝突 | 以「上次同步的內容」為基準逐項合併；只有同一個項目兩邊都改過才需要選邊 |
-| 假日判斷 | 週六日自動視為假日；國定假日只內建已公布的年度（目前 2026、2027），其餘年度可批次貼上 |
-| 前置作業 | 只顯示狀態，不會自動順延日期，也不會擋住勾選。一個項目最多五個前置 |
-| 「不在」 | 只是日曆與列上的標記：不移動任何日期，也**不影響逾期**、提醒信與行事曆訂閱 |
-| 週末補班 | 已支援：在「補班日」清單加入的週末視為工作日，循環不會被順延跳過 |
-| 甘特圖 | 長條不支援拖曳，日期透過表格輸入修改 |
-| 變更循環頻率 | 每月 ↔ 每季互換時，各次的完成／覆寫／略過紀錄會重置（存檔時會事先警告） |
+| Standalone storage scope | Without deployment, data lives in *this browser only* and does not follow you across devices; clearing browser data clears it too |
+| Sync conflicts | Merged item by item against the last synced content; you only choose a side when the same item changed on both |
+| Holidays | Weekends are automatic. Public holidays are bundled only for years that have been officially published (currently 2026 and 2027); other years can be pasted in bulk |
+| Prerequisites | Display only: they never move a date and never block ticking. At most five prerequisites per item |
+| "Away" | Only a mark on the calendar and the row: it moves no dates and **does not affect overdue**, reminder emails or the calendar subscription |
+| Weekend work days | Supported: weekend dates added to the "work days" list count as working days, so recurrences are not pushed past them |
+| Gantt | Bars cannot be dragged; dates are changed through the task table |
+| Changing recurrence frequency | Switching monthly ↔ quarterly resets the per-occurrence done / override / skip records (you are warned before saving) |
