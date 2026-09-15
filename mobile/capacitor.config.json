@@ -1,0 +1,13 @@
+{
+  "appId": "com.bounceto.workschedule",
+  "appName": "工作排程",
+  "webDir": "www",
+  "ios": {
+    "contentInset": "automatic",
+    "scheme": "capacitor",
+    "limitsNavigationsToAppBoundDomains": false
+  },
+  "server": {
+    "allowNavigation": []
+  }
+}

@@ -869,6 +869,17 @@
   .field-row{ display:flex; gap:10px; }
   .field-row > .field{ flex:1; }
   .modal-actions{ display:flex; gap:10px; margin-top:20px; }
+  /* iOS app 的登入／註冊畫面：蓋住整頁而不是半透明，因為底下的看板還沒有這個人的資料 */
+  .app-auth{ z-index:90; background: var(--bg); backdrop-filter:none; padding-top: calc(20px + env(safe-area-inset-top)); padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
+  .app-auth-brand{ margin-bottom:16px; }
+  .app-auth-title{ font-family: var(--serif); font-size:20px; font-weight:600; color: var(--text); }
+  .app-auth-sub{ font-size:12.5px; color: var(--text-muted); margin-top:4px; line-height:1.6; }
+  .app-auth-tabs{ margin-bottom:14px; }
+  .app-auth-tabs button.active{ background: var(--amber); color: var(--on-accent); border-color: var(--amber); }
+  .acct-danger{ border-color: var(--red-dim); }
+  .ghost-btn.danger-btn{ color: var(--red); border-color: var(--red); }
+  .ghost-btn.danger-btn:hover{ background: var(--red-dim); color: var(--red); border-color: var(--red); }
+  .btn-confirm.btn-danger{ background: var(--red); border-color: var(--red); }
   .modal-actions button{ flex:1; padding:11px; border-radius:999px; font-family: var(--sans); font-weight:700; font-size:14px; cursor:pointer; }
   .btn-cancel{ background: transparent; border:1px solid var(--hairline); color: var(--text-muted); }
   .btn-cancel:hover{ border-color:var(--hairline-strong); }
@@ -1316,6 +1327,14 @@
           </div>
         </div>
 
+        <div class="acct-sec acct-danger" id="acctDanger">
+          <div class="acct-h" data-i18n>🗑 刪除我的帳號</div>
+          <div class="acct-sub" data-i18n>刪掉這個帳號和雲端上的所有排程、分享與設定。每日備份會在 14 天後自動消失。這一步無法復原。</div>
+          <div class="acct-row">
+            <button id="btnDeleteAccount" class="ghost-btn danger-btn" type="button" data-i18n>刪除我的帳號…</button>
+          </div>
+        </div>
+
         <div class="acct-sec" id="acctSignedOutNote" style="display:none;">
           <div class="acct-sub" data-i18n>帳號、提醒、行事曆訂閱與裝置管理需要登入後才能使用。目前為單機模式，資料只存在這個瀏覽器。</div>
         </div>
@@ -1559,6 +1578,44 @@
   </div>
 </div>
 
+<!-- 只在 iOS app 裡出現的登入／註冊畫面。網頁版永遠不會 .show（見〈原生外殼〉區段） -->
+<div class="overlay app-auth" id="appAuthView">
+  <div class="modal" style="max-width:420px;">
+    <div class="app-auth-brand">
+      <div class="app-auth-title" data-i18n>工作排程確認系統</div>
+      <div class="app-auth-sub" data-i18n>登入後，排程會在手機與電腦之間同步。</div>
+    </div>
+    <div class="type-toggle app-auth-tabs">
+      <button type="button" id="appAuthTabLogin" class="active" data-i18n>登入</button>
+      <button type="button" id="appAuthTabRegister" data-i18n>註冊</button>
+    </div>
+    <div class="field"><label>Email</label><input type="email" id="inputAppAuthEmail" autocomplete="username" inputmode="email" autocapitalize="off" spellcheck="false"></div>
+    <div class="field" id="appAuthCodeRow" style="display:none;"><label data-i18n>驗證碼（六位數字）</label><input type="text" id="inputAppAuthCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6"></div>
+    <div class="field" id="appAuthPwRow"><label data-i18n>密碼</label><input type="password" id="inputAppAuthPw" autocomplete="current-password"></div>
+    <div class="field-hint" id="appAuthPwHint" style="display:none;" data-i18n>密碼至少 10 個字元。建立帳號時會向 App Store 取得購買證明，不需要等管理者核准。</div>
+    <div class="msg-inline" id="appAuthMsg"></div>
+    <div class="modal-actions">
+      <button class="btn-cancel" id="btnAppAuthForgot" type="button" data-i18n>忘記密碼</button>
+      <button class="btn-cancel" id="btnAppAuthResend" type="button" style="display:none;" data-i18n>重寄驗證碼</button>
+      <button class="btn-confirm" id="btnAppAuthCode" type="button" style="display:none;" data-i18n>寄驗證碼</button>
+      <button class="btn-confirm" id="btnAppAuthSubmit" type="button" data-i18n>登入</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="delOverlay">
+  <div class="modal" style="max-width:400px;">
+    <h3><span class="dot" style="background:var(--red);"></span><span data-i18n>刪除我的帳號</span></h3>
+    <div class="field-hint" style="margin-bottom:14px;" data-i18n>這會刪掉你的帳號、雲端上的所有排程、你分享出去與別人分享給你的項目、行事曆訂閱與提醒設定。無法復原。</div>
+    <div class="field"><label data-i18n>輸入密碼以確認</label><input type="password" id="inputDelPw" autocomplete="current-password"></div>
+    <div class="msg-inline" id="delMsg"></div>
+    <div class="modal-actions">
+      <button class="btn-cancel" id="btnCancelDel" data-i18n>取消</button>
+      <button class="btn-confirm btn-danger" id="btnConfirmDel" data-i18n>永久刪除</button>
+    </div>
+  </div>
+</div>
+
 <div class="overlay" id="pwOverlay">
   <div class="modal" style="max-width:400px;">
     <h3><span class="dot"></span>變更密碼</h3>
@@ -1600,6 +1657,148 @@
 
 <script>
 (function(){
+  // ================= 原生外殼 =================
+  // iOS app（Capacitor）把這個檔案內建在 app 裡，網頁來源是 capacitor://localhost。
+  // 對後端來說那是另一個網域：相對路徑的 /api/... 會打到 app 自己身上、cookie 靠
+  // 不住、Turnstile 跑不起來。這一區把那些差異收在一個地方；不在 app 裡時（網頁版、
+  // 雙擊開啟）NATIVE 為 false，下面每一段都不生效，行為一個 byte 都不變。
+  //
+  // 為什麼是包一層 fetch 而不是改三十幾處呼叫：那種大範圍機械式改名正是〈多語系〉
+  // 那節遮蔽事故的形狀；而且只在原生環境才換掉，單檔與網頁版連這一層都沒有。
+  // 這是全檔唯一一處改寫全域行為的地方。
+  const NATIVE = !!(window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform());
+  const API_BASE = NATIVE ? 'https://work-schedule.bounceto12340.workers.dev' : '';
+  const APP_CLIENT = 'ios/1.0.0';   // 併進 user agent，「登入中的裝置」才分得出是 app
+  const TOKEN_KEY = 'sessionToken';
+  let appToken = null;              // 只在 app 裡有值；存在 Keychain，不進 localStorage
+
+  function nativePlugin(){
+    const C = window.Capacitor;
+    return (C && C.Plugins && C.Plugins.WorkScheduleNative) || null;
+  }
+  if(NATIVE){
+    const realFetch = window.fetch.bind(window);
+    window.fetch = function(input, init){
+      const url = typeof input === 'string' ? input : (input && input.url) || '';
+      if(!/^\/(api|ics)\//.test(url)) return realFetch(input, init);
+      const headers = new Headers((init && init.headers) || undefined);
+      if(appToken) headers.set('Authorization', 'Bearer ' + appToken);
+      headers.set('X-App-Client', APP_CLIENT);
+      return realFetch(API_BASE + url, Object.assign({}, init, { headers }));
+    };
+  }
+  async function nativeTokenLoad(){
+    const p = nativePlugin(); if(!p) return null;
+    try{ const r = await p.keychainGet({ key: TOKEN_KEY }); return (r && r.value) || null; }
+    catch(e){ console.error('keychain read failed', e); return null; }
+  }
+  async function nativeTokenSave(t){
+    const p = nativePlugin(); if(!p) return;
+    try{ await p.keychainSet({ key: TOKEN_KEY, value: t }); }catch(e){ console.error('keychain write failed', e); }
+  }
+  async function nativeTokenClear(){
+    const p = nativePlugin(); if(!p) return;
+    try{ await p.keychainDelete({ key: TOKEN_KEY }); }catch(e){ console.error('keychain delete failed', e); }
+  }
+  /** Apple 的購買證明（AppTransaction 的 JWS）。拿不到回 null，由呼叫端提示。 */
+  async function nativePurchaseProof(){
+    const p = nativePlugin(); if(!p) return null;
+    try{ const r = await p.getAppTransaction(); return (r && r.jws) || null; }
+    catch(e){ console.error('app transaction failed', e); return null; }
+  }
+
+  // ---- 只在 app 裡出現的登入／註冊畫面（login.html 依賴 Turnstile，app 不用它） ----
+  const appAuthView = document.getElementById('appAuthView');
+  let appAuthMode = 'login';     // 'login' | 'register'
+  let appAuthCodeSent = false;
+  function appAuthShow(){ if(!appAuthView) return; appAuthRender(); appAuthView.classList.add('show'); }
+  function appAuthMsg(text, cls){
+    const el = document.getElementById('appAuthMsg'); if(!el) return;
+    // .msg-inline 沒有 class 時是 display:none：進度訊息（寄送中…）用 ok 的樣式顯示
+    el.textContent = text || ''; el.className = 'msg-inline' + (text ? ' ' + (cls || 'ok') : '');
+  }
+  function appAuthRender(){
+    const reg = appAuthMode === 'register';
+    const step2 = !reg || appAuthCodeSent;
+    document.getElementById('appAuthTabLogin').classList.toggle('active', !reg);
+    document.getElementById('appAuthTabRegister').classList.toggle('active', reg);
+    document.getElementById('appAuthCodeRow').style.display = reg && appAuthCodeSent ? '' : 'none';
+    document.getElementById('appAuthPwRow').style.display = step2 ? '' : 'none';
+    document.getElementById('appAuthPwHint').style.display = reg && appAuthCodeSent ? '' : 'none';
+    document.getElementById('btnAppAuthCode').style.display = reg && !appAuthCodeSent ? '' : 'none';
+    document.getElementById('btnAppAuthResend').style.display = reg && appAuthCodeSent ? '' : 'none';
+    document.getElementById('btnAppAuthForgot').style.display = reg ? 'none' : '';
+    const submit = document.getElementById('btnAppAuthSubmit');
+    submit.textContent = reg ? tr('建立帳號') : tr('登入');
+    submit.style.display = step2 ? '' : 'none';
+  }
+  if(appAuthView){
+    document.getElementById('appAuthTabLogin').onclick = ()=>{ appAuthMode = 'login'; appAuthMsg(''); appAuthRender(); };
+    document.getElementById('appAuthTabRegister').onclick = ()=>{ appAuthMode = 'register'; appAuthMsg(''); appAuthRender(); };
+    // 忘記密碼走網頁版的信件重設流程，app 不重做一份；Safari 開
+    document.getElementById('btnAppAuthForgot').onclick = ()=>{ window.open(API_BASE + '/login', '_blank'); };
+    const sendCode = async (btn)=>{
+      const email = document.getElementById('inputAppAuthEmail').value.trim();
+      if(!email){ appAuthMsg(tr('請輸入 email'), 'err'); return; }
+      btn.disabled = true; appAuthMsg(tr('寄送中…'));
+      try{
+        const r = await fetch('/api/auth/app/code', { method:'POST', headers:{ 'content-type':'application/json' }, body: JSON.stringify({ email }) });
+        const d = await r.json().catch(()=>({}));
+        if(!r.ok){ appAuthMsg(d.error || ('HTTP ' + r.status), 'err'); return; }
+        appAuthCodeSent = true; appAuthRender();
+        appAuthMsg(tr('驗證碼已寄到你的信箱，10 分鐘內有效。'), 'ok');
+        setTimeout(()=>document.getElementById('inputAppAuthCode').focus(), 50);
+      }catch(e){ console.error('app code failed', e); appAuthMsg(tr('連線失敗，請確認網路後再試'), 'err'); }
+      finally{ btn.disabled = false; }
+    };
+    document.getElementById('btnAppAuthCode').onclick = function(){ sendCode(this); };
+    document.getElementById('btnAppAuthResend').onclick = function(){ sendCode(this); };
+    document.getElementById('btnAppAuthSubmit').onclick = async function(){
+      const email = document.getElementById('inputAppAuthEmail').value.trim();
+      const password = document.getElementById('inputAppAuthPw').value;
+      if(!email || !password){ appAuthMsg(tr('請輸入 email 與密碼'), 'err'); return; }
+      this.disabled = true;
+      try{
+        let r;
+        if(appAuthMode === 'register'){
+          const code = document.getElementById('inputAppAuthCode').value.trim();
+          if(!/^\d{6}$/.test(code)){ appAuthMsg(tr('驗證碼是六位數字'), 'err'); return; }
+          if(password.length < 10){ appAuthMsg(tr('密碼至少需要 10 個字元'), 'err'); return; }
+          appAuthMsg(tr('向 App Store 取得購買證明…'));
+          const jws = await nativePurchaseProof();
+          if(!jws){ appAuthMsg(tr('拿不到 App Store 的購買證明。請確認是從 App Store 或 TestFlight 安裝的版本。'), 'err'); return; }
+          r = await fetch('/api/auth/app/register', { method:'POST', headers:{ 'content-type':'application/json' },
+            body: JSON.stringify({ email, code, password, appTransactionJws: jws }) });
+        }else{
+          r = await fetch('/api/auth/app/login', { method:'POST', headers:{ 'content-type':'application/json' },
+            body: JSON.stringify({ email, password }) });
+        }
+        const d = await r.json().catch(()=>({}));
+        if(!r.ok || !d.token){ appAuthMsg(d.error || ('HTTP ' + r.status), 'err'); return; }
+        await nativeTokenSave(d.token);
+        appToken = d.token;
+        // 從頭走一次啟動流程：與「帶著 token 開 app」是同一條路，不另外拼一份初始化
+        location.reload();
+      }catch(e){ console.error('app auth failed', e); appAuthMsg(tr('連線失敗，請確認網路後再試'), 'err'); }
+      finally{ this.disabled = false; }
+    };
+  }
+  /** app 的啟動：有 token 就同步，沒有就先登入。網頁版不走這裡。 */
+  async function nativeBoot(localHadData){
+    appToken = await nativeTokenLoad();
+    if(!appToken){ appAuthShow(); return; }
+    await initCloudSync(localHadData);
+  }
+  /** 401 在 app 裡：清掉 token、回到登入畫面。不能導向 /login——app 裡沒有那一頁。 */
+  function nativeSessionExpired(){
+    appToken = null;
+    nativeTokenClear();
+    cloudEnabled = false;
+    setCloudNote('');
+    updateStorageNote();
+    appAuthShow();
+  }
+
   // ================= state =================
   let majorProjects = [];
   let items = [];
@@ -1905,6 +2104,40 @@
         'Signed in on someone else\'s computer and forgot to sign out? Remove it here. IP addresses are not recorded.',
       '登出其他所有裝置':'Sign out all other devices',
       '要登出其他所有裝置嗎？這一台會保留。':'Sign out all other devices? This one stays signed in.',
+      // 刪除自己的帳號
+      '🗑 刪除我的帳號':'🗑 Delete my account',
+      '刪掉這個帳號和雲端上的所有排程、分享與設定。每日備份會在 14 天後自動消失。這一步無法復原。':
+        'Deletes this account and every schedule, share and setting in the cloud. Daily backups expire after 14 days. This cannot be undone.',
+      '刪除我的帳號…':'Delete my account…',
+      '刪除我的帳號':'Delete my account',
+      '這會刪掉你的帳號、雲端上的所有排程、你分享出去與別人分享給你的項目、行事曆訂閱與提醒設定。無法復原。':
+        'This deletes your account, every schedule in the cloud, items you shared and items shared with you, the calendar feed and reminder settings. It cannot be undone.',
+      '輸入密碼以確認':'Enter your password to confirm',
+      '永久刪除':'Delete permanently',
+      '請輸入密碼':'Please enter your password',
+      '真的要永久刪除帳號嗎？雲端上的所有資料都會消失，無法復原。':'Permanently delete your account? Everything in the cloud will be gone and cannot be recovered.',
+      '連線失敗，無法刪除帳號':'Connection failed; the account was not deleted',
+      // iOS app 的登入／註冊畫面
+      '登入後，排程會在手機與電腦之間同步。':'Sign in and your schedule syncs between phone and computer.',
+      '驗證碼（六位數字）':'Verification code (6 digits)',
+      '密碼至少 10 個字元。建立帳號時會向 App Store 取得購買證明，不需要等管理者核准。':
+        'At least 10 characters. Registering fetches your App Store purchase proof, so no administrator approval is needed.',
+      '登入':'Sign in',
+      '註冊':'Register',
+      '密碼':'Password',
+      '忘記密碼':'Forgot password',
+      '重寄驗證碼':'Resend code',
+      '寄驗證碼':'Send code',
+      '建立帳號':'Create account',
+      '請輸入 email':'Please enter your email',
+      '寄送中…':'Sending…',
+      '驗證碼已寄到你的信箱，10 分鐘內有效。':'A code was sent to your inbox. It is valid for 10 minutes.',
+      '連線失敗，請確認網路後再試':'Connection failed. Check your network and try again.',
+      '請輸入 email 與密碼':'Please enter your email and password',
+      '驗證碼是六位數字':'The code is 6 digits',
+      '向 App Store 取得購買證明…':'Fetching the purchase proof from the App Store…',
+      '拿不到 App Store 的購買證明。請確認是從 App Store 或 TestFlight 安裝的版本。':
+        'Could not get the App Store purchase proof. Make sure this copy was installed from the App Store or TestFlight.',
       '其他裝置已登出。':'Other devices have been signed out.',
       '目前離線，無法登出其他裝置。':'You are offline — other devices could not be signed out.',
       '裝置清單讀取失敗，其餘設定不受影響。':'Could not load the device list. Other settings are unaffected.',
@@ -2633,7 +2866,7 @@
 
   // session 過期必須導向登入，不能當成「單機模式」靜默降級——
   // 那會讓使用者以為還在同步，實際上所有變更都只留在這台裝置。
-  function sessionExpired(){ location.href = '/login'; }
+  function sessionExpired(){ if(NATIVE){ nativeSessionExpired(); return; } location.href = '/login'; }
 
   // 回 { user, state, updatedAt }。user 是伺服器順帶給的——這個端點本來就要
   // 有效 session 才進得來，不必再單獨打一次 /api/auth/me 問「我是誰」。
@@ -2655,8 +2888,9 @@
     try{
       r = await fetch(API_STATE, { cache:'no-store' });
     }catch(e){
-      // file:// 沒有伺服器可打，fetch 直接拒絕——那是「沒有後端」而不是故障
-      return { kind: location.protocol.startsWith('http') ? 'failed' : 'absent', error: e };
+      // file:// 沒有伺服器可打，fetch 直接拒絕——那是「沒有後端」而不是故障。
+      // app 裡（capacitor://）打的是線上網址，打不到就是真的斷線，要算 failed。
+      return { kind: (NATIVE || location.protocol.startsWith('http')) ? 'failed' : 'absent', error: e };
     }
     if(r.status === 401){ sessionExpired(); return { kind:'expired' }; }
     if(r.status === 404) return { kind:'absent' };
@@ -2767,7 +3001,8 @@
     if(currentView==='account') renderAccountView();
   }
 
-  document.getElementById('btnAdmin').onclick = ()=>{ location.href = '/admin'; };
+  // app 裡沒有 admin.html：用 Safari 開網頁版的管理頁
+  document.getElementById('btnAdmin').onclick = ()=>{ if(NATIVE){ window.open(API_BASE + '/admin', '_blank'); return; } location.href = '/admin'; };
 
   const pwOverlay=document.getElementById('pwOverlay');
   function setPwMsg(t,cls){ const el=document.getElementById('pwMsg'); el.textContent=t||''; el.className='msg-inline'+(t?' '+cls:''); }
@@ -2801,7 +3036,39 @@
     // 登出必須清掉本地快取，否則同一台電腦的下一位使用者會讀到這份資料
     try{ await fetch('/api/auth/logout', { method:'POST' }); }catch(e){ /* 仍要清並離開 */ }
     clearLocalData();
+    if(NATIVE){ appToken = null; await nativeTokenClear(); location.reload(); return; }
     location.href = '/login';
+  };
+
+  // 刪除自己的帳號（Apple 5.1.1(v)）。網頁版與 app 共用同一顆按鈕、同一個對話框。
+  const delOverlay = document.getElementById('delOverlay');
+  function setDelMsg(t, cls){
+    const el = document.getElementById('delMsg');
+    el.textContent = t || ''; el.className = 'msg-inline' + (cls ? ' ' + cls : '');
+  }
+  document.getElementById('btnDeleteAccount').onclick = ()=>{
+    document.getElementById('inputDelPw').value = '';
+    setDelMsg('');
+    delOverlay.classList.add('show');
+    setTimeout(()=>document.getElementById('inputDelPw').focus(), 50);
+  };
+  document.getElementById('btnCancelDel').onclick = ()=>delOverlay.classList.remove('show');
+  delOverlay.addEventListener('click', (e)=>{ if(e.target.id === 'delOverlay') e.currentTarget.classList.remove('show'); });
+  document.getElementById('btnConfirmDel').onclick = async function(){
+    const password = document.getElementById('inputDelPw').value;
+    if(!password){ setDelMsg(tr('請輸入密碼'), 'err'); return; }
+    if(!confirm(tr('真的要永久刪除帳號嗎？雲端上的所有資料都會消失，無法復原。'))) return;
+    this.disabled = true;
+    try{
+      const r = await fetch('/api/auth/account', { method:'DELETE', headers:{ 'content-type':'application/json' }, body: JSON.stringify({ password }) });
+      if(r.status === 401){ sessionExpired(); return; }
+      const d = await r.json().catch(()=>({}));
+      if(!r.ok){ setDelMsg(d.error || ('HTTP ' + r.status), 'err'); return; }
+      clearLocalData();
+      if(NATIVE){ appToken = null; await nativeTokenClear(); location.reload(); return; }
+      location.href = '/login';
+    }catch(e){ console.error('delete account failed', e); setDelMsg(tr('連線失敗，無法刪除帳號'), 'err'); }
+    finally{ this.disabled = false; }
   };
 
   async function initCloudSync(localHadData){
@@ -3377,7 +3644,7 @@
   /** 沿用既有的 ymd()，不另造一個——兩個格式化日期的函式遲早會不一致 */
   function acctYmd(ms){ return ms ? ymd(new Date(ms)) : ''; }
 
-  const ACCT_CLOUD_SECTIONS = ['acctIdentity','acctReminder','acctIcs','acctDevices'];
+  const ACCT_CLOUD_SECTIONS = ['acctIdentity','acctReminder','acctIcs','acctDevices','acctDanger'];
 
   function renderAccountView(){
     // 單機模式：雲端相關的區塊整區隱藏，並說明為什麼——留白會被當成壞掉
@@ -6748,7 +7015,9 @@
   // 頂層碰 document 會讓整支測試爆掉——那支測試已經實際擋下來一次。
   document.addEventListener('visibilitychange', ()=>{ if(document.hidden) flushPendingWrites(); });
   window.addEventListener('pagehide', flushPendingWrites);
-  initCloudSync(loadedFromStorage);   // 不 await：雲端偵測不得拖慢啟動
+  // app 裡先看 Keychain 有沒有 token：沒有就顯示登入畫面，有才同步（見〈原生外殼〉）
+  if(NATIVE) nativeBoot(loadedFromStorage);
+  else initCloudSync(loadedFromStorage);   // 不 await：雲端偵測不得拖慢啟動
 })();
 </script>
 </body>

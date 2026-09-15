@@ -65,6 +65,12 @@ npx wrangler secret put APP_URL              # optional, used for the link insid
 >
 > Without these, reminders simply do not run; nothing else is affected.
 
+**Existing databases need the newest migration before deploying** (`schema.sql` cannot add columns to tables that already exist):
+
+```bash
+npx wrangler d1 execute work-schedule-db --remote --file=./migrations/005-app-purchase.sql
+```
+
 Finally, deploy:
 
 ```bash
@@ -156,7 +162,14 @@ APP_URL=<optional>
 ### 👤 My account
 - The fifth tab on the main screen gathers account info, password change, overdue reminders, calendar subscription, signed-in devices, display preferences and backups
 - **Signed-in devices**: see which devices you are signed in on and when each was last used, with one-click "Sign out all other devices" (keeps the current one); IP addresses are not recorded
+- **Delete my account**: at the bottom of the tab; confirm with your password and the account, every schedule in the cloud, shares, calendar feed and reminder settings are gone (daily backups expire after 14 days). Works on the web and in the iOS app
 - When not signed in (standalone file), backups and display preferences still work; the rest shows as requiring sign-in
+
+### 📱 iOS app (paid download)
+- The same `index.html` is bundled into a native app (`mobile/`, Capacitor). Works offline; signs in with a token kept in the Keychain; the web version and the app share one account and one set of data
+- Registering inside the app attaches Apple's purchase proof (StoreKit `AppTransaction`), verified offline by the Worker: no administrator approval, one purchase = one account. A 6-digit email code replaces Turnstile, which cannot run inside the app
+- Building and uploading happen on GitHub's Mac runners (`.github/workflows/ios.yml`, manual trigger); no Mac required. Four repository secrets: `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_API_KEY_P8`, `APPLE_TEAM_ID`. Set `APP_PURCHASE_ALLOW_SANDBOX=1` on the Worker while testing through TestFlight
+- A public [privacy policy](./public/privacy.html) is served at `/privacy.html`
 
 ### 💾 Automatic backups and reminders (after deployment)
 - Every day all schedules are backed up to Cloudflare R2, keeping the latest 14 copies (**password hashes excluded**; after a restore everyone resets through "Forgot password")
@@ -226,4 +239,5 @@ For the full architecture and data model see [`工作排程確認系統_專案�
 | "Away" | Only a mark on the calendar and the row: it moves no dates and **does not affect overdue**, reminder emails or the calendar subscription |
 | Weekend work days | Supported: weekend dates added to the "work days" list count as working days, so recurrences are not pushed past them |
 | Gantt | Bars cannot be dragged; dates are changed through the task table |
+| iOS app | Paid download; one purchase = one account; refunds do not remove the account. Every front-end release needs a new build submitted to the App Store. Public registration happens only inside the app |
 | Changing recurrence frequency | Switching monthly ↔ quarterly resets the per-occurrence done / override / skip records (you are warned before saving) |

@@ -8,6 +8,7 @@ import { handleListShares, handleCreateShare, handleDeleteShare, handleUpdateSha
 import { handleIcsStatus, handleIcsEnable, handleIcsDisable, handleIcsPut, handleIcsFeed } from './handlers/ics.js';
 import { handleReminderStatus, handleReminderEnable, handleReminderPut, sendOverdueReminders } from './handlers/reminder.js';
 import { handleForgotPassword, handleResetPassword as handleSelfResetPassword } from './handlers/password-reset.js';
+import { handleAppCode, handleAppRegister, handleAppLogin, handleDeleteAccount } from './handlers/appauth.js';
 import { getSessionUser } from './session.js';
 
 /**
@@ -87,6 +88,18 @@ async function route(request, env, ctx) {
     return request.method === 'POST' ? handleSelfResetPassword(request, env) : methodNotAllowed();
   }
 
+  // iOS app 的公開端點：驗證碼、以購買證明註冊、登入（回 token 不發 cookie）。
+  // 網頁的 register/login 一行沒動；兩條路進的是同一張 users 與 sessions。
+  if (path === '/api/auth/app/code') {
+    return request.method === 'POST' ? handleAppCode(request, env) : methodNotAllowed();
+  }
+  if (path === '/api/auth/app/register') {
+    return request.method === 'POST' ? handleAppRegister(request, env) : methodNotAllowed();
+  }
+  if (path === '/api/auth/app/login') {
+    return request.method === 'POST' ? handleAppLogin(request, env) : methodNotAllowed();
+  }
+
   // 以下都需要有效 session
   const user = await getSessionUser(request, env);
   if (!user) return json({ error: '尚未登入' }, 401);
@@ -114,6 +127,11 @@ async function route(request, env, ctx) {
 
   if (path === '/api/auth/password') {
     return request.method === 'POST' ? handleChangePassword(request, env, user) : methodNotAllowed();
+  }
+
+  // 刪除自己的帳號（Apple 5.1.1(v)；網頁版同一顆按鈕）。要帶密碼。
+  if (path === '/api/auth/account') {
+    return request.method === 'DELETE' ? handleDeleteAccount(request, env, user) : methodNotAllowed();
   }
 
   if (path === '/api/ics/status') {
@@ -268,6 +286,9 @@ export async function step(env, name, fn) {
  * 那也只是一個沒有資料的空殼，/api/admin/* 仍會擋下他。
  */
 async function servePage(request, env, url, path) {
+  // 隱私權政策不用登入就要看得到：App Store 的審查員與還沒註冊的人都會來看
+  if (path === '/privacy' || path === '/privacy.html') return env.ASSETS.fetch(request);
+
   // 授權查詢與取出靜態資產彼此沒有依賴，串行做等於讓一次 D1 往返擋在 HTML
   // 的第一個位元組前面——而 run_worker_first 讓 / 一定要經過這裡，所以每次
   // 開啟都在付這筆錢。同時發、未授權時把拿到的資產丟掉即可：擋下來的東西

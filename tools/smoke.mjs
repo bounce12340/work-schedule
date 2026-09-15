@@ -40,6 +40,10 @@ const PUBLIC = fileURLToPath(new URL('../public/', import.meta.url));
 const PORT = Number(process.env.PORT || 8963);
 
 const ME = { email: 'smoke@example.com', role: 'user', status: 'approved' };
+/** app 外殼那一輪用的假 token；server 對它不做任何檢查，檢查的是它有沒有被帶上 */
+const APP_TOKEN = 'smoke-app-token-0123456789abcdef';
+/** index.html 在 app 裡打的線上網址；那一輪用 page.route 把它轉回本機伺服器 */
+const APP_API_ORIGIN = 'https://work-schedule.bounceto12340.workers.dev';
 
 /** 有循環、有跨多天、有子代辦、有筆記——讓每條 render 分支都有東西可畫 */
 function seed() {
@@ -99,7 +103,7 @@ async function loadChromium() {
  */
 function makeServer(loggedIn) {
   const assets = new Map();
-  for (const f of ['index.html', 'login.html', 'admin.html']) {
+  for (const f of ['index.html', 'login.html', 'admin.html', 'privacy.html']) {
     assets.set('/' + f, readFileSync(PUBLIC + f, 'utf8'));
   }
   // sw.js 一定要真的供應。擋掉它會讓註冊失敗噴一行 console.error，而把
@@ -118,6 +122,9 @@ function makeServer(loggedIn) {
         if (req.method === 'PUT') return send(200, { ok: true, updatedAt: 1 });
         return send(200, { user: ME, state: null, updatedAt: null });
       }
+      // iOS app 的登入／驗證碼：回一個假 token，讓「app 外殼」那一輪走得完
+      if (url.pathname === '/api/auth/app/login') return send(200, { ok: true, token: APP_TOKEN, expiresAt: 9e12, user: ME });
+      if (url.pathname === '/api/auth/app/code') return send(200, { ok: true, message: 'sent' });
       if (url.pathname === '/api/shares') return send(200, { outgoing: [], incoming: [] });
       if (url.pathname === '/api/activity') return send(200, { activity: [] });
       if (url.pathname === '/api/reminder') return send(200, { enabled: false, lastSent: null, email: ME.email });
@@ -233,6 +240,20 @@ async function walk(page, log) {
     await need('#' + id, id);
   }
 
+  // 「刪除我的帳號」（Apple 5.1.1(v)）是雲端區塊：單機隱藏、登入顯示，與帳號資訊那一區同步。
+  // 顯示時按下去要開得起對話框（不確認，只按取消）。
+  const identityShown = await page.locator('#acctIdentity').isVisible();
+  const dangerShown = await page.locator('#acctDanger').isVisible();
+  if (identityShown !== dangerShown) throw new Error(`刪除帳號區塊的可見性（${dangerShown}）與帳號資訊（${identityShown}）不一致`);
+  checked.push(`刪除帳號區塊(${dangerShown ? '顯示' : '隱藏'})`);
+  if (dangerShown) {
+    await click('#btnDeleteAccount', '打開刪除帳號對話框');
+    await need('#delOverlay.show', '刪除帳號對話框');
+    await click('#btnCancelDel', '取消刪除');
+    await page.waitForTimeout(100);
+    if (await page.locator('#delOverlay.show').count()) throw new Error('刪除帳號對話框取消後沒有關閉');
+  }
+
   // 主題與語言現在只有這一頁能切，所以在這裡按一次——順便確認搬家之後
   // 那兩顆按鈕的事件綁定仍然有效（它們的程式碼一行都沒改）。
   await click('#themeBtn', '切換主題');
@@ -296,9 +317,167 @@ for (const loggedIn of [false, true]) {
   }
 }
 
+/**
+ * 第五輪：iOS app 外殼。
+ *
+ * 塞一個假的 window.Capacitor（isNativePlatform 為真、假的 Keychain 與購買證明插件），
+ * index.html 就會走〈原生外殼〉那條路：fetch 被改寫成打線上網址並帶 Bearer、沒有
+ * token 時顯示 #appAuthView。線上網址用 page.route 轉回本機伺服器，順便記下每一個
+ * 請求的標頭——「有沒有帶 Bearer」是這一輪真正要驗的事，只看畫面看不出來。
+ */
+async function walkNative(page, log, seen) {
+  const checked = [];
+  const need = async (sel, what) => {
+    const n = await page.locator(sel).count();
+    if (!n) throw new Error(`${what}：找不到 ${sel}`);
+    checked.push(`${what}(${n})`);
+  };
+
+  // 沒有 token：登入畫面要蓋在上面
+  await page.waitForSelector('#appAuthView.show', { timeout: 5000 });
+  checked.push('app 登入畫面(1)');
+
+  // 註冊分頁：寄驗證碼之後才出現密碼欄；再切回登入
+  await page.click('#appAuthTabRegister');
+  if (await page.locator('#appAuthPwRow').isVisible()) throw new Error('註冊第一步不該就顯示密碼欄');
+  await page.fill('#inputAppAuthEmail', ME.email);
+  await page.click('#btnAppAuthCode');
+  await page.waitForSelector('#appAuthCodeRow', { state: 'visible', timeout: 5000 });
+  await need('#appAuthPwHint', '註冊第二步的說明');
+  checked.push('寄驗證碼(1)');
+  await page.click('#appAuthTabLogin');
+
+  // 登入：成功後 index.html 會 reload，帶著 Keychain 裡的 token 重新啟動
+  await page.fill('#inputAppAuthEmail', ME.email);
+  await page.fill('#inputAppAuthPw', 'whatever-password');
+  // 成功後 index.html 會 location.reload()；等新文件裡的登入畫面是收起來的狀態。
+  // 不用 waitForNavigation：它對 reload 的時序很挑，失敗時只剩 timeout 看不出原因。
+  await page.click('#btnAppAuthSubmit');
+  try {
+    // state:'attached'：沒有 .show 的登入畫面是 display:none，預設的 visible 永遠等不到
+    await page.waitForSelector('#appAuthView:not(.show)', { state: 'attached', timeout: 8000 });
+  } catch {
+    const msg = await page.locator('#appAuthMsg').textContent().catch(() => '');
+    throw new Error(`登入後登入畫面沒有收起來（畫面訊息：「${(msg || '').trim()}」）`);
+  }
+  await page.waitForTimeout(800);
+  checked.push('登入後進主畫面(1)');
+
+  await page.click('#navAccount');
+  await page.waitForTimeout(400);
+  const email = (await page.locator('#acctEmail').textContent()).trim();
+  if (email !== ME.email) throw new Error(`我的帳號頁應顯示 ${ME.email}，實際是「${email}」`);
+  checked.push('帳號資訊(1)');
+  if (!(await page.locator('#acctDanger').isVisible())) throw new Error('app 裡登入後應看得到刪除帳號區塊');
+
+  // 這一輪的核心斷言：所有打到線上網址的請求都帶了 Bearer 與 X-App-Client
+  const stateCalls = seen.filter(r => r.path === '/api/state');
+  if (!stateCalls.length) throw new Error('登入後沒有任何 /api/state 請求打到線上網址——fetch 沒有被改寫');
+  for (const r of seen) {
+    if (r.path.startsWith('/api/auth/app/')) continue;   // 登入與驗證碼發生在拿到 token 之前
+    if (r.auth !== `Bearer ${APP_TOKEN}`) throw new Error(`${r.method} ${r.path} 沒有帶 Bearer（實際：${r.auth || '無'}）`);
+    if (!/^ios\//.test(r.client || '')) throw new Error(`${r.method} ${r.path} 沒有帶 X-App-Client`);
+  }
+  checked.push(`Bearer 請求(${seen.length - seen.filter(r => r.path.startsWith('/api/auth/app/')).length})`);
+
+  // 登出：清 Keychain、reload、回到登入畫面
+  await page.click('#btnLogout');
+  await page.waitForSelector('#appAuthView.show', { timeout: 8000 });
+  const kc = await page.evaluate(() => localStorage.getItem('__kc_sessionToken'));
+  if (kc) throw new Error('登出後 Keychain 裡的 token 沒有清掉');
+  checked.push('登出回登入畫面(1)');
+
+  log(`      走過：${checked.join('、')}`);
+}
+
+{
+  const label = 'iOS app 外殼（假 Capacitor）';
+  const server = makeServer(true);
+  await new Promise(r => server.listen(PORT, r));
+  const launch = process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {};
+  const browser = await chromium.launch(launch);
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 950 }, locale: 'zh-TW' });
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(`未捕捉的例外：${e.message}`));
+  page.on('console', m => {
+    if (m.type() !== 'error') return;
+    const t = m.text();
+    if (/favicon|ERR_FAILED|net::ERR|MIME type|Failed to load resource/i.test(t)) return;
+    errors.push(`console.error：${t}`);
+  });
+  await page.route('**://fonts.*/**', r => r.abort());
+
+  // 線上網址 → 本機伺服器，並記下標頭
+  const seen = [];
+  await page.route(APP_API_ORIGIN + '/**', async route => {
+    const req = route.request();
+    const u = new URL(req.url());
+    const h = req.headers();
+    seen.push({ method: req.method(), path: u.pathname, auth: h['authorization'], client: h['x-app-client'] });
+    const r = await fetch(`http://127.0.0.1:${PORT}${u.pathname}${u.search}`, {
+      method: req.method(), headers: { 'content-type': h['content-type'] || 'application/json' }, body: req.postData() ?? undefined,
+    });
+    await route.fulfill({ status: r.status, body: await r.text(), headers: { 'content-type': r.headers.get('content-type') || 'application/json' } });
+  });
+
+  // 假的 Capacitor：Keychain 用 localStorage 的一個鍵模擬，reload 之後才拿得回來
+  await page.addInitScript(([s, l]) => {
+    localStorage.setItem('workSchedule.v1', JSON.stringify(s));
+    localStorage.setItem('workSchedule.v1.lang', l);
+    window.Capacitor = {
+      isNativePlatform: () => true,
+      Plugins: { WorkScheduleNative: {
+        keychainGet: async ({ key }) => ({ value: localStorage.getItem('__kc_' + key) }),
+        keychainSet: async ({ key, value }) => { localStorage.setItem('__kc_' + key, value); },
+        keychainDelete: async ({ key }) => { localStorage.removeItem('__kc_' + key); },
+        getAppTransaction: async () => ({ jws: 'fake.jws.for-smoke' }),
+      } },
+    };
+  }, [seed(), 'zh']);
+
+  console.log(`\n▸ ${label}`);
+  try {
+    await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'domcontentloaded' });
+    await walkNative(page, console.log, seen);
+  } catch (e) {
+    errors.push(`路徑走不完：${e.message.split('\n')[0]}`);
+  }
+  if (errors.length) { failures.push({ label, errors }); console.log(`   ✗ ${errors.length} 個錯誤`); errors.forEach(e => console.log(`      - ${e}`)); }
+  else console.log('   ✓ 零錯誤');
+  await browser.close();
+  await new Promise(r => server.close(r));
+}
+
+// 隱私權政策頁：不用登入就要開得起來（App Store 審查員會來看）
+{
+  const label = '隱私權政策頁';
+  const server = makeServer(false);
+  await new Promise(r => server.listen(PORT, r));
+  const launch = process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {};
+  const browser = await chromium.launch(launch);
+  const page = await browser.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(`未捕捉的例外：${e.message}`));
+  console.log(`\n▸ ${label}`);
+  try {
+    await page.goto(`http://127.0.0.1:${PORT}/privacy.html`, { waitUntil: 'domcontentloaded' });
+    const title = await page.title();
+    if (!/隱私權/.test(title)) throw new Error(`標題不對：${title}`);
+    for (const word of ['刪除我的帳號', '14', 'IP', 'Privacy Policy']) {
+      if (!(await page.locator(`text=${word}`).count())) throw new Error(`頁面上找不到「${word}」`);
+    }
+  } catch (e) { errors.push(e.message); }
+  if (errors.length) { failures.push({ label, errors }); console.log(`   ✗ ${errors.length} 個錯誤`); errors.forEach(e => console.log(`      - ${e}`)); }
+  else console.log('   ✓ 零錯誤');
+  await browser.close();
+  await new Promise(r => server.close(r));
+}
+
+const TOTAL = 6;
 console.log('');
 if (failures.length) {
-  console.error(`✗ 冒煙測試失敗：${failures.length}/4 個情境有問題`);
+  console.error(`✗ 冒煙測試失敗：${failures.length}/${TOTAL} 個情境有問題`);
   process.exit(1);
 }
-console.log('✓ 四個情境全部走完，零 pageerror、零 console.error');
+console.log(`✓ ${TOTAL} 個情境全部走完，零 pageerror、零 console.error`);
