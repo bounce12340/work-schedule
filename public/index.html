@@ -1672,9 +1672,29 @@
   const TOKEN_KEY = 'sessionToken';
   let appToken = null;              // 只在 app 裡有值；存在 Keychain，不進 localStorage
 
+  /**
+   * 自寫的原生插件（mobile/ios/App/App/WorkScheduleNativePlugin.swift）。
+   *
+   * 真機上的 window.Capacitor 是 WKWebView 注入的 native-bridge.js，它**不會**把原生那邊
+   * 註冊的插件放進 Capacitor.Plugins——那件事只有 @capacitor/core 的 registerPlugin()
+   * 會做，而這個單檔 HTML 沒有引入 core。第一版直接讀 Capacitor.Plugins.WorkScheduleNative，
+   * 真機上永遠是 null：Keychain 從來沒存過、購買證明永遠「拿不到」；冒煙測試的假
+   * Capacitor 剛好把那個物件塞好了，所以全綠（TestFlight 第一次註冊就是這樣紅的）。
+   * 改走 native-bridge 一定有的底層入口 nativePromise(插件, 方法, 參數)，插件名是
+   * Swift 那邊的 jsName。Plugins 裡若真的有（將來引入 core 的話）仍優先用它。
+   */
+  let nativePluginCache = null;
   function nativePlugin(){
-    const C = window.Capacitor;
-    return (C && C.Plugins && C.Plugins.WorkScheduleNative) || null;
+    if(nativePluginCache) return nativePluginCache;
+    const C = window.Capacitor; if(!C) return null;
+    if(C.Plugins && C.Plugins.WorkScheduleNative){ nativePluginCache = C.Plugins.WorkScheduleNative; return nativePluginCache; }
+    if(typeof C.nativePromise !== 'function') return null;
+    const call = (method) => (opts) => C.nativePromise('WorkScheduleNative', method, opts || {});
+    nativePluginCache = {
+      keychainGet: call('keychainGet'), keychainSet: call('keychainSet'), keychainDelete: call('keychainDelete'),
+      getAppTransaction: call('getAppTransaction')
+    };
+    return nativePluginCache;
   }
   if(NATIVE){
     const realFetch = window.fetch.bind(window);
@@ -1700,11 +1720,20 @@
     const p = nativePlugin(); if(!p) return;
     try{ await p.keychainDelete({ key: TOKEN_KEY }); }catch(e){ console.error('keychain delete failed', e); }
   }
-  /** Apple 的購買證明（AppTransaction 的 JWS）。拿不到回 null，由呼叫端提示。 */
+  /**
+   * Apple 的購買證明（AppTransaction 的 JWS）。回 { jws } 或 { error }。
+   * 原因一定要回給畫面：手機上沒有 console 可看，「拿不到」三個字分不出是插件根本
+   * 不在、還是 Apple 拒絕了、還是使用者取消登入——三種要做的事完全不同。
+   */
   async function nativePurchaseProof(){
-    const p = nativePlugin(); if(!p) return null;
-    try{ const r = await p.getAppTransaction(); return (r && r.jws) || null; }
-    catch(e){ console.error('app transaction failed', e); return null; }
+    const p = nativePlugin(); if(!p) return { error: 'native plugin unavailable' };
+    try{
+      const r = await p.getAppTransaction();
+      return (r && r.jws) ? { jws: r.jws } : { error: 'empty response from StoreKit' };
+    }catch(e){
+      console.error('app transaction failed', e);
+      return { error: String((e && (e.message || e.errorMessage)) || e) };
+    }
   }
 
   // ---- 只在 app 裡出現的登入／註冊畫面（login.html 依賴 Turnstile，app 不用它） ----
@@ -1765,10 +1794,14 @@
           if(!/^\d{6}$/.test(code)){ appAuthMsg(tr('驗證碼是六位數字'), 'err'); return; }
           if(password.length < 10){ appAuthMsg(tr('密碼至少需要 10 個字元'), 'err'); return; }
           appAuthMsg(tr('向 App Store 取得購買證明…'));
-          const jws = await nativePurchaseProof();
-          if(!jws){ appAuthMsg(tr('拿不到 App Store 的購買證明。請確認是從 App Store 或 TestFlight 安裝的版本。'), 'err'); return; }
+          const proof = await nativePurchaseProof();
+          if(!proof.jws){
+            // 原因附在後面（textContent，不是 innerHTML）：使用者回報時才有東西可以貼
+            appAuthMsg(tr('拿不到 App Store 的購買證明。請確認是從 App Store 或 TestFlight 安裝的版本。') + '（' + proof.error + '）', 'err');
+            return;
+          }
           r = await fetch('/api/auth/app/register', { method:'POST', headers:{ 'content-type':'application/json' },
-            body: JSON.stringify({ email, code, password, appTransactionJws: jws }) });
+            body: JSON.stringify({ email, code, password, appTransactionJws: proof.jws }) });
         }else{
           r = await fetch('/api/auth/app/login', { method:'POST', headers:{ 'content-type':'application/json' },
             body: JSON.stringify({ email, password }) });

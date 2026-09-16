@@ -425,18 +425,28 @@ async function walkNative(page, log, seen) {
     await route.fulfill({ status: r.status, body: await r.text(), headers: { 'content-type': r.headers.get('content-type') || 'application/json' } });
   });
 
-  // 假的 Capacitor：Keychain 用 localStorage 的一個鍵模擬，reload 之後才拿得回來
+  // 假的 Capacitor：Keychain 用 localStorage 的一個鍵模擬，reload 之後才拿得回來。
+  //
+  // 形狀要跟真機上 WKWebView 注入的 native-bridge.js 一樣：**Plugins 裡沒有我們的插件**，
+  // 只有底層的 nativePromise(插件, 方法, 參數)。第一版的假物件直接塞了
+  // Plugins.WorkScheduleNative，比真的大方——index.html 讀那個欄位在真機上永遠是 null
+  // （Keychain 沒存、購買證明「拿不到」），這裡卻全綠。假的東西不能比真的多給。
   await page.addInitScript(([s, l]) => {
     localStorage.setItem('workSchedule.v1', JSON.stringify(s));
     localStorage.setItem('workSchedule.v1.lang', l);
+    const impl = {
+      keychainGet: async ({ key }) => ({ value: localStorage.getItem('__kc_' + key) }),
+      keychainSet: async ({ key, value }) => { localStorage.setItem('__kc_' + key, value); },
+      keychainDelete: async ({ key }) => { localStorage.removeItem('__kc_' + key); },
+      getAppTransaction: async () => ({ jws: 'fake.jws.for-smoke' }),
+    };
     window.Capacitor = {
       isNativePlatform: () => true,
-      Plugins: { WorkScheduleNative: {
-        keychainGet: async ({ key }) => ({ value: localStorage.getItem('__kc_' + key) }),
-        keychainSet: async ({ key, value }) => { localStorage.setItem('__kc_' + key, value); },
-        keychainDelete: async ({ key }) => { localStorage.removeItem('__kc_' + key); },
-        getAppTransaction: async () => ({ jws: 'fake.jws.for-smoke' }),
-      } },
+      Plugins: {},
+      nativePromise: (plugin, method, opts) => {
+        if (plugin !== 'WorkScheduleNative' || !impl[method]) return Promise.reject(new Error(`no such plugin method ${plugin}.${method}`));
+        return impl[method](opts || {});
+      },
     };
   }, [seed(), 'zh']);
 
