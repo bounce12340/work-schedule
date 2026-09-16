@@ -162,7 +162,7 @@ Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.Comm
 
 | 腳本 | 驗什麼 | 什麼時候一定要跑 |
 |---|---|---|
-| `tools/smoke.mjs` | 七輪：「單檔開啟 × 中英文」（file://，驗登入閘門）、「已登入 × 中英文」（走四個頁籤；中文那輪是免費版、撞上限要開升級說明，英文那輪是 Pro、要開新增表單）、「iOS app 外殼（假 Capacitor）」、「隱私頁與使用條款頁」、「**iOS app 外殼的四個探針**」：零 pageerror、零 console.error、每頁關鍵錨點存在；app 那一輪還斷言**所有打到線上網址的請求都帶 Bearer**，四個探針各塞一個**殘缺的** `window.Capacitor` 驗「安靜地變成單機模式」的四個成因（見〈app 的四個探針〉） | **任何前端改動**。第 0 條的自動化版本 |
+| `tools/smoke.mjs` | 七輪：「單檔開啟 × 中英文」（file://，驗登入閘門）、「已登入 × 中英文」（走四個頁籤；中文那輪是免費版、撞上限要開升級說明，英文那輪是 Pro、要開新增表單）、「iOS app 外殼（假 Capacitor）」、「隱私頁與使用條款頁」、「**iOS app 外殼的八個探針**」：零 pageerror、零 console.error、每頁關鍵錨點存在；app 那一輪還斷言**所有打到線上網址的請求都帶 Bearer**，八個探針各塞一個**殘缺的** `window.Capacitor` 驗「安靜地變成單機模式」的八個成因（見〈app 的八個探針〉） | **任何前端改動**。第 0 條的自動化版本 |
 | `tools/verify-toggle.mjs` | 勾選的就地更新與完整重繪結果完全相同 | 動到 `renderBoard()` 或 `moveOccRowToDone()` |
 | `tools/verify-richtext.mjs` | 富文字過濾器的整條管線（含 DOM 走訪）擋得住 16 種攻擊向量 | 動到富文字 |
 | `tools/check-calendar.mjs` | 日曆的色條軌道對齊、跨月與週界的收邊、每日記錄的 ✎ 記號 | 動到 `renderCalendar()` 或日曆的 CSS |
@@ -170,6 +170,7 @@ Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.Comm
 | `tools/check-contrast.mjs` | 正文級文字在**兩種主題**下都達到 WCAG 對比（4.5:1／大字 3:1） | 動到任何顏色變數或文字顏色 |
 | `tools/check-deps.mjs` | 前置作業的「待前置」徽章、不阻擋勾選；「不在」的標記**與逾期並存**；逾期的顏色就是 `--red` 且字重比旁邊重 | 動到 `dependsOn`、`awayDates`、`toggleOccDone`、逾期判斷或任何視覺改版 |
 | `tools/check-ambience.mjs` | 時段（早／午／晚）的 `data-daypart` 與光暈、每日記錄的提示語照日期決定、打勾的彈跳只在被點的那一個上、週一的回顧（含 N=0 不出現）、**遊戲化**：完美一天的 toast 只在勾掉最後一件時、升級的光只在升級那一次（看計算後的 `animationName`）、reduced-motion 關 | 動到 `tick()`、`<head>` 開機腳本、`DAILY_PROMPTS`、`renderLookback()`、`.checkbox` 的 CSS 或〈遊戲化畫面〉 |
+| `tools/check-native-plugin.mjs` | 原生插件的接線：SceneDelegate → MainViewController → `registerPluginInstance`、storyboard 的 `customClass`，以及 **Swift 的 `jsName`／方法名與 `index.html` 逐字相同**（零相依，在 `check` job） | 動到 `mobile/ios/` 的任何 Swift／storyboard，或 `index.html` 的〈原生外殼〉區段；CI 會自動跑 |
 | `tools/check-sw-version.mjs` | 動到 `public/*.html` 時 `sw.js` 的 `CACHE` 有沒有跟著加（零相依，在 `check` job） | 任何前端改動；CI 會自動跑，本機 `node tools/check-sw-version.mjs origin/main HEAD` |
 | `tools/measure-board.mjs` | 切換檢視／篩選／搜尋卡住主執行緒多久（自己造 64／150／300 項的資料） | 動到 `renderBoard()` 或看板的 CSS。**不在 CI**：數字隨環境浮動，設門檻只會製造沒有人相信的紅燈，用途是改動前後各跑一次自己比對 |
 | `tools/check-mobile.mjs` | 手機（iPhone 13、CPU 降速 4 倍、64 個項目）：五頁都不橫向溢出、切換與互動的停頓、**點擊目標大小** | 動到任何版面或 CSS。同樣不在 CI |
@@ -608,6 +609,8 @@ Turnstile 擋得住「一秒鐘一萬次」的機器人，擋不住「一分鐘�
 | `nativeBoot(...)` 的呼叫**一定要 `.catch`** | 它是 fire-and-forget 的 async：摔倒只會變成 unhandledrejection，**連 `pageerror` 都不算**，smoke 的錯誤收集器看不到、手機上也沒有 console。`initCloudSync` 早就有 catch，這裡是同一條規則漏掉的一格 |
 | app 裡的 `/api/state` 404 判成 `failed` 而不是 `absent` | `absent` 是為了單檔與未部署而存在的「沒有後端」，在 app 裡永遠是謊話（`API_BASE` 是線上網址）。同一段程式在兩個環境下的正確答案不一樣時，要問的是環境而不是狀態碼 |
 | 所有原生相關的失敗都附上 `nativeDiag()`（protocol／有沒有 Capacitor／哪些訊號成立／插件在不在），而且**它自己包 try/catch** | **手機上沒有 console 可看**，同「拿不到購買證明」附上原因。第一版的 `nativeDiag()` 直接呼叫 `nativePlugin()`，外殼壞到「讀 bridge 就丟例外」時它會在 catch 裡再爆一次，把要傳達的訊息一起吞掉——**會爆炸的診斷函式比沒有診斷更糟**（探針 4 實際抓到的） |
+| `SceneDelegate` 的 `rootViewController` **必須是 `MainViewController`**，不是 `CAPBridgeViewController` | 插件是在 `MainViewController.capacitorDidLoad()` 裡 `registerPluginInstance` 的。SceneDelegate 自己建 window 時，`Main.storyboard` 的 `customClass` 形同虛設——**兩條路各自都「看起來對」，合起來卻不通**，於是插件從來沒有註冊過。這就是 TestFlight build 7～10 那個追了四輪的根因，症狀是 `nativePromise` 的 promise **永遠不會 settle**。`tools/check-native-plugin.mjs` 守著 |
+| **跨語言的接線要有一個地方比對兩側**：Swift 的 `jsName`／`pluginMethods` 與 `index.html` 的 `nativePromise('…')`／`call('…')` 逐字相同 | 名字對不上時原生那側不會報錯，它只是不回話。同〈方案與上限〉的前後端 `PLAN_LIMITS` 逐字相同——只要「兩邊必須一致」，就要有東西去比。CI 沒有 Mac（`ios.yml` 是打包不是測試），所以只能靜態比對原始碼，但跑不到一秒 |
 | token 存 **Keychain**，不放 localStorage | WKWebView 的網頁儲存會跟著「清除網站資料」消失，也沒有 Keychain 的保護。自寫的 Swift 插件（約 60 行）做這件事，不裝第三方插件 |
 | 註冊附 **AppTransaction 的 JWS，離線驗簽**（`src/apppurchase.js`） | x5c 鏈逐段驗到內建的 Apple Root CA - G3、ES256 驗本體、比對 bundleId 與環境。不打 Apple 的 API：沒有網路依賴、沒有限流、沒有另一把金鑰。**根憑證可注入只為了測試**（`tests/fake-apple.mjs` 自己當 Apple） |
 | `app_transaction_id` **UNIQUE**：一次購買一個帳號 | 擋「買一份、開十個帳號」。同一個 Apple ID 重灌拿到同一個 id，換手機登入即可；刪掉帳號後 id 空出來可以再註冊。競態靠 UNIQUE 擋，不靠先 SELECT 再 INSERT |
@@ -691,9 +694,9 @@ Turnstile 擋得住「一秒鐘一萬次」的機器人，擋不住「一分鐘�
 
 F3（推播版，等子專案 B）待做。
 
-### app 的七個探針（`tools/smoke.mjs` 第七輪）
+### app 的八個探針（`tools/smoke.mjs` 第七輪）
 
-TestFlight build 7 回報的症狀是「app 安靜地變成單機模式」——沒有紅字、沒有 app 的登入畫面、畫面上是示範資料。那個狀態有**七個各自獨立的成因，而七個在畫面上長得一模一樣**，既有的檢查一個都抓不到。完整經過在 `docs/postmortems/2026-09-16-app-silent-standalone.md`。
+TestFlight build 7 回報的症狀是「app 安靜地變成單機模式」——沒有紅字、沒有 app 的登入畫面、畫面上是示範資料。那個狀態有**八個各自獨立的成因，而八個在畫面上長得一模一樣**，既有的檢查一個都抓不到。完整經過在 `docs/postmortems/2026-09-16-app-silent-standalone.md`。
 
 | 探針 | 外殼長什麼樣 | 斷言 |
 |---|---|---|
@@ -704,14 +707,23 @@ TestFlight build 7 回報的症狀是「app 安靜地變成單機模式」——
 | 5 | 外殼與網路都正常，`/api/state` 回 **200 但沒有 `user`** | 帳號頁那一格要印出診斷 |
 | 6 | 電話打得出去、**對面永遠不回話**（promise 不會 settle） | 要超時、回到登入畫面，並在那裡說出 `probe=timeout` |
 | 7 | 外殼與 Keychain 都正常，`/api/state` **永遠不回應** | 看門狗要在 12 秒後開口說「啟動卡住了」 |
+| 8 | 外殼正常、Keychain **讀得到但寫不進去**，使用者真的登入一次 | **不准退回登入畫面**，而且狀態列要說出「存不住登入狀態」並附診斷 |
 
-**刻意不把第五輪的假 Capacitor 改殘缺**：那一輪要驗的是「正常的 app 走得完」，兩件事混在一起，哪一個壞了都分不出來。突變驗證過七種改法各自只紅一支。
+**刻意不把第五輪的假 Capacitor 改殘缺**：那一輪要驗的是「正常的 app 走得完」，兩件事混在一起，哪一個壞了都分不出來。突變驗證過八種改法各自只紅一支。
 
 **探針 6／7 守的是第三輪：卡住的形狀沒有任何事件。** build 9 印出來的是 `signals=`（五個全中）、`plugin=yes`——app 認得自己、插件也在，卻仍然什麼都沒發生。因為 `nativePromise` 的 promise **不是 reject，是完全不會 settle**：沒有例外、沒有 rejection、沒有紅字，程式根本還沒走到會說話的那一行。任何一個不會 settle 的 `await` 都長這樣，列不完。三個對策：
 
 - **每一通原生電話都有時限**（`NATIVE_CALL_TIMEOUT_MS`）：把「沒有事件」變成一個會說話的 reject。
 - **開機看門狗**（`BOOT_WATCHDOG_MS`）：不問卡在哪，只問「到現在有沒有走到任何一種結局」（同步啟用／登入畫面蓋上來／狀態列已經解釋過了）。一種都沒有就開口。這是這一輪真正的保險，涵蓋還沒想到的下一條。
 - **診斷要誠實**：`plugin=yes` 改成 `bridge=`（有沒有電話線）＋ `probe=`（對面有沒有接）。**過度樂觀的診斷會把人帶去查錯的地方**——`plugin=yes` 看起來像「插件正常」，實際上那通電話沒人回。
+
+**探針 8 守的是「登入之後」，前七支守的都是開機。** 使用者回報的第二個症狀是「登入後又突然退出 app，要重新登錄」，而它與前四輪是**同一個根因**：插件沒註冊 → `keychainSet` 沒人接 → 六秒後超時 → `nativeTokenSave` 把失敗吞掉 → **照樣 `location.reload()`** → Keychain 還是空的 → 又是登入畫面。一次又一次，全程沒有任何一句話。
+
+三個判斷不能拿掉：
+
+- **`nativeTokenSave` 回傳布林，不是 void。** 吞掉這個失敗的代價不是少一行 log，是整個 app 用不了。沒有這個回傳值，呼叫端連「有沒有存進去」都問不到——〈降級可以，沉默不行〉在這裡的具體形狀就是它。
+- **存不住就絕對不能 `reload()`。** reload 回來 Keychain 還是空的，於是又是同一頁。改成：這一次照樣讓她進得去（token 還在記憶體裡），但把原因寫在狀態列上，並明說關掉 app 要重登。
+- **那句話要寫在 `initCloudSync` 之後。** 同步成功會把狀態列改成「已同步」，先寫就被蓋掉了——而被蓋掉的正是這一次唯一要講的那句話（實測踩到，探針 8 第一版就是紅在這裡）。
 
 **探針 5 守的不是某一條路，是那一格本身。** build 8 上線後症狀仍在——而且連新加的紅字都沒出現，因為它走的是第五條（`/api/state` 回 200 卻沒有 `user` → `setCloudNote('')`）。逐條堵洞永遠會漏掉下一條，所以帳號頁多一格 `#acctSignedOutDiag`：**只要走到單機模式、而環境看起來像 app，就把當下的訊號印出來**，不問是哪一條路帶來的。判斷用 `looksNativeShell()` 而**不是 `NATIVE`**——`NATIVE` 判錯正是要診斷的故障之一，讓它決定診斷要不要出現，最需要說話的那一種情況剛好會最安靜。
 

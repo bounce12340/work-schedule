@@ -564,11 +564,11 @@ async function walkNative(page, log, seen) {
  *   3. `/api/state` 回 404 被當成「這個環境沒有後端」而靜默降級。absent 那條路是為了
  *      單檔／未部署而存在的，在 app 裡永遠是謊話（API_BASE 是線上網址）
  *
- * 七個探針各塞一個**殘缺的** window.Capacitor，每個只驗一件事。刻意不把第五輪的假
+ * 八個探針各塞一個**殘缺的** window.Capacitor，每個只驗一件事。刻意不把第五輪的假
  * Capacitor 改殘缺：那一輪要驗的是「正常的 app 走得完」，混在一起哪個壞了都分不出來。
  */
 {
-  const label = 'iOS app 外殼的七個探針';
+  const label = 'iOS app 外殼的八個探針';
   const server = makeServer(true);
   await new Promise(r => server.listen(PORT, r));
   const launch = process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {};
@@ -606,7 +606,11 @@ async function walkNative(page, log, seen) {
       if (tok) localStorage.setItem('__kc_sessionToken', tok);
       const impl = {
         keychainGet: async ({ key }) => ({ value: localStorage.getItem('__kc_' + key) }),
-        keychainSet: async ({ key, value }) => { localStorage.setItem('__kc_' + key, value); },
+        keychainSet: async ({ key, value }) => {
+          // 「讀得到、寫不進去」是真機上最惡毒的一種：登入會成功，但 token 存不住。
+          if (ks.includes('writeFails')) throw new Error('keychain write denied');
+          localStorage.setItem('__kc_' + key, value);
+        },
         keychainDelete: async ({ key }) => { localStorage.removeItem('__kc_' + key); },
         getAppTransaction: async () => ({ jws: 'fake.jws.for-smoke' }),
       };
@@ -719,6 +723,26 @@ async function walkNative(page, log, seen) {
       await page.waitForFunction(() => /啟動卡住了/.test(document.getElementById('cloudNoteText')?.innerText || ''), null, { timeout: 20000 })
         .catch(async () => { throw new Error(`探針 7：開機卡住卻沒有人開口，狀態列是「${await noteText(page)}」`); });
       checked.push('開機卡住會被看門狗抓到');
+      await ctx.close();
+    }
+    // 探針 8：登入成功，但 Keychain **寫**不進去。這是那個無限輪迴的最後一哩——
+    // 前七支守的都是「開機」，而這一條發生在開機之後：登入成功 → reload → Keychain 還是
+    // 空的 → 又回到登入畫面，一次又一次，全程沒有任何一句話（build 6～10 的症狀）。
+    // 所以斷言有兩條，缺一不可：**不准回到登入畫面**，而且**要說出原因**。
+    {
+      const { ctx, page } = await shell(['isNativePlatform', 'getPlatform', 'nativePromise', 'writeFails']);
+      await page.waitForSelector('#appAuthView.show', { timeout: 15000 });
+      await page.fill('#inputAppAuthEmail', ME.email);
+      await page.fill('#inputAppAuthPw', 'correct-horse-battery');
+      await page.click('#btnAppAuthSubmit');
+      await page.waitForFunction(() => /存不住登入狀態/.test(document.getElementById('cloudNoteText')?.innerText || ''), null, { timeout: 15000 })
+        .catch(async () => { throw new Error(`探針 8：登入後 token 存不住，卻沒有人說一句話（狀態列「${await noteText(page)}」）`); });
+      if (await page.locator('#appAuthView.show').count()) {
+        throw new Error('探針 8：存不住卻又退回登入畫面——那正是要擋的無限輪迴');
+      }
+      const t = await noteText(page);
+      if (!/signals=/.test(t)) throw new Error(`探針 8：訊息裡沒有附上診斷資訊：「${t}」`);
+      checked.push('登入後存不住會說出來，而且不退回登入畫面');
       await ctx.close();
     }
   } catch (e) {

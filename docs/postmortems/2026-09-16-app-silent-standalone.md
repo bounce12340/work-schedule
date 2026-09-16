@@ -2,7 +2,7 @@
 
 - **日期**：2026-09-16（TestFlight build 7）
 - **影響**：app 裡所有資料都只留在手機上，完全沒有同步。畫面上沒有任何錯誤，看起來像「還沒登入的正常狀態」
-- **狀態**：build 9 印出了診斷，指向第三種形狀（不會 settle 的 await）；第三輪修正後待 build 10
+- **狀態**：**根因已找到並修復**（SceneDelegate 建的是 CAPBridgeViewController，插件從未註冊）。build 10 的診斷把答案指出來，第四輪改掉那一行並加上靜態接線檢查，待 build 11 驗收
 
 ---
 
@@ -166,6 +166,78 @@ protocol=capacitor: · Capacitor=yes · signals=isNativePlatform+getPlatform+nat
 
 突變驗證時出現一個漂亮的證據：拿掉原生電話的時限之後，**看門狗當場補位開口**，而且印出 `probe=untried`——兩層保險各司其職，誠實的診斷欄位也當場證明自己有用。
 
+## 第四輪：根因——那一行接線從來沒有人驗過
+
+build 10 裝上去，**三件事同時發生**：
+
+1. **app 的登入畫面出現了**（前三輪它永遠出不來，因為啟動卡在背後）
+2. 紅字把原因寫在登入畫面上
+3. `probe=timeout` — 第三輪那個新欄位直接給出答案
+
+```
+protocol=capacitor: · Capacitor=yes · signals=…（五個全中）· bridge=yes · probe=timeout
+```
+
+`bridge=yes` 但 `probe=timeout`：**電話線接通了，對面沒人接。** 問題確定在 Swift 那一側，不再是猜。
+
+### 根因
+
+```swift
+// SceneDelegate.swift
+window = UIWindow(windowScene: windowScene)
+window?.rootViewController = CAPBridgeViewController()   // ← 不是 MainViewController
+```
+
+插件是在 `MainViewController.capacitorDidLoad()` 裡註冊的：
+
+```swift
+class MainViewController: CAPBridgeViewController {
+    override open func capacitorDidLoad() {
+        bridge?.registerPluginInstance(WorkScheduleNativePlugin())
+    }
+}
+```
+
+而 `SceneDelegate` **自己用程式建窗戶**，建的是 Capacitor 的預設控制器。`MainViewController` 從頭到尾沒有被實例化過 → `capacitorDidLoad()` 不會跑 → **插件從來沒有註冊**。
+
+`Main.storyboard` 的 `customClass="MainViewController"` 沒有錯，但它形同虛設：`SceneDelegate` 實作了 `scene(_:willConnectTo:)` 並自建 window，storyboard 提供的那一份被丟掉了。**兩條路各自都「看起來對」，合起來卻不通。**
+
+於是 `nativePromise('WorkScheduleNative', …)` 送出去的訊息沒有任何插件會接——原生那側不回錯誤，就是不回，promise 永遠不 settle。前三輪追的那個「沒有事件的故障」，源頭就是這一行。
+
+### 修法：改那一行，然後讓它再也不能安靜地壞掉
+
+改的是一行（`CAPBridgeViewController()` → `MainViewController()`）。但**真正的修法是第二件事**：
+
+`tools/check-native-plugin.mjs`（零相依，在 CI 的 `check` job）驗四件事：
+
+| 驗什麼 | 為什麼 |
+|---|---|
+| SceneDelegate 的 rootViewController 是 `MainViewController` | 這次的根因 |
+| MainViewController 有 `registerPluginInstance`，且繼承 `CAPBridgeViewController` | 少任一個，`capacitorDidLoad` 都不會跑 |
+| storyboard 的 `customClass` 也指著它 | 兩條路要一致，免得下一個人改了其中一條 |
+| **Swift 的 `jsName`／`pluginMethods` 與 `index.html` 呼叫的字串逐字相同** | 同〈方案與上限〉那條「前後端 `PLAN_LIMITS` 逐字相同」——名字對不上的症狀不是報錯，是永遠不回話 |
+
+**為什麼只能是靜態檢查**：這條接線只有真機走得到。CI 沒有 Mac（`ios.yml` 有，但那是打包不是測試），模擬器不在這個專案的能力範圍。唯一能在每個 PR 上跑的，就是把兩側的原始碼讀出來比對。
+
+突變驗證（三種改法各自紅在對的地方）：
+
+1. rootViewController 改回 `CAPBridgeViewController` → 紅
+2. 前端把插件名打成 `WorkScheduleNativePlugin` → 紅（「名字對不上時原生那側不會報錯，它只是不回話」）
+3. Swift 的 `pluginMethods` 漏掉 `keychainSet` → 紅
+
+### 四輪回頭看
+
+每一輪的診斷**都直接指出下一輪要查哪裡**，這不是運氣：
+
+| 輪次 | 診斷說了什麼 | 下一步 |
+|---|---|---|
+| build 7 | （什麼都沒說） | 堵三條沉默的路 |
+| build 8 | （還是什麼都沒說） | 不逐條堵了，改在「狀態」上檢查 |
+| build 9 | `signals=` 五個全中、`plugin=yes` | 排除偵測與 bridge，剩下「卡住」 |
+| build 10 | `bridge=yes` · **`probe=timeout`** | **確定在 Swift 那側**，直接去看註冊 |
+
+**能被找到的前提是它先願意開口。** 前三輪做的事看起來都不是「修 bug」，但沒有那三輪，第四輪不會知道要去看 `SceneDelegate.swift` 的哪一行。
+
 ## 帶走的東西
 
 1. **同一個 bug class 出現第二次，就不要再修那一個實例。** 第一次是 `Plugins`、第二次是 `isNativePlatform`，兩次都是「注入的 bridge 與 `@capacitor/core` 不一樣」。修法不該是換一個名字，而是不要只靠一個名字。
@@ -176,3 +248,37 @@ protocol=capacitor: · Capacitor=yes · signals=isNativePlatform+getPlatform+nat
 6. **診斷的可見性不能依賴正在被診斷的那個判斷。** 用 `NATIVE` 決定要不要印診斷，會讓「`NATIVE` 判錯」這一種故障永遠印不出來。
 7. **有一種故障沒有任何事件：不會 settle 的 `await`。** 前兩輪堵的都是「有事件但沒人聽」（吞掉的例外、unhandledrejection）。這一種連事件都沒有，所以「把例外記出來」那條規則完全碰不到它。**跨越邊界的等待（原生插件、網路）一律要有時限**，而且要有一個看門狗問「到現在走到哪了」。
 8. **診斷欄位要誠實到分得出「線在」與「有人接」。** `plugin=yes` 是真的，但它回答的不是人們以為的那個問題。**過度樂觀的診斷比沒有診斷更會誤導**——它讓人放心地去查錯的方向。
+9. **兩條各自都「看起來對」的路，合起來可能不通。** storyboard 指著 `MainViewController`、`MainViewController` 註冊了插件——兩段程式分開看都沒有問題，錯的是「實際走的是第三條路」（SceneDelegate 自建 window）。審查單一檔案永遠看不出這種錯。
+10. **跨語言的接線一定要有一個地方比對兩側。** Swift 的 `jsName` 與 JS 的字串、`pluginMethods` 與 `call('…')`：對不上時沒有人會報錯。同〈方案與上限〉的前後端 `PLAN_LIMITS` 逐字相同——**只要「兩邊必須一致」，就要有東西去比**。
+11. **測不到的環境，至少要靜態檢查得到。** 真機的行為 CI 跑不了，但「原始碼有沒有接起來」讀得出來。跑不到一秒，擋掉的是追了四輪的 bug。
+
+## 尾聲：第二個症狀，同一個根因
+
+使用者在 build 10 之後回報的第二句話是：
+
+> 「為何我登入後，結果又突然退出 app，需要重新登錄？」
+
+看起來是新的 bug，其實是**同一個根因的下游**：
+
+```
+插件沒註冊 → keychainSet 沒人接 → 六秒後超時
+  → nativeTokenSave 把失敗吞掉（只 console.error）
+    → 照樣 location.reload()
+      → nativeTokenLoad 讀不到 token
+        → 登入畫面
+          → （回到第一行）
+```
+
+`SceneDelegate` 修好之後這個輪迴自然消失。但**輪迴的最後一哩本身也是一個 bug**，而且與根因無關：只要 Keychain 哪一天因為別的理由寫不進去（裝置政策、儲存滿了、iOS 改版），一模一樣的無限輪迴就會再出現一次，而且一樣一句話都不說。所以在修根因的同一個 PR 裡一起補：
+
+| 改動 | 為什麼 |
+|---|---|
+| `nativeTokenSave` **回傳布林**，不是 void | 吞掉這個失敗的代價不是少一行 log，是整個 app 用不了。沒有回傳值，呼叫端連「有沒有存進去」都問不到 |
+| 存不住就**絕對不能 `reload()`** | reload 回來 Keychain 還是空的，於是又是同一頁。改成：這一次照樣進得去（token 還在記憶體裡），但把原因寫在狀態列上，並明說關掉 app 要重登 |
+| 那句話要寫在 `initCloudSync` **之後** | 同步成功會把狀態列改成「已同步」，先寫就被蓋掉了——而被蓋掉的正是這一次唯一要講的那句話。探針 8 第一版就是紅在這裡 |
+
+探針 8 的外殼是「Keychain **讀得到、寫不進去**」，斷言有兩條，缺一不可：**不准退回登入畫面**，而且**要說出原因**。突變驗證：把那個判斷改成永遠不成立（＝退回舊行為），當場紅。
+
+第 12 條帶走的東西：
+
+12. **無限輪迴是「沉默」最惡劣的形狀。** 一般的沉默是「使用者不知道發生什麼事」；輪迴是「使用者以為是自己按錯了，於是再做一次，而系統連一次開口的機會都沒有」。任何「失敗了還照樣往下走」的路徑，都要先問一句：往下走之後會不會回到原地？

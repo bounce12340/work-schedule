@@ -61,6 +61,16 @@ jobs:
       - name: 前端語法檢查
         run: node tools/check-syntax.mjs
 
+      # 原生插件的接線（SceneDelegate → MainViewController → registerPluginInstance，
+      # 以及 Swift 的 jsName／方法名與 index.html 逐字相同）。
+      #
+      # 這條路只有真機走得到——CI 沒有 Mac，`ios.yml` 那支是打包不是測試——所以唯一
+      # 能在每個 PR 上跑的就是把兩側的原始碼讀出來比對。接線斷掉的症狀是 JS 那側的
+      # promise **永遠不會 settle**（沒有例外、沒有 rejection、沒有任何事件），
+      # 追了四輪才找到，見 docs/postmortems/2026-09-16-app-silent-standalone.md。
+      - name: 原生插件接線檢查
+        run: node tools/check-native-plugin.mjs
+
       # service worker 的快取版本號有沒有跟著前端一起加。
       #
       # 這是**已經發生過兩次**的事故，而且它最惡劣的地方是每一項檢查都是綠的：
