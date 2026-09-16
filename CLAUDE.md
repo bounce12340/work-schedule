@@ -162,7 +162,7 @@ Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.Comm
 
 | 腳本 | 驗什麼 | 什麼時候一定要跑 |
 |---|---|---|
-| `tools/smoke.mjs` | 六輪：「單檔開啟 × 中英文」（file://，驗登入閘門）、「已登入 × 中英文」（走四個頁籤；中文那輪是免費版、撞上限要開升級說明，英文那輪是 Pro、要開新增表單）、「iOS app 外殼（假 Capacitor）」、「隱私頁與使用條款頁」：零 pageerror、零 console.error、每頁關鍵錨點存在；app 那一輪還斷言**所有打到線上網址的請求都帶 Bearer** | **任何前端改動**。第 0 條的自動化版本 |
+| `tools/smoke.mjs` | 七輪：「單檔開啟 × 中英文」（file://，驗登入閘門）、「已登入 × 中英文」（走四個頁籤；中文那輪是免費版、撞上限要開升級說明，英文那輪是 Pro、要開新增表單）、「iOS app 外殼（假 Capacitor）」、「隱私頁與使用條款頁」、「**iOS app 外殼的四個探針**」：零 pageerror、零 console.error、每頁關鍵錨點存在；app 那一輪還斷言**所有打到線上網址的請求都帶 Bearer**，四個探針各塞一個**殘缺的** `window.Capacitor` 驗「安靜地變成單機模式」的四個成因（見〈app 的四個探針〉） | **任何前端改動**。第 0 條的自動化版本 |
 | `tools/verify-toggle.mjs` | 勾選的就地更新與完整重繪結果完全相同 | 動到 `renderBoard()` 或 `moveOccRowToDone()` |
 | `tools/verify-richtext.mjs` | 富文字過濾器的整條管線（含 DOM 走訪）擋得住 16 種攻擊向量 | 動到富文字 |
 | `tools/check-calendar.mjs` | 日曆的色條軌道對齊、跨月與週界的收邊、每日記錄的 ✎ 記號 | 動到 `renderCalendar()` 或日曆的 CSS |
@@ -183,6 +183,8 @@ Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.Comm
 `initCloudSync()` 的 catch 會把同步降級成單機模式——這是對的，同步壞掉不該連累本機使用。但它原本**什麼都不印**，畫面只顯示「初始化失敗」而 console 一片乾淨，使用者回報時完全沒有線索，只能逐行讀程式碼猜（實際踩過）。
 
 任何「吞掉例外並降級」的地方都必須 `console.error` 把 stack 記出來。降級與沉默是兩件事。
+
+**而且「沒有人吞」不等於「有人看見」。** `nativeBoot(...)` 原本是 fire-and-forget 的 async 呼叫，沒有 `.catch`：它摔倒時例外不會被吞掉，但會變成 **unhandledrejection**——連 `pageerror` 都不算，`tools/smoke.mjs` 的錯誤收集器看不到，手機上更沒有 console。結果與被吞掉一模一樣：畫面停在示範資料、狀態列一片乾淨（見 `docs/postmortems/2026-09-16-app-silent-standalone.md`）。**沒有 await 的 async 呼叫一律要接 `.catch`**，而且那個 catch 要把原因寫到畫面上，不是只寫進 console。
 
 **而且不同的降級原因必須分得出來。** `cloudPull()` 原本對任何非 2xx 都回 `null`，於是「沒有這個端點（單檔／未部署）」與「端點在但這次失敗（5xx、網路中斷、回應不是 JSON）」變成同一個值——後端一次 502 就靜默變成單機模式、狀態列被清空，**畫面與雙擊檔案離線開啟完全一樣**，使用者以為還在同步，實際上變更只留在本機。現在它回 `{ kind: 'ok' | 'absent' | 'failed' | 'expired' }`，只有 `absent` 靜默，`failed` 會 `console.error` 並在狀態列顯示「連線失敗，暫時只用本機資料」。
 
@@ -602,6 +604,10 @@ Turnstile 擋得住「一秒鐘一萬次」的機器人，擋不住「一分鐘�
 | app 走 **Bearer token**，網頁走 cookie，**同一張 `sessions` 表** | WKWebView 對第三方 cookie 很嚴，靠它會時好時壞。`readSessionToken()` 先 cookie 後 Bearer；app 的 session 180 天 |
 | Worker 對 `capacitor://localhost` 這一個來源回 **CORS** 標頭（`src/index.js` 的 `withCors` / `corsPreflight`），**不開 Allow-Credentials** | app 打線上 `/api/*` 是跨網域：WKWebView 先送 OPTIONS 預檢，沒有 `Access-Control-Allow-Origin` 整個請求被瀏覽器丟掉，前端只拿到 TypeError，畫面上是「連線失敗，請確認網路後再試」，而 Worker 一筆請求都沒收到（TestFlight 第一次打開就是這樣，登入與註冊都進不去）。**錯誤回應也要帶**，否則 401 看起來也像斷線。不開 credentials：app 走 Bearer，不該讓跨來源請求帶得動網頁版的 cookie。`tools/smoke.mjs` **抓不到**這類錯誤——它用 `page.route` 在瀏覽器送出前就攔下請求，預檢不會發生——`tests/cors.test.mjs` 直接打 Worker 的 fetch 入口守著 |
 | 前端叫原生插件走 `Capacitor.nativePromise('WorkScheduleNative', 方法, 參數)`，**不是** `Capacitor.Plugins.WorkScheduleNative` | 真機上的 `window.Capacitor` 是 WKWebView 注入的 `native-bridge.js`，它不會把原生註冊的插件放進 `Plugins`——只有 `@capacitor/core` 的 `registerPlugin()` 會，而單檔 HTML 沒有引入 core。第一版讀 `Plugins.*` 在真機上永遠是 null：Keychain 從沒存過、購買證明永遠「拿不到」（TestFlight 第一次註冊就是這樣紅的）。`tools/smoke.mjs` 的假 Capacitor 原本直接塞了那個物件，比真的大方，現在改成只給 `nativePromise`——**假的東西不能比真的多給**。「拿不到購買證明」的訊息現在會附上原因，手機上沒有 console 可看 |
+| `NATIVE`（我在不在 app 裡）由**五個互相獨立的訊號**決定，任一成立即為真 | 只問 `isNativePlatform` 一個名字是上一列那個 bug class 的第二次（見 `docs/postmortems/2026-09-16-app-silent-standalone.md`）。而 `NATIVE` 判錯的代價比插件判錯大得多——整個 app 退回網頁版那條路：`API_BASE` 變空字串、`/api/state` 打到 app 自己肚子裡、不帶 Bearer、不讀 Keychain、也不顯示 app 的登入畫面，畫面上只會安靜地變成「單機模式」。五個訊號：`isNativePlatform` / `getPlatform` / `nativePromise` / `webkit.messageHandlers.bridge` / `capacitor:`｜`ionic:` protocol。反方向同樣要守住——網頁版與單檔必須一個都不成立（手機 Safari 沒有 `messageHandlers.bridge`） |
+| `nativeBoot(...)` 的呼叫**一定要 `.catch`** | 它是 fire-and-forget 的 async：摔倒只會變成 unhandledrejection，**連 `pageerror` 都不算**，smoke 的錯誤收集器看不到、手機上也沒有 console。`initCloudSync` 早就有 catch，這裡是同一條規則漏掉的一格 |
+| app 裡的 `/api/state` 404 判成 `failed` 而不是 `absent` | `absent` 是為了單檔與未部署而存在的「沒有後端」，在 app 裡永遠是謊話（`API_BASE` 是線上網址）。同一段程式在兩個環境下的正確答案不一樣時，要問的是環境而不是狀態碼 |
+| 所有原生相關的失敗都附上 `nativeDiag()`（protocol／有沒有 Capacitor／哪些訊號成立／插件在不在），而且**它自己包 try/catch** | **手機上沒有 console 可看**，同「拿不到購買證明」附上原因。第一版的 `nativeDiag()` 直接呼叫 `nativePlugin()`，外殼壞到「讀 bridge 就丟例外」時它會在 catch 裡再爆一次，把要傳達的訊息一起吞掉——**會爆炸的診斷函式比沒有診斷更糟**（探針 4 實際抓到的） |
 | token 存 **Keychain**，不放 localStorage | WKWebView 的網頁儲存會跟著「清除網站資料」消失，也沒有 Keychain 的保護。自寫的 Swift 插件（約 60 行）做這件事，不裝第三方插件 |
 | 註冊附 **AppTransaction 的 JWS，離線驗簽**（`src/apppurchase.js`） | x5c 鏈逐段驗到內建的 Apple Root CA - G3、ES256 驗本體、比對 bundleId 與環境。不打 Apple 的 API：沒有網路依賴、沒有限流、沒有另一把金鑰。**根憑證可注入只為了測試**（`tests/fake-apple.mjs` 自己當 Apple） |
 | `app_transaction_id` **UNIQUE**：一次購買一個帳號 | 擋「買一份、開十個帳號」。同一個 Apple ID 重灌拿到同一個 id，換手機登入即可；刪掉帳號後 id 空出來可以再註冊。競態靠 UNIQUE 擋，不靠先 SELECT 再 INSERT |
@@ -677,6 +683,19 @@ Turnstile 擋得住「一秒鐘一萬次」的機器人，擋不住「一分鐘�
 | 信是**植物的第一人稱**，署名也是；講事實（幾天、哪幾件）不評價 | 使用者的裁決是「撒嬌」。罵人的信會被封鎖寄件人，然後逾期提醒也一起收不到 |
 
 F3（推播版，等子專案 B）待做。
+
+### app 的四個探針（`tools/smoke.mjs` 第七輪）
+
+TestFlight build 7 回報的症狀是「app 安靜地變成單機模式」——沒有紅字、沒有 app 的登入畫面、畫面上是示範資料。那個狀態有**四個各自獨立的成因，而四個在畫面上長得一模一樣**，既有的檢查一個都抓不到。完整經過在 `docs/postmortems/2026-09-16-app-silent-standalone.md`。
+
+| 探針 | 外殼長什麼樣 | 斷言 |
+|---|---|---|
+| 1 | 只有 `nativePromise`（沒有 `isNativePlatform`） | 仍要認出自己是 app——證據是 app 的登入畫面蓋上來（網頁版那條路不會有它） |
+| 2 | 只有 `isNativePlatform`，插件不在 | 狀態列要出現「app 啟動異常」並附診斷 |
+| 3 | 外殼正常、Keychain 有 token，`/api/state` 回 404 | 要是**紅字**的連線失敗，不是單機模式 |
+| 4 | 讀 bridge 就丟例外 | 摔倒要被 `.catch` 接住並寫在畫面上 |
+
+**刻意不把第五輪的假 Capacitor 改殘缺**：那一輪要驗的是「正常的 app 走得完」，兩件事混在一起，哪一個壞了都分不出來。突變驗證過四種改法各自只紅一支。
 
 **驗證**：`tests/appauth.test.mjs`、`tests/account-delete.test.mjs`（突變驗證七種改法都會紅）；`tools/smoke.mjs` 的「iOS app 外殼」那一輪用假的 `window.Capacitor` 走登入畫面、寄驗證碼、登入、**所有線上請求都帶 Bearer**、登出清 Keychain（拿掉 Bearer 那一行當場紅）。真機只能靠 TestFlight。
 
