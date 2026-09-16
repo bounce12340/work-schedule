@@ -79,13 +79,20 @@ export function addDays(ymd, n) {
 
 export async function handleReminderStatus(env, user) {
   const row = await env.DB
-    .prepare('SELECT enabled, last_sent_ymd, lead_days, streak_mail, updated_at FROM reminder_feed WHERE user_id = ?')
+    .prepare(`SELECT enabled, last_sent_ymd, lead_days, streak_mail,
+                     push_overdue, push_streak, push_today, updated_at
+                FROM reminder_feed WHERE user_id = ?`)
     .bind(user.id).first();
   return json({
     enabled: !!(row && row.enabled),
     // 還沒有那一列的人回預設值（開啟），不是 false——否則畫面會先顯示「關著」，
     // 等他第一次同步建立那一列之後才莫名其妙變成開著
     streakMail: row ? !!row.streak_mail : true,
+    // 推播的三個開關（子專案 B）。同上，沒有那一列時回 schema 的預設值。
+    // 「今天有事要做」預設關：它每天固定時間會響，那種東西預設開是打擾。
+    pushOverdue: row ? !!row.push_overdue : true,
+    pushStreak: row ? !!row.push_streak : true,
+    pushToday: row ? !!row.push_today : false,
     leadDays: row ? row.lead_days : DEFAULT_LEAD_DAYS,
     lastSent: row ? row.last_sent_ymd : null,
     updatedAt: row ? row.updated_at : null,
@@ -103,16 +110,26 @@ export async function handleReminderEnable(request, env, user) {
   // 連續斷掉的信是**另一個開關**，沒帶就沿用現有值（同 leadDays）。前端每次都把
   // 三個值一起送，所以這裡不必分辨「要改哪一個」。
   const streakMail = body?.streakMail === undefined ? null : (body.streakMail ? 1 : 0);
+  // 推播的三個開關（子專案 B）。**與上面兩個 email 開關互不相干**——沒帶就沿用現有值，
+  // 理由同 leadDays：這支端點也用於單純開關別的東西，不該順手把沒提到的設定重設掉。
+  const flag = v => (v === undefined ? null : (v ? 1 : 0));
+  const pOver = flag(body?.pushOverdue), pStreak = flag(body?.pushStreak), pToday = flag(body?.pushToday);
   const now = Date.now();
   await env.DB.prepare(
-    `INSERT INTO reminder_feed (user_id, enabled, digest, lead_days, streak_mail, updated_at)
-     VALUES (?, ?, '[]', ?, ?, ?)
+    `INSERT INTO reminder_feed (user_id, enabled, digest, lead_days, streak_mail,
+                                push_overdue, push_streak, push_today, updated_at)
+     VALUES (?, ?, '[]', ?, ?, ?, ?, ?, ?)
      ON CONFLICT(user_id) DO UPDATE SET
        enabled = excluded.enabled,
        lead_days = COALESCE(?, reminder_feed.lead_days),
        streak_mail = COALESCE(?, reminder_feed.streak_mail),
+       push_overdue = COALESCE(?, reminder_feed.push_overdue),
+       push_streak = COALESCE(?, reminder_feed.push_streak),
+       push_today = COALESCE(?, reminder_feed.push_today),
        updated_at = excluded.updated_at`
-  ).bind(user.id, enabled, lead ?? DEFAULT_LEAD_DAYS, streakMail ?? 1, now, lead, streakMail).run();
+  ).bind(user.id, enabled, lead ?? DEFAULT_LEAD_DAYS, streakMail ?? 1,
+    pOver ?? 1, pStreak ?? 1, pToday ?? 0, now,
+    lead, streakMail, pOver, pStreak, pToday).run();
   return json({ ok: true, enabled: !!enabled, streakMail: streakMail === null ? undefined : !!streakMail });
 }
 

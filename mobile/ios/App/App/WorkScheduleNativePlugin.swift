@@ -1,4 +1,6 @@
 import Foundation
+import UIKit
+import UserNotifications
 import Capacitor
 import StoreKit
 import Security
@@ -45,6 +47,8 @@ public class WorkScheduleNativePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "purchase", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "currentEntitlements", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "manageSubscriptions", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "requestPush", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "pushStatus", returnType: CAPPluginReturnPromise),
     ]
 
     private let service = "com.bounceto.workschedule"
@@ -213,6 +217,75 @@ public class WorkScheduleNativePlugin: CAPPlugin, CAPBridgedPlugin {
                     call.reject("showManageSubscriptions failed: \(error.localizedDescription)")
                 }
             }
+        }
+    }
+
+    // MARK: - 推播（子專案 B）
+
+    /// 還在等 device token 的那一通電話。AppDelegate 收到之後從這裡 resolve。
+    /// static 是因為 AppDelegate 拿不到插件的實例——那條接線只能靠一個共用的位置。
+    private static var pendingPushCall: CAPPluginCall?
+    private static let pushLock = NSLock()
+
+    /// AppDelegate 專用。**成功與失敗都要呼叫**：不呼叫的話那通電話永遠不會 settle，
+    /// 而那種故障沒有任何事件（沒有例外、沒有 rejection、沒有紅字）。
+    static func deliverPushToken(_ token: String?, error: String?) {
+        pushLock.lock()
+        let call = pendingPushCall
+        pendingPushCall = nil
+        pushLock.unlock()
+        guard let call = call else { return }
+        if let token = token {
+            call.resolve(["granted": true, "token": token, "environment": apsEnvironment()])
+        } else {
+            call.reject("push registration failed: \(error ?? "unknown")")
+        }
+    }
+
+    /// 讀 `aps-environment` entitlement。**決定 Worker 要打 sandbox 還是正式的 APNs**，
+    /// 搞錯的症狀是 400 BadDeviceToken——而那看起來像「token 壞了」，會往錯的方向查。
+    private static func apsEnvironment() -> String {
+        #if DEBUG
+        return "sandbox"
+        #else
+        return "production"
+        #endif
+    }
+
+    /// 要權限 → 註冊 remote notifications → 等 AppDelegate 把 token 送回來。
+    ///
+    /// **只在使用者按下「開啟推播」時才呼叫**，不在啟動時呼叫：iOS 只讓你問一次，
+    /// 開機就問的轉換率遠低於「他自己按了那顆按鈕」之後才問。
+    @objc func requestPush(_ call: CAPPluginCall) {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
+            if let error = error {
+                call.reject("notification permission failed: \(error.localizedDescription)")
+                return
+            }
+            guard granted else {
+                // 被拒絕**不是錯誤**，是一個要說出來的答案：畫面上要提示「到設定裡打開」，
+                // 而不是讓開關默默彈回去。
+                call.resolve(["granted": false, "token": NSNull(), "environment": Self.apsEnvironment()])
+                return
+            }
+            Self.pushLock.lock()
+            // 前一通還在等就先收掉，免得堆積
+            Self.pendingPushCall?.reject("superseded by a newer requestPush")
+            Self.pendingPushCall = call
+            Self.pushLock.unlock()
+            DispatchQueue.main.async {
+                UIApplication.shared.registerForRemoteNotifications()
+            }
+        }
+    }
+
+    /// 只問現況，**不跳權限對話框**。帳號頁要顯示「目前是開還是關」時用。
+    @objc func pushStatus(_ call: CAPPluginCall) {
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            let authorized = settings.authorizationStatus == .authorized
+                || settings.authorizationStatus == .provisional
+                || settings.authorizationStatus == .ephemeral
+            call.resolve(["authorized": authorized, "environment": Self.apsEnvironment()])
         }
     }
 

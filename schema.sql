@@ -178,8 +178,36 @@ CREATE TABLE IF NOT EXISTS reminder_feed (
   streak_mail     INTEGER NOT NULL DEFAULT 1,
   streak_mail_ymd TEXT,
   streak_current  INTEGER NOT NULL DEFAULT 0,
+  -- 推播（子專案 B）：三種各一個開關，**與上面兩個 email 開關互不相干**——畫面上就是
+  -- 五顆按鈕。逾期與植物預設開（有事才響，理由同提醒信）；「今天有事要做」預設關，
+  -- 因為它每天固定時間會響，那種東西預設開是打擾。
+  -- 三個 *_ymd 是同日去重；**送失敗刻意不寫**，沒送成功就不算推過（同 last_sent_ymd）。
+  push_overdue     INTEGER NOT NULL DEFAULT 1,
+  push_streak      INTEGER NOT NULL DEFAULT 1,
+  push_today       INTEGER NOT NULL DEFAULT 0,
+  push_overdue_ymd TEXT,
+  push_streak_ymd  TEXT,
+  push_today_ymd   TEXT,
   updated_at    INTEGER NOT NULL
 );
+
+-- APNs 的 device token。
+--
+-- **token 是主鍵，不是 (user_id, token)。** 同一支手機換人登入時，那個 token 屬於
+-- 後登入的人——ON CONFLICT(token) DO UPDATE 一句就把它搬過去。若允許同一個 token
+-- 對兩個 user，前一位使用者的排程會推到現在這個人的鎖定畫面上，那是資料外洩。
+--
+-- 不記 IP、不記裝置名稱：這張表要回答的只有「推到哪裡」。
+-- environment 決定打正式還是 sandbox 的 APNs；搞錯的症狀是 400 BadDeviceToken，
+-- 而那看起來像「token 壞了」，會往完全錯誤的方向查。
+CREATE TABLE IF NOT EXISTS device_tokens (
+  token        TEXT PRIMARY KEY,
+  user_id      TEXT NOT NULL,
+  environment  TEXT NOT NULL,        -- 'production' | 'sandbox'
+  created_at   INTEGER NOT NULL,
+  last_seen_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_device_tokens_user ON device_tokens(user_id);
 
 CREATE INDEX IF NOT EXISTS idx_reminder_enabled ON reminder_feed(enabled);
 

@@ -448,6 +448,24 @@ async function walkNative(page, log, seen) {
   await need('#acctSub a[href="/privacy.html"]', '訂閱區的隱私權政策連結');
   checked.push(`訂閱方案(${prices.length})`);
 
+  // 推播（子專案 B）。三顆開關要在，而且**打開一個要真的去註冊 device token**——
+  // 只驗按鈕在不在的話，「按了沒反應」會是綠的。
+  await page.waitForSelector('#acctPush', { state: 'visible', timeout: 5000 })
+    .catch(() => { throw new Error('app 裡看不到推播設定（#acctPush）'); });
+  for (const id of ['btnPushOverdue', 'btnPushStreak', 'btnPushToday']) await need('#' + id, '推播開關 ' + id);
+  const beforeText = (await page.locator('#btnPushToday').textContent()) || '';
+  await page.click('#btnPushToday');
+  await page.waitForTimeout(500);
+  const afterText = (await page.locator('#btnPushToday').textContent()) || '';
+  if (beforeText === afterText) {
+    const msg = (await page.locator('#acctPushMsg').textContent()) || '';
+    throw new Error(`按了推播開關卻沒有變（「${beforeText.trim()}」→「${afterText.trim()}」，訊息：「${msg.trim()}」）`);
+  }
+  if (!seen.some(r => r.path === '/api/push/register')) {
+    throw new Error('打開推播卻沒有註冊 device token（沒有打到 /api/push/register）');
+  }
+  checked.push('推播開關(3)');
+
   const email = (await page.locator('#acctEmail').textContent()).trim();
   if (email !== ME.email) throw new Error(`我的帳號頁應顯示 ${ME.email}，實際是「${email}」`);
   checked.push('帳號資訊(1)');
@@ -529,6 +547,9 @@ async function walkNative(page, log, seen) {
       // 所以不要在這裡假裝有訂閱——那會讓方案那一區顯示成 Pro，蓋掉免費版的路徑。
       currentEntitlements: async () => ({ jws: [] }),
       manageSubscriptions: async () => ({}),
+      // 推播（子專案 B）。真的插件有這兩個方法，假的就要有。
+      requestPush: async () => ({ granted: true, token: 'f'.repeat(64), environment: 'sandbox' }),
+      pushStatus: async () => ({ authorized: true, environment: 'sandbox' }),
     };
     window.Capacitor = {
       isNativePlatform: () => true,
@@ -654,6 +675,8 @@ async function walkNative(page, log, seen) {
         purchase: async () => ({ cancelled: true }),
         currentEntitlements: async () => ({ jws: [] }),
         manageSubscriptions: async () => ({}),
+        requestPush: async () => ({ granted: false, token: null, environment: 'sandbox' }),
+        pushStatus: async () => ({ authorized: false, environment: 'sandbox' }),
       };
       const cap = { Plugins: {} };            // 真機上 Plugins 永遠是空的
       if (ks.includes('isNativePlatform')) cap.isNativePlatform = () => true;

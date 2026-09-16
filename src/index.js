@@ -10,6 +10,7 @@ import { handleReminderStatus, handleReminderEnable, handleReminderPut, sendOver
 import { handleForgotPassword, handleResetPassword as handleSelfResetPassword } from './handlers/password-reset.js';
 import { handleAppCode, handleAppRegister, handleAppLogin, handleDeleteAccount } from './handlers/appauth.js';
 import { handlePlanApple, handleAppleNotification } from './handlers/planapple.js';
+import { handlePushRegister, handlePushUnregister, handlePushTest, sendPushes } from './handlers/push.js';
 import { getSessionUser } from './session.js';
 
 /**
@@ -33,6 +34,9 @@ export default {
     ctx.waitUntil((async () => {
       await step(env, 'reminder', () => sendOverdueReminders(env));
       await step(env, 'streak', () => sendStreakBroken(env));
+      // 推播（子專案 B）。與兩封信各自獨立的一步：APNs 掛掉不該讓信也不寄，
+      // 反過來也一樣。沒設 secret 時它自己記成「未設定」並跳過，不算失敗。
+      await step(env, 'push', () => sendPushes(env));
       await step(env, 'backup', () => runBackup(env));
       await step(env, 'purge', () => purgeExpired(env));
     })());
@@ -192,6 +196,13 @@ async function route(request, env, ctx) {
     return request.method === 'DELETE' ? handleDeleteAccount(request, env, user) : methodNotAllowed();
   }
 
+  // 推播：註冊／取消這台裝置的 device token
+  if (path === '/api/push/register') {
+    if (request.method === 'POST') return handlePushRegister(request, env, user);
+    if (request.method === 'DELETE') return handlePushUnregister(request, env, user);
+    return methodNotAllowed();
+  }
+
   // app 推上來的訂閱交易（購買成功、啟動時的 currentEntitlements、恢復購買）
   if (path === '/api/plan/apple') {
     return request.method === 'POST' ? handlePlanApple(request, env, user) : methodNotAllowed();
@@ -280,6 +291,12 @@ async function route(request, env, ctx) {
         }
       }
       return methodNotAllowed();
+    }
+    // 立刻送一則測試推播到自己的裝置。理由同上面的手動備份：**設定完當天就要能
+    // 證明它通不通**，不必等到隔天早上八點才發現一片安靜。APNs 的回應原樣回去，
+    // 因為「金鑰不對」與「token 不對」在只有狀態碼時看起來一模一樣。
+    if (path === '/api/admin/push-test') {
+      return request.method === 'POST' ? handlePushTest(env, user) : methodNotAllowed();
     }
     // cron 的執行記錄與功能使用狀況。兩者都只回統計與狀態，不回任何排程內容——
     // 要回答的是「系統在不在跑、有沒有人在用」，不需要看見資料本身。

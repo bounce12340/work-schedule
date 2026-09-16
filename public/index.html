@@ -1366,6 +1366,17 @@
           <div class="acct-row">
             <button id="btnStreakMail" class="ghost-btn" type="button"></button>
           </div>
+          <!-- 推播（子專案 B）。只在 app 裡出現——網頁版沒有 APNs 可以註冊。
+               三個開關與上面兩個寄信開關**各自獨立**：關掉信不代表不想要推播。 -->
+          <div id="acctPush" style="display:none">
+            <div class="acct-sub" style="margin:14px 0 10px;" data-i18n>推播會直接亮在手機的鎖定畫面上。它與上面的信各自獨立——可以只要其中一種。沒事的日子完全不推。</div>
+            <div class="acct-row">
+              <button id="btnPushOverdue" class="ghost-btn" type="button"></button>
+              <button id="btnPushStreak" class="ghost-btn" type="button"></button>
+              <button id="btnPushToday" class="ghost-btn" type="button"></button>
+            </div>
+            <div class="acct-sub" id="acctPushMsg" style="margin-top:8px;"></div>
+          </div>
         </div>
 
         <div class="acct-sec" id="acctIcs">
@@ -1870,7 +1881,9 @@
       getAppTransaction: call('getAppTransaction'),
       // 訂閱（E2）。名字與 Swift 的 pluginMethods 逐字相同，tools/check-native-plugin.mjs 比對兩側。
       getProducts: call('getProducts'), purchase: call('purchase'),
-      currentEntitlements: call('currentEntitlements'), manageSubscriptions: call('manageSubscriptions')
+      currentEntitlements: call('currentEntitlements'), manageSubscriptions: call('manageSubscriptions'),
+      // 推播（B）
+      requestPush: call('requestPush'), pushStatus: call('pushStatus')
     };
     return nativePluginCache;
   }
@@ -2261,6 +2274,16 @@
       '購買失敗':'Purchase failed',
       '伺服器沒有接受這筆訂閱':'The server did not accept this subscription',
       '打不開訂閱管理頁':'Could not open the subscription settings',
+      // ---- 推播（子專案 B）----
+      '推播會直接亮在手機的鎖定畫面上。它與上面的信各自獨立——可以只要其中一種。沒事的日子完全不推。':'Push notifications appear right on your lock screen. They are independent of the emails above — you can have either or both. Nothing is sent on quiet days.',
+      '🔔 逾期提醒：開':'🔔 Overdue alerts: on', '🔔 逾期提醒：關':'🔔 Overdue alerts: off',
+      '🌱 小植物：開':'🌱 Your plant: on', '🌱 小植物：關':'🌱 Your plant: off',
+      '☀️ 今天有事：開':'☀️ Today’s tasks: on', '☀️ 今天有事：關':'☀️ Today’s tasks: off',
+      'iOS 的通知權限是關著的。要到「設定 → 通知 → 工作排程」裡打開。':'Notifications are turned off in iOS. Enable them in Settings → Notifications → Work Schedule.',
+      '這個版本的 app 還不支援推播':'This version of the app does not support push notifications yet',
+      '開啟推播失敗':'Could not turn on push notifications',
+      '這台裝置註冊不了推播':'Could not register this device for push notifications',
+      '目前離線，無法變更推播設定。':'You are offline; push settings cannot be changed right now.',
       // —— 登入閘門 ——
       '這個工具需要登入才能使用。排程存在你的帳號裡，登入後在任何裝置都看得到同一份。':'You need to sign in to use this. Your schedule lives in your account, so every device sees the same one.',
       '前往登入':'Sign in',
@@ -3622,7 +3645,12 @@
         reminderEnabled = !!d.enabled;
         if(typeof d.streakMail === 'boolean') streakMailEnabled = d.streakMail;
         if(typeof d.leadDays === 'number') reminderLeadDays = d.leadDays;
+        // 推播的三個開關同理：讀不回來的話按鈕會一律顯示預設值，即使他早就改過了
+        for(const k of ['pushOverdue','pushStreak','pushToday']){
+          if(typeof d[k] === 'boolean') pushPrefs[k] = d[k];
+        }
         syncReminderBtn();
+        syncPushBtns();
       } }).catch(e=>{ console.error('reminder status failed', e); });
     // 分享清單與 state 各自獨立，不 await：它慢或失敗都不該拖住主資料的同步
     fetchShares().then(()=>{ if(currentView==='shared') renderAll(); });
@@ -7408,6 +7436,100 @@
     }
   };
 
+  // ================= 推播（子專案 B） =================
+  //
+  // 三個開關，與上面兩個寄信開關**各自獨立**。只在 app 裡出現：網頁版沒有 APNs
+  // 可以註冊，而 Web Push 是另一套金鑰與另一條 service worker 路徑（刻意不做）。
+  let pushPrefs = { pushOverdue: true, pushStreak: true, pushToday: false };
+  let pushToken = null;
+
+  function pushMsg(text, cls){
+    const el = document.getElementById('acctPushMsg');
+    if(!el) return;
+    el.textContent = text || '';
+    el.style.color = text ? (cls === 'err' ? 'var(--red)' : 'var(--teal)') : '';
+  }
+
+  const PUSH_BTNS = [
+    { key:'pushOverdue', id:'btnPushOverdue', on:'🔔 逾期提醒：開', off:'🔔 逾期提醒：關' },
+    { key:'pushStreak',  id:'btnPushStreak',  on:'🌱 小植物：開',   off:'🌱 小植物：關' },
+    { key:'pushToday',   id:'btnPushToday',   on:'☀️ 今天有事：開', off:'☀️ 今天有事：關' },
+  ];
+
+  function syncPushBtns(){
+    const box = document.getElementById('acctPush');
+    if(box) box.style.display = (NATIVE && cloudEnabled) ? '' : 'none';
+    for(const b of PUSH_BTNS){
+      const el = document.getElementById(b.id);
+      if(el) el.textContent = tr(pushPrefs[b.key] ? b.on : b.off);
+    }
+  }
+
+  /**
+   * 打開任一個推播之前要先有 device token。**權限對話框只在這一刻才跳**——iOS 只讓
+   * 你問一次，開機就問的轉換率遠低於「他自己按了那顆按鈕」之後才問。
+   *
+   * 回 true 代表可以繼續。被拒絕時**要說出來**：只讓開關彈回去是最典型的沉默，
+   * 使用者會以為是 app 壞了，而不是他自己關掉了通知權限。
+   */
+  async function pushEnsureToken(){
+    if(pushToken) return true;
+    const p = nativePlugin();
+    if(!p || !p.requestPush){ pushMsg(tr('這個版本的 app 還不支援推播'), 'err'); return false; }
+    let r;
+    try{
+      r = await p.requestPush();
+    }catch(e){
+      console.error('requestPush failed', e);
+      pushMsg(tr('開啟推播失敗') + '：' + String((e && e.message) || e), 'err');
+      return false;
+    }
+    if(!r || !r.granted || !r.token){
+      pushMsg(tr('iOS 的通知權限是關著的。要到「設定 → 通知 → 工作排程」裡打開。'), 'err');
+      return false;
+    }
+    try{
+      const res = await fetch('/api/push/register', {
+        method:'POST', headers:{'content-type':'application/json'},
+        body: JSON.stringify({ token: r.token, environment: r.environment })
+      });
+      if(!res.ok) throw new Error('HTTP ' + res.status);
+    }catch(e){
+      console.error('push register failed', e);
+      pushMsg(tr('這台裝置註冊不了推播') + '：' + String((e && e.message) || e), 'err');
+      return false;
+    }
+    pushToken = r.token;
+    return true;
+  }
+
+  async function pushToggle(key, btn){
+    const next = !pushPrefs[key];
+    // 只有「要打開」才需要權限與 token；關掉不需要，否則權限被拒的人連關都關不掉
+    if(next && !(await pushEnsureToken())) return;
+    btn.disabled = true;
+    try{
+      const body = Object.assign({ enabled: reminderEnabled, leadDays: reminderLeadDays, streakMail: streakMailEnabled }, pushPrefs);
+      body[key] = next;
+      const r = await fetch('/api/reminder', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(body) });
+      if(r.status===401){ sessionExpired(); return; }
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      pushPrefs[key] = next;
+      pushMsg('');
+      syncPushBtns();
+    }catch(e){
+      console.error('push toggle failed', e);
+      pushMsg(tr('目前離線，無法變更推播設定。'), 'err');
+    }finally{
+      btn.disabled = false;
+    }
+  }
+
+  for(const b of PUSH_BTNS){
+    const el = document.getElementById(b.id);
+    if(el) el.onclick = ()=> pushToggle(b.key, el);
+  }
+
   function syncReminderBtn(){
     if(!btnReminder) return;
     btnReminder.style.display = cloudEnabled ? '' : 'none';
@@ -7416,9 +7538,12 @@
       ? tr('目前會在有逾期項目時寄信到你的註冊信箱')
       : tr('開啟後，有逾期項目時會寄信到你的註冊信箱（沒有逾期就不寄）');
 
+    syncStreakMailBtn();
+    // 推播的三個按鈕要跟著一起重畫（切語言、切單機模式時）。**放在 return 之前**：
+    // 放在後面的話，selReminderLead 不存在時它就永遠不會跑，而那是靜默的。
+    syncPushBtns();
     // 提前天數只在提醒開著時才有意義——關著的時候顯示它只會讓人以為還會收到信
     if(!selReminderLead) return;
-    syncStreakMailBtn();
     selReminderLead.style.display = (cloudEnabled && reminderEnabled) ? '' : 'none';
     selReminderLead.title = tr('提前幾天開始提醒。選「只在逾期時」就是原本的行為。');
     // 每次重建：語言切換後選項文字要跟著換，而選項只有五個，重建比逐一改省事

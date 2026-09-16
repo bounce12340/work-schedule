@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- 推播（子專案 B）。development / production 決定 device token 是哪一台 APNs 的。
+	     archive 出來的 App Store build 由 Xcode 換成 production；Debug build 是 development。
+	     這個 entitlement 要生效，Apple Developer 後台的 App ID 必須先勾選 Push Notifications
+	     ——沒勾的話簽章會失敗，錯誤訊息是「provisioning profile doesn't support the
+	     aps-environment capability」，看起來像簽章問題而不是設定問題。 -->
+	<key>aps-environment</key>
+	<string>development</string>
+</dict>
+</plist>
