@@ -57,6 +57,8 @@ mobile/                iOS app 外殼（Capacitor；自己的 package.json，見
 | `tests/cors.test.mjs` | iOS app 來源的 CORS：預檢、正常與錯誤回應都帶標頭、別的來源與同源不加、永不開 credentials | 直接打 Worker 的 `fetch` 入口 |
 | `tests/plan.test.mjs` | 方案：`planOf` 與寬限、「只有變多才擋」、`PUT /api/state` 的 402 且列不動、管理者設方案、AI 上限依方案、**前後端 `PLAN_LIMITS` 逐字相同** | 直接 import；上限那一份從 `index.html` 抽出來比 |
 | `tests/game.test.mjs` | 遊戲化引擎：按時＝到期那天結束前、沒安排的日子跳過、今天 missed 不斷、上線日之前不算、等級門檻、挑戰梯子、徽章、`setOccurrenceDone` 寫時間戳 | 從 `index.html` 抽〈遊戲化〉區段求值（連同 date helpers 與 occurrence engine） |
+| `tests/plan-apple.test.mjs` | 訂閱交易與 Apple 通知：只往後、退款往前、永久不被蓋、搬移、去重、驗簽失敗 401 | 直接 import；`fake-apple.mjs` 自己當 Apple 簽 |
+| `tests/push.test.mjs` | 推播：APNs JWT 與快取、410 刪 token、換人登入搬 token、沒事不推、三個開關獨立、失敗不寫 ymd | 直接 import，攔 `fetch` 當假的 APNs |
 | `tests/state.test.mjs`（下半） | 連續斷掉的信：`dayReport`、三個「不該寄」（沒斷、連續 < 2、開關關著）、同一天只寄一次、寄失敗不記錄、兩個開關互不影響 | 直接 import Worker 端模組，攔 `fetch` 當假信箱 |
 
 前三者的挑選理由：前兩者近乎純函式、零 DOM 依賴；第三者是**競態**——靠併發碰運氣測不到，但可以把空窗做成確定性的。
@@ -90,7 +92,7 @@ npm run db:init:local  # 對本機 miniflare D1 建表（--local 的資料庫與
 npm run db:init        # 對遠端 D1 建表
 npm run admin:reset    # 破窗鎚：直接改密碼（見〈破窗鎚〉）
 npm run deploy         # 部署
-npm test               # 全部測試檔（node:test，不需安裝任何東西；目前 336 個測試）
+npm test               # 全部測試檔（node:test，不需安裝任何東西；目前 375 個測試）
 ```
 
 跑單一測試檔或單一測試（`npm test` 沒有轉發參數的管道，直接用 node）：
@@ -170,7 +172,7 @@ Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.Comm
 | `tools/check-contrast.mjs` | 正文級文字在**兩種主題**下都達到 WCAG 對比（4.5:1／大字 3:1） | 動到任何顏色變數或文字顏色 |
 | `tools/check-deps.mjs` | 前置作業的「待前置」徽章、不阻擋勾選；「不在」的標記**與逾期並存**；逾期的顏色就是 `--red` 且字重比旁邊重 | 動到 `dependsOn`、`awayDates`、`toggleOccDone`、逾期判斷或任何視覺改版 |
 | `tools/check-ambience.mjs` | 時段（早／午／晚）的 `data-daypart` 與光暈、每日記錄的提示語照日期決定、打勾的彈跳只在被點的那一個上、週一的回顧（含 N=0 不出現）、**遊戲化**：完美一天的 toast 只在勾掉最後一件時、升級的光只在升級那一次（看計算後的 `animationName`）、reduced-motion 關 | 動到 `tick()`、`<head>` 開機腳本、`DAILY_PROMPTS`、`renderLookback()`、`.checkbox` 的 CSS 或〈遊戲化畫面〉 |
-| `tools/check-native-plugin.mjs` | 原生插件的接線：SceneDelegate → MainViewController → `registerPluginInstance`、storyboard 的 `customClass`，以及 **Swift 的 `jsName`／方法名與 `index.html` 逐字相同**（零相依，在 `check` job） | 動到 `mobile/ios/` 的任何 Swift／storyboard，或 `index.html` 的〈原生外殼〉區段；CI 會自動跑 |
+| `tools/check-native-plugin.mjs` | 原生插件的接線，六件事：SceneDelegate → MainViewController → `registerPluginInstance`、storyboard 的 `customClass`、**方法名兩側完全對齊（雙向）**、推播的 AppDelegate 接線與 `aps-environment`、**訂閱 product id 在 Swift 與 Worker 逐字相同**（零相依，在 `check` job） | 動到 `mobile/ios/` 的任何 Swift／storyboard／entitlements，或 `index.html` 的〈原生外殼〉區段；CI 會自動跑 |
 | `tools/check-sw-version.mjs` | 動到 `public/*.html` 時 `sw.js` 的 `CACHE` 有沒有跟著加（零相依，在 `check` job） | 任何前端改動；CI 會自動跑，本機 `node tools/check-sw-version.mjs origin/main HEAD` |
 | `tools/measure-board.mjs` | 切換檢視／篩選／搜尋卡住主執行緒多久（自己造 64／150／300 項的資料） | 動到 `renderBoard()` 或看板的 CSS。**不在 CI**：數字隨環境浮動，設門檻只會製造沒有人相信的紅燈，用途是改動前後各跑一次自己比對 |
 | `tools/check-mobile.mjs` | 手機（iPhone 13、CPU 降速 4 倍、64 個項目）：五頁都不橫向溢出、切換與互動的停頓、**點擊目標大小** | 動到任何版面或 CSS。同樣不在 CI |
@@ -499,9 +501,9 @@ grep -nE '(const|let|var)[[:space:]]+(tr|tf|weekName)\b' public/index.html
 
 `cloudMeta` 除了版本號還記錄 `owner`。同一台電腦換人登入時，localStorage 仍是前一位使用者的資料；若不比對 owner，衝突對話框會讓新使用者有機會把別人的排程覆蓋進自己的雲端帳號。載入時 owner 不符即清空本地（清成空白，不重新 seed——理由同上），登出時也一併清除——兩道防線都要保留，不要因為「登出已經清過」就移除 owner 比對（session 過期、cookie 被替換等情況不會經過登出流程）。
 
-## 每日 cron：提醒、備份、清理
+## 每日 cron：提醒、推播、備份、清理
 
-`wrangler.jsonc` 的 `triggers.crons` 只有一條（00:00 UTC＝台北早上 8 點），`scheduled()` 依序跑三件事。**三者各自獨立 try/catch，不能串在一起**——備份失敗不該連帶讓當天的提醒不寄，反過來也一樣。它們只是剛好在同一個時間點跑，彼此沒有依賴。
+`wrangler.jsonc` 的 `triggers.crons` 只有一條（00:00 UTC＝台北早上 8 點），`scheduled()` 依序跑五件事（逾期提醒信、植物的信、**推播**、備份、清理）。**每一件各自獨立 try/catch，不能串在一起**——備份失敗不該連帶讓當天的提醒不寄，APNs 掛掉也不該讓信不寄，反過來都一樣。它們只是剛好在同一個時間點跑，彼此沒有依賴。
 
 `step()` 在**成功時也會 `console.log`**。只在失敗時印的話，「備份從三週前就沒在跑了」看起來與「一切正常」一模一樣（log 裡什麼都沒有）——備份最可怕的失敗模式正是這種。
 
@@ -594,7 +596,7 @@ Turnstile 擋得住「一秒鐘一萬次」的機器人，擋不住「一分鐘�
 
 設計文件在 `docs/superpowers/specs/2026-09-14-ios-app-design.md`，決策過程都在裡面。這裡只記實作後不能拿掉的判斷。
 
-**形狀（2026-09-16 改過）：免費下載＋app 內訂閱（子專案 E，設計文件 `2026-09-16-subscription-design.md`）、`index.html` 內建、與網頁版共用同一套帳號與資料。** 原本是付費下載（錢在 App Store 那一刻收完、不需要 IAP），改成訂閱之後 IAP 變成必要；購買證明（AppTransaction）免費 app 也有，**保留**它當「一個 Apple ID 一個帳號」的防濫用機制——免費版有上限，開十個帳號就是繞過上限最直接的方法。E1（方案與上限，見〈方案與上限〉）已實作；E2（StoreKit 訂閱）與 E3（Apple 伺服器通知）待做。
+**形狀（2026-09-16 改過）：免費下載＋app 內訂閱（子專案 E，設計文件 `2026-09-16-subscription-design.md`）、`index.html` 內建、與網頁版共用同一套帳號與資料。** 原本是付費下載（錢在 App Store 那一刻收完、不需要 IAP），改成訂閱之後 IAP 變成必要；購買證明（AppTransaction）免費 app 也有，**保留**它當「一個 Apple ID 一個帳號」的防濫用機制——免費版有上限，開十個帳號就是繞過上限最直接的方法。E1（方案與上限）、**E2（StoreKit 訂閱）與 E3（Apple 伺服器通知）皆已實作**（見〈訂閱的寫入〉）。
 
 | 決定 | 理由 |
 |---|---|
@@ -636,7 +638,7 @@ Turnstile 擋得住「一秒鐘一萬次」的機器人，擋不住「一分鐘�
 
 **改版時要做的事**：`mobile/package.json` 的 `version` 往上加（build 號是 GitHub 的 `run_number`，不用管）→ **合併進 main 就會自動打包上傳**（CI 綠、且動到 `public/index.html` 或 `mobile/`）→ App Store Connect 送審。手動觸發與 `ios-v*` tag 仍然留著，兩者都不看路徑條件。
 
-**部署順序**：`migrations/005-app-purchase.sql`、`006-plan.sql` 與 `007-streak-mail.sql` 都要在部署新 Worker **之前**跑（`getSessionUser` 的 SELECT 讀 `plan_source`，欄位不在**每一個**登入請求都會 500；`007` 的欄位則是 `/api/reminder` 與 cron 會讀），理由見〈資料庫結構變更〉。006 跑完、Worker 部署完之後，還要到 `/admin` 把既有的兩個帳號設成「Pro（永久）」——漏掉的症狀是他們的第四個專案被擋，當場就會知道。
+**部署順序**：`migrations/005-app-purchase.sql`、`006-plan.sql`、`007-streak-mail.sql` 與 `008-push.sql` 都要在部署新 Worker **之前**跑（`getSessionUser` 的 SELECT 讀 `plan_source`，欄位不在**每一個**登入請求都會 500；`007`／`008` 的欄位則是 `/api/reminder` 與 cron 會讀），理由見〈資料庫結構變更〉。006 跑完、Worker 部署完之後，還要到 `/admin` 把既有的兩個帳號設成「Pro（永久）」——漏掉的症狀是他們的第四個專案被擋，當場就會知道。
 
 ## 方案與上限（`src/plan.js`）
 
@@ -657,6 +659,60 @@ Turnstile 擋得住「一秒鐘一萬次」的機器人，擋不住「一分鐘�
 | Apple 的通知**不會蓋掉** `plan_source='admin'`（E3 實作時） | 否則永久帳號的主人在 app 裡試訂一次再取消，到期那天就被降回免費 |
 | `users.apple_original_txn` UNIQUE；換帳號「恢復購買」是**搬過去**不是拒絕（E2） | 訂閱屬於 Apple ID 不屬於我們的帳號。UNIQUE 擋的是同一筆交易被兩個帳號同時算成 Pro |
 | `public/terms.html` 不用登入 | Apple 對訂閱 app 的硬規定：訂閱畫面與 App Store metadata 都要連得到使用條款（自動續訂、取消方式、退款由 Apple 處理都寫在裡面） |
+
+## 訂閱的寫入（E2／E3，`src/handlers/planapple.js`）
+
+購買證明、訂閱交易、伺服器通知**是同一條 Apple 憑證鏈、同一種簽章**，只差在 payload 裡有哪些欄位。所以 `src/apppurchase.js` 分兩層：`verifyAppleJws()` 驗鏈與驗簽，`verifyAppTransaction()` 與 `verifySubscriptionTransaction()` 各自讀自己的欄位。
+
+**bundleId 與環境的檢查刻意留在上層**（設計文件原本寫在底層）：伺服器通知把這兩個欄位放在 `data.bundleId` / `data.environment`，交易放在 payload 頂層。硬塞進底層就得傳一個「去哪裡拿」的存取器，比讓三個呼叫端各自讀、再共用 `checkBundleEnvironment()` 複雜。
+
+| 決定 | 理由 |
+|---|---|
+| **只往後不往前** | `currentEntitlements` 是整批送上來的，順序不保證。照單全收會讓最舊的那一筆把最新的到期日蓋掉，使用者付了錢卻在幾天後被降級 |
+| **退款（`revocationDate`）是唯一例外，往前寫** | 它本來就是「提早結束」。漏掉的話退了款的人繼續是 Pro |
+| **`plan_source='admin'` 不被 Apple 蓋掉**（兩條路都是） | 永久帳號的主人在 app 裡試訂一次再取消，到期那天就被降回免費——他從來沒有要求過那件事。代價：他真的付了錢的話那筆訂閱不記在 `apple_original_txn` 上，日後取消永久身分要「恢復購買」一次。兩害相權，「永久帳號被無聲降級」比較嚴重，因為當事人不會知道為什麼 |
+| **同一份訂閱綁到第二個帳號是「搬過去」不是拒絕** | 訂閱屬於 Apple ID 不屬於我們的帳號。單句帶條件的 UPDATE，理由同〈樂觀鎖必須是單句 SQL〉 |
+| **`PRODUCT_IDS` 白名單**，不是「有 `expiresDate` 就算」 | 日後多一個別的訂閱，不該讓它也解鎖 Pro |
+| 通知**一律回 200 除了驗簽失敗** | 回 5xx Apple 會重送，而「這筆我不認得」重送十次也不會變成認得 |
+| `notificationUUID` **去重是省事，不是正確性的前提** | 每一種寫入規則本身都冪等（「只往後」寫同一個到期日是同一個結果、搬移到已經是自己的帳號是 no-op）。所以 `plan_events` 寫失敗只 `console.warn` 不會壞事——**這一點要寫下來，否則下一個人會以為它是前提** |
+| `DID_CHANGE_RENEWAL_STATUS`（取消自動續訂）**一個欄位都不改** | 已經付掉的那一期到到期日之前仍然是 Pro。當成立即到期是在沒收已付的錢 |
+
+### app 那一側：為什麼沒有 `notifyListeners`
+
+`Transaction.updates` 要監聽（家庭共享、在別台裝置續訂、Ask to Buy 核准都從那裡進來），但**結果不透過事件送到 JS**：
+
+- 前端是單檔 HTML，沒有引入 `@capacitor/core`，所以沒有 `addListener`。真機上注入的 bridge 與 core 給的東西不一樣——那正是 build 7～10 追了四輪的 bug class。
+- `currentEntitlements()` 本來就回「現在有效的全部」。JS 在**啟動**與**回到前景**各問一次，涵蓋的情況完全相同，而且**測得到**（假的 Capacitor 也答得出來）。
+
+原生那側的監聽器只負責 StoreKit 要求的 `finish()`，不 finish 的交易會被一直重送。
+
+**訂閱畫面上的四件事是 Apple 的硬規定，缺一個就退件**：價格與週期（**一律從 StoreKit 拿，不寫死**——各國幣別與匯率換算都在那裡）、「自動續訂、可隨時取消」的說明、「恢復購買」按鈕、隱私權政策與使用條款的連結。`tools/smoke.mjs` 把這四件事寫成斷言。
+
+## 推播（子專案 B，`src/apns.js` + `src/handlers/push.js`）
+
+設計文件 `docs/superpowers/specs/2026-09-17-push-design.md`。三種推播：逾期／即將到期、植物的撒嬌信（F3）、今天有事要做。內容一律用前端推上來的 `reminder_feed.digest` 算，**與 ICS／提醒信／F2 同一個模式**。
+
+**推播不取代 email，兩者各自有開關。** 手機換了、app 刪了、通知權限被關掉——三種情況下 token 都會安靜地失效，而**使用者不會知道自己從此收不到任何東西**。信箱是唯一不會這樣消失的管道。
+
+| 決定 | 理由 |
+|---|---|
+| **沒設 APNs secret 就安靜跳過並記成「未設定」**，不是失敗 | 記成紅色的話管理頁天天發假警報，而假紅燈與假綠燈一樣糟——兩者都會讓人不再相信那一頁 |
+| **410／`BadDeviceToken` 當場刪掉那個 token**；5xx 留著 | 不刪的話這張表會慢慢長滿再也送不到的 token，而每天都會為它們各打一次 API。一次 5xx 不代表這支手機不見了 |
+| `device_tokens.token` 是**主鍵**，換人登入 `ON CONFLICT DO UPDATE` 整列搬過去 | 允許一個 token 對兩個 user 的話，前一位使用者的排程會推到現在這個人的鎖定畫面上——那是資料外洩，不是重複資料 |
+| **沒事就完全不推**（三種都是） | 一封沒事的信只是多一列未讀；一則沒事的推播會震動手機，然後人會把通知整個關掉，真的有事時什麼都收不到 |
+| 三個開關**各自獨立**，且與 email 的兩個也獨立 | 畫面上就是五顆按鈕。關掉逾期信不代表不想要逾期推播 |
+| **送失敗刻意不寫 `push_*_ymd`** | 沒送成功就不算推過，下一次排程要能補。同 `last_sent_ymd` |
+| APNs JWT **快取 50 分鐘** | Apple 要求同一把金鑰至少 20 分鐘才換一次、上限 60 分鐘，換太勤會被擋（`TooManyProviderTokenUpdates`） |
+| 失敗時**一定要把 APNs 的 `reason` 讀出來** | 只記狀態碼的話「金鑰不對」與「token 不對」看起來一模一樣。同 AgentMail 那條 |
+| 權限對話框**只在使用者按下開關時才跳** | iOS 只讓你問一次，開機就問的轉換率遠低於「他自己按了那顆按鈕」之後才問 |
+| 權限被拒絕要**說出來**，不是讓開關彈回去 | 那是最典型的沉默：使用者會以為 app 壞了，而不是他自己關掉了通知權限 |
+| 「今天有事要做」**預設關**，另外兩種預設開 | 前兩者有事才響；第三種每天固定時間會響，那種東西預設開是打擾 |
+
+**最大的技術風險：APNs 只收 HTTP/2**，而「Workers 打不打得到」在開發環境證明不了（要真的 `.p8` 與真的 device token）。所以不靠祈禱：
+
+- `POST /api/admin/push-test` 讓管理者**設定完當天**就能證明它通不通，APNs 的回應原樣回給管理頁。
+- cron 的推播那一步走 `step()`，成功與失敗都進 `cron_runs`，`/admin` 看得到。同〈看得見的備份才是備份〉。
+- 連線層的例外（協定被拒就是這個形狀）要進 `errors[]`，不是只留在 console。
 
 ## 遊戲化（〈遊戲化〉與〈遊戲化畫面〉區段）
 
@@ -692,7 +748,7 @@ Turnstile 擋得住「一秒鐘一萬次」的機器人，擋不住「一分鐘�
 | 今天一早自己打開 app 同步過的人收不到 | 他推上來的連續已經歸零——人已經回來了，植物不必再叫他。這是刻意的，不是漏洞 |
 | 信是**植物的第一人稱**，署名也是；講事實（幾天、哪幾件）不評價 | 使用者的裁決是「撒嬌」。罵人的信會被封鎖寄件人，然後逾期提醒也一起收不到 |
 
-F3（推播版，等子專案 B）待做。
+F3（推播版）**已實作**，見〈推播〉：它與 email 版共用 `dayReport` 與同一個 `MIN_STREAK` 門檻，兩邊不一樣的話會出現「信說斷了、推播沒推」。
 
 ### app 的八個探針（`tools/smoke.mjs` 第七輪）
 
@@ -790,6 +846,16 @@ TestFlight build 7 回報的症狀是「app 安靜地變成單機模式」——
 |---|---|---|
 | `AGENTMAIL_API_KEY` | `am_us_inbox_b1e2…` | 帳號層級的憑證。**前綴雖然寫著 `inbox`，它是 API key 不是 inbox id** |
 | `AGENTMAIL_INBOX_ID` | `uic_ai@agentmail.to` | 寄件信箱的識別碼，形式是 **email 位址** |
+
+推播另外要三個（見〈推播〉與設計文件的〈使用者要做的事〉）：
+
+| 變數 | 說明 |
+|---|---|
+| `APNS_KEY_ID` | APNs 金鑰的 Key ID（10 碼）。**與打包用的 `ASC_KEY_ID` 是不同的兩把金鑰** |
+| `APNS_TEAM_ID` | Team ID（10 碼） |
+| `APNS_P8` | `.p8` 檔案的**完整內容**，含 BEGIN／END 那兩行。只能下載一次 |
+
+三個都沒設時推播那一步安靜跳過並記成「未設定」——**不是失敗**，理由見〈推播〉。
 
 這兩個極容易搞反——`am_us_inbox_…` 看起來就像 inbox id，但它其實是 key（開發時實際搞錯過兩次）。分辨方法是直接問 API：
 
@@ -1002,7 +1068,7 @@ AI 的批次寫入正是就地修改，第一版因此復原不了，是瀏覽�
 新增欄位因此要在 `migrations/` 下留一支單獨的 SQL，並在**部署之前**跑過：
 
 ```bash
-npx wrangler d1 execute work-schedule-db --remote --file=./migrations/007-streak-mail.sql   # 最新的一支；舊的照編號
+npx wrangler d1 execute work-schedule-db --remote --file=./migrations/008-push.sql   # 最新的一支；舊的照編號
 ```
 
 **順序不能反。** 新程式碼 `SELECT r.lead_days`，欄位還沒加就會讓提醒的 cron 與 `/api/reminder` 直接失敗。新增**資料表**沒有這個問題（`db:init` 重跑 `schema.sql` 就會建），只有**欄位**需要 migration。
@@ -1347,6 +1413,8 @@ class 命名沿用 `type-<type>`（列）與 `type-badge <type>`（徽章）；�
 11. **「不在」不影響逾期、不影響提醒信、不影響 ICS**，只是日曆與列上的一個標記。使用者的裁決：「不在就是不在，逾期就照樣逾期」
 12. 前置作業的狀態不進提醒信與 ICS——那兩者的內容由前端展開後推上去，加進去等於再開一條會分歧的路
 13. **免費版有上限**：大項目與甘特專案各最多 3 個、AI 每天 5 次；Pro（app 內訂閱，E2 待做）不限。降級不刪資料，只是不能再新增。在 app 裡註冊仍要附 Apple 的購買證明——一個 Apple ID 一個帳號，那是防濫用不是收費
+17. **推播只有 iOS app 有**：網頁版沒有（Web Push 要另一套金鑰與另一條 service worker 路徑，刻意不做）。推播**不取代 email**，兩者各自有開關——token 會因為換手機／刪 app／關權限而安靜失效，信箱是唯一不會這樣消失的管道
+18. **通知不做「稍後提醒」與互動按鈕**：那要 Notification Service Extension，而且要處理「在通知上勾完成」之後的同步衝突。先看有沒有人用
 16. **遊戲化的數字從 2026-09-17 起算**：之前的完成沒有時間戳，不算按時；連續天數不防「把日期往後改」
 14. **前端每次改版，app 要重新打包送審**：`index.html` 內建在 app 裡（自動更新是之後的子專案）。**打包本身已經自動化**——合併進 main、CI 全綠、而且動到 `public/index.html` 或 `mobile/` 就會自己打包並上傳到 TestFlight；要送審仍然要自己去 App Store Connect 按
 15. **網頁上不開放陌生人自己註冊**：註冊只在 app 裡發生；網頁註冊仍走管理者核准，留給例外
