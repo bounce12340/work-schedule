@@ -4,7 +4,11 @@
 # 開發者沒有 Mac 也沒關係——Xcode 只在這台機器上，金鑰只活在這幾分鐘。
 #
 # 需要四個 repository secret（App Store Connect → 使用者和存取權 → 整合 → 團隊金鑰）：
-#   ASC_KEY_ID        金鑰的 Key ID（10 碼）
+#   ASC_KEY_ID        金鑰的 Key ID（10 碼）。**金鑰的角色必須是 Admin**：exportArchive 的
+#                     雲端簽章要用雲端代管的發佈憑證，App Manager／Developer 金鑰會被拒絕
+#                     （「You haven't been given access to cloud-managed distribution
+#                     certificates」，第三次打包就是這樣紅的），而網頁上沒有地方能替金鑰
+#                     單獨開這個權限，只有使用者帳號有那個勾選框。
 #   ASC_ISSUER_ID     Issuer ID
 #   ASC_API_KEY_P8    .p8 檔的完整內容（含 BEGIN/END 那兩行）
 #   APPLE_TEAM_ID     開發者帳號的 Team ID（10 碼）
