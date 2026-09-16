@@ -240,7 +240,8 @@ export async function handleUpdateShared(request, env, user, shareId, ctx) {
  */
 function mergeSharedEdit(kind, current, incoming) {
   if (kind !== 'gantt') {   // 'item' 與（整組分享時的）子項目共用同一套規則
-    return { ...current, done: !!incoming.done, doneMap: sanitizeDoneMap(incoming.doneMap) };
+    // doneAt 也要帶：少了它，別人幫你勾的那一次永遠「沒有時間」，那一天在遊戲化裡就永遠不完美
+    return { ...current, done: !!incoming.done, doneMap: sanitizeDoneMap(incoming.doneMap), doneAt: sanitizeDoneAt(incoming.doneAt) };
   }
   const incTasks = new Map((Array.isArray(incoming.tasks) ? incoming.tasks : [])
     .filter(t => t && t.id).map(t => [t.id, t]));
@@ -270,6 +271,17 @@ function sanitizeDoneMap(m) {
   if (!m || typeof m !== 'object') return out;
   for (const k of Object.keys(m).slice(0, 1500)) {
     if (m[k]) out[String(k).slice(0, 16)] = true;
+  }
+  return out;
+}
+
+/** doneAt：occKey → 毫秒。與 doneMap 同樣的 key 上限；值只收有限正數 */
+function sanitizeDoneAt(m) {
+  const out = {};
+  if (!m || typeof m !== 'object') return out;
+  for (const k of Object.keys(m).slice(0, 1500)) {
+    const v = m[k];
+    if (Number.isFinite(v) && v > 0) out[String(k).slice(0, 16)] = Math.floor(v);
   }
   return out;
 }

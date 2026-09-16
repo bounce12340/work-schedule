@@ -165,6 +165,19 @@ test('被分享者勾選：只動到被授權的那一項，其餘原樣寫回',
   assert.equal(after.items.find(i => i.id === 'B').title, '擁有者的另一項');
 });
 
+test('被分享者勾選：完成的時間戳（doneAt）要一起帶回，不合法的值丟掉', async () => {
+  // 遊戲化：少了它，別人幫你勾的那一次永遠「沒有時間」，那一天就永遠不完美
+  const env = shareSetup();
+  const now = Date.now();
+  const { status } = await unwrap(await handleUpdateShared(req({ resource: {
+    ...item('A'), done: true, doneMap: { '2026-09': true },
+    doneAt: { single: now, '2026-09': now - 1000, bad: 'yesterday', neg: -5 },
+  } }), env, bob, 's1', null));
+  assert.equal(status, 200);
+  const a = readState(env, 'owner').state.items.find(i => i.id === 'A');
+  assert.deepEqual(a.doneAt, { single: now, '2026-09': now - 1000 });
+});
+
 test('競態：擁有者在讀取與寫回之間推送 → 兩邊的變更都要留下', async () => {
   const base = shareSetup();
   const env = withRaceBeforeFirstUpdate(base, () => {

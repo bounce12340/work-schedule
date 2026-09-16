@@ -165,6 +165,56 @@ ok('但那一件真的完成了', await board.evaluate(() =>
    JSON.parse(localStorage.getItem('workSchedule.v1')).items.find(x => x.id === 'g').done) === true);
 await board.close();
 
+console.log('\n── 遊戲化：完美一天的 toast 只在勾掉最後一件時、升級的光只在升級那一次、reduced-motion 關 ──');
+// 上線日（GAME_EPOCH）是 2026-09-17，前面的種子資料都在那之前，要另造一份：
+// 9/20～9/23 各一件按時做完（4 × 40 = 160，加「第一件」徽章 100 = 260 → Lv.2），
+// 今天 9/24 兩件還沒做：勾第一件不能有 toast；勾第二件 → 完美的一天 +40 → 300 → 升 Lv.3。
+const at = (d, h) => new Date(d + 'T' + String(h).padStart(2, '0') + ':00:00').getTime();
+const GAME_SEED = { ...SEED, items: [
+  ...['2026-09-20', '2026-09-21', '2026-09-22', '2026-09-23'].map((d, i) =>
+    mk({ id: 'g' + i, title: '之前的 ' + d, date: d, done: true, doneAt: { single: at(d, 10) } })),
+  mk({ id: 't1', title: '今天第一件', date: '2026-09-24', doneAt: {} }),
+  mk({ id: 't2', title: '今天第二件', date: '2026-09-24', doneAt: {} }),
+] };
+async function gameRun(reduced) {
+  const pg = await br.newPage();
+  if (reduced) await pg.emulateMedia({ reducedMotion: 'reduce' });
+  pg.on('pageerror', e => errors.push('pageerror: ' + e.message));
+  await pg.clock.setFixedTime(new Date('2026-09-24T10:00:00'));
+  // 語言釘死中文：Playwright 預設 en-US，app 會跟著切英文，底下比對的是中文字串
+  await pg.addInitScript(s => { try { localStorage.setItem('workSchedule.v1', JSON.stringify(s)); localStorage.setItem('workSchedule.v1.lang', 'zh'); } catch (e) {} }, GAME_SEED);
+  await markSignedIn(pg);
+  await pg.goto(`http://localhost:${PORT}/`);
+  await pg.waitForSelector('#board');
+  await pg.locator('#reminderClose').click().catch(() => {});
+  const toastShown = () => pg.evaluate(() => document.getElementById('gameToast').classList.contains('show'));
+  const toastText = () => pg.evaluate(() => document.getElementById('gameToastText').textContent);
+  const before = await pg.evaluate(() => document.getElementById('brandGameText').textContent);
+  await pg.locator('.occ-row').filter({ hasText: '今天第一件' }).first().locator('.checkbox').click();
+  await pg.waitForTimeout(400);
+  const afterFirst = await toastShown();
+  await pg.locator('.occ-row').filter({ hasText: '今天第二件' }).first().locator('.checkbox').click();
+  await pg.waitForTimeout(120);
+  const anim = await pg.evaluate(() => getComputedStyle(document.getElementById('brandPlant')).animationName);
+  await pg.waitForTimeout(400);
+  const afterSecond = await toastShown();
+  const text = await toastText();
+  const after = await pg.evaluate(() => document.getElementById('brandGameText').textContent);
+  await pg.waitForTimeout(1200);
+  const cleared = await pg.evaluate(() => !document.getElementById('brandPlant').classList.contains('levelup'));
+  await pg.close();
+  return { before, afterFirst, afterSecond, text, after, anim, cleared };
+}
+const g = await gameRun(false);
+ok('開場：Lv.2、連續 4 天（週末有安排也算）', /Lv\.2/.test(g.before) && /4/.test(g.before));
+ok('勾掉今天第一件（還有一件沒做）：沒有 toast', g.afterFirst === false);
+ok('勾掉今天最後一件：toast 出現，說「今天全部做完了」', g.afterSecond === true && /今天全部做完了/.test(g.text));
+ok('同一次也升級了（260 → 300）：toast 說升到 Lv.3', /Lv\.3/.test(g.text) && /Lv\.3/.test(g.after));
+ok('升級的光在跑（計算後的 animationName 是 level-glow，不是 class 而已）', g.anim === 'level-glow');
+ok('動畫結束後 .levelup 拿掉——不會每次重繪都再冒一次', g.cleared === true);
+const gr = await gameRun(true);
+ok('prefers-reduced-motion：升級的光不跑（animationName 是 none），其餘照常', gr.anim === 'none' && gr.afterSecond === true);
+
 console.log('\n── 週一的一句回顧 ──');
 const mon = await open('2026-09-14T09:00:00');
 const lb = await mon.evaluate(() => { const el = document.getElementById('brandLookback'); return { hidden: el.hidden, text: el.textContent }; });

@@ -56,6 +56,7 @@ mobile/                iOS app 外殼（Capacitor；自己的 package.json，見
 | `tests/account-delete.test.mjs` | 刪除自己的帳號：每張表清空、**別人的每一列原樣**、session 失效 | 直接 import Worker 端模組 |
 | `tests/cors.test.mjs` | iOS app 來源的 CORS：預檢、正常與錯誤回應都帶標頭、別的來源與同源不加、永不開 credentials | 直接打 Worker 的 `fetch` 入口 |
 | `tests/plan.test.mjs` | 方案：`planOf` 與寬限、「只有變多才擋」、`PUT /api/state` 的 402 且列不動、管理者設方案、AI 上限依方案、**前後端 `PLAN_LIMITS` 逐字相同** | 直接 import；上限那一份從 `index.html` 抽出來比 |
+| `tests/game.test.mjs` | 遊戲化引擎：按時＝到期那天結束前、沒安排的日子跳過、今天 missed 不斷、上線日之前不算、等級門檻、挑戰梯子、徽章、`setOccurrenceDone` 寫時間戳 | 從 `index.html` 抽〈遊戲化〉區段求值（連同 date helpers 與 occurrence engine） |
 
 前三者的挑選理由：前兩者近乎純函式、零 DOM 依賴；第三者是**競態**——靠併發碰運氣測不到，但可以把空窗做成確定性的。
 
@@ -88,7 +89,7 @@ npm run db:init:local  # 對本機 miniflare D1 建表（--local 的資料庫與
 npm run db:init        # 對遠端 D1 建表
 npm run admin:reset    # 破窗鎚：直接改密碼（見〈破窗鎚〉）
 npm run deploy         # 部署
-npm test               # 全部測試檔（node:test，不需安裝任何東西；目前 311 個測試）
+npm test               # 全部測試檔（node:test，不需安裝任何東西；目前 326 個測試）
 ```
 
 跑單一測試檔或單一測試（`npm test` 沒有轉發參數的管道，直接用 node）：
@@ -167,7 +168,7 @@ Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.Comm
 | `tools/check-notes.mjs` | 每日記錄／專案筆記的格式（醒目提示、顏色、字級）與內容在離開後仍在 | 動到富文字、`persistSoon()` 或任何 debounce 寫入 |
 | `tools/check-contrast.mjs` | 正文級文字在**兩種主題**下都達到 WCAG 對比（4.5:1／大字 3:1） | 動到任何顏色變數或文字顏色 |
 | `tools/check-deps.mjs` | 前置作業的「待前置」徽章、不阻擋勾選；「不在」的標記**與逾期並存**；逾期的顏色就是 `--red` 且字重比旁邊重 | 動到 `dependsOn`、`awayDates`、`toggleOccDone`、逾期判斷或任何視覺改版 |
-| `tools/check-ambience.mjs` | 時段（早／午／晚）的 `data-daypart` 與光暈、每日記錄的提示語照日期決定、打勾的彈跳只在被點的那一個上、週一的回顧（含 N=0 不出現） | 動到 `tick()`、`<head>` 開機腳本、`DAILY_PROMPTS`、`renderLookback()` 或 `.checkbox` 的 CSS |
+| `tools/check-ambience.mjs` | 時段（早／午／晚）的 `data-daypart` 與光暈、每日記錄的提示語照日期決定、打勾的彈跳只在被點的那一個上、週一的回顧（含 N=0 不出現）、**遊戲化**：完美一天的 toast 只在勾掉最後一件時、升級的光只在升級那一次（看計算後的 `animationName`）、reduced-motion 關 | 動到 `tick()`、`<head>` 開機腳本、`DAILY_PROMPTS`、`renderLookback()`、`.checkbox` 的 CSS 或〈遊戲化畫面〉 |
 | `tools/check-sw-version.mjs` | 動到 `public/*.html` 時 `sw.js` 的 `CACHE` 有沒有跟著加（零相依，在 `check` job） | 任何前端改動；CI 會自動跑，本機 `node tools/check-sw-version.mjs origin/main HEAD` |
 | `tools/measure-board.mjs` | 切換檢視／篩選／搜尋卡住主執行緒多久（自己造 64／150／300 項的資料） | 動到 `renderBoard()` 或看板的 CSS。**不在 CI**：數字隨環境浮動，設門檻只會製造沒有人相信的紅燈，用途是改動前後各跑一次自己比對 |
 | `tools/check-mobile.mjs` | 手機（iPhone 13、CPU 降速 4 倍、64 個項目）：五頁都不橫向溢出、切換與互動的停頓、**點擊目標大小** | 動到任何版面或 CSS。同樣不在 CI |
@@ -332,7 +333,7 @@ UI 類的改動（版面、行動版、主題）**必須真的用瀏覽器看過
 
 ### 資料模型的收尾
 
-新增 `item.dependsOn` 與頂層 `awayDates` 時同步改過的地方，漏一個就是靜默的資料遺失：`snapshot()` / `applySnapshot()` / `normalizeItems()` / `threeWayMerge()`（`tmMergeSets`）/ `clearLocalData()` / `seed()`。`normalizeDependsOn` **排序**的理由同 `normalizeTags`：三方合併以 stableStringify 比對整個項目，順序不同會被誤判成「兩邊都改過」。它也會剪掉指不到東西的 id——執行時雖然有「找不到就當作沒有前置」的守衛，正因為畫面不會壞，不剪就會靜靜地一直留在存檔裡。
+新增 `item.dependsOn` 與頂層 `awayDates` 時同步改過的地方，漏一個就是靜默的資料遺失：`snapshot()` / `applySnapshot()` / `normalizeItems()` / `threeWayMerge()`（`tmMergeSets`）/ `clearLocalData()` / `seed()`。`item.doneAt`（遊戲化的完成時間戳）也走過同一份清單，外加 `mergeSharedEdit`（被分享者勾選時伺服器要一起帶回，否則那一次永遠「沒有時間」）與改頻率時的清空。`normalizeDependsOn` **排序**的理由同 `normalizeTags`：三方合併以 stableStringify 比對整個項目，順序不同會被誤判成「兩邊都改過」。它也會剪掉指不到東西的 id——執行時雖然有「找不到就當作沒有前置」的守衛，正因為畫面不會壞，不剪就會靜靜地一直留在存檔裡。
 
 ## 狀態與資料模型
 
@@ -638,6 +639,27 @@ Turnstile 擋得住「一秒鐘一萬次」的機器人，擋不住「一分鐘�
 | Apple 的通知**不會蓋掉** `plan_source='admin'`（E3 實作時） | 否則永久帳號的主人在 app 裡試訂一次再取消，到期那天就被降回免費 |
 | `users.apple_original_txn` UNIQUE；換帳號「恢復購買」是**搬過去**不是拒絕（E2） | 訂閱屬於 Apple ID 不屬於我們的帳號。UNIQUE 擋的是同一筆交易被兩個帳號同時算成 Pro |
 | `public/terms.html` 不用登入 | Apple 對訂閱 app 的硬規定：訂閱畫面與 App Store metadata 都要連得到使用條款（自動續訂、取消方式、退款由 Apple 處理都寫在裡面） |
+
+## 遊戲化（〈遊戲化〉與〈遊戲化畫面〉區段）
+
+設計文件 `docs/superpowers/specs/2026-09-16-gamification-design.md`。參考「Life Reset: 66 Day Habit」，只搬 XP／等級／連續／挑戰梯子，不搬懲罰、排行榜、勵志卡、附加工具。免費版與 Pro **沒差**。
+
+| 決定 | 理由 |
+|---|---|
+| **所有數字都是算出來的，不是存起來的**（同 occurrence 引擎） | 存帳本就要合併帳本（兩台裝置各自賺 XP，`threeWayMerge` 要長第二套語意）；帳本會跟資料脫節（刪項目、還原備份）；存檔格式不必升版 |
+| 唯一的新儲存是 `item.doneAt[occKey]`（毫秒），只在 `setOccurrenceDone` 寫 | 「那一天結束前做完」沒有時間戳算不出來。取消勾選就刪掉那個 key |
+| 「一天」＝那天安排的事**在那天 23:59:59 前**全部做完；隔天補勾不算 | 使用者的裁決。否則連續天數變成「有沒有補勾」而不是「有沒有按時做」 |
+| 沒安排的日子 `empty`：**不斷也不加** | 使用者的裁決；週末、假日、「不在」的日子才不會把火焰弄斷。有測試守著 |
+| 今天 `missed` 不斷昨天的連續 | 今天還沒過完。隔天再看才真的斷。有測試守著 |
+| `GAME_EPOCH`（上線日）之前一律不算 | 舊的完成沒有時間戳，追溯會把上線第一天畫成「你以前什麼都沒按時做」。角色從種子開始 |
+| 挑戰梯子 7 → 14 → 30，拿到才解鎖下一階；斷了從 0 重爬同一階、**不掉階** | 使用者選的形狀（不是 66 天） |
+| 角色是一株植物，六階，inline SVG，顏色走 CSS 變數 | 「紙與光」同一套顏色；單檔不引外部圖檔。連續斷掉那天只**微微垂下**，不枯不死——那是信的工作（F2），不是畫面的 |
+| **紅線不動**：逾期的紅字、字重、顏色一個都不改 | 遊戲化只加東西不減東西。`tools/check-deps.mjs` 那兩條斷言照樣守著 |
+| 完美一天的 toast 與升級的光在 `renderAll` 裡比對前後（`gameCelebrate`） | 那一刻才是遊戲化真正發生的地方；數字每次 renderAll 重算（展開上線日到今天，與年度檢視同量級），**不做快取**——快取失效才是 bug 的來源 |
+| 升級的光掛在 `.levelup`、`animationend` 拿掉；`prefers-reduced-motion` 一律關 | 同打勾的 `.pop`：掛在狀態 class 上會每次重繪都冒 |
+| v1 **不防**「改日期救火焰」 | 要防就得存第二份時間戳（覆寫的時間）。同一個人在同一份工具裡騙自己，先寫下來看有沒有人這樣做 |
+
+F2（連續斷掉時由植物用撒嬌的口氣寄信：digest 多帶 `a`／`streak`、cron 多一步、migration 007）與 F3（推播，等子專案 B）待做。
 
 **驗證**：`tests/appauth.test.mjs`、`tests/account-delete.test.mjs`（突變驗證七種改法都會紅）；`tools/smoke.mjs` 的「iOS app 外殼」那一輪用假的 `window.Capacitor` 走登入畫面、寄驗證碼、登入、**所有線上請求都帶 Bearer**、登出清 Keychain（拿掉 Bearer 那一行當場紅）。真機只能靠 TestFlight。
 
@@ -1257,6 +1279,7 @@ class 命名沿用 `type-<type>`（列）與 `type-badge <type>`（徽章）；�
 11. **「不在」不影響逾期、不影響提醒信、不影響 ICS**，只是日曆與列上的一個標記。使用者的裁決：「不在就是不在，逾期就照樣逾期」
 12. 前置作業的狀態不進提醒信與 ICS——那兩者的內容由前端展開後推上去，加進去等於再開一條會分歧的路
 13. **免費版有上限**：大項目與甘特專案各最多 3 個、AI 每天 5 次；Pro（app 內訂閱，E2 待做）不限。降級不刪資料，只是不能再新增。在 app 裡註冊仍要附 Apple 的購買證明——一個 Apple ID 一個帳號，那是防濫用不是收費
+16. **遊戲化的數字從 2026-09-17 起算**：之前的完成沒有時間戳，不算按時；連續天數不防「把日期往後改」
 14. **前端每次改版，app 要重新打包送審**：`index.html` 內建在 app 裡（自動更新是之後的子專案）
 15. **網頁上不開放陌生人自己註冊**：註冊只在 app 裡發生；網頁註冊仍走管理者核准，留給例外
 
