@@ -51,6 +51,7 @@ mobile/                iOS app 外殼（Capacitor；自己的 package.json，見
 | `tests/deps.test.mjs` | 前置作業的配對與擋環、「不在」不影響任何計算 | 從 `index.html` 抽真正的原始碼求值 |
 | `tests/appauth.test.mjs` | Bearer 與 cookie 並存、購買證明驗簽（五種失敗一種成功）、email 驗證碼、app 註冊／登入 | 直接 import；`tests/fake-apple.mjs` 用純 JS 的 DER 編碼器自己當 Apple 簽憑證鏈 |
 | `tests/account-delete.test.mjs` | 刪除自己的帳號：每張表清空、**別人的每一列原樣**、session 失效 | 直接 import Worker 端模組 |
+| `tests/cors.test.mjs` | iOS app 來源的 CORS：預檢、正常與錯誤回應都帶標頭、別的來源與同源不加、永不開 credentials | 直接打 Worker 的 `fetch` 入口 |
 
 前三者的挑選理由：前兩者近乎純函式、零 DOM 依賴；第三者是**競態**——靠併發碰運氣測不到，但可以把空窗做成確定性的。
 
@@ -72,7 +73,7 @@ npm run db:init:local  # 對本機 miniflare D1 建表（--local 的資料庫與
 npm run db:init        # 對遠端 D1 建表
 npm run admin:reset    # 破窗鎚：直接改密碼（見〈破窗鎚〉）
 npm run deploy         # 部署
-npm test               # 全部測試檔（node:test，不需安裝任何東西；目前 285 個測試）
+npm test               # 全部測試檔（node:test，不需安裝任何東西；目前 293 個測試）
 ```
 
 跑單一測試檔或單一測試（`npm test` 沒有轉發參數的管道，直接用 node）：
@@ -581,6 +582,7 @@ Turnstile 擋得住「一秒鐘一萬次」的機器人，擋不住「一分鐘�
 | `mobile/www/` 是**建置產物，不進 git** | 它只是 `public/index.html` 的副本，副本一定走鐘。`prepare-www.mjs` 每次打包重新複製，並檢查〈原生外殼〉區段真的在裡面 |
 | 前端**包一層 `fetch`**，不改三十幾處呼叫 | 相對路徑 `/api/...` 在 `capacitor://localhost` 底下會打到 app 自己身上。大範圍機械式改名正是〈多語系〉那節遮蔽事故的形狀。只在 `window.Capacitor.isNativePlatform()` 為真時換掉，網頁版連這一層都沒有。這是全檔唯一改寫全域行為的地方 |
 | app 走 **Bearer token**，網頁走 cookie，**同一張 `sessions` 表** | WKWebView 對第三方 cookie 很嚴，靠它會時好時壞。`readSessionToken()` 先 cookie 後 Bearer；app 的 session 180 天 |
+| Worker 對 `capacitor://localhost` 這一個來源回 **CORS** 標頭（`src/index.js` 的 `withCors` / `corsPreflight`），**不開 Allow-Credentials** | app 打線上 `/api/*` 是跨網域：WKWebView 先送 OPTIONS 預檢，沒有 `Access-Control-Allow-Origin` 整個請求被瀏覽器丟掉，前端只拿到 TypeError，畫面上是「連線失敗，請確認網路後再試」，而 Worker 一筆請求都沒收到（TestFlight 第一次打開就是這樣，登入與註冊都進不去）。**錯誤回應也要帶**，否則 401 看起來也像斷線。不開 credentials：app 走 Bearer，不該讓跨來源請求帶得動網頁版的 cookie。`tools/smoke.mjs` **抓不到**這類錯誤——它用 `page.route` 在瀏覽器送出前就攔下請求，預檢不會發生——`tests/cors.test.mjs` 直接打 Worker 的 fetch 入口守著 |
 | token 存 **Keychain**，不放 localStorage | WKWebView 的網頁儲存會跟著「清除網站資料」消失，也沒有 Keychain 的保護。自寫的 Swift 插件（約 60 行）做這件事，不裝第三方插件 |
 | 註冊附 **AppTransaction 的 JWS，離線驗簽**（`src/apppurchase.js`） | x5c 鏈逐段驗到內建的 Apple Root CA - G3、ES256 驗本體、比對 bundleId 與環境。不打 Apple 的 API：沒有網路依賴、沒有限流、沒有另一把金鑰。**根憑證可注入只為了測試**（`tests/fake-apple.mjs` 自己當 Apple） |
 | `app_transaction_id` **UNIQUE**：一次購買一個帳號 | 擋「買一份、開十個帳號」。同一個 Apple ID 重灌拿到同一個 id，換手機登入即可；刪掉帳號後 id 空出來可以再註冊。競態靠 UNIQUE 擋，不靠先 SELECT 再 INSERT |

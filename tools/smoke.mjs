@@ -324,6 +324,10 @@ for (const loggedIn of [false, true]) {
  * index.html 就會走〈原生外殼〉那條路：fetch 被改寫成打線上網址並帶 Bearer、沒有
  * token 時顯示 #appAuthView。線上網址用 page.route 轉回本機伺服器，順便記下每一個
  * 請求的標頭——「有沒有帶 Bearer」是這一輪真正要驗的事，只看畫面看不出來。
+ *
+ * 這一輪**驗不到 CORS**：page.route 在瀏覽器送出前就攔下請求，OPTIONS 預檢根本不會
+ * 發生。TestFlight 第一次打開就是這樣紅的（登入與註冊都「連線失敗」），而這裡全綠。
+ * CORS 由 tests/cors.test.mjs 直接打 Worker 的 fetch 入口守著。
  */
 async function walkNative(page, log, seen) {
   const checked = [];
