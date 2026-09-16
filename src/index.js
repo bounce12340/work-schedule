@@ -37,8 +37,13 @@ export default {
   },
 
   async fetch(request, env, ctx) {
+    const origin = corsOrigin(request);
+    const isApi = new URL(request.url).pathname.startsWith('/api/');
+    if (request.method === 'OPTIONS' && origin && isApi) return corsPreflight(origin);
+
+    let res;
     try {
-      return await route(request, env, ctx);
+      res = await route(request, env, ctx);
     } catch (err) {
       // 例外若直接往上拋，Cloudflare 會回一頁 HTML 錯誤頁（Error 1101）。前端對
       // /api/* 一律走 res.json()，解析失敗就只剩「發生錯誤，請稍後再試」——真正的
@@ -46,10 +51,55 @@ export default {
       // 好讓畫面上的錯誤能直接對到 Workers Logs 裡的那一筆。
       const ref = request.headers.get('cf-ray') || 'local';
       console.error('unhandled exception', ref, request.method, new URL(request.url).pathname, err?.stack || String(err));
-      return json({ error: '伺服器發生錯誤，請稍後再試', ref }, 500);
+      res = json({ error: '伺服器發生錯誤，請稍後再試', ref }, 500);
     }
+    // 錯誤回應也要帶：少了標頭，app 看到的不是「伺服器錯誤」而是「連線失敗」
+    return isApi ? withCors(res, origin) : res;
   }
 };
+
+/**
+ * iOS app 的跨來源請求（CORS）。
+ *
+ * app 內建的 index.html 跑在 capacitor://localhost，打 https://…workers.dev/api/*
+ * 對 WKWebView 而言是跨網域：帶 JSON 與 Authorization 的請求會先送 OPTIONS 預檢，
+ * 回應少了 Access-Control-Allow-Origin 就整個被瀏覽器丟掉——前端只拿到 TypeError，
+ * 畫面上是「連線失敗，請確認網路後再試」，Worker 這邊連一筆請求都沒有。TestFlight
+ * 第一次打開就是這樣，登入與註冊都進不去。
+ *
+ * - 只放行 app 自己的來源，不是 `*`。網頁版同源，根本不會帶 Origin 進到這裡。
+ * - **刻意不開 Access-Control-Allow-Credentials**：app 走 Bearer，不需要 cookie；
+ *   不開的話，就算哪天有別的頁面被塞進 app 的 WebView，它也帶不動網頁版的 session。
+ * - tools/smoke.mjs 抓不到這一類錯誤：它用 page.route 在瀏覽器送出前就攔下了那些
+ *   請求，預檢根本不會發生。所以由 tests/cors.test.mjs 守著。
+ */
+const APP_ORIGINS = new Set(['capacitor://localhost']);
+
+function corsOrigin(request) {
+  const origin = request.headers.get('origin');
+  return origin && APP_ORIGINS.has(origin) ? origin : null;
+}
+
+function corsPreflight(origin) {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      'Access-Control-Allow-Origin': origin,
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-App-Client',
+      'Access-Control-Max-Age': '86400',
+      'Vary': 'Origin'
+    }
+  });
+}
+
+function withCors(response, origin) {
+  if (!origin) return response;
+  const res = new Response(response.body, response);
+  res.headers.set('Access-Control-Allow-Origin', origin);
+  res.headers.append('Vary', 'Origin');
+  return res;
+}
 
 async function route(request, env, ctx) {
   const url = new URL(request.url);
