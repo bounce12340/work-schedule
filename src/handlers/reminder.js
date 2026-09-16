@@ -79,10 +79,13 @@ export function addDays(ymd, n) {
 
 export async function handleReminderStatus(env, user) {
   const row = await env.DB
-    .prepare('SELECT enabled, last_sent_ymd, lead_days, updated_at FROM reminder_feed WHERE user_id = ?')
+    .prepare('SELECT enabled, last_sent_ymd, lead_days, streak_mail, updated_at FROM reminder_feed WHERE user_id = ?')
     .bind(user.id).first();
   return json({
     enabled: !!(row && row.enabled),
+    // 還沒有那一列的人回預設值（開啟），不是 false——否則畫面會先顯示「關著」，
+    // 等他第一次同步建立那一列之後才莫名其妙變成開著
+    streakMail: row ? !!row.streak_mail : true,
     leadDays: row ? row.lead_days : DEFAULT_LEAD_DAYS,
     lastSent: row ? row.last_sent_ymd : null,
     updatedAt: row ? row.updated_at : null,
@@ -97,16 +100,20 @@ export async function handleReminderEnable(request, env, user) {
   // 沒有帶 leadDays 就沿用現有值——這支端點也用於單純開關提醒，
   // 不該因為前端少送一個欄位就把使用者設好的提前天數重設掉
   const lead = normalizeLeadDays(body?.leadDays);
+  // 連續斷掉的信是**另一個開關**，沒帶就沿用現有值（同 leadDays）。前端每次都把
+  // 三個值一起送，所以這裡不必分辨「要改哪一個」。
+  const streakMail = body?.streakMail === undefined ? null : (body.streakMail ? 1 : 0);
   const now = Date.now();
   await env.DB.prepare(
-    `INSERT INTO reminder_feed (user_id, enabled, digest, lead_days, updated_at)
-     VALUES (?, ?, '[]', ?, ?)
+    `INSERT INTO reminder_feed (user_id, enabled, digest, lead_days, streak_mail, updated_at)
+     VALUES (?, ?, '[]', ?, ?, ?)
      ON CONFLICT(user_id) DO UPDATE SET
        enabled = excluded.enabled,
        lead_days = COALESCE(?, reminder_feed.lead_days),
+       streak_mail = COALESCE(?, reminder_feed.streak_mail),
        updated_at = excluded.updated_at`
-  ).bind(user.id, enabled, lead ?? DEFAULT_LEAD_DAYS, now, lead).run();
-  return json({ ok: true, enabled: !!enabled });
+  ).bind(user.id, enabled, lead ?? DEFAULT_LEAD_DAYS, streakMail ?? 1, now, lead, streakMail).run();
+  return json({ ok: true, enabled: !!enabled, streakMail: streakMail === null ? undefined : !!streakMail });
 }
 
 /** 前端每次同步後推上來的展開排程 */
@@ -121,8 +128,18 @@ export async function handleReminderPut(request, env, user) {
     t: String(r?.t == null ? '' : r.t).slice(0, 200),
     d: String(r?.d == null ? '' : r.d).slice(0, 10),
     k: ['work', 'meeting', 'assignment'].includes(r?.k) ? r.k : 'work',
-    done: r?.done ? 1 : 0
+    done: r?.done ? 1 : 0,
+    // 「按時完成」由**前端的遊戲化引擎判斷**後推上來（布林），不是推 doneAt 讓
+    // 這裡自己比對。理由同「不在 Worker 展開循環規則」：那個判斷有一堆細節
+    // （到期日、跨多天以結束日算、當天 23:59:59 的界線），兩套實作必然分歧，
+    // 而分歧的症狀是「畫面說連續 12 天、信說斷了」——比沒有這封信更糟。
+    ot: r?.ot ? 1 : 0
   })).filter(r => /^\d{4}-\d{2}-\d{2}$/.test(r.d));
+
+  // 連續天數同理：前端算好推上來。它是「最後一次同步當下」的值，而信裡印的就是
+  // 它——閘門與內容用同一個數字，不會出現「擋住了卻印另一個數」。
+  const streak = Number.isFinite(body?.streak?.current)
+    ? Math.max(0, Math.min(9999, Math.round(body.streak.current))) : null;
 
   const serialized = JSON.stringify(digest);
   if (serialized.length > MAX_DIGEST_BYTES) return json({ error: 'Digest too large' }, 413);
@@ -138,9 +155,12 @@ export async function handleReminderPut(request, env, user) {
   // 先前這裡寫死 enabled = 0，等於讓 schema 的預設值永遠用不到——「預設開啟」
   // 只改 schema 是不夠的，因為實際建立這一列的就是這句 SQL。
   await env.DB.prepare(
-    `INSERT INTO reminder_feed (user_id, digest, updated_at) VALUES (?, ?, ?)
-     ON CONFLICT(user_id) DO UPDATE SET digest = excluded.digest, updated_at = excluded.updated_at`
-  ).bind(user.id, serialized, now).run();
+    `INSERT INTO reminder_feed (user_id, digest, streak_current, updated_at) VALUES (?, ?, ?, ?)
+     ON CONFLICT(user_id) DO UPDATE SET
+       digest = excluded.digest,
+       streak_current = COALESCE(?, reminder_feed.streak_current),
+       updated_at = excluded.updated_at`
+  ).bind(user.id, serialized, streak ?? 0, now, streak).run();
   return json({ ok: true, count: digest.length });
 }
 
@@ -282,6 +302,139 @@ export async function sendOverdueReminders(env, nowMs = Date.now()) {
       // **錯誤訊息要留下來。** 只有 failed 的數字的話，「金鑰失效」與「inbox 不存在」
       // 看起來一模一樣，而它們要做的事完全不同。收件人用 email 而不是 user_id：
       // 這份統計是給管理者在管理頁上讀的，而管理者本來就看得到所有人的 email。
+      if (out.errors.length < MAX_ERRORS) {
+        out.errors.push({ email: row.email, error: String(e?.message || e).slice(0, 200) });
+      }
+    }
+  }
+  return out;
+}
+
+// ------------------------------------------------------------ 連續斷掉的信（F2）
+//
+// 設計文件 docs/superpowers/specs/2026-09-16-gamification-design.md〈斷掉之後的情勒信〉。
+//
+// 這封信不是系統在講話，是**那株植物**在講話——它有立場撒嬌（火焰是它的、葉子是
+// 它的），系統沒有。使用者的裁決是「會撒嬌的口氣」。
+//
+// 與逾期提醒共用同一條 cron 與同一張表，但**開關各自獨立**：關掉逾期提醒不代表
+// 不想聽植物說話，反過來也一樣。
+
+/** 連續要有這麼多天才值得為它寄一封信 */
+const MIN_STREAK_FOR_MAIL = 2;
+/** 信裡最多點名幾件；其餘用「還有 N 件」帶過 */
+const MAX_NAMED = 3;
+
+/**
+ * 那一天的狀況。純函式，方便直接測。
+ *
+ * `ot`（按時完成）是前端的遊戲化引擎判斷後推上來的，這裡只數——**刻意不自己
+ * 比對時間戳**：那個判斷的細節（跨多天以結束日算、當天 23:59:59 的界線）在
+ * 前端有測試守著，在這裡重寫一份必然分歧。
+ *
+ * broken 的定義只看一天，不往回走：那天**有安排**、而且**不是每一件都按時完成**。
+ * 「連續走了幾天」不在這裡算，它由前端推上來（見 streak_current）。
+ */
+export function dayReport(digest, ymd) {
+  const rows = Array.isArray(digest)
+    ? digest.filter(r => r && typeof r.d === 'string' && r.d === ymd) : [];
+  const missed = rows.filter(r => !r.ot);
+  return { scheduled: rows.length, missed, broken: rows.length > 0 && missed.length > 0 };
+}
+
+/** 「〈A〉和〈B〉」／「〈A〉、〈B〉、〈C〉，還有 2 件」——點名要像人在講話，不是條列 */
+function namePhrase(rows) {
+  const shown = rows.slice(0, MAX_NAMED).map(r => `〈${r.t}〉`);
+  const rest = rows.length - shown.length;
+  if (rest > 0) return `${shown.join('、')}，還有 ${rest} 件`;
+  if (shown.length === 1) return shown[0];
+  return `${shown.slice(0, -1).join('、')}和${shown[shown.length - 1]}`;
+}
+
+/**
+ * 撒嬌信。三條規則（設計文件〈語氣〉）：
+ *
+ *   - **講事實**（幾天、哪幾件），**不評價**。沒有「你放棄了」「你又……」——
+ *     撒嬌的力量來自「它在等你」，不是來自羞辱。
+ *   - **第一人稱是植物**，署名也是。畫面上它垂下葉子，信裡它說想你，是同一件事。
+ *   - 不寫「加油」（那是提醒信的語氣）、不寫「沒關係」（那會把這封信的用途取消掉）。
+ *
+ * 罵人的信會被封鎖寄件人，然後逾期提醒也一起收不到；撒嬌的信不會。
+ */
+export function buildStreakEmail(days, missed, appUrl) {
+  const names = namePhrase(missed);
+  const text = [
+    `我們一起走了 ${days} 天耶。`,
+    '',
+    '昨天你沒有把事情做完，我的火焰熄掉了，葉子也垂下來一點點。',
+    '我不生氣啦，只是有點想你。',
+    '',
+    `今天可以回來嗎？把${names}做完，我就會再亮起來。`,
+    '',
+    appUrl ? `${appUrl}` : '',
+    '',
+    '——你的小植物'
+  ].join('\n');
+
+  const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:15px;line-height:1.9;color:#2A2A26;max-width:520px">
+<p style="margin:0 0 4px;font-size:26px">🌱</p>
+<p style="margin:0 0 14px">我們一起走了 <b style="color:#C9822E">${days}</b> 天耶。</p>
+<p style="margin:0 0 14px">昨天你沒有把事情做完，我的火焰熄掉了，葉子也垂下來一點點。<br>我不生氣啦，只是有點想你。</p>
+<p style="margin:0 0 18px">今天可以回來嗎？把 ${missed.slice(0, MAX_NAMED).map(r => `<b>${esc(r.t)}</b>`).join('、')}${
+    missed.length > MAX_NAMED ? `，還有 ${missed.length - MAX_NAMED} 件` : ''} 做完，我就會再亮起來。</p>
+${appUrl ? `<p style="margin:0 0 22px"><a href="${esc(appUrl)}" style="color:#C9822E">回來看看我 →</a></p>` : ''}
+<p style="margin:0;color:#71706A">——你的小植物</p>
+<p style="margin:22px 0 0;color:#A2A099;font-size:12px">連續中斷的那一天才會收到這封信，一天最多一封。不想收的話，可以在「我的帳號」裡關掉。</p>
+</div>`;
+
+  return { subject: '欸……昨天你沒有來', text, html };
+}
+
+/**
+ * Cron 進入點：昨天把連續弄斷的人，由植物寄一封信。
+ *
+ * 幾個不能拿掉的判斷：
+ *
+ * - **連續少於 2 天不寄。** 每天一封「你昨天又沒做完」只會訓練收件者忽略這個
+ *   寄件人——「沒事就閉嘴」那條在這裡比在逾期提醒更重要，因為會觸發的條件更寬。
+ * - **同一天只寄一次**（`streak_mail_ymd`）；寄失敗刻意不寫那個欄位，下次排程補。
+ * - **以最後一次同步為準。** 昨天 23:50 勾完但沒同步的人，今天早上會收到一封
+ *   冤枉的信。與逾期提醒的取捨相同，可接受。
+ * - 反過來，今天一早自己打開 app 同步過的人，推上來的連續已經歸零，就不會收到
+ *   這封信——他已經回來了，植物不必再叫他。
+ */
+export async function sendStreakBroken(env, nowMs = Date.now()) {
+  const today = taipeiYmd(nowMs);
+  const yesterday = addDays(today, -1);
+  const rows = await env.DB.prepare(
+    `SELECT r.user_id, r.digest, r.streak_current, r.streak_mail_ymd, u.email, u.status
+       FROM reminder_feed r JOIN users u ON u.id = r.user_id
+      WHERE r.streak_mail = 1`
+  ).all();
+
+  // 跳過的原因分開計數，理由同 sendOverdueReminders：分不出原因的數字等於沒有記
+  const out = { checked: 0, sent: 0, notBroken: 0, tooShort: 0, alreadySent: 0, notApproved: 0, failed: 0, errors: [] };
+  for (const row of rows.results || []) {
+    out.checked++;
+    if (row.status !== 'approved') { out.notApproved++; continue; }
+    if (row.streak_mail_ymd === today) { out.alreadySent++; continue; }
+
+    let digest = [];
+    try { digest = JSON.parse(row.digest); } catch { digest = []; }
+    const day = dayReport(digest, yesterday);
+    if (!day.broken) { out.notBroken++; continue; }
+
+    const days = Number(row.streak_current) || 0;
+    if (days < MIN_STREAK_FOR_MAIL) { out.tooShort++; continue; }
+
+    try {
+      await sendMail(env, row.email, buildStreakEmail(days, day.missed, env.APP_URL || ''));
+      await env.DB.prepare('UPDATE reminder_feed SET streak_mail_ymd = ? WHERE user_id = ?')
+        .bind(today, row.user_id).run();
+      out.sent++;
+    } catch (e) {
+      console.warn('streak mail failed', row.user_id, String(e));
+      out.failed++;
       if (out.errors.length < MAX_ERRORS) {
         out.errors.push({ email: row.email, error: String(e?.message || e).slice(0, 200) });
       }

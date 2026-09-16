@@ -252,9 +252,19 @@ async function walk(page, log, plan = 'pro') {
   await need('#acctEmail', '帳號資訊');
 
   // 搬過來的控制項要真的還在。少一個就代表某段程式碼從此找不到它。
-  for (const id of ['btnChangePw', 'btnExport', 'btnImport', 'themeBtn', 'langBtn']) {
+  // btnLogout 在這份清單裡是有代價換來的：它原本只在 header 右上角當一顆 11px 的
+  // 小按鈕，使用者實際回報「登入後沒有登出的選項」——沒有人找得到的功能等於不存在。
+  for (const id of ['btnChangePw', 'btnLogout', 'btnExport', 'btnImport', 'themeBtn', 'langBtn']) {
     await need('#' + id, id);
   }
+  // **選擇器要綁在 #viewAccount 裡面。** 用全文件的 `#btnLogout` 的話，把按鈕搬回
+  // header 也照樣是綠的——而那正是這條斷言要擋的那個狀態。看得見也要一起驗：
+  // 只存在於 DOM 裡的按鈕沒有人按得到。
+  if (!(await page.locator('#viewAccount #btnLogout').isVisible())) {
+    throw new Error('「登出」不在我的帳號頁上（或看不見）');
+  }
+  // 連續斷掉的信（F2）：與逾期提醒各自一顆按鈕
+  await need('#btnStreakMail', '小植物的信開關');
 
   // 「刪除我的帳號」（Apple 5.1.1(v)）是雲端區塊：單機隱藏、登入顯示，與帳號資訊那一區同步。
   // 顯示時按下去要開得起對話框（不確認，只按取消）。

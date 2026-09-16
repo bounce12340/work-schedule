@@ -171,6 +171,13 @@ CREATE TABLE IF NOT EXISTS reminder_feed (
   digest        TEXT NOT NULL DEFAULT '[]',
   last_sent_ymd TEXT,
   lead_days     INTEGER NOT NULL DEFAULT 3,
+  -- 遊戲化（F2）：連續斷掉的那一封信。與逾期提醒是**兩個各自獨立的開關**——
+  -- 畫面上就是兩顆按鈕，關掉其中一個不該連帶關掉另一個。預設開啟的理由同提醒。
+  -- streak_current 是前端在最後一次同步時算好推上來的連續天數（Worker 不重算，
+  -- 理由同 ICS 與提醒信）；信裡印的就是它，與閘門用的是同一個數字。
+  streak_mail     INTEGER NOT NULL DEFAULT 1,
+  streak_mail_ymd TEXT,
+  streak_current  INTEGER NOT NULL DEFAULT 0,
   updated_at    INTEGER NOT NULL
 );
 

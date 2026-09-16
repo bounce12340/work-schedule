@@ -6,7 +6,7 @@ import { recordCronRun, cronResultErrors, handleCronStatus, handleUsage } from '
 import { handleAiStatus, handleAiAsk, handleAiPlan } from './handlers/ai.js';
 import { handleListShares, handleCreateShare, handleDeleteShare, handleUpdateShared, handleListActivity } from './handlers/share.js';
 import { handleIcsStatus, handleIcsEnable, handleIcsDisable, handleIcsPut, handleIcsFeed } from './handlers/ics.js';
-import { handleReminderStatus, handleReminderEnable, handleReminderPut, sendOverdueReminders } from './handlers/reminder.js';
+import { handleReminderStatus, handleReminderEnable, handleReminderPut, sendOverdueReminders, sendStreakBroken } from './handlers/reminder.js';
 import { handleForgotPassword, handleResetPassword as handleSelfResetPassword } from './handlers/password-reset.js';
 import { handleAppCode, handleAppRegister, handleAppLogin, handleDeleteAccount } from './handlers/appauth.js';
 import { getSessionUser } from './session.js';
@@ -31,6 +31,7 @@ export default {
   async scheduled(event, env, ctx) {
     ctx.waitUntil((async () => {
       await step(env, 'reminder', () => sendOverdueReminders(env));
+      await step(env, 'streak', () => sendStreakBroken(env));
       await step(env, 'backup', () => runBackup(env));
       await step(env, 'purge', () => purgeExpired(env));
     })());
