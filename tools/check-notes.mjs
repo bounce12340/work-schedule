@@ -25,6 +25,7 @@
 import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { markSignedIn } from './lib/signed-in.mjs';
 
 let chromium;
 try {
@@ -74,6 +75,7 @@ async function boot() {
   await page.waitForTimeout(300);
 }
 
+await markSignedIn(page);   // 登入閘門：見 tools/lib/signed-in.mjs
 await page.goto(`http://localhost:${PORT}/`);
 await boot();
 // 工具列預設收起，把它打開才點得到顏色鈕

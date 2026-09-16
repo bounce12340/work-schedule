@@ -70,7 +70,8 @@ function seed() {
   }
   return {
     version: 2,
-    majorProjects: [{ id: 'mp1', name: '年度大型專案' }],
+    // 剛好 3 個：免費版的上限。已登入的中文那一輪靠這個數字撞上限（見 walk 的「上限」段）
+    majorProjects: [{ id: 'mp1', name: '年度大型專案' }, { id: 'mp2', name: '第二個' }, { id: 'mp3', name: '第三個' }],
     items,
     ganttProjects: [{
       id: 'g1', name: '官網改版專案', notes: '<p>會議紀要：<b>第一次</b>討論</p>',
@@ -101,9 +102,9 @@ async function loadChromium() {
  * `loggedIn` 為 false 時 /api/* 一律 404——那是單檔／未部署的情況。
  * 為 true 時回最小可用的 API 回應，讓 runCloudSync 與 fetchShares 真的跑起來。
  */
-function makeServer(loggedIn) {
+function makeServer(loggedIn, plan = 'pro') {
   const assets = new Map();
-  for (const f of ['index.html', 'login.html', 'admin.html', 'privacy.html']) {
+  for (const f of ['index.html', 'login.html', 'admin.html', 'privacy.html', 'terms.html']) {
     assets.set('/' + f, readFileSync(PUBLIC + f, 'utf8'));
   }
   // sw.js 一定要真的供應。擋掉它會讓註冊失敗噴一行 console.error，而把
@@ -120,7 +121,7 @@ function makeServer(loggedIn) {
       if (!loggedIn) return send(404, { error: 'not found' });
       if (url.pathname === '/api/state') {
         if (req.method === 'PUT') return send(200, { ok: true, updatedAt: 1 });
-        return send(200, { user: ME, state: null, updatedAt: null });
+        return send(200, { user: { ...ME, plan, planSource: plan === 'pro' ? 'admin' : null, planExpiresAt: null }, state: null, updatedAt: null });
       }
       // iOS app 的登入／驗證碼：回一個假 token，讓「app 外殼」那一輪走得完
       if (url.pathname === '/api/auth/app/login') return send(200, { ok: true, token: APP_TOKEN, expiresAt: 9e12, user: ME });
@@ -138,7 +139,7 @@ function makeServer(loggedIn) {
 }
 
 /** 走完一輪所有頁面與主要互動 */
-async function walk(page, log) {
+async function walk(page, log, plan = 'pro') {
   const checked = [];
   let step = '（尚未開始）';
   const need = async (sel, what) => {
@@ -176,6 +177,21 @@ async function walk(page, log) {
     await page.waitForTimeout(250);
     await need('#board', '排程看板');
   }
+  // ---- 方案上限：示範資料剛好 3 個大項目。免費版按「＋ 新增大項目」要開升級說明，
+  //      Pro 要開新增表單。兩條路各走一次，靠兩輪不同的方案（見迴圈）。 ----
+  await click('#majorChips .add-chip-btn', '按「＋ 新增大項目」');
+  await page.waitForTimeout(250);
+  if (plan === 'free') {
+    await need('#upgradeOverlay.show', '免費版撞上限 → 升級說明');
+    if (await page.locator('#majorOverlay.show').count()) throw new Error('免費版撞上限卻還是開了新增表單');
+    await click('#btnUpgradeClose', '關掉升級說明');
+  } else {
+    await need('#majorOverlay.show', 'Pro → 新增大項目表單');
+    if (await page.locator('#upgradeOverlay.show').count()) throw new Error('Pro 卻開了升級說明');
+    await click('#btnCancelMajor', '關掉新增表單');
+  }
+  await page.waitForTimeout(200);
+
   // 勾一個項目：走 toggleOccDone → commit → renderAll 整條路徑
   await clickIfVisible('#board .checkbox', '勾選項目');
   await page.waitForTimeout(300);
@@ -269,8 +285,10 @@ const failures = [];
 
 for (const loggedIn of [false, true]) {
   for (const lang of ['zh', 'en']) {
-    const label = `${loggedIn ? '已登入' : '單檔開啟'} × ${lang === 'zh' ? '中文' : '英文'}`;
-    const server = makeServer(loggedIn);
+    // 方案跟著語言走只是為了兩條路都走到：中文＝免費版（撞上限開升級說明）、英文＝Pro（開新增表單）
+    const plan = lang === 'zh' ? 'free' : 'pro';
+    const label = `${loggedIn ? '已登入（' + plan + '）' : '單檔開啟'} × ${lang === 'zh' ? '中文' : '英文'}`;
+    const server = makeServer(loggedIn, plan);
     await new Promise(r => server.listen(PORT, r));
 
     const launch = process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {};
@@ -289,15 +307,21 @@ for (const loggedIn of [false, true]) {
     });
     await page.route('**://fonts.*/**', r => r.abort());
 
+    // 「單檔開啟」那兩輪刻意**不塞** workSchedule.v1：要驗的是閘門關著時沒有 seed。
+    // （file:// 的 localStorage 與 http 的各自獨立，這裡塞的是 file:// 那一份。）
     await page.addInitScript(([s, l]) => {
-      localStorage.setItem('workSchedule.v1', JSON.stringify(s));
+      if (s) localStorage.setItem('workSchedule.v1', JSON.stringify(s));
       localStorage.setItem('workSchedule.v1.lang', l);
-    }, [seed(), lang]);
+    }, [loggedIn ? seed() : null, lang]);
 
     console.log(`\n▸ ${label}`);
     try {
-      await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'domcontentloaded' });
-      await walk(page, console.log);
+      // 閘門那兩輪真的用 file:// 開：那才是「把檔案存下來雙擊」的實際情況，
+      // 也只有 file:// 能在第一次繪製前就關上閘門（http 要等 /api/state 回 404）。
+      await page.goto(loggedIn ? `http://127.0.0.1:${PORT}/` : 'file://' + PUBLIC + 'index.html',
+        { waitUntil: 'domcontentloaded' });
+      if (loggedIn) await walk(page, console.log, plan);
+      else await expectGate(page, console.log);
     } catch (e) {
       // 一定要說是「哪一步」走不完，否則 timeout 訊息只有選擇器，看不出走到哪
       const at = typeof walk.lastStep === 'function' ? walk.lastStep() : '未知';
@@ -315,6 +339,25 @@ for (const loggedIn of [false, true]) {
     await browser.close();
     await new Promise(r => server.close(r));
   }
+}
+
+/**
+ * 沒有後端、也從來沒登入過：畫面必須是登入閘門，而且什麼都不能 seed。
+ *
+ * 這兩輪原本走四個頁籤（那時「單檔雙擊開啟」是一種使用方式）。使用者的裁決改成
+ * 「必須登入才能使用」之後，這裡要驗的變成三件事：閘門有出現、按鈕在、localStorage
+ * 裡沒有示範資料——最後一條證明閘門是在 seed 之前關上的，不是畫完再蓋上去。
+ * 頁籤的走訪由「已登入」那兩輪負責。
+ */
+async function expectGate(page, log) {
+  walk.lastStep = () => '登入閘門';
+  await page.locator('#loginGate.show').waitFor({ state: 'visible', timeout: 5000 });
+  const btn = page.locator('#btnLoginGate');
+  if (!(await btn.isVisible())) throw new Error('閘門沒有「前往登入」按鈕');
+  const text = (await btn.textContent()).trim();
+  const stored = await page.evaluate(() => localStorage.getItem('workSchedule.v1'));
+  if (stored !== null) throw new Error('閘門關著卻還是 seed 了示範資料（workSchedule.v1 不該存在）');
+  log(`      閘門出現，按鈕「${text}」，沒有 seed`);
 }
 
 /**
@@ -463,9 +506,10 @@ async function walkNative(page, log, seen) {
   await new Promise(r => server.close(r));
 }
 
-// 隱私權政策頁：不用登入就要開得起來（App Store 審查員會來看）
+// 隱私權政策頁與使用條款頁：不用登入就要開得起來（App Store 審查員會來看；
+// 訂閱畫面與 App Store 的 metadata 都要連得到使用條款）
 {
-  const label = '隱私權政策頁';
+  const label = '隱私權政策頁與使用條款頁';
   const server = makeServer(false);
   await new Promise(r => server.listen(PORT, r));
   const launch = process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {};
@@ -480,6 +524,13 @@ async function walkNative(page, log, seen) {
     if (!/隱私權/.test(title)) throw new Error(`標題不對：${title}`);
     for (const word of ['刪除我的帳號', '14', 'IP', 'Privacy Policy']) {
       if (!(await page.locator(`text=${word}`).count())) throw new Error(`頁面上找不到「${word}」`);
+    }
+    await page.goto(`http://127.0.0.1:${PORT}/terms.html`, { waitUntil: 'domcontentloaded' });
+    const title2 = await page.title();
+    if (!/使用條款/.test(title2)) throw new Error(`使用條款的標題不對：${title2}`);
+    // Apple 對訂閱 app 的硬規定：自動續訂、取消方式、退款由 Apple 處理，都要寫在條款裡
+    for (const word of ['自動續訂', '訂閱', '退款', 'Terms of Use', 'Restore purchases']) {
+      if (!(await page.locator(`text=${word}`).count())) throw new Error(`使用條款頁上找不到「${word}」`);
     }
   } catch (e) { errors.push(e.message); }
   if (errors.length) { failures.push({ label, errors }); console.log(`   ✗ ${errors.length} 個錯誤`); errors.forEach(e => console.log(`      - ${e}`)); }

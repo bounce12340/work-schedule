@@ -24,6 +24,7 @@
 import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { markSignedIn } from './lib/signed-in.mjs';
 
 const INDEX = readFileSync(fileURLToPath(new URL('../public/index.html', import.meta.url)), 'utf8');
 const PORT = Number(process.env.PORT || 8964);
@@ -122,6 +123,7 @@ for (const [name, act] of CASES) {
   await page.route('**://fonts.*/**', r => r.abort());
   await page.addInitScript(s => localStorage.setItem('workSchedule.v1', s), JSON.stringify(seed(6)));
 
+  await markSignedIn(page);   // 登入閘門：見 tools/lib/signed-in.mjs
   await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(600);
   if (await page.locator('#reminderToast.show').count()) await page.click('#reminderClose');

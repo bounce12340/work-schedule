@@ -16,8 +16,33 @@ CREATE TABLE IF NOT EXISTS users (
   -- 開十個帳號」；刪掉帳號後那個 id 就空出來，可以再註冊。
   purchase_source    TEXT,
   app_transaction_id TEXT,
-  purchased_at       INTEGER
+  purchased_at       INTEGER,
+  -- 方案（見 src/plan.js）。plan_source 為 NULL 就是免費版；'admin' 是管理者手動設定
+  -- （既有的兩個帳號永久有效：source='admin' 且 plan_expires_at 為 NULL）；'apple' 是
+  -- app 內訂閱，到期日由 app 推上來的交易與 Apple 的伺服器通知維護。
+  -- apple_original_txn 是訂閱的 originalTransactionId，UNIQUE：同一筆交易不能讓兩個帳號
+  -- 同時算成 Pro；換帳號「恢復購買」是搬過去，不是拒絕。
+  plan_source        TEXT,
+  plan_expires_at    INTEGER,
+  apple_original_txn TEXT
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_apple_original_txn ON users(apple_original_txn);
+
+-- 方案的每一次變動：app 推上來的交易、Apple 的伺服器通知、管理者手動。
+-- notification_uuid UNIQUE 同時是 Apple 通知的去重鍵（Apple 會重送）。
+-- user_id 可為 NULL：通知對不到帳號（使用者先訂了還沒註冊）仍然要記，那不是錯誤。
+CREATE TABLE IF NOT EXISTS plan_events (
+  id                TEXT PRIMARY KEY,
+  user_id           TEXT,
+  source            TEXT NOT NULL,        -- 'app' | 'apple_notification' | 'admin'
+  kind              TEXT NOT NULL,        -- 'subscribed' | 'renewed' | 'expired' | 'refunded' | 'revoked' | 'transferred' | 'admin_set'
+  original_txn      TEXT,
+  notification_uuid TEXT UNIQUE,
+  expires_at        INTEGER,
+  detail            TEXT,
+  created_at        INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_plan_events_user ON plan_events(user_id, created_at);
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_app_transaction ON users(app_transaction_id);
 

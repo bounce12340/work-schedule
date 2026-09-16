@@ -22,6 +22,7 @@
 import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { markSignedIn } from './lib/signed-in.mjs';
 
 let chromium;
 try {
@@ -88,6 +89,7 @@ const errors = [];
 page.on('pageerror', e => errors.push('pageerror: ' + e.message));
 page.on('console', m => { if (m.type() === 'error' && !/net::|Failed to load/.test(m.text())) errors.push('console: ' + m.text()); });
 
+await markSignedIn(page);   // 登入閘門：見 tools/lib/signed-in.mjs
 await page.goto(`http://localhost:${PORT}/`);
 await page.waitForSelector('#board');
 await page.locator('#reminderClose').click().catch(() => {});

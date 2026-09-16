@@ -64,7 +64,8 @@ export async function getSessionUser(request, env) {
 
   const hash = await sha256(token);
   const row = await env.DB.prepare(
-    `SELECT u.id, u.email, u.role, u.status, u.created_at, s.expires_at, s.last_seen_at
+    `SELECT u.id, u.email, u.role, u.status, u.created_at, u.plan_source, u.plan_expires_at,
+            s.expires_at, s.last_seen_at
        FROM sessions s JOIN users u ON u.id = s.user_id
       WHERE s.token_hash = ?`
   ).bind(hash).first();
@@ -94,6 +95,8 @@ export async function getSessionUser(request, env) {
   return {
     id: row.id, email: row.email, role: row.role,
     status: row.status, createdAt: row.created_at,
+    // 方案跟著 session user 走：PUT /api/state 的上限與 AI 的每日次數都要問它（src/plan.js）
+    planSource: row.plan_source ?? null, planExpiresAt: row.plan_expires_at ?? null,
   };
 }
 

@@ -164,7 +164,7 @@ async function route(request, env, ctx) {
   if (path === '/api/state') {
     // GET 收下整個 user：它順帶回傳身分，讓前端啟動時不必再打一次 /api/auth/me
     if (request.method === 'GET') return handleGetState(env, user);
-    if (request.method === 'PUT') return handlePutState(request, env, user.id);
+    if (request.method === 'PUT') return handlePutState(request, env, user);
     return methodNotAllowed();
   }
 
@@ -338,6 +338,8 @@ export async function step(env, name, fn) {
 async function servePage(request, env, url, path) {
   // 隱私權政策不用登入就要看得到：App Store 的審查員與還沒註冊的人都會來看
   if (path === '/privacy' || path === '/privacy.html') return env.ASSETS.fetch(request);
+  // 使用條款同理：訂閱畫面與 App Store 的 metadata 都要連得到
+  if (path === '/terms' || path === '/terms.html') return env.ASSETS.fetch(request);
 
   // 授權查詢與取出靜態資產彼此沒有依賴，串行做等於讓一次 D1 往返擋在 HTML
   // 的第一個位元組前面——而 run_worker_first 讓 / 一定要經過這裡，所以每次

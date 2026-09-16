@@ -203,12 +203,15 @@ test('每分鐘上限擋得住，而且說得出還要等多久', async () => {
 
 test('過了一分鐘就恢復——是滑動窗口，不是鎖定', async () => {
   const env = aiEnv();
+  // 免費版一天只有 5 次，第 6 次會被「每天」而不是「每分鐘」擋下——這支測試要看的是
+  // 滑動窗口，所以用 Pro（每天 20 次）。免費版的每日上限另有測試（tests/plan.test.mjs）。
+  const PRO = { ...USER, planSource: 'admin', planExpiresAt: null };
   await withFakeApi(okReply(), async () => {
     for (let i = 0; i < 5; i++) {
-      await handleAiAsk(ask({ question: 'q' + i, schedule: SCHEDULE }), env, USER, T0 + i);
+      await handleAiAsk(ask({ question: 'q' + i, schedule: SCHEDULE }), env, PRO, T0 + i);
     }
     const later = await unwrap(await handleAiAsk(
-      ask({ question: '一分鐘後', schedule: SCHEDULE }), env, USER, T0 + 61_000));
+      ask({ question: '一分鐘後', schedule: SCHEDULE }), env, PRO, T0 + 61_000));
     assert.equal(later.status, 200);
   });
 });
