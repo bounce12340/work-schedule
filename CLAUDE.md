@@ -684,9 +684,9 @@ Turnstile 擋得住「一秒鐘一萬次」的機器人，擋不住「一分鐘�
 
 F3（推播版，等子專案 B）待做。
 
-### app 的四個探針（`tools/smoke.mjs` 第七輪）
+### app 的五個探針（`tools/smoke.mjs` 第七輪）
 
-TestFlight build 7 回報的症狀是「app 安靜地變成單機模式」——沒有紅字、沒有 app 的登入畫面、畫面上是示範資料。那個狀態有**四個各自獨立的成因，而四個在畫面上長得一模一樣**，既有的檢查一個都抓不到。完整經過在 `docs/postmortems/2026-09-16-app-silent-standalone.md`。
+TestFlight build 7 回報的症狀是「app 安靜地變成單機模式」——沒有紅字、沒有 app 的登入畫面、畫面上是示範資料。那個狀態有**五個各自獨立的成因，而五個在畫面上長得一模一樣**，既有的檢查一個都抓不到。完整經過在 `docs/postmortems/2026-09-16-app-silent-standalone.md`。
 
 | 探針 | 外殼長什麼樣 | 斷言 |
 |---|---|---|
@@ -694,8 +694,11 @@ TestFlight build 7 回報的症狀是「app 安靜地變成單機模式」——
 | 2 | 只有 `isNativePlatform`，插件不在 | 狀態列要出現「app 啟動異常」並附診斷 |
 | 3 | 外殼正常、Keychain 有 token，`/api/state` 回 404 | 要是**紅字**的連線失敗，不是單機模式 |
 | 4 | 讀 bridge 就丟例外 | 摔倒要被 `.catch` 接住並寫在畫面上 |
+| 5 | 外殼與網路都正常，`/api/state` 回 **200 但沒有 `user`** | 帳號頁那一格要印出診斷 |
 
-**刻意不把第五輪的假 Capacitor 改殘缺**：那一輪要驗的是「正常的 app 走得完」，兩件事混在一起，哪一個壞了都分不出來。突變驗證過四種改法各自只紅一支。
+**刻意不把第五輪的假 Capacitor 改殘缺**：那一輪要驗的是「正常的 app 走得完」，兩件事混在一起，哪一個壞了都分不出來。突變驗證過五種改法各自只紅一支。
+
+**探針 5 守的不是某一條路，是那一格本身。** build 8 上線後症狀仍在——而且連新加的紅字都沒出現，因為它走的是第五條（`/api/state` 回 200 卻沒有 `user` → `setCloudNote('')`）。逐條堵洞永遠會漏掉下一條，所以帳號頁多一格 `#acctSignedOutDiag`：**只要走到單機模式、而環境看起來像 app，就把當下的訊號印出來**，不問是哪一條路帶來的。判斷用 `looksNativeShell()` 而**不是 `NATIVE`**——`NATIVE` 判錯正是要診斷的故障之一，讓它決定診斷要不要出現，最需要說話的那一種情況剛好會最安靜。
 
 **驗證**：`tests/appauth.test.mjs`、`tests/account-delete.test.mjs`（突變驗證七種改法都會紅）；`tools/smoke.mjs` 的「iOS app 外殼」那一輪用假的 `window.Capacitor` 走登入畫面、寄驗證碼、登入、**所有線上請求都帶 Bearer**、登出清 Keychain（拿掉 Bearer 那一行當場紅）。真機只能靠 TestFlight。
 

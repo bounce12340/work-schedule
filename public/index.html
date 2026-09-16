@@ -1397,6 +1397,10 @@
 
         <div class="acct-sec" id="acctSignedOutNote" style="display:none;">
           <div class="acct-sub" data-i18n>帳號、提醒、行事曆訂閱與裝置管理需要登入後才能使用。目前為單機模式，資料只存在這個瀏覽器。</div>
+          <!-- app 裡「單機模式」永遠不是合法的結果（見〈原生外殼〉）。真的走到這裡就一定要
+               附上原因——手機上沒有 console，這一格是使用者本來就會看的地方。網頁版與單檔
+               不顯示：那兩種情況下單機模式是正常且預期的。 -->
+          <div class="gate-diag" id="acctSignedOutDiag" style="display:none"></div>
         </div>
 
       </div>
@@ -1823,6 +1827,17 @@
    * 「現在到底看到什麼」的一行字。**手機上沒有 console 可看**，所以所有原生相關的
    * 失敗都要帶著它出現在畫面上——同「拿不到購買證明」附上原因的那個判斷。
    */
+  /**
+   * 「看起來像 app 的外殼」——比 NATIVE 寬鬆，而且**刻意不依賴 NATIVE**。
+   *
+   * NATIVE 判錯正是要診斷的故障之一，所以診斷要不要出現不能由它決定，否則最需要說話的
+   * 那一種情況剛好是最安靜的。網頁版（https）與單檔（file://）一律為 false。
+   */
+  function looksNativeShell(){
+    try{
+      return !!window.Capacitor || !/^(https?|file):$/.test(location.protocol);
+    }catch(e){ return false; }
+  }
   function nativeDiag(){
     // 每一格都各自包起來：**會爆炸的診斷函式比沒有診斷更糟**——它會把自己要傳達的
     // 那則訊息一起吞掉，畫面又回到「安靜的單機模式」。探針 4 實際抓到過這件事
@@ -1889,7 +1904,11 @@
   const appAuthView = document.getElementById('appAuthView');
   let appAuthMode = 'login';     // 'login' | 'register'
   let appAuthCodeSent = false;
-  function appAuthShow(){ if(!appAuthView) return; appAuthRender(); appAuthView.classList.add('show'); }
+  // 元素不在就靜默 return 是另一種沉默：畫面會停在示範資料，看起來與單機模式一樣。
+  function appAuthShow(){
+    if(!appAuthView){ nativeShellBroken(tr('登入畫面的元素不在')); return; }
+    appAuthRender(); appAuthView.classList.add('show');
+  }
   function appAuthMsg(text, cls){
     const el = document.getElementById('appAuthMsg'); if(!el) return;
     // .msg-inline 沒有 class 時是 display:none：進度訊息（寄送中…）用 ok 的樣式顯示
@@ -1973,6 +1992,9 @@
     appToken = await nativeTokenLoad();
     if(!appToken){ appAuthShow(); return; }
     await initCloudSync(localHadData);
+    // 走完了、沒有丟例外、卻也沒有同步，而且連一句說明都沒有——那就是還有一條沒被說出來的路
+    // （例如伺服器回 200 但 body 裡沒有 user）。app 裡「安靜的單機模式」永遠不是合法結果。
+    if(!cloudEnabled && !cloudNoteText()) nativeShellBroken(tr('同步沒有啟用，但沒有任何錯誤'));
   }
   /** 401 在 app 裡：清掉 token、回到登入畫面。不能導向 /login——app 裡沒有那一頁。 */
   function nativeSessionExpired(){
@@ -2355,6 +2377,8 @@
         'Could not get the App Store purchase proof. Make sure this copy was installed from the App Store or TestFlight.',
       'app 啟動異常':'App startup problem',
       '原生插件沒有載入':'the native plugin did not load',
+      '登入畫面的元素不在':'the sign-in screen markup is missing',
+      '同步沒有啟用，但沒有任何錯誤':'sync is off but nothing reported an error',
       '其他裝置已登出。':'Other devices have been signed out.',
       '目前離線，無法登出其他裝置。':'You are offline — other devices could not be signed out.',
       '裝置清單讀取失敗，其餘設定不受影響。':'Could not load the device list. Other settings are unaffected.',
@@ -3116,11 +3140,11 @@
     // 真的出現了，就代表五個訊號全部落空，而那是最難從症狀推回原因的一種。手機上
     // 沒有 console，所以把當下看到的東西直接印在閘門上。單檔開啟（file://）不顯示：
     // 那是正常且預期的路徑，多一行雜訊只會嚇到人。
-    const looksNative = !!window.Capacitor || !/^(https?|file):$/.test(location.protocol);
     const d = document.getElementById('loginGateDiag');
     if(d){
-      d.textContent = looksNative ? nativeDiag() : '';
-      d.style.display = looksNative ? '' : 'none';
+      const show = looksNativeShell();
+      d.textContent = show ? nativeDiag() : '';
+      d.style.display = show ? '' : 'none';
     }
   }
   const btnLoginGate = document.getElementById('btnLoginGate');
@@ -3144,6 +3168,11 @@
     awayDates = new Set(); selectedGanttProjectId = null;
   }
 
+  /** 狀態列現在寫著什麼（空字串＝什麼都沒說）。用來判斷「有沒有人已經解釋過了」 */
+  function cloudNoteText(){
+    const el = document.getElementById('cloudNoteText');
+    return el ? (el.textContent || '').trim() : '';
+  }
   function setCloudNote(text, cls){
     const el = document.getElementById('cloudNoteText');
     if(!el) return;
@@ -4096,6 +4125,15 @@
     });
     const note = document.getElementById('acctSignedOutNote');
     if(note) note.style.display = cloudEnabled ? 'none' : '';
+    // 這一格是**最後一道**保險：不管是哪一條路把 app 帶到單機模式（沒認出自己是 app、
+    // 登入畫面沒蓋上來、伺服器回了 200 卻沒有 user……），這裡都會把當下看到的訊號印出來。
+    // 逐條堵洞永遠會漏掉下一條；這一格只問一件事——「現在這個狀態合不合法」。
+    const diagEl = document.getElementById('acctSignedOutDiag');
+    if(diagEl){
+      const show = !cloudEnabled && looksNativeShell();
+      diagEl.textContent = show ? nativeDiag() : '';
+      diagEl.style.display = show ? '' : 'none';
+    }
 
     if(!cloudEnabled) return;
 

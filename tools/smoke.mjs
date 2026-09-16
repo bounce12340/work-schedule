@@ -564,11 +564,11 @@ async function walkNative(page, log, seen) {
  *   3. `/api/state` 回 404 被當成「這個環境沒有後端」而靜默降級。absent 那條路是為了
  *      單檔／未部署而存在的，在 app 裡永遠是謊話（API_BASE 是線上網址）
  *
- * 四個探針各塞一個**殘缺的** window.Capacitor，每個只驗一件事。刻意不把第五輪的假
+ * 五個探針各塞一個**殘缺的** window.Capacitor，每個只驗一件事。刻意不把第五輪的假
  * Capacitor 改殘缺：那一輪要驗的是「正常的 app 走得完」，混在一起哪個壞了都分不出來。
  */
 {
-  const label = 'iOS app 外殼的四個探針';
+  const label = 'iOS app 外殼的五個探針';
   const server = makeServer(true);
   await new Promise(r => server.listen(PORT, r));
   const launch = process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {};
@@ -578,7 +578,7 @@ async function walkNative(page, log, seen) {
   console.log(`\n▸ ${label}`);
 
   /** 各自一個乾淨的 context：偵測是在載入當下算一次的，改不了就只能重開 */
-  const shell = async (keys, { token = null, state404 = false } = {}) => {
+  const shell = async (keys, { token = null, state404 = false, stateNoUser = false } = {}) => {
     const ctx = await browser.newContext({ viewport: { width: 420, height: 860 }, locale: 'zh-TW' });
     const page = await ctx.newPage();
     page.on('pageerror', e => errors.push(`未捕捉的例外：${e.message}`));
@@ -588,6 +588,10 @@ async function walkNative(page, log, seen) {
       const u = new URL(req.url());
       if (state404 && u.pathname === '/api/state') {
         return route.fulfill({ status: 404, body: '{"error":"not found"}', headers: { 'content-type': 'application/json' } });
+      }
+      // 200 但 body 裡沒有 user：`!remote.user` 那條分支會 setCloudNote('') 然後靜默降級
+      if (stateNoUser && u.pathname === '/api/state' && req.method() === 'GET') {
+        return route.fulfill({ status: 200, body: '{"state":null,"updatedAt":null}', headers: { 'content-type': 'application/json' } });
       }
       const r = await fetch(`http://127.0.0.1:${PORT}${u.pathname}${u.search}`, {
         method: req.method(), headers: { 'content-type': 'application/json' }, body: req.postData() ?? undefined,
@@ -669,6 +673,23 @@ async function walkNative(page, log, seen) {
       await page.waitForFunction(() => /app 啟動異常/.test(document.getElementById('cloudNoteText')?.innerText || ''), null, { timeout: 5000 })
         .catch(async () => { throw new Error(`探針 4：啟動摔倒卻沒人接住，狀態列是「${await noteText(page)}」`); });
       checked.push('啟動摔倒會被接住並說出來');
+      await ctx.close();
+    }
+    // 探針 5：最後一道保險。外殼與網路都正常，只是 /api/state 回 200 卻沒有 user——
+    // 那條分支會 setCloudNote('') 然後靜默降級，**連紅字都沒有**（build 8 回報的形狀）。
+    // 逐條堵洞永遠會漏掉下一條，所以帳號頁多一格：只要走到單機模式而環境看起來像 app，
+    // 就把當下的訊號印出來。這一支守的是那一格，不是某一條路。
+    {
+      const { ctx, page } = await shell(['isNativePlatform', 'getPlatform', 'nativePromise'], { token: APP_TOKEN, stateNoUser: true });
+      await page.click('#navAccount');
+      await page.waitForFunction(() => {
+        const d = document.getElementById('acctSignedOutDiag');
+        return d && d.offsetParent !== null && /signals=/.test(d.textContent || '');
+      }, null, { timeout: 5000 }).catch(async () => {
+        const t = await page.locator('#acctSignedOutDiag').innerText().catch(() => '(看不到)');
+        throw new Error(`探針 5：app 走到單機模式卻沒印診斷，帳號頁那一格是「${t}」`);
+      });
+      checked.push('單機模式在 app 裡一定帶著診斷');
       await ctx.close();
     }
   } catch (e) {
