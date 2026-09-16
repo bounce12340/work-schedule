@@ -67,7 +67,7 @@ mobile/ios/App/App/NativePlugin.swift   自己寫的 Capacitor 插件（購買�
 
 ### 打包：GitHub 的 Mac
 
-`.github/workflows/ios.yml`，**只在手動觸發（`workflow_dispatch`）或推 `ios-v*` tag 時跑**，不佔每個 PR 的時間。跑在 GitHub 有 Xcode 27 的 macOS 映像上（正確的 `runs-on` 標籤實作時查 `actions/runner-images` 確認）。
+`.github/workflows/ios.yml`，**只在手動觸發（`workflow_dispatch`）或推 `ios-v*` tag 時跑**，不佔每個 PR 的時間。跑在 GitHub 的 `macos-26` 映像上（Xcode 26.x 正式版）。實作時原本選 `xcode-27`，那是「預覽」映像、只有 beta——build 上傳得了但 App Store Connect 拒收（「Unsupported SDK or Xcode version」），所以換成正式版的映像。
 
 步驟：`mobile/` 內 `npm ci` → `prepare-www` → `cap sync ios` → 把 `.p8` 寫成檔案 → `xcodebuild archive`（自動簽章，`-allowProvisioningUpdates` 帶 App Store Connect API 金鑰；Apple 那邊沒有憑證就自己建）→ `xcodebuild -exportArchive`，`method: app-store-connect`、`destination: upload`，一步直接上傳。
 
