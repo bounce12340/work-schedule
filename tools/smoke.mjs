@@ -422,6 +422,32 @@ async function walkNative(page, log, seen) {
 
   await page.click('#navAccount');
   await page.waitForTimeout(400);
+
+  // 訂閱（E2）。**Apple 的硬規定，缺一個就退件**，所以這幾條是斷言不是抽查：
+  // 價格要從 StoreKit 拿（不是寫死的字串）、自動續訂與取消方式要寫出來、
+  // 要有「恢復購買」、要連得到使用條款與隱私權政策。
+  // 失敗時要說得出「為什麼」。純 timeout 的訊息（「Timeout 5000ms exceeded」）
+  // 對這種斷言完全沒用——探針 1 踩過同一個坑。
+  await page.waitForSelector('#acctSub', { state: 'visible', timeout: 5000 })
+    .catch(async () => {
+      const plan = (await page.locator('#acctPlanName').textContent().catch(() => '')) || '?';
+      throw new Error(`訂閱區塊沒有出現在帳號頁（方案顯示為「${plan.trim()}」）。`
+        + 'app 裡沒有訂閱入口的話 Apple 3.1.1 會退件，而且使用者付不了錢');
+    });
+  const prices = await page.locator('#acctSubProducts button').allTextContents();
+  if (prices.length !== 2) throw new Error(`訂閱方案應該有兩個，實際 ${prices.length} 個`);
+  if (!prices.some(t => t.includes('NT$150')) || !prices.some(t => t.includes('NT$1,490'))) {
+    throw new Error(`價格不是從 StoreKit 拿的：${prices.join(' / ')}`);
+  }
+  const subTerms = (await page.locator('#acctSubTerms').textContent()) || '';
+  for (const word of ['自動續訂', '取消']) {
+    if (!subTerms.includes(word)) throw new Error(`訂閱說明裡沒有「${word}」（Apple 會退件）：「${subTerms}」`);
+  }
+  await need('#btnRestorePurchase', '恢復購買按鈕');
+  await need('#acctSub a[href="/terms.html"]', '訂閱區的使用條款連結');
+  await need('#acctSub a[href="/privacy.html"]', '訂閱區的隱私權政策連結');
+  checked.push(`訂閱方案(${prices.length})`);
+
   const email = (await page.locator('#acctEmail').textContent()).trim();
   if (email !== ME.email) throw new Error(`我的帳號頁應顯示 ${ME.email}，實際是「${email}」`);
   checked.push('帳號資訊(1)');
@@ -492,6 +518,17 @@ async function walkNative(page, log, seen) {
       keychainSet: async ({ key, value }) => { localStorage.setItem('__kc_' + key, value); },
       keychainDelete: async ({ key }) => { localStorage.removeItem('__kc_' + key); },
       getAppTransaction: async () => ({ jws: 'fake.jws.for-smoke' }),
+      // 訂閱（E2）。真的插件有這四個方法，假的就要有——**假的東西不能比真的少給**，
+      // 少給的話「讀不到商品」那條錯誤路徑會在每一輪都跑一次，而那不是要驗的東西。
+      getProducts: async () => ({ products: [
+        { id: 'com.bounceto.workschedule.pro.monthly', displayPrice: 'NT$150', displayName: 'Pro', description: '', period: 'month' },
+        { id: 'com.bounceto.workschedule.pro.yearly', displayPrice: 'NT$1,490', displayName: 'Pro', description: '', period: 'year' },
+      ] }),
+      purchase: async () => ({ jws: 'fake.subscription.jws' }),
+      // 空陣列＝這個 Apple ID 上沒有訂閱。這一輪要驗的是「沒訂閱的人走得完」，
+      // 所以不要在這裡假裝有訂閱——那會讓方案那一區顯示成 Pro，蓋掉免費版的路徑。
+      currentEntitlements: async () => ({ jws: [] }),
+      manageSubscriptions: async () => ({}),
     };
     window.Capacitor = {
       isNativePlatform: () => true,
@@ -613,6 +650,10 @@ async function walkNative(page, log, seen) {
         },
         keychainDelete: async ({ key }) => { localStorage.removeItem('__kc_' + key); },
         getAppTransaction: async () => ({ jws: 'fake.jws.for-smoke' }),
+        getProducts: async () => ({ products: [] }),
+        purchase: async () => ({ cancelled: true }),
+        currentEntitlements: async () => ({ jws: [] }),
+        manageSubscriptions: async () => ({}),
       };
       const cap = { Plugins: {} };            // 真機上 Plugins 永遠是空的
       if (ks.includes('isNativePlatform')) cap.isNativePlatform = () => true;

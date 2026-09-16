@@ -21,13 +21,15 @@
  * 這條接線只有在**真機**上才走得到：CI 沒有 Mac（`ios.yml` 才有，而且那是打包不是測試），
  * 模擬器也不在這個專案的能力範圍。唯一能在每個 PR 上跑的，就是「把原始碼讀出來比對」。
  *
- * 它驗四件事，每一件都是那次事故裡「兩邊必須一致、卻沒有人檢查」的一處：
+ * 它驗五件事，每一件都是「兩邊必須一致、卻沒有人檢查」的一處：
  *
  *   1. SceneDelegate 的 rootViewController 是 MainViewController（不是 CAPBridgeViewController）
  *   2. MainViewController 真的有註冊那個插件
  *   3. storyboard 的 customClass 也指著它（兩條路要一致，免得下一個人改了其中一條）
  *   4. **Swift 的 jsName／方法名與 index.html 呼叫的字串逐字相同**——同〈方案與上限〉
  *      那條「前後端 PLAN_LIMITS 逐字相同」：名字對不上的症狀不是報錯，是永遠不回話
+ *   5. **訂閱的 product id 在 Swift 與 Worker 兩側逐字相同**——打錯的症狀是
+ *      「買得下去，但買完還是免費版」，使用者付了錢而畫面沒有變
  *
  * 零相依、跑不到一秒，所以放在 `check` job 而不是要 Chromium 的 `smoke`。
  */
@@ -113,6 +115,26 @@ for (const m of called) {
 }
 if (called.size && declared.size && ![...called].some(m => !declared.has(m))) {
   checked.push(`方法都對得上（${[...called].sort().join('、')}）`);
+}
+
+// ---- 5. 訂閱的 product id 三側要逐字相同 ----
+// Swift 拿它去跟 StoreKit 要商品、Worker 拿它當白名單、App Store Connect 是真正的來源。
+// 打錯的症狀不是報錯，是**「買得下去，但買完還是免費版」**——使用者付了錢而畫面沒變，
+// 而三個地方各有一份字串，沒有任何東西會發現它們不一樣。同 PLAN_LIMITS 那條。
+// （App Store Connect 那一份沒有辦法從原始碼驗，只能在這裡把另外兩份釘在一起。）
+const planApple = read('src/handlers/planapple.js');
+const workerIds = [...planApple.matchAll(/'(com\.bounceto\.workschedule\.pro\.[a-z]+)'/g)].map(m => m[1]).sort();
+const swiftIds = [...swift.matchAll(/"(com\.bounceto\.workschedule\.pro\.[a-z]+)"/g)].map(m => m[1]).sort();
+
+if (!workerIds.length) {
+  fail('src/handlers/planapple.js 裡讀不到任何 pro product id——PRODUCT_IDS 改過形狀了，這支檢查要跟著更新');
+} else if (!swiftIds.length) {
+  fail('WorkScheduleNativePlugin.swift 裡讀不到任何 pro product id');
+} else if (workerIds.join(',') !== swiftIds.join(',')) {
+  fail(`訂閱 product id 對不上：\n      Worker：${workerIds.join('、')}\n      Swift ：${swiftIds.join('、')}\n`
+     + '      症狀不是報錯，是「買得下去，但買完還是免費版」');
+} else {
+  checked.push(`product id 一致（${workerIds.length} 個）`);
 }
 
 // ---- 結果 ----
