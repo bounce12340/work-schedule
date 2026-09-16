@@ -9,6 +9,7 @@ import { handleIcsStatus, handleIcsEnable, handleIcsDisable, handleIcsPut, handl
 import { handleReminderStatus, handleReminderEnable, handleReminderPut, sendOverdueReminders, sendStreakBroken } from './handlers/reminder.js';
 import { handleForgotPassword, handleResetPassword as handleSelfResetPassword } from './handlers/password-reset.js';
 import { handleAppCode, handleAppRegister, handleAppLogin, handleDeleteAccount } from './handlers/appauth.js';
+import { handlePlanApple, handleAppleNotification } from './handlers/planapple.js';
 import { getSessionUser } from './session.js';
 
 /**
@@ -151,6 +152,12 @@ async function route(request, env, ctx) {
     return request.method === 'POST' ? handleAppLogin(request, env) : methodNotAllowed();
   }
 
+  // Apple 的伺服器通知：**公開端點**，Apple 直接打進來，沒有 session 可言。
+  // 憑證是 payload 本身的簽章（同一條 Apple 憑證鏈），不是 cookie 也不是 Bearer。
+  if (path === '/api/apple/notifications') {
+    return request.method === 'POST' ? handleAppleNotification(request, env) : methodNotAllowed();
+  }
+
   // 以下都需要有效 session
   const user = await getSessionUser(request, env);
   if (!user) return json({ error: '尚未登入' }, 401);
@@ -183,6 +190,11 @@ async function route(request, env, ctx) {
   // 刪除自己的帳號（Apple 5.1.1(v)；網頁版同一顆按鈕）。要帶密碼。
   if (path === '/api/auth/account') {
     return request.method === 'DELETE' ? handleDeleteAccount(request, env, user) : methodNotAllowed();
+  }
+
+  // app 推上來的訂閱交易（購買成功、啟動時的 currentEntitlements、恢復購買）
+  if (path === '/api/plan/apple') {
+    return request.method === 'POST' ? handlePlanApple(request, env, user) : methodNotAllowed();
   }
 
   if (path === '/api/ics/status') {
