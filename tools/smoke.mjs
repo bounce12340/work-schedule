@@ -549,7 +549,139 @@ async function walkNative(page, log, seen) {
   await new Promise(r => server.close(r));
 }
 
-const TOTAL = 6;
+/**
+ * 第七輪：外殼探針。
+ *
+ * TestFlight build 7 回報的症狀是「app 安靜地變成單機模式」——沒有紅字、沒有 app 的
+ * 登入畫面、畫面上是示範資料。那個狀態有三個各自獨立的成因，而三個**在畫面上長得
+ * 一模一樣**，也全部不會讓既有的檢查變紅（第五輪的假 Capacitor 剛好三個都避開了）：
+ *
+ *   1. 沒認出自己是 app——偵測只問 `Capacitor.isNativePlatform` 一個名字，而真機上的
+ *      window.Capacitor 是注入的 native-bridge.js，給的東西與 @capacitor/core 不同
+ *      （Plugins 是空的已經踩過一次，見〈iOS app〉）。認錯的後果是整個 app 退回網頁版
+ *      那條路：打自己肚子裡的 /api/state、不帶 Bearer、不讀 Keychain
+ *   2. 認出來了，但原生插件不在——登入得了、存不住，reload 又回到登入畫面（build 6）
+ *   3. `/api/state` 回 404 被當成「這個環境沒有後端」而靜默降級。absent 那條路是為了
+ *      單檔／未部署而存在的，在 app 裡永遠是謊話（API_BASE 是線上網址）
+ *
+ * 四個探針各塞一個**殘缺的** window.Capacitor，每個只驗一件事。刻意不把第五輪的假
+ * Capacitor 改殘缺：那一輪要驗的是「正常的 app 走得完」，混在一起哪個壞了都分不出來。
+ */
+{
+  const label = 'iOS app 外殼的四個探針';
+  const server = makeServer(true);
+  await new Promise(r => server.listen(PORT, r));
+  const launch = process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {};
+  const browser = await chromium.launch(launch);
+  const errors = [];
+  const checked = [];
+  console.log(`\n▸ ${label}`);
+
+  /** 各自一個乾淨的 context：偵測是在載入當下算一次的，改不了就只能重開 */
+  const shell = async (keys, { token = null, state404 = false } = {}) => {
+    const ctx = await browser.newContext({ viewport: { width: 420, height: 860 }, locale: 'zh-TW' });
+    const page = await ctx.newPage();
+    page.on('pageerror', e => errors.push(`未捕捉的例外：${e.message}`));
+    await page.route('**://fonts.*/**', r => r.abort());
+    await page.route(APP_API_ORIGIN + '/**', async route => {
+      const req = route.request();
+      const u = new URL(req.url());
+      if (state404 && u.pathname === '/api/state') {
+        return route.fulfill({ status: 404, body: '{"error":"not found"}', headers: { 'content-type': 'application/json' } });
+      }
+      const r = await fetch(`http://127.0.0.1:${PORT}${u.pathname}${u.search}`, {
+        method: req.method(), headers: { 'content-type': 'application/json' }, body: req.postData() ?? undefined,
+      });
+      await route.fulfill({ status: r.status, body: await r.text(), headers: { 'content-type': 'application/json' } });
+    });
+    await page.addInitScript(([ks, tok, l]) => {
+      localStorage.setItem('workSchedule.v1.lang', l);
+      if (tok) localStorage.setItem('__kc_sessionToken', tok);
+      const impl = {
+        keychainGet: async ({ key }) => ({ value: localStorage.getItem('__kc_' + key) }),
+        keychainSet: async ({ key, value }) => { localStorage.setItem('__kc_' + key, value); },
+        keychainDelete: async ({ key }) => { localStorage.removeItem('__kc_' + key); },
+        getAppTransaction: async () => ({ jws: 'fake.jws.for-smoke' }),
+      };
+      const cap = { Plugins: {} };            // 真機上 Plugins 永遠是空的
+      if (ks.includes('isNativePlatform')) cap.isNativePlatform = () => true;
+      if (ks.includes('getPlatform')) cap.getPlatform = () => 'ios';
+      if (ks.includes('nativePromise')) {
+        cap.nativePromise = (plugin, method, opts) => {
+          if (plugin !== 'WorkScheduleNative' || !impl[method]) return Promise.reject(new Error(`no such plugin method ${plugin}.${method}`));
+          return impl[method](opts || {});
+        };
+      }
+      // 「讀 bridge 就爆」的外殼。它代表的是**啟動路徑上的任何一個例外**——那種例外在
+      // fire-and-forget 的 async 裡只會變成 unhandledrejection，連 pageerror 都不算，
+      // 所以除了看畫面之外沒有別的辦法抓到它。
+      if (ks.includes('throwOnRead')) {
+        Object.defineProperty(cap, 'nativePromise', { get(){ throw new Error('bridge exploded'); } });
+      }
+      window.Capacitor = cap;
+    }, [keys, token, 'zh']);
+    await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'domcontentloaded' });
+    return { ctx, page };
+  };
+  const noteText = page => page.locator('#cloudNoteText').innerText().catch(() => '');
+
+  try {
+    // 探針 1：bridge 只給 nativePromise（沒有 isNativePlatform）。仍然必須認出自己是
+    // app —— 認出來的唯一可見證據就是 app 的登入畫面蓋上來（網頁版那條路不會有它）。
+    {
+      const { ctx, page } = await shell(['nativePromise']);
+      await page.waitForSelector('#appAuthView.show', { timeout: 5000 }).catch(async () => {
+        // 診斷行就是為了這一刻存在的：它會說出當下看到哪些訊號
+        const diag = (await page.locator('#loginGateDiag').innerText().catch(() => '')) || '(閘門沒出現，它當成一般網頁同步了)';
+        throw new Error(`探針 1：沒認出自己是 app（app 的登入畫面沒出現）。閘門診斷：${diag}`);
+      });
+      if (await page.locator('#loginGate.show').count()) throw new Error('探針 1：不該出現網頁版的登入閘門');
+      checked.push('只有 nativePromise 也認得自己是 app');
+      await ctx.close();
+    }
+    // 探針 2：認得自己，但插件不在（沒有 nativePromise、Plugins 空）。登入得了卻存不住，
+    // 所以要在登入畫面之前就說出來——手機上沒有 console，只能寫在畫面上。
+    {
+      const { ctx, page } = await shell(['isNativePlatform']);
+      await page.waitForFunction(() => /app 啟動異常/.test(document.getElementById('cloudNoteText')?.innerText || ''), null, { timeout: 5000 })
+        .catch(async () => { throw new Error(`探針 2：插件不在卻沒說，狀態列是「${await noteText(page)}」`); });
+      const t = await noteText(page);
+      if (!/signals=/.test(t)) throw new Error(`探針 2：訊息裡沒有附上診斷資訊：「${t}」`);
+      checked.push('插件不在會說出來並附診斷');
+      await ctx.close();
+    }
+    // 探針 3：外殼正常、Keychain 有 token，但 /api/state 回 404。app 裡不存在「沒有後端」
+    // 這種狀態，所以它必須是紅字的連線失敗，不可以安靜地變成單機模式。
+    {
+      const { ctx, page } = await shell(['isNativePlatform', 'getPlatform', 'nativePromise'], { token: APP_TOKEN, state404: true });
+      await page.waitForSelector('#cloudNoteText .storage-state.err', { timeout: 5000 })
+        .catch(async () => { throw new Error(`探針 3：404 被靜默吞掉了，狀態列是「${await noteText(page)}」`); });
+      const t = await noteText(page);
+      if (!/連線失敗/.test(t)) throw new Error(`探針 3：狀態列不是連線失敗：「${t}」`);
+      checked.push('app 裡的 404 是紅字不是單機模式');
+      await ctx.close();
+    }
+    // 探針 4：啟動流程中途丟例外。nativeBoot 是 fire-and-forget 的 async，沒有 .catch
+    // 的話那個例外只會變成 unhandledrejection——**連 pageerror 都不算**，畫面就停在
+    // 示範資料、狀態列一片乾淨，與正常的單機模式一模一樣（build 7 回報的形狀之一）。
+    {
+      const { ctx, page } = await shell(['isNativePlatform', 'throwOnRead']);
+      await page.waitForFunction(() => /app 啟動異常/.test(document.getElementById('cloudNoteText')?.innerText || ''), null, { timeout: 5000 })
+        .catch(async () => { throw new Error(`探針 4：啟動摔倒卻沒人接住，狀態列是「${await noteText(page)}」`); });
+      checked.push('啟動摔倒會被接住並說出來');
+      await ctx.close();
+    }
+  } catch (e) {
+    errors.push(e.message.split('\n')[0]);
+  }
+  if (checked.length) console.log(`      驗過：${checked.join('、')}`);
+  if (errors.length) { failures.push({ label, errors }); console.log(`   ✗ ${errors.length} 個錯誤`); errors.forEach(e => console.log(`      - ${e}`)); }
+  else console.log('   ✓ 零錯誤');
+  await browser.close();
+  await new Promise(r => server.close(r));
+}
+
+const TOTAL = 7;
 console.log('');
 if (failures.length) {
   console.error(`✗ 冒煙測試失敗：${failures.length}/${TOTAL} 個情境有問題`);

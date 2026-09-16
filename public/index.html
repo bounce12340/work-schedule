@@ -902,6 +902,8 @@
   .app-auth-brand{ margin-bottom:16px; }
   .app-auth-title{ font-family: var(--serif); font-size:20px; font-weight:600; color: var(--text); }
   .app-auth-sub{ font-size:12.5px; color: var(--text-muted); margin-top:4px; line-height:1.6; }
+  /* 閘門的診斷行：只在「看起來像 app 卻沒認出自己」時才填內容（見 loginGateShow） */
+  .gate-diag{ margin-top:12px; font-family: var(--mono); font-size:11.5px; color: var(--text-muted); word-break:break-all; line-height:1.6; }
   .app-auth-tabs{ margin-bottom:14px; }
   .app-auth-tabs button.active{ background: var(--amber); color: var(--on-accent); border-color: var(--amber); }
   .acct-danger{ border-color: var(--red-dim); }
@@ -1675,6 +1677,10 @@
     <div class="modal-actions">
       <button class="btn-confirm" id="btnLoginGate" type="button" data-i18n>前往登入</button>
     </div>
+    <!-- 閘門在 app 裡永遠不該出現（NATIVE 為真就走 nativeBoot）。真的出現了就代表偵測
+         全部落空，而手機上沒有 console 可看——把當下看到的訊號印在這裡，畫面才說得出話。
+         一般的單檔開啟不顯示（loginGateShow 只在「看起來像 app」時才填）。 -->
+    <div class="gate-diag" id="loginGateDiag" style="display:none"></div>
   </div>
 </div>
 
@@ -1755,8 +1761,35 @@
   // 為什麼是包一層 fetch 而不是改三十幾處呼叫：那種大範圍機械式改名正是〈多語系〉
   // 那節遮蔽事故的形狀；而且只在原生環境才換掉，單檔與網頁版連這一層都沒有。
   // 這是全檔唯一一處改寫全域行為的地方。
-  const NATIVE = !!(window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform());
-  const SITE_ORIGIN = 'https://work-schedule.bounceto12340.workers.dev';   // 線上網址；閘門的「前往登入」與 app 的 API 都指這裡
+  // 「我是不是在 app 裡」**不能只問一個名字**。這個專案已經為同一件事踩過一次：真機上的
+  // window.Capacitor 是 WKWebView 注入的 native-bridge.js，它給的東西與 @capacitor/core
+  // 不一樣（Plugins 是空的，見下面的 nativePlugin()）。而 NATIVE 判錯的後果不是「少一點
+  // 功能」，是**整個 app 退回網頁版那條路**：打自己肚子裡的 /api/state（必然 404）、不帶
+  // Bearer、不讀 Keychain、也不顯示 app 的登入畫面——畫面上只會安靜地變成「單機模式」，
+  // 連一行紅字都沒有（TestFlight build 7 實際回報的形狀）。
+  //
+  // 所以改成四個**互相獨立**的訊號，任一成立就算在 app 裡：其中兩個（nativePromise、
+  // wkBridge）是注入的 bridge 一定有的，protocol 連 bridge 都不必載入就成立。四個要
+  // 同時消失才會誤判，而那時 nativeDiag() 會把當下看到的東西印在閘門上。
+  //
+  // 反方向同樣重要：網頁版與單檔開啟必須一個訊號都不成立。`webkit.messageHandlers.bridge`
+  // 是 Capacitor 自己用來判斷 iOS 的那一個（手機 Safari 上沒有這個物件），protocol 也只
+  // 認 capacitor:／ionic:，所以 https 與 file:// 仍然一律是 false。
+  const NATIVE_SIGNALS = (function(){
+    const out = [];
+    try{
+      const cap = window.Capacitor;
+      if(cap && typeof cap.isNativePlatform === 'function' && cap.isNativePlatform()) out.push('isNativePlatform');
+      if(cap && typeof cap.getPlatform === 'function' && /^(ios|android)$/.test(cap.getPlatform())) out.push('getPlatform');
+      if(cap && typeof cap.nativePromise === 'function') out.push('nativePromise');
+      const mh = window.webkit && window.webkit.messageHandlers;
+      if(mh && mh.bridge) out.push('wkBridge');
+      if(/^(capacitor|ionic):$/.test(location.protocol)) out.push('protocol');
+    }catch(e){ /* 偵測本身絕不能讓啟動停下來：訊號讀不到就是沒有那個訊號 */ }
+    return out;
+  })();
+  const NATIVE = NATIVE_SIGNALS.length > 0;
+  const SITE_ORIGIN ='https://work-schedule.bounceto12340.workers.dev';   // 線上網址；閘門的「前往登入」與 app 的 API 都指這裡
   const API_BASE = NATIVE ? SITE_ORIGIN : '';
   const APP_CLIENT = 'ios/1.0.0';   // 併進 user agent，「登入中的裝置」才分得出是 app
   const TOKEN_KEY = 'sessionToken';
@@ -1785,6 +1818,32 @@
       getAppTransaction: call('getAppTransaction')
     };
     return nativePluginCache;
+  }
+  /**
+   * 「現在到底看到什麼」的一行字。**手機上沒有 console 可看**，所以所有原生相關的
+   * 失敗都要帶著它出現在畫面上——同「拿不到購買證明」附上原因的那個判斷。
+   */
+  function nativeDiag(){
+    // 每一格都各自包起來：**會爆炸的診斷函式比沒有診斷更糟**——它會把自己要傳達的
+    // 那則訊息一起吞掉，畫面又回到「安靜的單機模式」。探針 4 實際抓到過這件事
+    // （外殼壞到連讀 bridge 都丟例外時，nativePlugin() 在這裡再爆一次）。
+    const safe = (fn, fallback) => { try{ return fn(); }catch(e){ return fallback; } };
+    return [
+      'protocol=' + safe(()=>location.protocol, '?'),
+      'Capacitor=' + safe(()=>window.Capacitor ? 'yes' : 'no', '?'),
+      'signals=' + (NATIVE_SIGNALS.join('+') || 'none'),
+      'plugin=' + safe(()=>nativePlugin() ? 'yes' : 'no', 'error'),
+    ].join(' · ');
+  }
+  /**
+   * app 的外殼壞了：插件沒載入，或啟動流程中途摔倒。
+   *
+   * 這是〈降級可以，沉默不行〉在 app 裡的版本。少了它，兩種完全不同的故障
+   * （沒認出自己是 app／認出了但插件不在）與「正常的單機模式」在畫面上一模一樣。
+   */
+  function nativeShellBroken(why){
+    console.error('原生外殼異常：' + why + ' · ' + nativeDiag());
+    setCloudNote(escapeHtml(tr('app 啟動異常') + '：' + why + '（' + nativeDiag() + '）'), 'err');
   }
   if(NATIVE){
     const realFetch = window.fetch.bind(window);
@@ -1908,6 +1967,9 @@
   }
   /** app 的啟動：有 token 就同步，沒有就先登入。網頁版不走這裡。 */
   async function nativeBoot(localHadData){
+    // 插件不在＝「登入得了但存不住」：登入成功 → reload → 又回到登入畫面，無限輪迴
+    // （build 6 實際的症狀）。與其讓人重試第三次才懷疑，不如在登入畫面出現前就說出來。
+    if(!nativePlugin()) nativeShellBroken(tr('原生插件沒有載入'));
     appToken = await nativeTokenLoad();
     if(!appToken){ appAuthShow(); return; }
     await initCloudSync(localHadData);
@@ -2291,6 +2353,8 @@
       '向 App Store 取得購買證明…':'Fetching the purchase proof from the App Store…',
       '拿不到 App Store 的購買證明。請確認是從 App Store 或 TestFlight 安裝的版本。':
         'Could not get the App Store purchase proof. Make sure this copy was installed from the App Store or TestFlight.',
+      'app 啟動異常':'App startup problem',
+      '原生插件沒有載入':'the native plugin did not load',
       '其他裝置已登出。':'Other devices have been signed out.',
       '目前離線，無法登出其他裝置。':'You are offline — other devices could not be signed out.',
       '裝置清單讀取失敗，其餘設定不受影響。':'Could not load the device list. Other settings are unaffected.',
@@ -3046,7 +3110,18 @@
   function signedInBefore(){ const m = readCloudMeta(); return !!(m && m.owner); }
   function loginGateShow(){
     const g = document.getElementById('loginGate');
-    if(g) g.classList.add('show');
+    if(!g) return;
+    g.classList.add('show');
+    // 閘門在 app 裡永遠不該出現——NATIVE 為真就走 nativeBoot，那條路自己有登入畫面。
+    // 真的出現了，就代表五個訊號全部落空，而那是最難從症狀推回原因的一種。手機上
+    // 沒有 console，所以把當下看到的東西直接印在閘門上。單檔開啟（file://）不顯示：
+    // 那是正常且預期的路徑，多一行雜訊只會嚇到人。
+    const looksNative = !!window.Capacitor || !/^(https?|file):$/.test(location.protocol);
+    const d = document.getElementById('loginGateDiag');
+    if(d){
+      d.textContent = looksNative ? nativeDiag() : '';
+      d.style.display = looksNative ? '' : 'none';
+    }
   }
   const btnLoginGate = document.getElementById('btnLoginGate');
   if(btnLoginGate) btnLoginGate.onclick = ()=>{ location.href = SITE_ORIGIN + '/login'; };
@@ -3106,7 +3181,10 @@
       return { kind: (NATIVE || location.protocol.startsWith('http')) ? 'failed' : 'absent', error: e };
     }
     if(r.status === 401){ sessionExpired(); return { kind:'expired' }; }
-    if(r.status === 404) return { kind:'absent' };
+    // app 裡打的永遠是線上網址（API_BASE = SITE_ORIGIN），那裡一定有 /api/state——
+    // 所以 app 裡收到 404 代表**有東西壞了**，不是「這個環境沒有後端」。把它當 absent
+    // 會靜默降級成單機模式，而 absent 那條路本來只是為了單檔／未部署而存在的。
+    if(r.status === 404) return NATIVE ? { kind:'failed', error: new Error('HTTP 404') } : { kind:'absent' };
     if(!r.ok) return { kind:'failed', error: new Error('HTTP '+r.status) };
     try{ return { kind:'ok', data: await r.json() }; }
     catch(e){ return { kind:'failed', error: e }; }
@@ -7551,7 +7629,14 @@
   document.addEventListener('visibilitychange', ()=>{ if(document.hidden) flushPendingWrites(); });
   window.addEventListener('pagehide', flushPendingWrites);
   // app 裡先看 Keychain 有沒有 token：沒有就顯示登入畫面，有才同步（見〈原生外殼〉）
-  if(NATIVE) nativeBoot(loadedFromStorage);
+  // .catch 不是防禦性程式碼，是**必要**的：這裡是 fire-and-forget 的 async，摔倒只會變成
+  // 一個沒有人看得到的 unhandled rejection——畫面停在示範資料、狀態列一片乾淨，與「單機
+  // 模式」長得一模一樣。initCloudSync 自己有 catch（見〈降級可以，沉默不行〉），
+  // nativeBoot 原本沒有，那是同一條規則漏掉的一格。
+  if(NATIVE) nativeBoot(loadedFromStorage).catch(e=>{
+    console.error('app 啟動失敗', e && e.stack ? e.stack : String(e));
+    nativeShellBroken(String((e && e.message) || e));
+  });
   else if(!gatedAtBoot) initCloudSync(loadedFromStorage);   // 不 await：雲端偵測不得拖慢啟動
 })();
 </script>
