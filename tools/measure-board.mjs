@@ -22,6 +22,7 @@
 import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { chromium } from '/home/user/work-schedule/node_modules/playwright/index.mjs';
+import { markSignedIn } from './lib/signed-in.mjs';
 
 const PORT = 8981;
 const PUBLIC = '/home/user/work-schedule/public/';
@@ -71,6 +72,7 @@ for (const n of [64, 150, 300]) {
   await page.addInitScript(state => {
     try { localStorage.setItem('workSchedule.v1', JSON.stringify(state)); } catch (e) {}
   }, makeState(n));
+  await markSignedIn(page);   // 登入閘門：見 tools/lib/signed-in.mjs
   await page.goto(`http://localhost:${PORT}/`);
   await page.waitForSelector('#board');
   await page.waitForTimeout(700);

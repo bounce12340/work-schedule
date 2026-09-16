@@ -4,10 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 專案性質
 
-前端是**零依賴的單一 HTML 檔** `public/index.html`（約 4800 行，CSS + HTML + JavaScript 全在裡面），可以獨立雙擊開啟運作；後端是 Cloudflare Worker + D1，只在部署後才啟用。
+前端是**零依賴的單一 HTML 檔** `public/index.html`（約 4800 行，CSS + HTML + JavaScript 全在裡面）；後端是 Cloudflare Worker + D1。**必須登入才能使用**（2026-09-16 起，見〈登入閘門〉）：雙擊開啟只會看到「請登入」。
 
 ```
-public/index.html      主應用（單檔，可直接雙擊開啟）
+public/index.html      主應用（單檔，零依賴；沒登入只會看到閘門）
 public/login.html      登入／註冊／忘記密碼（含 Turnstile）
 public/reset.html      從信裡的一次性連結設定新密碼
 public/admin.html      帳號管理（僅管理者）
@@ -15,6 +15,7 @@ src/index.js           路由與存取控制
 src/crypto.js          PBKDF2 密碼雜湊、token 產生
 src/session.js         session 建立／查詢／銷毀
 src/turnstile.js       Turnstile siteverify
+src/plan.js            方案（free / pro）：planOf、上限、「只有變多才擋」
 src/handlers/          auth / state / admin / share / password-reset / appauth 等 API
 src/apppurchase.js     App Store 購買證明（AppTransaction JWS）的離線驗簽
 src/mail.js            AgentMail 寄信（逾期提醒與密碼重設共用）
@@ -30,6 +31,8 @@ docs/superpowers/specs/ 設計文件
 public/sw.js           service worker（加到主畫面／離線可用）
 public/manifest.webmanifest, public/icon*.png|svg
 public/privacy.html    隱私權政策（不用登入；App Store 審查要求）
+public/terms.html      使用條款（不用登入；訂閱 app 的審查要求）
+tools/lib/signed-in.mjs 瀏覽器驗證腳本過閘門用：把「登入過」寫進 cloudMeta
 mobile/                iOS app 外殼（Capacitor；自己的 package.json，見〈iOS app〉）
 .github/workflows/ios.yml  在 GitHub 的 Mac 上打包、簽章、上傳到 App Store Connect（手動觸發）
 ```
@@ -52,6 +55,7 @@ mobile/                iOS app 外殼（Capacitor；自己的 package.json，見
 | `tests/appauth.test.mjs` | Bearer 與 cookie 並存、購買證明驗簽（五種失敗一種成功）、email 驗證碼、app 註冊／登入 | 直接 import；`tests/fake-apple.mjs` 用純 JS 的 DER 編碼器自己當 Apple 簽憑證鏈 |
 | `tests/account-delete.test.mjs` | 刪除自己的帳號：每張表清空、**別人的每一列原樣**、session 失效 | 直接 import Worker 端模組 |
 | `tests/cors.test.mjs` | iOS app 來源的 CORS：預檢、正常與錯誤回應都帶標頭、別的來源與同源不加、永不開 credentials | 直接打 Worker 的 `fetch` 入口 |
+| `tests/plan.test.mjs` | 方案：`planOf` 與寬限、「只有變多才擋」、`PUT /api/state` 的 402 且列不動、管理者設方案、AI 上限依方案、**前後端 `PLAN_LIMITS` 逐字相同** | 直接 import；上限那一份從 `index.html` 抽出來比 |
 
 前三者的挑選理由：前兩者近乎純函式、零 DOM 依賴；第三者是**競態**——靠併發碰運氣測不到，但可以把空窗做成確定性的。
 
@@ -61,9 +65,20 @@ mobile/                iOS app 外殼（Capacitor；自己的 package.json，見
 
 `tests/d1.mjs` 用 **Node 內建的 `node:sqlite`**（不是相依套件）搭出 D1 相容外殼，讓 handler 跑真正的 SQL。不自己造假的 DB 物件是刻意的：要驗的正是「帶條件的 UPDATE 有沒有改到一列」，那是 SQL 的語意，假物件等於把答案寫成期望值，測起來永遠會過。
 
-### 不可破壞的前提
+### 前提（2026-09-16 改過）
 
-**`public/index.html` 必須永遠能單獨雙擊開啟使用。** 雲端同步是漸進增強：偵測不到 `/api/state` 就靜默降級為純 localStorage。任何讓前端「非得有後端才能跑」的改動都違反這個前提。
+**`public/index.html` 仍然是零依賴的單檔**（沒有 build step、不引任何套件），但**不再是「雙擊就能用」**：使用者的裁決是「必須登入才能使用」（付費牆——單機檔沒有上限也不用帳號，等於免費版的上限只要不登入就繞過去）。詳見〈登入閘門〉與 `docs/superpowers/specs/2026-09-16-subscription-design.md`。
+
+保留下來的：**登入過的裝置離線時照常用本機資料**（PWA 的價值），偵測不到後端時的降級邏輯原樣。改掉的只有「從來沒登入過、又沒有後端」這一種情況：以前是示範資料，現在是閘門。
+
+### 登入閘門
+
+規則只有一條，寫在 `runCloudSync` 的 `absent` 分支與〈啟動〉：**後端不存在（file:// 或 404）而且這台裝置從來沒登入過（`cloudMeta.owner` 為空）→ 全螢幕「請登入」，不 seed、不 persist。**
+
+- file:// 在第一次繪製前就決定（`gatedAtBoot`），不必等 `cloudPull` 回來——那樣會先閃一下示範資料。
+- 登入過但斷線（`failed`）照舊用本機資料；app 不走這條（`nativeBoot` 自己擋）；線上網頁由 Worker 的 302 擋，閘門在那裡永遠不會出現。
+- **它擋的是「順手」不是「刻意」**：`index.html` 誰都下載得到，閘門在瀏覽器裡改一行就拆得掉。真正擋得住的是伺服器端（同步、分享、提醒、AI 都要帳號；上限在 `PUT /api/state`）。不要為了「更安全」把閘門做複雜。
+- **`tools/` 的瀏覽器腳本全部靠 `tools/lib/signed-in.mjs` 過閘門**（把 owner 寫進 cloudMeta，測的是「登入過、後端不在」）。不要在 `index.html` 加任何測試模式的開關繞閘門。`smoke.mjs` 的「單檔開啟」兩輪改成真的用 file:// 開，驗閘門出現、按鈕在、`workSchedule.v1` 不存在（證明沒 seed）。突變驗證過：拿掉 `verify-toggle` 的那一行它會紅。
 
 ### 常用指令
 
@@ -73,7 +88,7 @@ npm run db:init:local  # 對本機 miniflare D1 建表（--local 的資料庫與
 npm run db:init        # 對遠端 D1 建表
 npm run admin:reset    # 破窗鎚：直接改密碼（見〈破窗鎚〉）
 npm run deploy         # 部署
-npm test               # 全部測試檔（node:test，不需安裝任何東西；目前 293 個測試）
+npm test               # 全部測試檔（node:test，不需安裝任何東西；目前 311 個測試）
 ```
 
 跑單一測試檔或單一測試（`npm test` 沒有轉發參數的管道，直接用 node）：
@@ -145,7 +160,7 @@ Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.Comm
 
 | 腳本 | 驗什麼 | 什麼時候一定要跑 |
 |---|---|---|
-| `tools/smoke.mjs` | 四個頁籤 × 中英文 × 單檔／已登入共四輪，加上「iOS app 外殼（假 Capacitor）」與「隱私頁」共六輪：零 pageerror、零 console.error、每頁關鍵錨點存在；app 那一輪還斷言**所有打到線上網址的請求都帶 Bearer** | **任何前端改動**。第 0 條的自動化版本 |
+| `tools/smoke.mjs` | 六輪：「單檔開啟 × 中英文」（file://，驗登入閘門）、「已登入 × 中英文」（走四個頁籤；中文那輪是免費版、撞上限要開升級說明，英文那輪是 Pro、要開新增表單）、「iOS app 外殼（假 Capacitor）」、「隱私頁與使用條款頁」：零 pageerror、零 console.error、每頁關鍵錨點存在；app 那一輪還斷言**所有打到線上網址的請求都帶 Bearer** | **任何前端改動**。第 0 條的自動化版本 |
 | `tools/verify-toggle.mjs` | 勾選的就地更新與完整重繪結果完全相同 | 動到 `renderBoard()` 或 `moveOccRowToDone()` |
 | `tools/verify-richtext.mjs` | 富文字過濾器的整條管線（含 DOM 走訪）擋得住 16 種攻擊向量 | 動到富文字 |
 | `tools/check-calendar.mjs` | 日曆的色條軌道對齊、跨月與週界的收邊、每日記錄的 ✎ 記號 | 動到 `renderCalendar()` 或日曆的 CSS |
@@ -159,7 +174,7 @@ Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.Comm
 
 （`tools/check-syntax.mjs` 不在這張表裡：它零相依、跑不到一秒，已經放進 CI 的 `check` job 與上面〈驗證方式〉第 2 條。）
 
-`smoke.mjs` **兩種後端狀態都要跑**不是多餘的：逾期提醒那次事故只在登入後才踩得到（`runCloudSync` 才會呼叫到缺失的函式），只測單檔開啟會整條漏掉。實際驗證過——把 `reminderEnabled` 改名重現那次事故，單檔兩輪全綠、已登入兩輪才紅。
+`smoke.mjs` 的頁籤走訪現在只在「已登入」那兩輪（「單檔開啟」變成閘門檢查）。逾期提醒那次事故只在登入後才踩得到（`runCloudSync` 才會呼叫到缺失的函式），所以那兩輪一定要用假後端真的走完 `runCloudSync`，不能只開靜態檔。
 
 ### 降級可以，沉默不行
 
@@ -446,9 +461,9 @@ grep -nE '(const|let|var)[[:space:]]+(tr|tf|weekName)\b' public/index.html
 | 空 | 有 | 採用雲端（不可重新 seed） |
 | 有 | 有 | `cloudMeta.updatedAt === 遠端` → 本機較新，推上去；否則為**真衝突**，跳對話框讓使用者選 |
 
-加上「本機編輯後 1.5s 自動推送」與「file:// 開啟時完全靜默」，共六個情境。
+加上「本機編輯後 1.5s 自動推送」與「file:// 開啟」，共六個情境。最後一個的行為改過：從來沒登入過的裝置看到的是登入閘門（不 seed）；登入過的裝置（`cloudMeta.owner` 在）仍然靜默用本機資料。
 
-**「空＋空」那一格刻意不是 seed。** 啟動時 `loadState()` 失敗會先跑 `seed()` 讓單機開啟有東西可看，但等到確認「已登入且雲端沒有資料」時，那份示範資料就必須清掉——否則每個新帳號第一次登入都會拿到一份不屬於自己的假資料，還得逐筆刪。判斷依據是 `localHadData`：它為 false 就代表畫面上這份是 seed 而不是使用者的東西。單機模式（沒有帳號）仍然保留 seed，那是單檔雙擊開啟時的展示價值。
+**「空＋空」那一格刻意不是 seed。** 啟動時 `loadState()` 失敗會先跑 `seed()`（閘門關著時除外），但等到確認「已登入且雲端沒有資料」時，那份示範資料就必須清掉——否則每個新帳號第一次登入都會拿到一份不屬於自己的假資料，還得逐筆刪。判斷依據是 `localHadData`：它為 false 就代表畫面上這份是 seed 而不是使用者的東西。`seed()` 現在實際上只給 `tools/` 的瀏覽器腳本用（登入過、後端不在）——單檔雙擊開啟的展示價值已隨〈登入閘門〉一起拿掉。
 
 **衝突以三方合併處理**（`threeWayMerge`，「三方合併」區段，純函式、有測試）：以 `baseSnapshot` 為基準逐項比對，只有一邊改過的自動採用、兩邊各自新增的都保留、單邊刪除生效；**只有「兩邊都改到同一個項目」才跳對話框**，且對話框只針對衝突項目二選一，其餘已合併。這是分享功能的必要條件——被分享者每次勾選都會改動擁有者的雲端版本號，若仍是整份二選一，擁有者下一次推送就會被迫在「自己的編輯」與「對方的勾選」之間擇一，選錯就有人的變更無聲消失。
 
@@ -573,7 +588,7 @@ Turnstile 擋得住「一秒鐘一萬次」的機器人，擋不住「一分鐘�
 
 設計文件在 `docs/superpowers/specs/2026-09-14-ios-app-design.md`，決策過程都在裡面。這裡只記實作後不能拿掉的判斷。
 
-**形狀：付費下載、`index.html` 內建、與網頁版共用同一套帳號與資料。** 錢在 App Store 那一刻收完，所以沒有 IAP、沒有訂閱、沒有刷卡；後端唯一要回答的是「這個帳號的主人買了 app 嗎」。
+**形狀（2026-09-16 改過）：免費下載＋app 內訂閱（子專案 E，設計文件 `2026-09-16-subscription-design.md`）、`index.html` 內建、與網頁版共用同一套帳號與資料。** 原本是付費下載（錢在 App Store 那一刻收完、不需要 IAP），改成訂閱之後 IAP 變成必要；購買證明（AppTransaction）免費 app 也有，**保留**它當「一個 Apple ID 一個帳號」的防濫用機制——免費版有上限，開十個帳號就是繞過上限最直接的方法。E1（方案與上限，見〈方案與上限〉）已實作；E2（StoreKit 訂閱）與 E3（Apple 伺服器通知）待做。
 
 | 決定 | 理由 |
 |---|---|
@@ -583,6 +598,7 @@ Turnstile 擋得住「一秒鐘一萬次」的機器人，擋不住「一分鐘�
 | 前端**包一層 `fetch`**，不改三十幾處呼叫 | 相對路徑 `/api/...` 在 `capacitor://localhost` 底下會打到 app 自己身上。大範圍機械式改名正是〈多語系〉那節遮蔽事故的形狀。只在 `window.Capacitor.isNativePlatform()` 為真時換掉，網頁版連這一層都沒有。這是全檔唯一改寫全域行為的地方 |
 | app 走 **Bearer token**，網頁走 cookie，**同一張 `sessions` 表** | WKWebView 對第三方 cookie 很嚴，靠它會時好時壞。`readSessionToken()` 先 cookie 後 Bearer；app 的 session 180 天 |
 | Worker 對 `capacitor://localhost` 這一個來源回 **CORS** 標頭（`src/index.js` 的 `withCors` / `corsPreflight`），**不開 Allow-Credentials** | app 打線上 `/api/*` 是跨網域：WKWebView 先送 OPTIONS 預檢，沒有 `Access-Control-Allow-Origin` 整個請求被瀏覽器丟掉，前端只拿到 TypeError，畫面上是「連線失敗，請確認網路後再試」，而 Worker 一筆請求都沒收到（TestFlight 第一次打開就是這樣，登入與註冊都進不去）。**錯誤回應也要帶**，否則 401 看起來也像斷線。不開 credentials：app 走 Bearer，不該讓跨來源請求帶得動網頁版的 cookie。`tools/smoke.mjs` **抓不到**這類錯誤——它用 `page.route` 在瀏覽器送出前就攔下請求，預檢不會發生——`tests/cors.test.mjs` 直接打 Worker 的 fetch 入口守著 |
+| 前端叫原生插件走 `Capacitor.nativePromise('WorkScheduleNative', 方法, 參數)`，**不是** `Capacitor.Plugins.WorkScheduleNative` | 真機上的 `window.Capacitor` 是 WKWebView 注入的 `native-bridge.js`，它不會把原生註冊的插件放進 `Plugins`——只有 `@capacitor/core` 的 `registerPlugin()` 會，而單檔 HTML 沒有引入 core。第一版讀 `Plugins.*` 在真機上永遠是 null：Keychain 從沒存過、購買證明永遠「拿不到」（TestFlight 第一次註冊就是這樣紅的）。`tools/smoke.mjs` 的假 Capacitor 原本直接塞了那個物件，比真的大方，現在改成只給 `nativePromise`——**假的東西不能比真的多給**。「拿不到購買證明」的訊息現在會附上原因，手機上沒有 console 可看 |
 | token 存 **Keychain**，不放 localStorage | WKWebView 的網頁儲存會跟著「清除網站資料」消失，也沒有 Keychain 的保護。自寫的 Swift 插件（約 60 行）做這件事，不裝第三方插件 |
 | 註冊附 **AppTransaction 的 JWS，離線驗簽**（`src/apppurchase.js`） | x5c 鏈逐段驗到內建的 Apple Root CA - G3、ES256 驗本體、比對 bundleId 與環境。不打 Apple 的 API：沒有網路依賴、沒有限流、沒有另一把金鑰。**根憑證可注入只為了測試**（`tests/fake-apple.mjs` 自己當 Apple） |
 | `app_transaction_id` **UNIQUE**：一次購買一個帳號 | 擋「買一份、開十個帳號」。同一個 Apple ID 重灌拿到同一個 id，換手機登入即可；刪掉帳號後 id 空出來可以再註冊。競態靠 UNIQUE 擋，不靠先 SELECT 再 INSERT |
@@ -594,14 +610,34 @@ Turnstile 擋得住「一秒鐘一萬次」的機器人，擋不住「一分鐘�
 | 登入／註冊成功後 `location.reload()` | 與「帶著 token 開 app」走同一條啟動路徑（`nativeBoot`），不另外拼一份初始化 |
 | **刪除自己的帳號**（`DELETE /api/auth/account`）：先記錄再刪，`shares` 兩個方向都刪，`share_activity` 保留 | Apple 5.1.1(v) 硬規定。`ADMIN_EMAILS` 名單內的帳號也能刪自己：名單防的是另一位管理者的橫向操作，本人拿密碼刪自己是直向的。測試守著「別人的每一列原樣」 |
 | `public/privacy.html` 不用登入 | App Store 審查員與還沒註冊的人都會來看。`run_worker_first` 沒列它，靜態資產直接供應 |
-| AI 每日上限 50 → 20 | 付費下載一次收、永遠用，每次呼叫都要付 DeepSeek 錢 |
+| AI 每日上限依方案：免費 5、Pro 20 | 每次呼叫都要付 DeepSeek 錢；免費版不能不限，給 5 次是讓人試得到 |
 | 打包**只在手動觸發或 `ios-v*` tag** 時跑，在 GitHub 的 `macos-26` 映像（**不是 `xcode-27`**） | Mac runner 貴而且慢；開發者沒有 Mac 也不需要。`xcode-27` 標籤是「預覽」映像，裡面只有 beta——beta 打的 build 可以上傳到 App Store Connect 但**會被拒收**（第五次打包：「Unsupported SDK or Xcode version … you need to use the latest Release Candidates」）。`macos-26` 預設是 Xcode 26.x 正式版。自動簽章帶 App Store Connect API 金鑰，四個 secrets：`ASC_KEY_ID`、`ASC_ISSUER_ID`、`ASC_API_KEY_P8`、`APPLE_TEAM_ID`。金鑰寫進 `~/private_keys`，跑完一律刪 |
 | **archive 不簽章**（`CODE_SIGNING_ALLOWED=NO`），簽章整個留給 `exportArchive` | 自動簽章的 archive 一律用**開發用**身分，那種描述檔必須綁至少一台實體裝置，帳號沒裝置就失敗（第一次打包：「Your team has no devices」）；在 archive 硬指定 `Apple Distribution` 又會被 Xcode 拒絕為「conflicting provisioning settings」（第二次）。export（`app-store-connect` + `signingStyle automatic` + `-allowProvisioningUpdates`）自己用**發佈用**身分重簽，不綁裝置，憑證由 Xcode 雲端簽章代管，runner 不需要 .p12。**不要把 `project.pbxproj` 的 `CODE_SIGN_IDENTITY` 改成 Distribution**，那會讓本機用 Xcode 打包也撞同一個錯 |
 | `ASC_KEY_ID` 那把金鑰的角色**必須是 Admin** | 雲端簽章要用雲端代管的發佈憑證，App Manager／Developer 金鑰被拒（第三次打包：「You haven't been given access to cloud-managed distribution certificates」）。使用者帳號有「Access to Cloud Managed Distribution Certificate」的勾選框，**API 金鑰沒有**，只能靠角色。代價是這把金鑰權限很大，只放在 GitHub secrets、跑完就刪 |
 
 **改版時要做的事**：`mobile/package.json` 的 `version` 往上加（build 號是 GitHub 的 `run_number`，不用管）→ 手動跑 iOS workflow → App Store Connect 送審。`public/index.html` 改了 app 不會自己更新。
 
-**部署順序**：`migrations/005-app-purchase.sql` 要在部署新 Worker **之前**跑（`INSERT INTO users (... purchase_source ...)` 欄位不在會直接失敗），理由見〈資料庫結構變更〉。
+**部署順序**：`migrations/005-app-purchase.sql` 與 `006-plan.sql` 都要在部署新 Worker **之前**跑（`getSessionUser` 的 SELECT 讀 `plan_source`，欄位不在**每一個**登入請求都會 500），理由見〈資料庫結構變更〉。006 跑完、Worker 部署完之後，還要到 `/admin` 把既有的兩個帳號設成「Pro（永久）」——漏掉的症狀是他們的第四個專案被擋，當場就會知道。
+
+## 方案與上限（`src/plan.js`）
+
+設計文件 `docs/superpowers/specs/2026-09-16-subscription-design.md`。免費版：大項目與甘特專案**各**最多 3 個、AI 每天 5 次；Pro 不限（AI 20 次）。實作後不能拿掉的判斷：
+
+| 決定 | 理由 |
+|---|---|
+| 「是不是 Pro」只看 `users.plan_source` / `plan_expires_at`，**不在請求當下問 Apple** | 同購買證明的離線驗簽：沒有網路依賴、沒有限流、沒有另一把金鑰 |
+| 到期後 **3 天寬限**（`GRACE_MS`） | Apple 續訂失敗有 billing retry，那幾天 Apple 仍算訂閱中；沒有寬限的話信用卡過期當天就被降級，而 Apple 還在幫他重試 |
+| 上限規則是 **「新的數量 ≤ max(上限, 舊的數量)」**，不是「≤ 上限」 | 降級的人可能有 10 個專案：一個都不刪、一個都不鎖，只是不能再新增。改回「≤ 上限」的症狀是**連既有的都存不回去**、每次同步 402，看起來只像「同步失敗」。有測試守著 |
+| 伺服器擋（`PUT /api/state` 回 **402**），前端只是禮貌 | `index.html` 誰都下載得到，改一下 localStorage 再同步就繞過前端。402 附上 `over: { kind, count, limit }`，前端的 `handleCapped` 顯示「超過免費版上限，這次沒有同步」並開升級說明 |
+| 超過上限時才多讀一次舊 state | Pro 與沒超過的人一句 SQL 都不多。讀完再寫不破壞樂觀鎖：別人在中間改了那一列，UPDATE 的 `WHERE updated_at = ?` 本來就會落空 |
+| **「＋ 新增」按鈕仍在、仍可點**，到上限點下去開升級說明而不是表單 | 按鈕消失會讓人以為功能不見了。同「我的帳號」在單機模式仍存在的理由 |
+| 前端 `PLAN_LIMITS` 與後端**逐字相同**，測試比對 | 兩邊數字不一樣的症狀是「按鈕讓我新增、同步卻 402」或反過來 |
+| 前端沒有帳號時（登入過、現在離線）當 **pro** | 沒有伺服器可以擋，前端也不該自己擋 |
+| 既有的兩個帳號：管理者在 `/admin` 設「Pro（永久）」，**不寫進 migration** | migration 在公開的 repo 裡，email 不該進去。`plan_source='admin'` 且 `plan_expires_at` 為 NULL |
+| 方案是「給東西」：管理者**可以**設自己與 `ADMIN_EMAILS` 名單內的帳號 | 那兩道保險只管角色與狀態（停用、降級）。永久帳號正是名單內的那兩個，其中一個就是操作者本人。同一個請求夾帶 `status` 就回到原本的規則，連方案也一起擋 |
+| Apple 的通知**不會蓋掉** `plan_source='admin'`（E3 實作時） | 否則永久帳號的主人在 app 裡試訂一次再取消，到期那天就被降回免費 |
+| `users.apple_original_txn` UNIQUE；換帳號「恢復購買」是**搬過去**不是拒絕（E2） | 訂閱屬於 Apple ID 不屬於我們的帳號。UNIQUE 擋的是同一筆交易被兩個帳號同時算成 Pro |
+| `public/terms.html` 不用登入 | Apple 對訂閱 app 的硬規定：訂閱畫面與 App Store metadata 都要連得到使用條款（自動續訂、取消方式、退款由 Apple 處理都寫在裡面） |
 
 **驗證**：`tests/appauth.test.mjs`、`tests/account-delete.test.mjs`（突變驗證七種改法都會紅）；`tools/smoke.mjs` 的「iOS app 外殼」那一輪用假的 `window.Capacitor` 走登入畫面、寄驗證碼、登入、**所有線上請求都帶 Bearer**、登出清 Keychain（拿掉 Bearer 那一行當場紅）。真機只能靠 TestFlight。
 
@@ -876,7 +912,7 @@ AI 的批次寫入正是就地修改，第一版因此復原不了，是瀏覽�
 新增欄位因此要在 `migrations/` 下留一支單獨的 SQL，並在**部署之前**跑過：
 
 ```bash
-npx wrangler d1 execute work-schedule-db --remote --file=./migrations/005-app-purchase.sql   # 最新的一支；舊的照編號
+npx wrangler d1 execute work-schedule-db --remote --file=./migrations/006-plan.sql   # 最新的一支；舊的照編號
 ```
 
 **順序不能反。** 新程式碼 `SELECT r.lead_days`，欄位還沒加就會讓提醒的 cron 與 `/api/reminder` 直接失敗。新增**資料表**沒有這個問題（`db:init` 重跑 `schema.sql` 就會建），只有**欄位**需要 migration。
@@ -1208,7 +1244,7 @@ class 命名沿用 `type-<type>`（列）與 `type-badge <type>`（徽章）；�
 
 ## 已知限制（刻意為之，回報前先確認是否為此）
 
-1. 未部署時儲存僅限單一瀏覽器；部署後才跨裝置
+1. **必須登入才能使用**（2026-09-16 起）：從來沒登入過的裝置開單檔只會看到閘門；登入過的裝置離線時照常用本機資料
 2. 假日自動判斷週六日；國定假日提供**已公布年度的內建清單**（一鍵載入）與批次貼上，見下方「國定假日」章節。未公布的年度不內建
 3. ~~無法表達「週末補班日」~~ 已支援：`customWorkdays`（modal 內「補班日」區）優先於週末判斷。2026 與 2027 年都沒有補班日，所以目前沒有 `BUILTIN_WORKDAYS`——哪一年真的有了，要**先加那個結構**再貼資料，不要把補班日誤塞進 `BUILTIN_HOLIDAYS`（那會讓它變成假日，方向剛好相反）
 4. 甘特圖長條為靜態百分比定位，不支援拖曳；日期只能透過表格輸入修改
@@ -1220,7 +1256,7 @@ class 命名沿用 `type-<type>`（列）與 `type-badge <type>`（徽章）；�
 10. **前置作業只顯示，不順延也不阻擋**；一個項目最多五個前置。「A 延後 B 自動跟著延後」是刻意不做的（見上方章節）
 11. **「不在」不影響逾期、不影響提醒信、不影響 ICS**，只是日曆與列上的一個標記。使用者的裁決：「不在就是不在，逾期就照樣逾期」
 12. 前置作業的狀態不進提醒信與 ICS——那兩者的內容由前端展開後推上去，加進去等於再開一條會分歧的路
-13. **iOS app 是付費下載**：在 app 裡註冊要附 Apple 的購買證明，一次購買一個帳號；Apple 退款後帳號仍在（v1 不接 App Store Server Notifications）
+13. **免費版有上限**：大項目與甘特專案各最多 3 個、AI 每天 5 次；Pro（app 內訂閱，E2 待做）不限。降級不刪資料，只是不能再新增。在 app 裡註冊仍要附 Apple 的購買證明——一個 Apple ID 一個帳號，那是防濫用不是收費
 14. **前端每次改版，app 要重新打包送審**：`index.html` 內建在 app 裡（自動更新是之後的子專案）
 15. **網頁上不開放陌生人自己註冊**：註冊只在 app 裡發生；網頁註冊仍走管理者核准，留給例外
 

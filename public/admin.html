@@ -76,6 +76,8 @@
   .badge.approved{background:var(--teal-dim);color:var(--teal);}
   .badge.pending{background:var(--amber-dim);color:var(--amber);}
   .badge.rejected,.badge.suspended{background:var(--red-dim);color:var(--red);}
+  .badge.pro{background:var(--amber-dim);color:var(--amber);}
+  .badge.free{background:var(--panel-2);color:var(--text-muted);}
   .when{font-family:var(--mono);font-size:10.5px;color:var(--text-dim);}
   .ops{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto;}
   .op{font-family:var(--mono);font-size:11px;padding:6px 10px;border-radius:6px;cursor:pointer;
@@ -529,6 +531,7 @@
 
     row.appendChild(badge(ROLE_LABEL[u.role] || u.role, u.role));
     row.appendChild(badge(STATUS_LABEL[u.status] || u.status, u.status));
+    row.appendChild(badge(planLabel(u), u.plan === 'pro' ? 'pro' : 'free'));
 
     var when = document.createElement('span');
     when.className = 'when'; when.textContent = '註冊 ' + fmt(u.created_at);
@@ -537,9 +540,17 @@
     var ops = document.createElement('div');
     ops.className = 'ops';
 
+    // 方案是「給東西」，自己與 ADMIN_EMAILS 名單內的帳號都設得了——既有的兩個永久帳號正是這兩種
+    if (u.plan === 'pro') {
+      ops.appendChild(op('改回免費', '', function(){ patch(u, { plan: { source: null } }); }));
+    } else {
+      ops.appendChild(op('設為 Pro（永久）', 'approve', function(){ patch(u, { plan: { source: 'admin', expiresAt: null } }); }));
+      ops.appendChild(op('Pro 到某日…', '', function(){ setPlanUntil(u); }));
+    }
+
     if (me && u.id === me.id) {
       var self = document.createElement('span');
-      self.className = 'locked'; self.textContent = '（你自己，無法變更）';
+      self.className = 'locked'; self.textContent = '（你自己，角色與狀態無法變更）';
       ops.appendChild(self);
     } else {
       if (u.status !== 'approved') ops.appendChild(op('核准', 'approve', function(){ patch(u, { status:'approved' }); }));
@@ -553,6 +564,22 @@
     }
     row.appendChild(ops);
     return row;
+  }
+
+  function planLabel(u){
+    if (u.plan !== 'pro') return '免費';
+    if (u.planExpiresAt == null) return 'Pro · 永久';
+    return 'Pro 至 ' + new Date(u.planExpiresAt).toISOString().slice(0, 10);
+  }
+
+  function setPlanUntil(u){
+    var v = prompt('Pro 到哪一天為止？（YYYY-MM-DD，當天結束時到期）');
+    if (!v) return;
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v.trim());
+    if (!m) { showMsg('日期格式要是 YYYY-MM-DD', 'err'); return; }
+    var end = Date.UTC(+m[1], +m[2] - 1, +m[3], 23, 59, 59);
+    if (isNaN(end)) { showMsg('日期不正確', 'err'); return; }
+    patch(u, { plan: { source: 'admin', expiresAt: end } });
   }
 
   function badge(text, kind){

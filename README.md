@@ -8,7 +8,7 @@ A work-scheduling tool that lives in a single HTML file: tasks, meetings, recurr
 
 ## Getting started
 
-### Option 1: standalone (nothing to install)
+### Option 1: standalone (nothing to install) — **retired**: since 2026-09-16 you must sign in; double-clicking the file only shows a sign-in gate
 
 1. Download [`public/index.html`](./public/index.html)
 2. Open it in any modern browser
@@ -163,9 +163,10 @@ APP_URL=<optional>
 - The fifth tab on the main screen gathers account info, password change, overdue reminders, calendar subscription, signed-in devices, display preferences and backups
 - **Signed-in devices**: see which devices you are signed in on and when each was last used, with one-click "Sign out all other devices" (keeps the current one); IP addresses are not recorded
 - **Delete my account**: at the bottom of the tab; confirm with your password and the account, every schedule in the cloud, shares, calendar feed and reminder settings are gone (daily backups expire after 14 days). Works on the web and in the iOS app
-- When not signed in (standalone file), backups and display preferences still work; the rest shows as requiring sign-in
+- A device that has never signed in only sees the sign-in gate; a device that has signed in keeps working offline on local data
+- **Free and Pro**: Free has no time limit but caps: up to 3 major projects and 3 projects, 5 AI requests a day. Pro lifts the caps (20 AI requests a day). When Pro lapses nothing is deleted; you just can't add more. Subscriptions are bought inside the iPhone app (not yet released) and the web shares the same one
 
-### 📱 iOS app (paid download)
+### 📱 iOS app (free download, Pro subscription in-app)
 - The same `index.html` is bundled into a native app (`mobile/`, Capacitor). Works offline; signs in with a token kept in the Keychain; the web version and the app share one account and one set of data
 - Registering inside the app attaches Apple's purchase proof (StoreKit `AppTransaction`), verified offline by the Worker: no administrator approval, one purchase = one account. A 6-digit email code replaces Turnstile, which cannot run inside the app
 - Building and uploading happen on GitHub's Mac runners (`.github/workflows/ios.yml`, manual trigger); no Mac required. Four repository secrets: `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_API_KEY_P8`, `APPLE_TEAM_ID`. Set `APP_PURCHASE_ALLOW_SANDBOX=1` on the Worker while testing through TestFlight
@@ -208,7 +209,7 @@ APP_URL=<optional>
 - The back end is a Cloudflare Worker + D1 with self-hosted email/password auth; sessions live in the database (token hash only) so they can be revoked instantly
 
 ```
-public/index.html      main app (single file, opens by double-click)
+public/index.html      main app (single file, zero dependencies; shows the sign-in gate when not signed in)
 public/login.html      sign in / register (with Turnstile)
 public/admin.html      account management (administrators only)
 src/index.js           routing and access control
@@ -232,6 +233,8 @@ For the full architecture and data model see [`工作排程確認系統_專案�
 
 | Limitation | Detail |
 |---|---|
+| Sign-in required | A device that has never signed in only sees the gate; a signed-in device works offline on local data |
+| Free plan caps | Up to 3 major projects and 3 projects, 5 AI requests a day; Pro is unlimited. Lapsing deletes nothing, you just can't add more |
 | Standalone storage scope | Without deployment, data lives in *this browser only* and does not follow you across devices; clearing browser data clears it too |
 | Sync conflicts | Merged item by item against the last synced content; you only choose a side when the same item changed on both |
 | Holidays | Weekends are automatic. Public holidays are bundled only for years that have been officially published (currently 2026 and 2027); other years can be pasted in bulk |
@@ -239,5 +242,5 @@ For the full architecture and data model see [`工作排程確認系統_專案�
 | "Away" | Only a mark on the calendar and the row: it moves no dates and **does not affect overdue**, reminder emails or the calendar subscription |
 | Weekend work days | Supported: weekend dates added to the "work days" list count as working days, so recurrences are not pushed past them |
 | Gantt | Bars cannot be dragged; dates are changed through the task table |
-| iOS app | Paid download; one purchase = one account; refunds do not remove the account. Every front-end release needs a new build submitted to the App Store. Public registration happens only inside the app |
+| iOS app | Free download, Pro is an in-app subscription (not yet released); one Apple ID = one account. Every front-end release needs a new build submitted to the App Store. Public registration happens only inside the app |
 | Changing recurrence frequency | Switching monthly ↔ quarterly resets the per-occurrence done / override / skip records (you are warned before saving) |

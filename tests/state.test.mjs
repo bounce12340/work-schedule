@@ -30,6 +30,10 @@ const item = (id, over = {}) => ({
  * 讓第一次執行的 `UPDATE user_state` 在真正跑之前先插入一次別人的寫入。
  * 這正是「讀完到寫入之間」那段空窗，用它可以穩定重現原本要靠併發才撞得到的問題。
  */
+// handlePutState 現在收整個 user（上限要看方案）。這裡的 U1 沒有方案 → 免費版，
+// 而這支測試的 state 都只有 items、沒有專案，永遠碰不到上限。
+const U1 = { id: 'u1', email: 'a@x.com', role: 'user', status: 'approved' };
+
 function withRaceBeforeFirstUpdate(env, inject) {
   let fired = false;
   const DB = {
@@ -57,7 +61,7 @@ function withRaceBeforeFirstUpdate(env, inject) {
 test('首次寫入：雲端還沒有資料，沒有基準版本也該成功', async () => {
   const env = makeEnv(); addUser(env, 'u1', 'a@x.com');
   const { status, body } = await unwrap(
-    await handlePutState(req({ state: st({ items: [item('a')] }), baseUpdatedAt: null }), env, 'u1'));
+    await handlePutState(req({ state: st({ items: [item('a')] }), baseUpdatedAt: null }), env, U1));
   assert.equal(status, 200);
   assert.equal(readState(env, 'u1').state.items[0].id, 'a');
   assert.equal(readState(env, 'u1').updatedAt, body.updatedAt);
@@ -67,7 +71,7 @@ test('基準版本相符：更新成功並回傳新版本號', async () => {
   const env = makeEnv(); addUser(env, 'u1', 'a@x.com');
   const t0 = seedState(env, 'u1', st({ items: [item('a')] }), 1000);
   const { status, body } = await unwrap(
-    await handlePutState(req({ state: st({ items: [item('a', { done: true })] }), baseUpdatedAt: t0 }), env, 'u1'));
+    await handlePutState(req({ state: st({ items: [item('a', { done: true })] }), baseUpdatedAt: t0 }), env, U1));
   assert.equal(status, 200);
   assert.equal(readState(env, 'u1').state.items[0].done, true);
   assert.notEqual(body.updatedAt, t0);
@@ -77,7 +81,7 @@ test('基準版本對不上：回 409 並附上遠端內容，遠端資料不被
   const env = makeEnv(); addUser(env, 'u1', 'a@x.com');
   seedState(env, 'u1', st({ items: [item('a', { title: '雲端的' }) ] }), 2000);
   const { status, body } = await unwrap(
-    await handlePutState(req({ state: st({ items: [item('a', { title: '本機的' })] }), baseUpdatedAt: 1000 }), env, 'u1'));
+    await handlePutState(req({ state: st({ items: [item('a', { title: '本機的' })] }), baseUpdatedAt: 1000 }), env, U1));
   assert.equal(status, 409);
   assert.equal(body.remote.updatedAt, 2000);
   assert.equal(body.remote.state.items[0].title, '雲端的');
@@ -88,7 +92,7 @@ test('沒有基準版本但雲端已有資料：當成衝突，不可覆蓋', as
   const env = makeEnv(); addUser(env, 'u1', 'a@x.com');
   seedState(env, 'u1', st({ items: [item('a', { title: '雲端的' })] }), 2000);
   const { status } = await unwrap(
-    await handlePutState(req({ state: st(), baseUpdatedAt: null }), env, 'u1'));
+    await handlePutState(req({ state: st(), baseUpdatedAt: null }), env, U1));
   assert.equal(status, 409);
   assert.equal(readState(env, 'u1').state.items[0].title, '雲端的');
 });
@@ -104,7 +108,7 @@ test('競態：比對版本之後、寫入之前被別人改掉 → 必須 409�
   });
 
   const { status, body } = await unwrap(
-    await handlePutState(req({ state: st({ items: [item('a', { title: '我寫的' })] }), baseUpdatedAt: t0 }), env, 'u1'));
+    await handlePutState(req({ state: st({ items: [item('a', { title: '我寫的' })] }), baseUpdatedAt: t0 }), env, U1));
 
   assert.equal(status, 409, '舊寫法會在這裡回 200 並把對方的寫入吃掉');
   assert.equal(readState(base, 'u1').state.items[0].title, '另一台裝置寫的');
@@ -114,7 +118,7 @@ test('競態：比對版本之後、寫入之前被別人改掉 → 必須 409�
 test('有基準版本但那一列已被刪除：當首次寫入補上，不算衝突', async () => {
   const env = makeEnv(); addUser(env, 'u1', 'a@x.com');
   const { status } = await unwrap(
-    await handlePutState(req({ state: st({ items: [item('a')] }), baseUpdatedAt: 9999 }), env, 'u1'));
+    await handlePutState(req({ state: st({ items: [item('a')] }), baseUpdatedAt: 9999 }), env, U1));
   assert.equal(status, 200);
   assert.equal(readState(env, 'u1').state.items[0].id, 'a');
 });
@@ -125,7 +129,8 @@ test('GET /api/state 一併回身分，前端才不必再打一次 /api/auth/me'
   const user = { id: 'u1', email: 'a@x.com', role: 'admin', status: 'approved' };
 
   const { body } = await unwrap(await handleGetState(env, user));
-  assert.deepEqual(body.user, { email: 'a@x.com', role: 'admin', status: 'approved' });
+  // 方案也順帶回：前端啟動時就要知道「＋ 新增」該開表單還是開升級說明
+  assert.deepEqual(body.user, { email: 'a@x.com', role: 'admin', status: 'approved', plan: 'free', planSource: null, planExpiresAt: null });
   assert.equal(body.updatedAt, 4000);
   assert.equal(body.state.items[0].id, 'a');
 

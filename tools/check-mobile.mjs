@@ -27,6 +27,7 @@
 import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { chromium, devices } from '/home/user/work-schedule/node_modules/playwright/index.mjs';
+import { markSignedIn } from './lib/signed-in.mjs';
 
 const PUBLIC = '/home/user/work-schedule/public/';
 const PORT = 8995;
@@ -80,6 +81,7 @@ await page.addInitScript(s => {
 const cdp = await ctx.newCDPSession(page);
 await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
 
+await markSignedIn(page);   // 登入閘門：見 tools/lib/signed-in.mjs
 await page.goto(`http://localhost:${PORT}/`);
 await page.waitForSelector('#board');
 await page.waitForTimeout(2000);

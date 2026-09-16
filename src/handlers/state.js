@@ -1,4 +1,5 @@
 import { json } from './auth.js';
+import { planOf, planInfo, capViolations, exceedsPlanCap } from '../plan.js';
 
 const MAX_STATE_BYTES = 1_000_000;   // 遠高於實際用量（示範資料約 1.8 KB）
 
@@ -15,7 +16,8 @@ export async function handleGetState(env, user) {
     .bind(user.id)
     .first();
 
-  const me = { email: user.email, role: user.role, status: user.status, createdAt: user.createdAt };
+  // 方案順帶回：前端啟動時本來就要知道才能決定「＋ 新增」要開表單還是開升級說明
+  const me = { email: user.email, role: user.role, status: user.status, createdAt: user.createdAt, ...planInfo(user) };
 
   // 沒有雲端資料不是錯誤：代表這個使用者還沒同步過，前端應沿用本地資料
   if (!row) return json({ user: me, state: null, updatedAt: null });
@@ -23,7 +25,8 @@ export async function handleGetState(env, user) {
   return json({ user: me, state: JSON.parse(row.state), updatedAt: row.updated_at });
 }
 
-export async function handlePutState(request, env, userId) {
+export async function handlePutState(request, env, user) {
+  const userId = user.id;
   let body;
   try {
     body = await request.json();
@@ -40,6 +43,21 @@ export async function handlePutState(request, env, userId) {
   }
 
   const now = Date.now();
+
+  // 方案上限（src/plan.js）。前端的「新增」按鈕變灰只是禮貌——index.html 誰都下載得到，
+  // 改一下 localStorage 再同步上去就繞過了；付費牆若只在前端等於沒有。
+  //
+  // 規則是「新的數量 ≤ max(上限, 舊的數量)」：只有變多而且超過才擋，降級的人保留既有的。
+  // 要知道「變多」得讀舊的那一份，但只在新的數量已經超過上限時才讀——Pro 與沒超過的人
+  // 一句 SQL 都不多。讀完再寫不會破壞底下的樂觀鎖：若別人在中間改了那一列，UPDATE 的
+  // WHERE updated_at = ? 本來就會讓這次寫入落空，走 409。
+  const plan = planOf(user, now);
+  if (capViolations(body.state, plan).length) {
+    const old = await env.DB.prepare('SELECT state FROM user_state WHERE user_id = ?').bind(userId).first();
+    const over = exceedsPlanCap(old ? JSON.parse(old.state) : null, body.state, plan);
+    if (over) return json({ error: '超過免費版的上限', plan, over }, 402);
+  }
+
   // 前端送出它讀到的版本號。undefined 會被 D1 的 bind 拒絕，一律正規化成 null。
   const base = body.baseUpdatedAt ?? null;
 

@@ -21,6 +21,7 @@
 import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { markSignedIn } from './lib/signed-in.mjs';
 
 let chromium;
 try {
@@ -162,6 +163,7 @@ for (const [theme, label, fixedTime] of PASSES) {
   const page = await br.newPage({ viewport: { width: 1280, height: 900 }, locale: 'zh-TW' });
   if (fixedTime) await page.clock.setFixedTime(new Date(fixedTime));
   await page.addInitScript(t => { try { localStorage.setItem('workSchedule.v1.theme', t); } catch (e) {} }, theme);
+  await markSignedIn(page);   // 登入閘門：見 tools/lib/signed-in.mjs
   await page.goto(`http://localhost:${PORT}/`);
   await page.waitForSelector('#board');
   await page.waitForTimeout(800);

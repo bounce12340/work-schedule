@@ -25,6 +25,7 @@
  * AI 更糟，因為使用者會信任它。這與 ICS 與逾期提醒是同一個決定，理由也相同。
  */
 import { json } from './auth.js';
+import { PLAN_LIMITS, planOf } from '../plan.js';
 import { uuid } from '../crypto.js';
 
 const API_URL = 'https://api.deepseek.com/chat/completions';
@@ -37,7 +38,9 @@ const MODEL = 'deepseek-v4-flash';
 
 /** 限流：分鐘擋手滑連點，天擋「整天慢慢打」。與登入節流是同一種兩層形狀。 */
 const LIMIT_PER_MIN = 5;
-const LIMIT_PER_DAY = 20;   // 付費下載是一次收、永遠用，每次呼叫都要付 DeepSeek 錢；20 次/天一年約台幣幾十元
+// 每日上限依方案（src/plan.js 的 PLAN_LIMITS）：免費版 5、Pro 20。每次呼叫都要付 DeepSeek 錢，
+// 免費版不能不限；給 5 次是讓人試得到。
+function dayLimitFor(user, nowMs) { return PLAN_LIMITS[planOf(user, nowMs)].aiPerDay; }
 
 /** 保留幾天。同 share_activity——沒有保留上限的日誌表遲早會是最大的一張。 */
 const KEEP_DAYS = 90;
@@ -167,7 +170,7 @@ export async function handleAiStatus(env, user) {
   return json({
     configured: true,
     model: MODEL,
-    limits: { perMin: LIMIT_PER_MIN, perDay: LIMIT_PER_DAY },
+    limits: { perMin: LIMIT_PER_MIN, perDay: dayLimitFor(user, Date.now()) },
     usage: u,
   });
 }
@@ -190,8 +193,9 @@ export async function handleAiAsk(request, env, user, nowMs = Date.now()) {
   if (u.lastMin >= LIMIT_PER_MIN) {
     return json({ error: `太快了，請等 1 分鐘再問（每分鐘上限 ${LIMIT_PER_MIN} 次）`, retryAfterSec: 60 }, 429);
   }
-  if (u.lastDay >= LIMIT_PER_DAY) {
-    return json({ error: `今天的 AI 用量已達上限（${LIMIT_PER_DAY} 次），明天會重置`, retryAfterSec: 3600 }, 429);
+  const dayLimit = dayLimitFor(user, nowMs);
+  if (u.lastDay >= dayLimit) {
+    return json({ error: `今天的 AI 用量已達上限（${dayLimit} 次），明天會重置`, retryAfterSec: 3600 }, 429);
   }
 
   let recordId;
@@ -382,8 +386,9 @@ export async function handleAiPlan(request, env, user, nowMs = Date.now()) {
   if (u.lastMin >= LIMIT_PER_MIN) {
     return json({ error: `太快了，請等 1 分鐘再試（每分鐘上限 ${LIMIT_PER_MIN} 次）`, retryAfterSec: 60 }, 429);
   }
-  if (u.lastDay >= LIMIT_PER_DAY) {
-    return json({ error: `今天的 AI 用量已達上限（${LIMIT_PER_DAY} 次），明天會重置`, retryAfterSec: 3600 }, 429);
+  const dayLimit = dayLimitFor(user, nowMs);
+  if (u.lastDay >= dayLimit) {
+    return json({ error: `今天的 AI 用量已達上限（${dayLimit} 次），明天會重置`, retryAfterSec: 3600 }, 429);
   }
 
   let recordId;

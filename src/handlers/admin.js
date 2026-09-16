@@ -2,6 +2,7 @@ import { json, adminEmails } from './auth.js';
 import { hashPassword, generateToken } from '../crypto.js';
 import { destroyAllSessions } from '../session.js';
 import { logAdminAction } from './backup.js';
+import { planInfo } from '../plan.js';
 
 const VALID_STATUS = ['pending', 'approved', 'rejected', 'suspended'];
 const VALID_ROLE = ['user', 'admin'];
@@ -12,11 +13,42 @@ const VALID_ROLE = ['user', 'admin'];
  */
 export async function handleListUsers(env) {
   const { results } = await env.DB.prepare(
-    `SELECT id, email, role, status, created_at, approved_at
+    `SELECT id, email, role, status, created_at, approved_at, plan_source, plan_expires_at
        FROM users
       ORDER BY CASE status WHEN 'pending' THEN 0 ELSE 1 END, created_at DESC`
   ).all();
-  return json({ users: results || [] });
+  return json({ users: (results || []).map(withPlan) });
+}
+
+/** 方案以算好的 plan 回給管理頁，不讓前端自己重算到期與寬限。 */
+function withPlan(row) {
+  const { plan_source, plan_expires_at, ...rest } = row;
+  return { ...rest, ...planInfo(row) };
+}
+
+/**
+ * 方案的手動設定：{ source: 'admin' | null, expiresAt: number | null }。
+ *   source null            → 免費
+ *   'admin' + expiresAt null → Pro 永久（既有的兩個帳號就是這樣設的）
+ *   'admin' + expiresAt     → Pro 到那一天
+ * 回 null 代表 body 裡沒有 plan；回 { error } 代表格式不對。
+ */
+function parsePlan(body) {
+  if (body.plan === undefined) return null;
+  const p = body.plan;
+  if (p === null || typeof p !== 'object') return { error: '方案格式不正確' };
+  if (p.source !== null && p.source !== 'admin') return { error: '方案來源只能是 admin 或 null' };
+  if (p.expiresAt !== null && p.expiresAt !== undefined && !Number.isFinite(p.expiresAt)) {
+    return { error: '到期日不正確' };
+  }
+  if (p.source === null) return { source: null, expiresAt: null };
+  return { source: 'admin', expiresAt: p.expiresAt == null ? null : Math.floor(p.expiresAt) };
+}
+
+function describePlan(source, expiresAt) {
+  if (!source) return 'free';
+  if (expiresAt == null) return 'pro（永久）';
+  return `pro（至 ${new Date(expiresAt).toISOString().slice(0, 10)}）`;
 }
 
 export async function handleUpdateUser(request, env, actingUser, targetId) {
@@ -24,7 +56,7 @@ export async function handleUpdateUser(request, env, actingUser, targetId) {
   try { body = await request.json(); } catch { return json({ error: '請求格式錯誤' }, 400); }
 
   const target = await env.DB
-    .prepare('SELECT id, email, role, status FROM users WHERE id = ?')
+    .prepare('SELECT id, email, role, status, plan_source, plan_expires_at FROM users WHERE id = ?')
     .bind(targetId).first();
   if (!target) return json({ error: '找不到這個帳號' }, 404);
 
@@ -36,14 +68,20 @@ export async function handleUpdateUser(request, env, actingUser, targetId) {
   if (nextRole !== undefined && !VALID_ROLE.includes(nextRole)) {
     return json({ error: '角色值不正確' }, 400);
   }
+  const nextPlan = parsePlan(body);
+  if (nextPlan && nextPlan.error) return json({ error: nextPlan.error }, 400);
+
+  // 底下兩道保險只管角色與狀態：方案是「給東西」，不是停用也不是降級，
+  // 而且既有的兩個永久帳號正是 ADMIN_EMAILS 名單內的那兩個、其中一個就是操作者本人。
+  const touchesAccount = nextStatus !== undefined || nextRole !== undefined;
 
   // 不能改自己：避免管理者手滑把自己降級或停用，導致沒有人能再管理系統
-  if (target.id === actingUser.id) {
+  if (touchesAccount && target.id === actingUser.id) {
     return json({ error: '不能變更自己的角色或狀態' }, 400);
   }
 
   // ADMIN_EMAILS 名單內的帳號是系統的最後保險，不允許從介面停用或降級
-  if (adminEmails(env).includes(target.email)) {
+  if (touchesAccount && adminEmails(env).includes(target.email)) {
     return json({ error: '這是設定檔指定的管理者，無法從介面變更' }, 403);
   }
 
@@ -57,6 +95,10 @@ export async function handleUpdateUser(request, env, actingUser, targetId) {
     }
   }
   if (nextRole !== undefined) { sets.push('role = ?'); binds.push(nextRole); }
+  if (nextPlan) {
+    sets.push('plan_source = ?', 'plan_expires_at = ?');
+    binds.push(nextPlan.source, nextPlan.expiresAt);
+  }
   if (!sets.length) return json({ error: '沒有要變更的欄位' }, 400);
 
   binds.push(targetId);
@@ -77,12 +119,17 @@ export async function handleUpdateUser(request, env, actingUser, targetId) {
   if (nextRole !== undefined && nextRole !== target.role) {
     changes.push(`角色 ${target.role} → ${nextRole}`);
   }
+  if (nextPlan) {
+    const before = describePlan(target.plan_source, target.plan_expires_at);
+    const after = describePlan(nextPlan.source, nextPlan.expiresAt);
+    if (before !== after) changes.push(`方案 ${before} → ${after}`);
+  }
   if (changes.length) await logAdminAction(env, actingUser, target, changes.join('、'));
 
   const updated = await env.DB
-    .prepare('SELECT id, email, role, status, created_at, approved_at FROM users WHERE id = ?')
+    .prepare('SELECT id, email, role, status, created_at, approved_at, plan_source, plan_expires_at FROM users WHERE id = ?')
     .bind(targetId).first();
-  return json({ ok: true, user: updated });
+  return json({ ok: true, user: withPlan(updated) });
 }
 
 /**

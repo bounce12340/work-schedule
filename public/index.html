@@ -870,6 +870,7 @@
   .field-row > .field{ flex:1; }
   .modal-actions{ display:flex; gap:10px; margin-top:20px; }
   /* iOS app 的登入／註冊畫面：蓋住整頁而不是半透明，因為底下的看板還沒有這個人的資料 */
+  #upgradeOverlay a{ color: var(--amber-ink); }   /* 淺底上的連結：--amber 本身只有 2.84:1（見〈顏色不只要好看〉） */
   .app-auth{ z-index:90; background: var(--bg); backdrop-filter:none; padding-top: calc(20px + env(safe-area-inset-top)); padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
   .app-auth-brand{ margin-bottom:16px; }
   .app-auth-title{ font-family: var(--serif); font-size:20px; font-weight:600; color: var(--text); }
@@ -1282,6 +1283,12 @@
           </div>
         </div>
 
+        <div class="acct-sec" id="acctPlan">
+          <div class="acct-h" data-i18n>⭐ 方案</div>
+          <div class="acct-id-email" id="acctPlanName">—</div>
+          <div class="acct-sub" id="acctPlanSub"></div>
+        </div>
+
         <div class="acct-sec" id="acctReminder">
           <div class="acct-h" data-i18n>📧 逾期提醒信</div>
           <div class="acct-sub" id="acctReminderSub"></div>
@@ -1603,6 +1610,36 @@
   </div>
 </div>
 
+<!-- 登入閘門：沒登入就不能用（使用者的裁決，見 docs/superpowers/specs/2026-09-16-subscription-design.md〈E0〉）。
+     只在「後端不存在（file:// 或 404）而且這台裝置從來沒登入過」時出現；線上網頁由 Worker 的 302
+     擋著，app 由 nativeBoot 擋著，這裡永遠不會出現。它是前端的閘門，擋的是「順手」不是「刻意」——
+     真正擋得住的上限在伺服器端。 -->
+<div class="overlay app-auth" id="loginGate">
+  <div class="modal" style="max-width:420px;">
+    <div class="app-auth-brand">
+      <div class="app-auth-title" data-i18n>工作排程確認系統</div>
+      <div class="app-auth-sub" data-i18n>這個工具需要登入才能使用。排程存在你的帳號裡，登入後在任何裝置都看得到同一份。</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-confirm" id="btnLoginGate" type="button" data-i18n>前往登入</button>
+    </div>
+  </div>
+</div>
+
+<!-- 免費版撞到上限時的說明。「＋ 新增」按鈕仍在、仍可點，點下去開這個而不是新增表單——
+     按鈕消失會讓人以為功能不見了。上限的真正執行在伺服器（PUT /api/state 回 402）。 -->
+<div class="overlay" id="upgradeOverlay">
+  <div class="modal" style="max-width:440px;">
+    <h3><span class="dot"></span><span data-i18n>免費版的上限</span></h3>
+    <div class="field-hint" id="upgradeText" style="margin-bottom:10px;"></div>
+    <div class="field-hint" id="upgradeHow" style="margin-bottom:14px;"></div>
+    <div class="acct-sub"><a href="/terms.html" target="_blank" rel="noopener" data-i18n>使用條款</a> · <a href="/privacy.html" target="_blank" rel="noopener" data-i18n>隱私權政策</a></div>
+    <div class="modal-actions">
+      <button class="btn-confirm" id="btnUpgradeClose" type="button" data-i18n>知道了</button>
+    </div>
+  </div>
+</div>
+
 <div class="overlay" id="delOverlay">
   <div class="modal" style="max-width:400px;">
     <h3><span class="dot" style="background:var(--red);"></span><span data-i18n>刪除我的帳號</span></h3>
@@ -1667,14 +1704,35 @@
   // 那節遮蔽事故的形狀；而且只在原生環境才換掉，單檔與網頁版連這一層都沒有。
   // 這是全檔唯一一處改寫全域行為的地方。
   const NATIVE = !!(window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform());
-  const API_BASE = NATIVE ? 'https://work-schedule.bounceto12340.workers.dev' : '';
+  const SITE_ORIGIN = 'https://work-schedule.bounceto12340.workers.dev';   // 線上網址；閘門的「前往登入」與 app 的 API 都指這裡
+  const API_BASE = NATIVE ? SITE_ORIGIN : '';
   const APP_CLIENT = 'ios/1.0.0';   // 併進 user agent，「登入中的裝置」才分得出是 app
   const TOKEN_KEY = 'sessionToken';
   let appToken = null;              // 只在 app 裡有值；存在 Keychain，不進 localStorage
 
+  /**
+   * 自寫的原生插件（mobile/ios/App/App/WorkScheduleNativePlugin.swift）。
+   *
+   * 真機上的 window.Capacitor 是 WKWebView 注入的 native-bridge.js，它**不會**把原生那邊
+   * 註冊的插件放進 Capacitor.Plugins——那件事只有 @capacitor/core 的 registerPlugin()
+   * 會做，而這個單檔 HTML 沒有引入 core。第一版直接讀 Capacitor.Plugins.WorkScheduleNative，
+   * 真機上永遠是 null：Keychain 從來沒存過、購買證明永遠「拿不到」；冒煙測試的假
+   * Capacitor 剛好把那個物件塞好了，所以全綠（TestFlight 第一次註冊就是這樣紅的）。
+   * 改走 native-bridge 一定有的底層入口 nativePromise(插件, 方法, 參數)，插件名是
+   * Swift 那邊的 jsName。Plugins 裡若真的有（將來引入 core 的話）仍優先用它。
+   */
+  let nativePluginCache = null;
   function nativePlugin(){
-    const C = window.Capacitor;
-    return (C && C.Plugins && C.Plugins.WorkScheduleNative) || null;
+    if(nativePluginCache) return nativePluginCache;
+    const C = window.Capacitor; if(!C) return null;
+    if(C.Plugins && C.Plugins.WorkScheduleNative){ nativePluginCache = C.Plugins.WorkScheduleNative; return nativePluginCache; }
+    if(typeof C.nativePromise !== 'function') return null;
+    const call = (method) => (opts) => C.nativePromise('WorkScheduleNative', method, opts || {});
+    nativePluginCache = {
+      keychainGet: call('keychainGet'), keychainSet: call('keychainSet'), keychainDelete: call('keychainDelete'),
+      getAppTransaction: call('getAppTransaction')
+    };
+    return nativePluginCache;
   }
   if(NATIVE){
     const realFetch = window.fetch.bind(window);
@@ -1700,11 +1758,20 @@
     const p = nativePlugin(); if(!p) return;
     try{ await p.keychainDelete({ key: TOKEN_KEY }); }catch(e){ console.error('keychain delete failed', e); }
   }
-  /** Apple 的購買證明（AppTransaction 的 JWS）。拿不到回 null，由呼叫端提示。 */
+  /**
+   * Apple 的購買證明（AppTransaction 的 JWS）。回 { jws } 或 { error }。
+   * 原因一定要回給畫面：手機上沒有 console 可看，「拿不到」三個字分不出是插件根本
+   * 不在、還是 Apple 拒絕了、還是使用者取消登入——三種要做的事完全不同。
+   */
   async function nativePurchaseProof(){
-    const p = nativePlugin(); if(!p) return null;
-    try{ const r = await p.getAppTransaction(); return (r && r.jws) || null; }
-    catch(e){ console.error('app transaction failed', e); return null; }
+    const p = nativePlugin(); if(!p) return { error: 'native plugin unavailable' };
+    try{
+      const r = await p.getAppTransaction();
+      return (r && r.jws) ? { jws: r.jws } : { error: 'empty response from StoreKit' };
+    }catch(e){
+      console.error('app transaction failed', e);
+      return { error: String((e && (e.message || e.errorMessage)) || e) };
+    }
   }
 
   // ---- 只在 app 裡出現的登入／註冊畫面（login.html 依賴 Turnstile，app 不用它） ----
@@ -1765,10 +1832,14 @@
           if(!/^\d{6}$/.test(code)){ appAuthMsg(tr('驗證碼是六位數字'), 'err'); return; }
           if(password.length < 10){ appAuthMsg(tr('密碼至少需要 10 個字元'), 'err'); return; }
           appAuthMsg(tr('向 App Store 取得購買證明…'));
-          const jws = await nativePurchaseProof();
-          if(!jws){ appAuthMsg(tr('拿不到 App Store 的購買證明。請確認是從 App Store 或 TestFlight 安裝的版本。'), 'err'); return; }
+          const proof = await nativePurchaseProof();
+          if(!proof.jws){
+            // 原因附在後面（textContent，不是 innerHTML）：使用者回報時才有東西可以貼
+            appAuthMsg(tr('拿不到 App Store 的購買證明。請確認是從 App Store 或 TestFlight 安裝的版本。') + '（' + proof.error + '）', 'err');
+            return;
+          }
           r = await fetch('/api/auth/app/register', { method:'POST', headers:{ 'content-type':'application/json' },
-            body: JSON.stringify({ email, code, password, appTransactionJws: jws }) });
+            body: JSON.stringify({ email, code, password, appTransactionJws: proof.jws }) });
         }else{
           r = await fetch('/api/auth/app/login', { method:'POST', headers:{ 'content-type':'application/json' },
             body: JSON.stringify({ email, password }) });
@@ -1893,6 +1964,22 @@
     en: {
       // —— 導覽與頁首 ——
       '工作排程確認系統':'Schedule Control Board',
+      // —— 方案與上限 ——
+      '免費版的上限':'Free plan limit', '知道了':'Got it', '使用條款':'Terms of Use', '隱私權政策':'Privacy Policy',
+      '免費版最多 {0} 個大項目，你已經有 {1} 個。既有的都會留著、照常使用，只是不能再新增。':'The free plan allows up to {0} major projects; you already have {1}. Everything you have stays and keeps working — you just can’t add more.',
+      '免費版最多 {0} 個專案，你已經有 {1} 個。既有的都會留著、照常使用，只是不能再新增。':'The free plan allows up to {0} projects; you already have {1}. Everything you have stays and keeps working — you just can’t add more.',
+      '要新增更多請訂閱 Pro——訂閱功能即將在這個 app 裡推出。':'Subscribe to Pro to add more — subscriptions are coming to this app soon.',
+      '要新增更多請訂閱 Pro。訂閱在 iPhone app 的「我的帳號」裡進行，網頁版會一起變成 Pro。':'Subscribe to Pro to add more. Subscribe from “My account” in the iPhone app; the web version becomes Pro too.',
+      '超過免費版上限，這次沒有同步':'Over the free plan limit — this change was not synced',
+      '⭐ 方案':'⭐ Plan', '免費版':'Free',
+      '到 {0} 為止。大項目與專案都不限數量，AI 小幫手每天 {1} 次。':'Until {0}. Unlimited major projects and projects; AI assistant {1} times a day.',
+      '永久有效。大項目與專案都不限數量，AI 小幫手每天 {0} 次。':'Lifetime. Unlimited major projects and projects; AI assistant {0} times a day.',
+      '大項目與專案各最多 {0} 個，AI 小幫手每天 {1} 次。':'Up to {0} major projects and {0} projects; AI assistant {1} times a day.',
+      '訂閱 Pro 的功能即將在這個 app 裡推出。':'Pro subscriptions are coming to this app soon.',
+      '要升級請在 iPhone app 的「我的帳號」裡訂閱 Pro，網頁版會一起變成 Pro。':'To upgrade, subscribe to Pro from “My account” in the iPhone app; the web version becomes Pro too.',
+      // —— 登入閘門 ——
+      '這個工具需要登入才能使用。排程存在你的帳號裡，登入後在任何裝置都看得到同一份。':'You need to sign in to use this. Your schedule lives in your account, so every device sees the same one.',
+      '前往登入':'Sign in',
       '項目安排':'Schedule', '日曆':'Calendar', '專案':'Projects', '共享':'Shared',
       '帳號管理':'Accounts', '登出':'Sign out',
       // —— 指標卡 ——
@@ -2838,6 +2925,57 @@
     try{ return JSON.parse(localStorage.getItem(CLOUD_META_KEY) || 'null'); }
     catch(e){ return null; }
   }
+  // ================= 方案與上限 =================
+  // 與 src/plan.js 的 PLAN_LIMITS **逐字相同**（tests/plan.test.mjs 比對兩邊）。前端這一份只用來
+  // 決定「＋ 新增」要開表單還是開升級說明；真正擋得住的是伺服器端的 402。
+  const PLAN_LIMITS = {
+    free: { majorProjects: 3, ganttProjects: 3, aiPerDay: 5 },
+    pro:  { majorProjects: Infinity, ganttProjects: Infinity, aiPerDay: 20 },
+  };
+  // 整句各一份，不拼字：「專案」這個 key 已經是導覽頁籤的譯文（Projects），拼進句子裡會變大寫
+  const PLAN_KIND_TEXT = {
+    majorProjects: '免費版最多 {0} 個大項目，你已經有 {1} 個。既有的都會留著、照常使用，只是不能再新增。',
+    ganttProjects: '免費版最多 {0} 個專案，你已經有 {1} 個。既有的都會留著、照常使用，只是不能再新增。',
+  };
+  /** 目前的方案。沒有帳號（登入過、現在離線）就當 pro：沒有伺服器可以擋，前端也不該自己擋。 */
+  function currentPlan(){ return (cloudEnabled && accountMe && accountMe.plan) ? accountMe.plan : 'pro'; }
+  function planLimit(kind){ return PLAN_LIMITS[currentPlan()][kind]; }
+  function planCount(kind){ return kind === 'majorProjects' ? majorProjects.length : ganttProjects.length; }
+  /** 還能不能再新增一個。到上限就開升級說明並回 false。 */
+  function planAllowsAdd(kind){
+    if(planCount(kind) < planLimit(kind)) return true;
+    openUpgrade(kind, planCount(kind));
+    return false;
+  }
+  function openUpgrade(kind, count){
+    const limit = PLAN_LIMITS.free[kind];
+    document.getElementById('upgradeText').textContent = tf(PLAN_KIND_TEXT[kind], limit, count);
+    document.getElementById('upgradeHow').textContent = NATIVE
+      ? tr('要新增更多請訂閱 Pro——訂閱功能即將在這個 app 裡推出。')
+      : tr('要新增更多請訂閱 Pro。訂閱在 iPhone app 的「我的帳號」裡進行，網頁版會一起變成 Pro。');
+    document.getElementById('upgradeOverlay').classList.add('show');
+  }
+  document.getElementById('btnUpgradeClose').onclick = ()=> document.getElementById('upgradeOverlay').classList.remove('show');
+  document.getElementById('upgradeOverlay').addEventListener('click',(e)=>{ if(e.target.id==='upgradeOverlay') e.currentTarget.classList.remove('show'); });
+  /** 伺服器回 402：本機比雲端多了東西、而方案不夠。不是斷線、不是衝突，是第三種狀態。 */
+  let cappedShown = false;
+  function handleCapped(d){
+    const over = d && d.over;
+    setCloudNote(tr('超過免費版上限，這次沒有同步'), 'err');
+    if(over && !cappedShown){ cappedShown = true; openUpgrade(over.kind, over.count); }
+  }
+
+  // ================= 登入閘門 =================
+  // 「這台裝置登入過」的證據就是 cloudMeta 裡有 owner。登入過但現在斷線的人照舊用本機
+  // 資料（離線後仍能看排程是 PWA 的價值）；從來沒登入過的人看到的是閘門，什麼都不 seed。
+  function signedInBefore(){ const m = readCloudMeta(); return !!(m && m.owner); }
+  function loginGateShow(){
+    const g = document.getElementById('loginGate');
+    if(g) g.classList.add('show');
+  }
+  const btnLoginGate = document.getElementById('btnLoginGate');
+  if(btnLoginGate) btnLoginGate.onclick = ()=>{ location.href = SITE_ORIGIN + '/login'; };
+
   function writeCloudMeta(baseSnap){
     // owner 讓下次載入能判斷這份本地快取屬於誰；baseSnapshot 是「上次成功同步
     // 到雲端的內容」，三方合併的基準——沒有它就無法區分「哪一邊改過」，
@@ -2915,6 +3053,11 @@
         const conflict = await r.json();
         pushInFlight = false;
         handleConflict(conflict.remote);
+        return;
+      }
+      if(r.status === 402){
+        // 超過免費版上限：資料仍在本機，刪掉多的或升級之後下一次變更會補推
+        handleCapped(await r.json());
         return;
       }
       if(!r.ok) throw new Error('HTTP '+r.status);
@@ -3104,7 +3247,12 @@
       return;
     }
     const remote = res.kind === 'ok' ? res.data : null;
-    if(!remote || !remote.user){ cloudEnabled = false; setCloudNote(''); updateStorageNote(); return; }
+    if(!remote || !remote.user){
+      cloudEnabled = false; setCloudNote(''); updateStorageNote();
+      // 沒有後端、也從來沒登入過：不能用（見〈登入閘門〉）。app 不走這裡，nativeBoot 自己擋。
+      if(!NATIVE && !signedInBefore()) loginGateShow();
+      return;
+    }
     const me = remote.user;
 
     showAccount(me);
@@ -3644,7 +3792,21 @@
   /** 沿用既有的 ymd()，不另造一個——兩個格式化日期的函式遲早會不一致 */
   function acctYmd(ms){ return ms ? ymd(new Date(ms)) : ''; }
 
-  const ACCT_CLOUD_SECTIONS = ['acctIdentity','acctReminder','acctIcs','acctDevices','acctDanger'];
+  const ACCT_CLOUD_SECTIONS = ['acctIdentity','acctPlan','acctReminder','acctIcs','acctDevices','acctDanger'];
+  function acctRenderPlan(){
+    const nameEl = document.getElementById('acctPlanName'), subEl = document.getElementById('acctPlanSub');
+    if(!nameEl || !subEl || !accountMe) return;
+    if(accountMe.plan === 'pro'){
+      nameEl.textContent = 'Pro';
+      subEl.textContent = accountMe.planExpiresAt
+        ? tf('到 {0} 為止。大項目與專案都不限數量，AI 小幫手每天 {1} 次。', acctYmd(accountMe.planExpiresAt), PLAN_LIMITS.pro.aiPerDay)
+        : tf('永久有效。大項目與專案都不限數量，AI 小幫手每天 {0} 次。', PLAN_LIMITS.pro.aiPerDay);
+    }else{
+      nameEl.textContent = tr('免費版');
+      subEl.textContent = tf('大項目與專案各最多 {0} 個，AI 小幫手每天 {1} 次。', PLAN_LIMITS.free.majorProjects, PLAN_LIMITS.free.aiPerDay)
+        + ' ' + (NATIVE ? tr('訂閱 Pro 的功能即將在這個 app 裡推出。') : tr('要升級請在 iPhone app 的「我的帳號」裡訂閱 Pro，網頁版會一起變成 Pro。'));
+    }
+  }
 
   function renderAccountView(){
     // 單機模式：雲端相關的區塊整區隱藏，並說明為什麼——留白會被當成壞掉
@@ -3663,6 +3825,8 @@
       const joined = accountMe.createdAt ? tf('{0} 加入', acctYmd(accountMe.createdAt)) : '';
       document.getElementById('acctMeta').textContent = joined ? role + ' · ' + joined : role;
     }
+
+    acctRenderPlan();
 
     const sub = document.getElementById('acctReminderSub');
     if(sub && accountMe){
@@ -3849,7 +4013,7 @@
       chip.appendChild(delBtn); wrap.appendChild(chip);
     });
     const addBtn=document.createElement('button'); addBtn.className='add-chip-btn'; addBtn.textContent=tr('＋ 新增大項目');
-    addBtn.onclick=()=>openMajorModal(null); wrap.appendChild(addBtn);
+    addBtn.onclick=()=>{ if(planAllowsAdd('majorProjects')) openMajorModal(null); }; wrap.appendChild(addBtn);
   }
   let editingMajorId = null;
   function openMajorModal(mp){
@@ -5533,7 +5697,7 @@
       wrap.appendChild(delBtn);
     }
     const addBtn=document.createElement('button'); addBtn.className='add-chip-btn'; addBtn.textContent=tr('＋ 新增專案');
-    addBtn.onclick=()=>openGanttModal(null); wrap.appendChild(addBtn);
+    addBtn.onclick=()=>{ if(planAllowsAdd('ganttProjects')) openGanttModal(null); }; wrap.appendChild(addBtn);
   }
   let editingGanttId=null;
   function openGanttModal(gp){
@@ -6995,14 +7159,19 @@
   };
 
   // ================= 啟動 =================
+  // file:// 一定沒有後端，可以在第一次繪製前就決定要不要關閘門——不必等 cloudPull 回來
+  // 才發現，那樣會先閃一下示範資料。放到別的靜態主機（http 但 /api 回 404）的情況
+  // 由 runCloudSync 的 absent 分支補上，那條路會慢一拍，但不會有人那樣用。
+  const gatedAtBoot = !NATIVE && location.protocol === 'file:' && !signedInBefore();
   const loadedFromStorage = loadState();
-  if(!loadedFromStorage) seed();
+  if(!loadedFromStorage && !gatedAtBoot) seed();   // 閘門關著還 seed，等於把示範資料寫進一個永遠用不到的 localStorage
   updateStorageNote();
   refreshAvailableYears();
   if(!availableYears.includes(selYear)) selYear = today.getFullYear();
-  if(!loadedFromStorage) persist();   // 首次開啟即建立存檔，之後重整才接得回來
+  if(!loadedFromStorage && !gatedAtBoot) persist();   // 首次開啟即建立存檔，之後重整才接得回來
   applyLang();                        // 內含 renderAll()：語言要在第一次繪製前就套好
-  setTimeout(showReminderToast, 700);
+  if(gatedAtBoot) loginGateShow();
+  else setTimeout(showReminderToast, 700);
 
   // 離開前把還在等 debounce 的寫入結一次帳。三個時機涵蓋不同的離開方式，缺一不可：
   //   編輯器 blur      —— 點去別的欄位或按頁籤（最常見，掛在 buildRichEditor 裡）
@@ -7017,7 +7186,7 @@
   window.addEventListener('pagehide', flushPendingWrites);
   // app 裡先看 Keychain 有沒有 token：沒有就顯示登入畫面，有才同步（見〈原生外殼〉）
   if(NATIVE) nativeBoot(loadedFromStorage);
-  else initCloudSync(loadedFromStorage);   // 不 await：雲端偵測不得拖慢啟動
+  else if(!gatedAtBoot) initCloudSync(loadedFromStorage);   // 不 await：雲端偵測不得拖慢啟動
 })();
 </script>
 </body>
