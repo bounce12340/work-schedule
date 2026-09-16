@@ -729,6 +729,8 @@ TestFlight build 7 回報的症狀是「app 安靜地變成單機模式」——
 
 **驗證**：`tests/appauth.test.mjs`、`tests/account-delete.test.mjs`（突變驗證七種改法都會紅）；`tools/smoke.mjs` 的「iOS app 外殼」那一輪用假的 `window.Capacitor` 走登入畫面、寄驗證碼、登入、**所有線上請求都帶 Bearer**、登出清 Keychain（拿掉 Bearer 那一行當場紅）。真機只能靠 TestFlight。
 
+**真機驗收要分「讀」與「寫」兩半，而且要指名看哪一格**（build 11 就是這樣結案的）：讀＝帳號頁「雲端同步啟用中」綠色**且沒有 `#acctSignedOutDiag` 那一格**（它不在才是證據）；寫＝**把 app 完全關掉再打開，不用重新登入**。第一半全綠時第二半照樣可能是壞的（build 6～10 就是），所以只驗第一半等於把那個無限輪迴留在原地。八支探針擋得住回歸，證明不了這一次真的通了——CI 沒有 Mac，插件註冊只在真機上發生。
+
 ## 跨帳號分享
 
 只分享**指標**，不複製內容。`shares` 一列＝「擁有者把某一個資源分享給某一位使用者」，資源本身永遠只有一份，存在擁有者的 `user_state` JSON 裡。
