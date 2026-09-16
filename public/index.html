@@ -1919,9 +1919,17 @@
       return null;    // 讀不到就是沒有 token：接下來會顯示登入畫面，而不是卡在這裡
     }
   }
+  /**
+   * 存 token 進 Keychain。**回傳「有沒有真的存進去」，不是 void。**
+   *
+   * 吞掉這個失敗的代價不是少一行 log，是整個 app 用不了：登入成功 → reload → Keychain
+   * 裡什麼都沒有 → 又回到登入畫面，而使用者只知道「我明明登入了」（build 6～10 的症狀）。
+   * 「降級可以，沉默不行」在這裡的具體形狀就是這個布林值——沒有它，呼叫端沒有東西可以問。
+   */
   async function nativeTokenSave(t){
-    const p = nativePlugin(); if(!p) return;
-    try{ await p.keychainSet({ key: TOKEN_KEY, value: t }); }catch(e){ console.error('keychain write failed', e); }
+    const p = nativePlugin(); if(!p) return false;
+    try{ await p.keychainSet({ key: TOKEN_KEY, value: t }); return true; }
+    catch(e){ console.error('keychain write failed', e); return false; }
   }
   async function nativeTokenClear(){
     const p = nativePlugin(); if(!p) return;
@@ -1952,6 +1960,7 @@
     if(!appAuthView){ nativeShellBroken(tr('登入畫面的元素不在')); return; }
     appAuthRender(); appAuthView.classList.add('show');
   }
+  function appAuthHide(){ if(appAuthView) appAuthView.classList.remove('show'); }
   function appAuthMsg(text, cls){
     const el = document.getElementById('appAuthMsg'); if(!el) return;
     // .msg-inline 沒有 class 時是 display:none：進度訊息（寄送中…）用 ok 的樣式顯示
@@ -2019,8 +2028,18 @@
         }
         const d = await r.json().catch(()=>({}));
         if(!r.ok || !d.token){ appAuthMsg(d.error || ('HTTP ' + r.status), 'err'); return; }
-        await nativeTokenSave(d.token);
         appToken = d.token;
+        if(!await nativeTokenSave(d.token)){
+          // 存不住就**絕對不能 reload**——reload 回來 Keychain 還是空的，於是又是這一頁，
+          // 一次又一次，而且全程沒有任何一句話（build 6～10 的無限輪迴）。改成：這一次照樣
+          // 讓她進得去（token 還在記憶體裡），但把原因寫在狀態列上，並明說關掉 app 要重登。
+          appAuthHide();
+          await initCloudSync(false).catch(e=>{ console.error('cloud init failed', e); });
+          // **一定要在 initCloudSync 之後才寫**：同步成功會把狀態列改成「已同步」，先寫
+          // 就被蓋掉了——而被蓋掉的正是這一次唯一要講的那句話（實測踩到）。
+          nativeShellBroken(tr('登入成功，但這台裝置存不住登入狀態，關掉 app 後要重新登入') + ' ' + nativeDiag());
+          return;
+        }
         // 從頭走一次啟動流程：與「帶著 token 開 app」是同一條路，不另外拼一份初始化
         location.reload();
       }catch(e){ console.error('app auth failed', e); appAuthMsg(tr('連線失敗，請確認網路後再試'), 'err'); }
