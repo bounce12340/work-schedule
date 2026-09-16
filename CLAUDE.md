@@ -594,6 +594,8 @@ Turnstile 擋得住「一秒鐘一萬次」的機器人，擋不住「一分鐘�
 | `public/privacy.html` 不用登入 | App Store 審查員與還沒註冊的人都會來看。`run_worker_first` 沒列它，靜態資產直接供應 |
 | AI 每日上限 50 → 20 | 付費下載一次收、永遠用，每次呼叫都要付 DeepSeek 錢 |
 | 打包**只在手動觸發或 `ios-v*` tag** 時跑，在 GitHub 的 `xcode-27` 映像 | Mac runner 貴而且慢；開發者沒有 Mac 也不需要。自動簽章帶 App Store Connect API 金鑰，四個 secrets：`ASC_KEY_ID`、`ASC_ISSUER_ID`、`ASC_API_KEY_P8`、`APPLE_TEAM_ID`。金鑰寫進 `~/private_keys`，跑完一律刪 |
+| **archive 不簽章**（`CODE_SIGNING_ALLOWED=NO`），簽章整個留給 `exportArchive` | 自動簽章的 archive 一律用**開發用**身分，那種描述檔必須綁至少一台實體裝置，帳號沒裝置就失敗（第一次打包：「Your team has no devices」）；在 archive 硬指定 `Apple Distribution` 又會被 Xcode 拒絕為「conflicting provisioning settings」（第二次）。export（`app-store-connect` + `signingStyle automatic` + `-allowProvisioningUpdates`）自己用**發佈用**身分重簽，不綁裝置，憑證由 Xcode 雲端簽章代管，runner 不需要 .p12。**不要把 `project.pbxproj` 的 `CODE_SIGN_IDENTITY` 改成 Distribution**，那會讓本機用 Xcode 打包也撞同一個錯 |
+| `ASC_KEY_ID` 那把金鑰的角色**必須是 Admin** | 雲端簽章要用雲端代管的發佈憑證，App Manager／Developer 金鑰被拒（第三次打包：「You haven't been given access to cloud-managed distribution certificates」）。使用者帳號有「Access to Cloud Managed Distribution Certificate」的勾選框，**API 金鑰沒有**，只能靠角色。代價是這把金鑰權限很大，只放在 GitHub secrets、跑完就刪 |
 
 **改版時要做的事**：`mobile/package.json` 的 `version` 往上加（build 號是 GitHub 的 `run_number`，不用管）→ 手動跑 iOS workflow → App Store Connect 送審。`public/index.html` 改了 app 不會自己更新。
 
