@@ -11,6 +11,12 @@
 #
 # 簽章走 Xcode 的自動簽章（-allowProvisioningUpdates 帶著 API 金鑰）：Apple 那邊沒有
 # 憑證或描述檔會自己建，不必在任何一台 Mac 上手動匯出 .p12。
+#
+# archive 時一定要指定 CODE_SIGN_IDENTITY="Apple Distribution"。Capacitor 範本的預設是
+# "iPhone Developer"，自動簽章因此去要「開發用」描述檔——那種必須綁至少一台實體裝置，
+# 帳號裡沒有任何裝置就直接失敗（第一次跑就是這樣：「Your team has no devices」）。
+# 上架要的是「發佈用」描述檔，不綁裝置；發佈憑證由 Xcode 的雲端簽章代管，runner 上
+# 不需要任何 .p12。
 name: iOS
 
 on:
@@ -98,6 +104,7 @@ jobs:
             MARKETING_VERSION="$MARKETING_VERSION" \
             CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
             CODE_SIGN_STYLE=Automatic \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
             | tee "$RUNNER_TEMP/archive.log" | grep -E "error|warning: .*sign|Archive Succeeded|BUILD" || true
           test -d "$RUNNER_TEMP/App.xcarchive" || { echo "::error::archive 沒有產生，看上面的 log"; tail -80 "$RUNNER_TEMP/archive.log"; exit 1; }
 
