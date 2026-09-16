@@ -408,3 +408,182 @@ test('cron：停用中的帳號不寄；寄失敗不記錄已寄，下次會重�
       null, '沒寄成功就不算寄過，下次排程要能重試');
   } finally { globalThis.fetch = real; }
 });
+
+// ------------------------------------------------------------ 連續斷掉的信（cron，F2）
+//
+// 設計文件 docs/superpowers/specs/2026-09-16-gamification-design.md〈斷掉之後的情勒信〉。
+// 這一組守的是三個「不該寄」：沒斷不寄、連續太短不寄、開關關著不寄。會寄信的功能
+// 一旦寄過頭，使用者的處理方式是封鎖寄件人——然後逾期提醒也一起收不到。
+//
+// 突變驗證（加完測試做過）：拿掉 MIN_STREAK_FOR_MAIL 的判斷 → 1 紅；
+// broken 改成「有安排就算斷」→ 2 紅；不寫 streak_mail_ymd → 1 紅；
+// WHERE streak_mail = 1 改成 enabled = 1 → 1 紅。
+
+import { dayReport, buildStreakEmail, sendStreakBroken } from '../src/handlers/reminder.js';
+
+/** 昨天到期的一筆。ot = 按時完成（由前端的遊戲化引擎判斷後推上來） */
+const gRow = (t, d, ot = 0) => ({ t, d, k: 'work', done: ot, ot });
+
+test('dayReport：那天沒安排就不算斷；全部按時也不算；有一件沒按時才算', () => {
+  const y = '2026-09-20';
+  assert.equal(dayReport([], y).broken, false, '沒安排的日子不斷火焰——使用者的裁決');
+  assert.equal(dayReport([gRow('別天的', '2026-09-19', 1)], y).broken, false);
+  assert.equal(dayReport([gRow('按時的', y, 1)], y).broken, false);
+  const bad = dayReport([gRow('按時的', y, 1), gRow('沒做完的', y, 0)], y);
+  assert.equal(bad.broken, true);
+  assert.deepEqual(bad.missed.map(r => r.t), ['沒做完的']);
+  assert.equal(bad.scheduled, 2);
+  // 「做完了但太晚」也算斷：ot 是前端判斷的，這裡只數
+  assert.equal(dayReport([{ t: '補勾的', d: y, k: 'work', done: 1, ot: 0 }], y).broken, true);
+});
+
+test('dayReport：壞掉的 digest 不會讓 cron 爆掉', () => {
+  [null, undefined, 'not an array', 42, [null, {}, { d: 123 }]].forEach(d =>
+    assert.equal(dayReport(d, '2026-09-20').broken, false));
+});
+
+test('信件是植物在講話：講事實、不評價、不寫「加油」', () => {
+  const mail = buildStreakEmail(12, [gRow('標案初審', '2026-09-20'), gRow('查廠報告', '2026-09-20')], 'https://app.test');
+  assert.match(mail.text, /12 天/);
+  assert.match(mail.text, /〈標案初審〉和〈查廠報告〉/, '點名要像人在講話，不是條列');
+  assert.match(mail.text, /你的小植物/, '署名是角色本人');
+  assert.ok(!/加油|沒關係|放棄/.test(mail.text), '那三句會把這封信的用途取消掉');
+  assert.match(mail.html, /https:\/\/app\.test/);
+});
+
+test('信件：超過三件用「還有 N 件」帶過，標題要跳脫', () => {
+  const rows = Array.from({ length: 6 }, (_, i) => gRow('項目' + i, '2026-09-20'));
+  const mail = buildStreakEmail(3, rows, '');
+  assert.match(mail.text, /還有 3 件/);
+  const evil = buildStreakEmail(3, [gRow('<img src=x onerror=alert(1)>', '2026-09-20')], '');
+  assert.ok(!/<img/.test(evil.html), '標題必須被跳脫');
+});
+
+/** 建一個開著 streak_mail 的 feed 列 */
+function feed(env, userId, digest, extra = {}) {
+  const o = { enabled: 1, streak_mail: 1, streak_current: 12, streak_mail_ymd: null, ...extra };
+  env.DB.prepare(
+    `INSERT INTO reminder_feed (user_id, enabled, digest, streak_mail, streak_current, streak_mail_ymd, updated_at)
+     VALUES (?,?,?,?,?,?,?)`
+  ).bind(userId, o.enabled, JSON.stringify(digest), o.streak_mail, o.streak_current, o.streak_mail_ymd, 1).run();
+}
+
+// cron 在台北早上 8 點跑；那一刻的「昨天」是 2026-09-20
+const CRON_NOW = Date.parse('2026-09-21T00:00:00Z');
+const YDAY = '2026-09-20';
+
+test('cron：昨天斷了才寄，全部按時完成的人不寄', async () => {
+  const base = makeEnv();
+  addUser(base, 'u1', 'broke@x.com'); addUser(base, 'u2', 'kept@x.com');
+  feed(base, 'u1', [gRow('沒做完的', YDAY, 0)]);
+  feed(base, 'u2', [gRow('按時做完的', YDAY, 1)]);
+
+  await withFakeMail(async sent => {
+    const out = await sendStreakBroken({ ...MAIL_ENV, DB: base.DB }, CRON_NOW);
+    assert.equal(out.sent, 1);
+    assert.equal(out.notBroken, 1);
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].body.to, 'broke@x.com');
+    assert.match(sent[0].body.text, /12 天/);
+    assert.match(sent[0].body.text, /〈沒做完的〉/);
+  });
+});
+
+test('cron：同一天只寄一次，隔天才會再寄', async () => {
+  const base = makeEnv(); addUser(base, 'u1', 'a@x.com');
+  feed(base, 'u1', [gRow('沒做完的', YDAY, 0), gRow('隔天也沒做完', '2026-09-21', 0)]);
+  const env = { ...MAIL_ENV, DB: base.DB };
+  await withFakeMail(async () => {
+    assert.equal((await sendStreakBroken(env, CRON_NOW)).sent, 1);
+    const again = await sendStreakBroken(env, CRON_NOW);
+    assert.equal(again.sent, 0, '排程重試不該變成第二封');
+    assert.equal(again.alreadySent, 1);
+    // 隔天的「昨天」是 09-21，那天也沒做完 → 這才是新的一封
+    assert.equal((await sendStreakBroken(env, CRON_NOW + 86400000)).sent, 1);
+  });
+});
+
+test('cron：連續不到兩天不寄——「沒事就閉嘴」在這裡比逾期提醒更重要', async () => {
+  const base = makeEnv();
+  addUser(base, 'u1', 'one@x.com'); addUser(base, 'u2', 'zero@x.com'); addUser(base, 'u3', 'two@x.com');
+  feed(base, 'u1', [gRow('x', YDAY, 0)], { streak_current: 1 });
+  feed(base, 'u2', [gRow('x', YDAY, 0)], { streak_current: 0 });
+  feed(base, 'u3', [gRow('x', YDAY, 0)], { streak_current: 2 });
+
+  await withFakeMail(async sent => {
+    const out = await sendStreakBroken({ ...MAIL_ENV, DB: base.DB }, CRON_NOW);
+    assert.equal(out.sent, 1);
+    assert.equal(out.tooShort, 2);
+    assert.equal(sent[0].body.to, 'two@x.com');
+  });
+});
+
+test('cron：關掉小植物的信就不寄，而且與逾期提醒的開關各自獨立', async () => {
+  const base = makeEnv();
+  addUser(base, 'u1', 'off@x.com'); addUser(base, 'u2', 'onlyplant@x.com');
+  // 逾期提醒開著、植物的信關掉 → 不寄
+  feed(base, 'u1', [gRow('x', YDAY, 0)], { enabled: 1, streak_mail: 0 });
+  // 逾期提醒關掉、植物的信開著 → 要寄（兩個開關互不牽連）
+  feed(base, 'u2', [gRow('x', YDAY, 0)], { enabled: 0, streak_mail: 1 });
+
+  await withFakeMail(async sent => {
+    const out = await sendStreakBroken({ ...MAIL_ENV, DB: base.DB }, CRON_NOW);
+    assert.equal(out.sent, 1);
+    assert.equal(out.checked, 1, '關掉的人根本不該被查到');
+    assert.equal(sent[0].body.to, 'onlyplant@x.com');
+  });
+});
+
+test('cron：停用中的帳號不寄；寄失敗不記錄已寄，下次會重試', async () => {
+  const base = makeEnv();
+  addUser(base, 'u1', 'sus@x.com'); addUser(base, 'u2', 'fail@x.com');
+  base.DB.prepare("UPDATE users SET status = 'suspended' WHERE id = 'u1'").run();
+  feed(base, 'u1', [gRow('x', YDAY, 0)]);
+  feed(base, 'u2', [gRow('x', YDAY, 0)]);
+
+  const real = globalThis.fetch;
+  globalThis.fetch = async () => new Response('{"error":"forbidden"}', { status: 403 });
+  try {
+    const out = await sendStreakBroken({ ...MAIL_ENV, DB: base.DB }, CRON_NOW);
+    assert.equal(out.notApproved, 1);
+    assert.equal(out.failed, 1);
+    assert.equal(out.sent, 0);
+    assert.equal(out.errors.length, 1, '錯誤訊息要留下來，否則「金鑰失效」與「inbox 不存在」看起來一樣');
+    const row = base.DB.prepare("SELECT streak_mail_ymd FROM reminder_feed WHERE user_id = 'u2'").first();
+    assert.equal(row.streak_mail_ymd, null, '沒寄成功就不算寄過');
+  } finally { globalThis.fetch = real; }
+});
+
+test('PUT /api/reminder 收下 ot 與連續天數；POST 的兩個開關互不影響', async () => {
+  const env = makeEnv(); addUser(env, 'u1', 'a@x.com');
+  const user = { id: 'u1', email: 'a@x.com', role: 'user', status: 'approved' };
+  const read = () => env.DB.prepare('SELECT digest, streak_current, enabled, streak_mail FROM reminder_feed WHERE user_id = ?').bind('u1').first();
+
+  await handleReminderPut(new Request('https://x.test/api/reminder', { method: 'PUT', body: JSON.stringify({
+    digest: [{ t: '按時', d: '2026-09-20', k: 'work', done: 1, ot: true },
+             { t: '沒按時', d: '2026-09-20', k: 'work', done: 1 }],
+    streak: { current: 12, best: 30 }
+  }) }), env, user);
+  let row = read();
+  assert.deepEqual(JSON.parse(row.digest).map(r => r.ot), [1, 0]);
+  assert.equal(row.streak_current, 12);
+  assert.equal(row.streak_mail, 1, '新建的列採用預設值（開啟）');
+
+  // 關掉植物的信，逾期提醒維持開著
+  await handleReminderEnable(new Request('https://x.test', { method: 'POST',
+    body: JSON.stringify({ enabled: true, streakMail: false }) }), env, user);
+  row = read();
+  assert.equal(row.streak_mail, 0);
+  assert.equal(row.enabled, 1);
+
+  // 沒帶 streakMail 的請求（例如只改提前天數）不能把它又打開
+  await handleReminderEnable(new Request('https://x.test', { method: 'POST',
+    body: JSON.stringify({ enabled: true, leadDays: 5 }) }), env, user);
+  assert.equal(read().streak_mail, 0, '沒帶就沿用——那是使用者明確表達過的選擇');
+
+  // 推送摘要同樣不能打開它
+  await handleReminderPut(new Request('https://x.test/api/reminder', { method: 'PUT',
+    body: JSON.stringify({ digest: [] }) }), env, user);
+  assert.equal(read().streak_mail, 0);
+  assert.equal(read().streak_current, 12, '沒帶 streak 就沿用舊值，不歸零');
+});

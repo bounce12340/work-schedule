@@ -1159,7 +1159,6 @@
     <div style="display:flex; align-items:center; gap:14px;">
       <div class="account-box" id="accountBox" style="display:none;">
         <span class="account-email" id="accountEmail"></span>
-        <button class="account-btn" id="btnLogout" type="button" data-i18n>登出</button>
       </div>
       <button id="aiBtn" class="icon-square" title="AI 小幫手" style="display:none;" data-i18n-title>✨</button>
       <button id="bellBtn" class="icon-square" title="查看今日待辦提醒" style="position:relative;" data-i18n-title>
@@ -1311,6 +1310,7 @@
           <div class="acct-row">
             <button class="ghost-btn" id="btnChangePw" type="button" data-i18n>變更密碼</button>
             <button class="ghost-btn" id="btnAdmin" type="button" style="display:none;" data-i18n>帳號管理</button>
+            <button class="ghost-btn" id="btnLogout" type="button" data-i18n>登出</button>
           </div>
         </div>
 
@@ -1342,6 +1342,10 @@
           <div class="acct-row">
             <button id="btnReminder" class="ghost-btn" type="button"></button>
             <select id="reminderLead" class="ghost-btn"></select>
+          </div>
+          <div class="acct-sub" style="margin:14px 0 10px;" data-i18n>另外，連續中斷的隔天早上，你的小植物會寄一封信給你。只在斷掉的那一天寄、一天最多一封；連續不到兩天不寄。</div>
+          <div class="acct-row">
+            <button id="btnStreakMail" class="ghost-btn" type="button"></button>
           </div>
         </div>
 
@@ -2012,6 +2016,9 @@
     en: {
       // —— 導覽與頁首 ——
       '工作排程確認系統':'Schedule Control Board',
+      // —— 連續斷掉的信（F2）——
+      '另外，連續中斷的隔天早上，你的小植物會寄一封信給你。只在斷掉的那一天寄、一天最多一封；連續不到兩天不寄。':'Also, the morning after your streak breaks, your little plant writes to you. Only on that day, at most once a day, and never for a streak under two days.',
+      '🌱 關掉小植物的信':'🌱 Turn off the plant’s letters', '🌱 讓小植物寄信給我':'🌱 Let the plant write to me',
       // —— 遊戲化 ——
       '🌱 我的角色':'🌱 My character', '{0} 天':'{0} days',
       '種子':'Seed', '發芽':'Sprout', '小苗':'Seedling', '小樹':'Sapling', '開花':'In bloom', '結果':'Bearing fruit',
@@ -3346,6 +3353,7 @@
     fetch('/api/reminder',{cache:'no-store'}).then(r=>r.ok?r.json():null)
       .then(d=>{ if(d){
         reminderEnabled = !!d.enabled;
+        if(typeof d.streakMail === 'boolean') streakMailEnabled = d.streakMail;
         if(typeof d.leadDays === 'number') reminderLeadDays = d.leadDays;
         syncReminderBtn();
       } }).catch(e=>{ console.error('reminder status failed', e); });
@@ -6899,6 +6907,9 @@
   // 今天不逾期的項目後天就逾期了。讓 cron 每天自己比對，使用者一段時間沒開
   // app 也不影響正確性。
   let reminderEnabled = false;
+  // 連續斷掉時由植物寄信（F2）。與逾期提醒是**兩個各自獨立的開關**，預設開啟——
+  // 伺服器那邊還沒有那一列的人也回 true，畫面才不會先顯示「關著」再莫名其妙變開。
+  let streakMailEnabled = true;
   // 提前幾天開始提醒。0 = 只在逾期時（原本的行為）。伺服器端的預設也是 3，
   // 兩邊要一致——不一致的話，使用者沒動過設定就會看到與實際行為不同的顯示。
   let reminderLeadDays = 3;
@@ -6914,7 +6925,12 @@
       // 跨多天事項以結束日判定逾期：進行中的區間不該被當成遲交
       d: (o.item.endDate && o.occKey==='single') ? o.item.endDate : o.date,
       k: o.item.type,
-      done: o.done ? 1 : 0
+      done: o.done ? 1 : 0,
+      // 「按時完成」（F2）：**在這裡判斷好再送上去**，不是送時間戳讓 Worker 自己比。
+      // 那個判斷的細節（到期日、跨多天以結束日算、當天 23:59:59 的界線）都在
+      // 〈遊戲化〉區段且有測試守著；在 Worker 重寫一份必然分歧，而分歧的症狀是
+      // 「畫面說連續 12 天、信說斷了」——比沒有那封信更糟。同 ICS 與逾期提醒。
+      ot: gameOnTime(o) ? 1 : 0
     }));
   }
 
@@ -6924,14 +6940,47 @@
     clearTimeout(reminderPushTimer);
     reminderPushTimer = setTimeout(async ()=>{
       try{
+        // 連續天數一起推：信裡印的就是它，與閘門用的是同一個數字
+        const g = lastGame || gameStats();
         await fetch('/api/reminder', { method:'PUT', headers:{'content-type':'application/json'},
-          body: JSON.stringify({ digest: buildReminderDigest() }) });
+          body: JSON.stringify({ digest: buildReminderDigest(), streak: { current: g.streak.current, best: g.streak.best } }) });
       }catch(e){ /* 下次同步再補 */ }
     }, 3000);
   }
 
   const btnReminder=document.getElementById('btnReminder');
   const selReminderLead=document.getElementById('reminderLead');
+  const btnStreakMail=document.getElementById('btnStreakMail');
+
+  /**
+   * 「連續斷掉的信」的開關。與逾期提醒**各自獨立**：關掉逾期提醒不代表不想聽
+   * 植物說話，反過來也一樣，所以這裡不看 reminderEnabled。
+   */
+  function syncStreakMailBtn(){
+    if(!btnStreakMail) return;
+    btnStreakMail.style.display = cloudEnabled ? '' : 'none';
+    btnStreakMail.textContent = streakMailEnabled
+      ? tr('🌱 關掉小植物的信') : tr('🌱 讓小植物寄信給我');
+  }
+  if(btnStreakMail) btnStreakMail.onclick = async ()=>{
+    const next = !streakMailEnabled;
+    btnStreakMail.disabled = true;
+    try{
+      // 三個值一起送：這支端點同時管兩個開關與提前天數，少送一個就得在伺服器那邊
+      // 分辨「要改哪一個」，那種分支遲早會把別的設定一起改掉
+      const r = await fetch('/api/reminder', { method:'POST', headers:{'content-type':'application/json'},
+        body: JSON.stringify({ enabled: reminderEnabled, leadDays: reminderLeadDays, streakMail: next }) });
+      if(r.status===401){ sessionExpired(); return; }
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      streakMailEnabled = next;
+      syncStreakMailBtn();
+    }catch(e){
+      console.error('streak mail toggle failed', e);
+      alert(tr('目前離線，無法變更提醒設定。'));
+    }finally{
+      btnStreakMail.disabled = false;
+    }
+  };
 
   function syncReminderBtn(){
     if(!btnReminder) return;
@@ -6943,6 +6992,7 @@
 
     // 提前天數只在提醒開著時才有意義——關著的時候顯示它只會讓人以為還會收到信
     if(!selReminderLead) return;
+    syncStreakMailBtn();
     selReminderLead.style.display = (cloudEnabled && reminderEnabled) ? '' : 'none';
     selReminderLead.title = tr('提前幾天開始提醒。選「只在逾期時」就是原本的行為。');
     // 每次重建：語言切換後選項文字要跟著換，而選項只有五個，重建比逐一改省事

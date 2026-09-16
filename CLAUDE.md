@@ -57,6 +57,7 @@ mobile/                iOS app 外殼（Capacitor；自己的 package.json，見
 | `tests/cors.test.mjs` | iOS app 來源的 CORS：預檢、正常與錯誤回應都帶標頭、別的來源與同源不加、永不開 credentials | 直接打 Worker 的 `fetch` 入口 |
 | `tests/plan.test.mjs` | 方案：`planOf` 與寬限、「只有變多才擋」、`PUT /api/state` 的 402 且列不動、管理者設方案、AI 上限依方案、**前後端 `PLAN_LIMITS` 逐字相同** | 直接 import；上限那一份從 `index.html` 抽出來比 |
 | `tests/game.test.mjs` | 遊戲化引擎：按時＝到期那天結束前、沒安排的日子跳過、今天 missed 不斷、上線日之前不算、等級門檻、挑戰梯子、徽章、`setOccurrenceDone` 寫時間戳 | 從 `index.html` 抽〈遊戲化〉區段求值（連同 date helpers 與 occurrence engine） |
+| `tests/state.test.mjs`（下半） | 連續斷掉的信：`dayReport`、三個「不該寄」（沒斷、連續 < 2、開關關著）、同一天只寄一次、寄失敗不記錄、兩個開關互不影響 | 直接 import Worker 端模組，攔 `fetch` 當假信箱 |
 
 前三者的挑選理由：前兩者近乎純函式、零 DOM 依賴；第三者是**競態**——靠併發碰運氣測不到，但可以把空窗做成確定性的。
 
@@ -89,7 +90,7 @@ npm run db:init:local  # 對本機 miniflare D1 建表（--local 的資料庫與
 npm run db:init        # 對遠端 D1 建表
 npm run admin:reset    # 破窗鎚：直接改密碼（見〈破窗鎚〉）
 npm run deploy         # 部署
-npm test               # 全部測試檔（node:test，不需安裝任何東西；目前 326 個測試）
+npm test               # 全部測試檔（node:test，不需安裝任何東西；目前 336 個測試）
 ```
 
 跑單一測試檔或單一測試（`npm test` 沒有轉發參數的管道，直接用 node）：
@@ -201,6 +202,7 @@ UI 類的改動（版面、行動版、主題）**必須真的用瀏覽器看過
 
 - **單機模式下分頁仍然存在**，只有雲端相關的區塊（帳號／提醒／訂閱／裝置）隱藏，並顯示一行說明。整個分頁消失會讓使用者以為功能不見了。
 - **顯示偏好（主題／語言）只有這一頁能改**，右上角的圖示按鈕已移除。代價是切暗色多一次點擊，可接受的理由是沒手動選過時主題本來就跟隨系統。
+- **「登出」也搬進來了**（2026-09-16）。它原本留在 header 當一顆 11px 的灰色小按鈕，而使用者實際回報「登入後沒有登出的選項」——帳號相關的東西大家都來這一頁找，留在 header 等於不存在。搬的是**同一個元素、id 不變**，`.onclick` 一行都沒改（含 app 裡清 Keychain 那條路）。header 只留 email，回答「現在是誰登著」。`tools/smoke.mjs` 的斷言**綁在 `#viewAccount #btnLogout`**，不是全文件的 `#btnLogout`——後者搬回 header 也會是綠的，而那正是要擋的狀態。突變驗證過：搬回去當場紅。
 - 新增的前端函式一律加 `acct` 前綴：這一段一次加了好幾個頂層函式，而遮蔽事故發生過兩次（見〈多語系〉）。
 - **`tools/smoke.mjs` 已擴充到走這一頁**。原本它的路徑裡沒有新分頁——為了抓這類 bug 而存在的檢查，卻剛好不涵蓋新加的東西，等於沒有。實際以「拿掉 `themeBtn` 的 markup」驗證過它會紅（`Cannot set properties of null (setting 'onclick')`）。
 
@@ -618,7 +620,7 @@ Turnstile 擋得住「一秒鐘一萬次」的機器人，擋不住「一分鐘�
 
 **改版時要做的事**：`mobile/package.json` 的 `version` 往上加（build 號是 GitHub 的 `run_number`，不用管）→ 手動跑 iOS workflow → App Store Connect 送審。`public/index.html` 改了 app 不會自己更新。
 
-**部署順序**：`migrations/005-app-purchase.sql` 與 `006-plan.sql` 都要在部署新 Worker **之前**跑（`getSessionUser` 的 SELECT 讀 `plan_source`，欄位不在**每一個**登入請求都會 500），理由見〈資料庫結構變更〉。006 跑完、Worker 部署完之後，還要到 `/admin` 把既有的兩個帳號設成「Pro（永久）」——漏掉的症狀是他們的第四個專案被擋，當場就會知道。
+**部署順序**：`migrations/005-app-purchase.sql`、`006-plan.sql` 與 `007-streak-mail.sql` 都要在部署新 Worker **之前**跑（`getSessionUser` 的 SELECT 讀 `plan_source`，欄位不在**每一個**登入請求都會 500；`007` 的欄位則是 `/api/reminder` 與 cron 會讀），理由見〈資料庫結構變更〉。006 跑完、Worker 部署完之後，還要到 `/admin` 把既有的兩個帳號設成「Pro（永久）」——漏掉的症狀是他們的第四個專案被擋，當場就會知道。
 
 ## 方案與上限（`src/plan.js`）
 
@@ -659,7 +661,22 @@ Turnstile 擋得住「一秒鐘一萬次」的機器人，擋不住「一分鐘�
 | 升級的光掛在 `.levelup`、`animationend` 拿掉；`prefers-reduced-motion` 一律關 | 同打勾的 `.pop`：掛在狀態 class 上會每次重繪都冒 |
 | v1 **不防**「改日期救火焰」 | 要防就得存第二份時間戳（覆寫的時間）。同一個人在同一份工具裡騙自己，先寫下來看有沒有人這樣做 |
 
-F2（連續斷掉時由植物用撒嬌的口氣寄信：digest 多帶 `a`／`streak`、cron 多一步、migration 007）與 F3（推播，等子專案 B）待做。
+### F2：連續斷掉時，由植物寄一封撒嬌的信
+
+走既有的每日 cron 與 `reminder_feed`（`sendStreakBroken`）。不能拿掉的判斷：
+
+| 決定 | 理由 |
+|---|---|
+| digest 每一筆多帶 **`ot`（按時完成）布林**，**不是**推 `doneAt` 讓 Worker 自己比 | 那個判斷的細節（到期日、跨多天以結束日算、當天 23:59:59 的界線）在〈遊戲化〉區段且有測試守著。在 Worker 重寫一份必然分歧，而分歧的症狀是「畫面說連續 12 天、信說斷了」——比沒有這封信更糟。同 ICS 與逾期提醒。**設計文件原本寫 `a: doneAt`，實作時改成 `ot`，理由就是這一條** |
+| 連續天數也由前端算好推上來（`streak_current`） | 信裡印的就是它，與閘門用的是同一個數字，不會出現「擋住了卻印另一個數」 |
+| `dayReport` 只看**一天**，不往回走 | 「那天有安排、而且不是每一件都按時完成」就是斷了。往回數幾天是前端的事 |
+| **連續不到 2 天不寄** | 每天一封「你昨天又沒做完」只會訓練收件者忽略這個寄件人——「沒事就閉嘴」在這裡比逾期提醒更重要，因為會觸發的條件更寬 |
+| 同一天只寄一次（`streak_mail_ymd`）；**寄失敗刻意不寫那個欄位** | 沒寄成功就不算寄過，下一次排程要能補。同逾期提醒的 `last_sent_ymd` |
+| 與逾期提醒是**兩個各自獨立的開關**（`streak_mail`），查詢也用它而不是 `enabled` | 畫面上就是兩顆按鈕。關掉逾期提醒不代表不想聽植物說話，反過來也一樣。有測試守著 |
+| 今天一早自己打開 app 同步過的人收不到 | 他推上來的連續已經歸零——人已經回來了，植物不必再叫他。這是刻意的，不是漏洞 |
+| 信是**植物的第一人稱**，署名也是；講事實（幾天、哪幾件）不評價 | 使用者的裁決是「撒嬌」。罵人的信會被封鎖寄件人，然後逾期提醒也一起收不到 |
+
+F3（推播版，等子專案 B）待做。
 
 **驗證**：`tests/appauth.test.mjs`、`tests/account-delete.test.mjs`（突變驗證七種改法都會紅）；`tools/smoke.mjs` 的「iOS app 外殼」那一輪用假的 `window.Capacitor` 走登入畫面、寄驗證碼、登入、**所有線上請求都帶 Bearer**、登出清 Keychain（拿掉 Bearer 那一行當場紅）。真機只能靠 TestFlight。
 
@@ -934,7 +951,7 @@ AI 的批次寫入正是就地修改，第一版因此復原不了，是瀏覽�
 新增欄位因此要在 `migrations/` 下留一支單獨的 SQL，並在**部署之前**跑過：
 
 ```bash
-npx wrangler d1 execute work-schedule-db --remote --file=./migrations/006-plan.sql   # 最新的一支；舊的照編號
+npx wrangler d1 execute work-schedule-db --remote --file=./migrations/007-streak-mail.sql   # 最新的一支；舊的照編號
 ```
 
 **順序不能反。** 新程式碼 `SELECT r.lead_days`，欄位還沒加就會讓提醒的 cron 與 `/api/reminder` 直接失敗。新增**資料表**沒有這個問題（`db:init` 重跑 `schema.sql` 就會建），只有**欄位**需要 migration。
