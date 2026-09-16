@@ -564,11 +564,11 @@ async function walkNative(page, log, seen) {
  *   3. `/api/state` 回 404 被當成「這個環境沒有後端」而靜默降級。absent 那條路是為了
  *      單檔／未部署而存在的，在 app 裡永遠是謊話（API_BASE 是線上網址）
  *
- * 五個探針各塞一個**殘缺的** window.Capacitor，每個只驗一件事。刻意不把第五輪的假
+ * 七個探針各塞一個**殘缺的** window.Capacitor，每個只驗一件事。刻意不把第五輪的假
  * Capacitor 改殘缺：那一輪要驗的是「正常的 app 走得完」，混在一起哪個壞了都分不出來。
  */
 {
-  const label = 'iOS app 外殼的五個探針';
+  const label = 'iOS app 外殼的七個探針';
   const server = makeServer(true);
   await new Promise(r => server.listen(PORT, r));
   const launch = process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {};
@@ -578,7 +578,7 @@ async function walkNative(page, log, seen) {
   console.log(`\n▸ ${label}`);
 
   /** 各自一個乾淨的 context：偵測是在載入當下算一次的，改不了就只能重開 */
-  const shell = async (keys, { token = null, state404 = false, stateNoUser = false } = {}) => {
+  const shell = async (keys, { token = null, state404 = false, stateNoUser = false, stateHang = false } = {}) => {
     const ctx = await browser.newContext({ viewport: { width: 420, height: 860 }, locale: 'zh-TW' });
     const page = await ctx.newPage();
     page.on('pageerror', e => errors.push(`未捕捉的例外：${e.message}`));
@@ -586,6 +586,9 @@ async function walkNative(page, log, seen) {
     await page.route(APP_API_ORIGIN + '/**', async route => {
       const req = route.request();
       const u = new URL(req.url());
+      // 永遠不回應：模擬「連線掛在那裡，不回也不錯」。這種請求沒有任何事件，
+      // 舊的程式會停在那個 await 上，畫面永遠是示範資料。
+      if (stateHang && u.pathname === '/api/state') return;   // 不 fulfill、不 abort
       if (state404 && u.pathname === '/api/state') {
         return route.fulfill({ status: 404, body: '{"error":"not found"}', headers: { 'content-type': 'application/json' } });
       }
@@ -619,6 +622,9 @@ async function walkNative(page, log, seen) {
       // 「讀 bridge 就爆」的外殼。它代表的是**啟動路徑上的任何一個例外**——那種例外在
       // fire-and-forget 的 async 裡只會變成 unhandledrejection，連 pageerror 都不算，
       // 所以除了看畫面之外沒有別的辦法抓到它。
+      // 打得出去、永遠不回話：真機上「插件沒註冊／方法名對不上／Swift 沒走到 resolve」
+      // 就是這個形狀。**不是 reject，是完全沒有下文**（TestFlight build 9 的形狀）。
+      if (ks.includes('hangPromise')) cap.nativePromise = () => new Promise(()=>{});
       if (ks.includes('throwOnRead')) {
         Object.defineProperty(cap, 'nativePromise', { get(){ throw new Error('bridge exploded'); } });
       }
@@ -690,6 +696,29 @@ async function walkNative(page, log, seen) {
         throw new Error(`探針 5：app 走到單機模式卻沒印診斷，帳號頁那一格是「${t}」`);
       });
       checked.push('單機模式在 app 裡一定帶著診斷');
+      await ctx.close();
+    }
+    // 探針 6：電話打得出去、對面永遠不回話（插件沒註冊／方法名對不上／Swift 沒走到
+    // resolve）。**不是 reject，是完全沒有下文**——沒有例外、沒有 rejection、沒有任何
+    // 事件，舊的程式就停在那個 await 上（TestFlight build 9 的形狀：五個訊號全中、
+    // plugin=yes，卻什麼都沒發生）。時限要把它變成一個會說話的失敗。
+    {
+      const { ctx, page } = await shell(['isNativePlatform', 'hangPromise']);
+      await page.waitForSelector('#appAuthView.show', { timeout: 12000 })
+        .catch(async () => { throw new Error(`探針 6：原生電話沒人接，卻沒有回到登入畫面（狀態列「${await noteText(page)}」）`); });
+      const msg = await page.locator('#appAuthMsg').innerText().catch(() => '');
+      if (!/probe=timeout/.test(msg)) throw new Error(`探針 6：登入畫面沒說出「對面沒接」：「${msg}」`);
+      checked.push('原生電話沒人接會超時並說出來');
+      await ctx.close();
+    }
+    // 探針 7：看門狗。外殼完全正常、Keychain 有 token，但 /api/state **永遠不回應**。
+    // 這一支守的不是某一條路，是「開機有沒有走到任何一種結局」——任何一個不會 settle
+    // 的 await 都會落在這裡，包括我還沒想到的那些。
+    {
+      const { ctx, page } = await shell(['isNativePlatform', 'getPlatform', 'nativePromise'], { token: APP_TOKEN, stateHang: true });
+      await page.waitForFunction(() => /啟動卡住了/.test(document.getElementById('cloudNoteText')?.innerText || ''), null, { timeout: 20000 })
+        .catch(async () => { throw new Error(`探針 7：開機卡住卻沒有人開口，狀態列是「${await noteText(page)}」`); });
+      checked.push('開機卡住會被看門狗抓到');
       await ctx.close();
     }
   } catch (e) {

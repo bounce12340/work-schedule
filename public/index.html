@@ -1810,13 +1810,44 @@
    * 改走 native-bridge 一定有的底層入口 nativePromise(插件, 方法, 參數)，插件名是
    * Swift 那邊的 jsName。Plugins 裡若真的有（將來引入 core 的話）仍優先用它。
    */
+  const NATIVE_CALL_TIMEOUT_MS = 6000;    // 一通原生電話等多久算沒人接
+  const BOOT_WATCHDOG_MS = 12000;         // 開機多久還沒走到任何一種結局就當作卡住
+  const CLOUD_FETCH_TIMEOUT_MS = 20000;   // 比看門狗長：讓看門狗先開口，網路自己再了結
+  /** 超時就 reject 的包裝。**原本的 promise 不會被取消**，只是不再有人等它。 */
+  function withTimeout(promise, ms, why){
+    return new Promise((resolve, reject)=>{
+      let done = false;
+      const timer = setTimeout(()=>{ if(!done){ done = true; reject(new Error(why)); } }, ms);
+      Promise.resolve(promise).then(
+        v => { if(!done){ done = true; clearTimeout(timer); resolve(v); } },
+        e => { if(!done){ done = true; clearTimeout(timer); reject(e); } }
+      );
+    });
+  }
+  /**
+   * 原生插件**真的有沒有回話**。`plugin=yes` 只證明「有一條電話線」（bridge 物件在），
+   * 不證明對面有人接——build 9 的診斷就是這樣給出過度樂觀的結論。兩件事要分開報。
+   */
+  let nativeProbe = 'untried';            // untried | ok | timeout | error
   let nativePluginCache = null;
   function nativePlugin(){
     if(nativePluginCache) return nativePluginCache;
     const C = window.Capacitor; if(!C) return null;
     if(C.Plugins && C.Plugins.WorkScheduleNative){ nativePluginCache = C.Plugins.WorkScheduleNative; return nativePluginCache; }
     if(typeof C.nativePromise !== 'function') return null;
-    const call = (method) => (opts) => C.nativePromise('WorkScheduleNative', method, opts || {});
+    // **每一通電話都要有響鈴時限。** `nativePromise` 是把訊息丟給原生那一側再等它回叫；
+    // 原生若沒有回覆（插件沒註冊、方法名對不上、Swift 那邊沒走到 resolve），這個 promise
+    // 就**永遠不會 settle**——不是 reject，是完全沒有下文。而它出現在 nativeBoot 的
+    // `await` 上，於是整條啟動流程停在那裡：不報錯、不顯示登入畫面、狀態列一片乾淨，
+    // 畫面永遠停在示範資料（TestFlight build 9 實際的形狀，五個訊號全中、plugin=yes）。
+    //
+    // 沒有 settle 的 promise 是最難查的一種故障，因為**它沒有任何事件**。時限把它變成
+    // 一個會說話的 reject。
+    const call = (method) => (opts) => withTimeout(
+      C.nativePromise('WorkScheduleNative', method, opts || {}),
+      NATIVE_CALL_TIMEOUT_MS,
+      tf('原生插件沒有回應（{0}）', method)
+    );
     nativePluginCache = {
       keychainGet: call('keychainGet'), keychainSet: call('keychainSet'), keychainDelete: call('keychainDelete'),
       getAppTransaction: call('getAppTransaction')
@@ -1847,7 +1878,11 @@
       'protocol=' + safe(()=>location.protocol, '?'),
       'Capacitor=' + safe(()=>window.Capacitor ? 'yes' : 'no', '?'),
       'signals=' + (NATIVE_SIGNALS.join('+') || 'none'),
-      'plugin=' + safe(()=>nativePlugin() ? 'yes' : 'no', 'error'),
+      // bridge＝有沒有電話線；probe＝對面有沒有接。**兩件事必須分開報**：build 9 的診斷
+      // 只有前者（叫 plugin=），於是 plugin=yes 看起來像「插件正常」，實際上那通電話
+      // 打出去沒有人回，啟動就卡死在那裡。過度樂觀的診斷會把人帶去查錯的地方。
+      'bridge=' + safe(()=>nativePlugin() ? 'yes' : 'no', 'error'),
+      'probe=' + nativeProbe,
     ].join(' · ');
   }
   /**
@@ -1873,8 +1908,16 @@
   }
   async function nativeTokenLoad(){
     const p = nativePlugin(); if(!p) return null;
-    try{ const r = await p.keychainGet({ key: TOKEN_KEY }); return (r && r.value) || null; }
-    catch(e){ console.error('keychain read failed', e); return null; }
+    // 這是開機路上第一通原生電話，所以順便當探針：它的結果就是「對面有沒有人接」。
+    try{
+      const r = await p.keychainGet({ key: TOKEN_KEY });
+      nativeProbe = 'ok';
+      return (r && r.value) || null;
+    }catch(e){
+      nativeProbe = /沒有回應|no response/i.test(String(e && e.message)) ? 'timeout' : 'error';
+      console.error('keychain read failed', e);
+      return null;    // 讀不到就是沒有 token：接下來會顯示登入畫面，而不是卡在這裡
+    }
   }
   async function nativeTokenSave(t){
     const p = nativePlugin(); if(!p) return;
@@ -1990,11 +2033,38 @@
     // （build 6 實際的症狀）。與其讓人重試第三次才懷疑，不如在登入畫面出現前就說出來。
     if(!nativePlugin()) nativeShellBroken(tr('原生插件沒有載入'));
     appToken = await nativeTokenLoad();
-    if(!appToken){ appAuthShow(); return; }
+    if(!appToken){
+      appAuthShow();
+      // Keychain 讀不到（沒人接或出錯）時，**待會兒也存不回去**——登入會成功、reload
+      // 之後又回到這一頁，無限輪迴（build 6 的症狀）。與其讓人重試第三次才起疑，
+      // 不如就寫在登入畫面上；那是此刻唯一看得到的地方（狀態列被它蓋住了）。
+      if(nativeProbe !== 'ok'){
+        nativeShellBroken(tf('Keychain 讀取失敗（{0}）', nativeProbe));
+        appAuthMsg(tf('這個 app 的原生功能沒有回應（{0}）。登入後可能存不住，請回報這行：', nativeProbe) + ' ' + nativeDiag(), 'err');
+      }
+      return;
+    }
     await initCloudSync(localHadData);
     // 走完了、沒有丟例外、卻也沒有同步，而且連一句說明都沒有——那就是還有一條沒被說出來的路
     // （例如伺服器回 200 但 body 裡沒有 user）。app 裡「安靜的單機模式」永遠不是合法結果。
     if(!cloudEnabled && !cloudNoteText()) nativeShellBroken(tr('同步沒有啟用，但沒有任何錯誤'));
+  }
+  /**
+   * 開機看門狗——這一輪真正的保險。
+   *
+   * 前兩輪的教訓是「逐條堵洞永遠會漏掉下一條」，build 9 又加了一條新的：**卡住的形狀
+   * 沒有任何事件。** 沒有例外、沒有 rejection、沒有紅字，因為程式根本還沒走到會說話的
+   * 那一行。任何一個不會 settle 的 await 都長這樣，而我永遠列不完會有哪些。
+   *
+   * 所以不問「卡在哪」，只問：**到現在為止有沒有走到任何一種結局。** 三種合法的結局是
+   * 「同步啟用了」「登入畫面蓋上來了」「狀態列已經解釋過了」。一種都沒有就是卡住。
+   */
+  function nativeBootWatchdog(){
+    setTimeout(()=>{
+      const authShown = !!(appAuthView && appAuthView.classList.contains('show'));
+      if(cloudEnabled || authShown || cloudNoteText()) return;   // 走到結局了，閉嘴
+      nativeShellBroken(tf('啟動卡住了：超過 {0} 秒沒有任何結果', Math.round(BOOT_WATCHDOG_MS / 1000)));
+    }, BOOT_WATCHDOG_MS);
   }
   /** 401 在 app 裡：清掉 token、回到登入畫面。不能導向 /login——app 裡沒有那一頁。 */
   function nativeSessionExpired(){
@@ -2376,6 +2446,11 @@
       '拿不到 App Store 的購買證明。請確認是從 App Store 或 TestFlight 安裝的版本。':
         'Could not get the App Store purchase proof. Make sure this copy was installed from the App Store or TestFlight.',
       'app 啟動異常':'App startup problem',
+      '原生插件沒有回應（{0}）':'the native plugin did not answer ({0})',
+      'Keychain 讀取失敗（{0}）':'Keychain read failed ({0})',
+      '這個 app 的原生功能沒有回應（{0}）。登入後可能存不住，請回報這行：':
+        'This app\u2019s native layer did not answer ({0}). Your sign-in may not stick \u2014 please report this line:',
+      '啟動卡住了：超過 {0} 秒沒有任何結果':'Startup is stuck: no result after {0} seconds',
       '原生插件沒有載入':'the native plugin did not load',
       '登入畫面的元素不在':'the sign-in screen markup is missing',
       '同步沒有啟用，但沒有任何錯誤':'sync is off but nothing reported an error',
@@ -3203,7 +3278,9 @@
   async function cloudPull(){
     let r;
     try{
-      r = await fetch(API_STATE, { cache:'no-store' });
+      // 沒有時限的 fetch 是另一個「不會 settle 的 await」：連線掛在那裡不回也不錯，
+      // 啟動流程就停住。看門狗會把它變成看得見的，但這裡先讓它自己了結成 failed。
+      r = await withTimeout(fetch(API_STATE, { cache:'no-store' }), CLOUD_FETCH_TIMEOUT_MS, 'state fetch timed out');
     }catch(e){
       // file:// 沒有伺服器可打，fetch 直接拒絕——那是「沒有後端」而不是故障。
       // app 裡（capacitor://）打的是線上網址，打不到就是真的斷線，要算 failed。
@@ -7671,6 +7748,7 @@
   // 一個沒有人看得到的 unhandled rejection——畫面停在示範資料、狀態列一片乾淨，與「單機
   // 模式」長得一模一樣。initCloudSync 自己有 catch（見〈降級可以，沉默不行〉），
   // nativeBoot 原本沒有，那是同一條規則漏掉的一格。
+  if(NATIVE) nativeBootWatchdog();
   if(NATIVE) nativeBoot(loadedFromStorage).catch(e=>{
     console.error('app 啟動失敗', e && e.stack ? e.stack : String(e));
     nativeShellBroken(String((e && e.message) || e));
