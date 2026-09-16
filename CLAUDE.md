@@ -620,11 +620,18 @@ Turnstile 擋得住「一秒鐘一萬次」的機器人，擋不住「一分鐘�
 | **刪除自己的帳號**（`DELETE /api/auth/account`）：先記錄再刪，`shares` 兩個方向都刪，`share_activity` 保留 | Apple 5.1.1(v) 硬規定。`ADMIN_EMAILS` 名單內的帳號也能刪自己：名單防的是另一位管理者的橫向操作，本人拿密碼刪自己是直向的。測試守著「別人的每一列原樣」 |
 | `public/privacy.html` 不用登入 | App Store 審查員與還沒註冊的人都會來看。`run_worker_first` 沒列它，靜態資產直接供應 |
 | AI 每日上限依方案：免費 5、Pro 20 | 每次呼叫都要付 DeepSeek 錢；免費版不能不限，給 5 次是讓人試得到 |
-| 打包**只在手動觸發或 `ios-v*` tag** 時跑，在 GitHub 的 `macos-26` 映像（**不是 `xcode-27`**） | Mac runner 貴而且慢；開發者沒有 Mac 也不需要。`xcode-27` 標籤是「預覽」映像，裡面只有 beta——beta 打的 build 可以上傳到 App Store Connect 但**會被拒收**（第五次打包：「Unsupported SDK or Xcode version … you need to use the latest Release Candidates」）。`macos-26` 預設是 Xcode 26.x 正式版。自動簽章帶 App Store Connect API 金鑰，四個 secrets：`ASC_KEY_ID`、`ASC_ISSUER_ID`、`ASC_API_KEY_P8`、`APPLE_TEAM_ID`。金鑰寫進 `~/private_keys`，跑完一律刪 |
+| 打包在 GitHub 的 `macos-26` 映像（**不是 `xcode-27`**） | 開發者沒有 Mac 也不需要。`xcode-27` 標籤是「預覽」映像，裡面只有 beta——beta 打的 build 可以上傳到 App Store Connect 但**會被拒收**（第五次打包：「Unsupported SDK or Xcode version … you need to use the latest Release Candidates」）。`macos-26` 預設是 Xcode 26.x 正式版。自動簽章帶 App Store Connect API 金鑰，四個 secrets：`ASC_KEY_ID`、`ASC_ISSUER_ID`、`ASC_API_KEY_P8`、`APPLE_TEAM_ID`。金鑰寫進 `~/private_keys`，跑完一律刪 |
 | **archive 不簽章**（`CODE_SIGNING_ALLOWED=NO`），簽章整個留給 `exportArchive` | 自動簽章的 archive 一律用**開發用**身分，那種描述檔必須綁至少一台實體裝置，帳號沒裝置就失敗（第一次打包：「Your team has no devices」）；在 archive 硬指定 `Apple Distribution` 又會被 Xcode 拒絕為「conflicting provisioning settings」（第二次）。export（`app-store-connect` + `signingStyle automatic` + `-allowProvisioningUpdates`）自己用**發佈用**身分重簽，不綁裝置，憑證由 Xcode 雲端簽章代管，runner 不需要 .p12。**不要把 `project.pbxproj` 的 `CODE_SIGN_IDENTITY` 改成 Distribution**，那會讓本機用 Xcode 打包也撞同一個錯 |
 | `ASC_KEY_ID` 那把金鑰的角色**必須是 Admin** | 雲端簽章要用雲端代管的發佈憑證，App Manager／Developer 金鑰被拒（第三次打包：「You haven't been given access to cloud-managed distribution certificates」）。使用者帳號有「Access to Cloud Managed Distribution Certificate」的勾選框，**API 金鑰沒有**，只能靠角色。代價是這把金鑰權限很大，只放在 GitHub secrets、跑完就刪 |
 
-**改版時要做的事**：`mobile/package.json` 的 `version` 往上加（build 號是 GitHub 的 `run_number`，不用管）→ 手動跑 iOS workflow → App Store Connect 送審。`public/index.html` 改了 app 不會自己更新。
+| 打包**自動跑**：main 的 CI 全綠、而且這次動到 `public/index.html` 或 `mobile/` | 原本寫的是「只在手動觸發或 tag 時跑，Mac runner 貴而且慢」。**「貴」這個前提過期了**——這是公開 repo，GitHub 的標準 runner 對公開 repo 不計費（同〈忘記密碼〉那節：「系統沒有寄信基礎設施」在接上 AgentMail 之後就不成立了，設計決定的前提會過期）。真正的代價是「打出沒有人要的 build」，所以兩道閘門都不能拿掉 |
+| 掛在 **`workflow_run`（CI 完成）** 而不是 `on.push` | `on.push` 與 CI 並行，測試還沒跑完就開始打包了。`workflow_run` 拿得到那一次的結論，才擋得住「紅的 commit 變成手機上的 app」 |
+| `workflow_run` 的兩個 checkout **都要指名 `head_sha`** | 那種觸發預設 checkout 的是預設分支的最新狀態，不是觸發那一次的 commit。漏掉的話判斷與打包的都是別的東西，而且不會報錯 |
+| 路徑判斷只認 `public/index.html`，**不是整個 `public/`** | 只有它會被塞進 app（`mobile/scripts/prepare-www.mjs` 只複製它）。`login.html`、`admin.html`、`privacy`／`terms`、`sw.js` 都不在 app 裡 |
+| 判斷放在一個 ubuntu 的小 job（`decide`），不是在 Mac job 裡逐步 `if` | Mac runner 連開都不用開；而且「要不要打包」的理由集中在一個地方看得完 |
+| 看不到上一個 commit 時**寧可打包** | 漏打一次要等下一輪，多打一次只是浪費三分鐘。判斷靠 `HEAD~1..HEAD`，前提是 PR 一律 squash 合併 |
+
+**改版時要做的事**：`mobile/package.json` 的 `version` 往上加（build 號是 GitHub 的 `run_number`，不用管）→ **合併進 main 就會自動打包上傳**（CI 綠、且動到 `public/index.html` 或 `mobile/`）→ App Store Connect 送審。手動觸發與 `ios-v*` tag 仍然留著，兩者都不看路徑條件。
 
 **部署順序**：`migrations/005-app-purchase.sql`、`006-plan.sql` 與 `007-streak-mail.sql` 都要在部署新 Worker **之前**跑（`getSessionUser` 的 SELECT 讀 `plan_source`，欄位不在**每一個**登入請求都會 500；`007` 的欄位則是 `/api/reminder` 與 cron 會讀），理由見〈資料庫結構變更〉。006 跑完、Worker 部署完之後，還要到 `/admin` 把既有的兩個帳號設成「Pro（永久）」——漏掉的症狀是他們的第四個專案被擋，當場就會知道。
 
@@ -1319,7 +1326,7 @@ class 命名沿用 `type-<type>`（列）與 `type-badge <type>`（徽章）；�
 12. 前置作業的狀態不進提醒信與 ICS——那兩者的內容由前端展開後推上去，加進去等於再開一條會分歧的路
 13. **免費版有上限**：大項目與甘特專案各最多 3 個、AI 每天 5 次；Pro（app 內訂閱，E2 待做）不限。降級不刪資料，只是不能再新增。在 app 裡註冊仍要附 Apple 的購買證明——一個 Apple ID 一個帳號，那是防濫用不是收費
 16. **遊戲化的數字從 2026-09-17 起算**：之前的完成沒有時間戳，不算按時；連續天數不防「把日期往後改」
-14. **前端每次改版，app 要重新打包送審**：`index.html` 內建在 app 裡（自動更新是之後的子專案）
+14. **前端每次改版，app 要重新打包送審**：`index.html` 內建在 app 裡（自動更新是之後的子專案）。**打包本身已經自動化**——合併進 main、CI 全綠、而且動到 `public/index.html` 或 `mobile/` 就會自己打包並上傳到 TestFlight；要送審仍然要自己去 App Store Connect 按
 15. **網頁上不開放陌生人自己註冊**：註冊只在 app 裡發生；網頁註冊仍走管理者核准，留給例外
 
 ## 尚未做的重構
