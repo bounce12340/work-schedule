@@ -165,6 +165,7 @@ APP_URL=<optional>
 - **Delete my account**: at the bottom of the tab; confirm with your password and the account, every schedule in the cloud, shares, calendar feed and reminder settings are gone (daily backups expire after 14 days). Works on the web and in the iOS app
 - A device that has never signed in only sees the sign-in gate; a device that has signed in keeps working offline on local data
 - **Free and Pro**: Free has no time limit but caps: up to 3 major projects and 3 projects, 5 AI requests a day. Pro lifts the caps (20 AI requests a day). When Pro lapses nothing is deleted; you just can't add more. Subscriptions are bought inside the iPhone app (not yet released) and the web shares the same one
+- **Gamification**: a plant that grows as your character. +10 XP per on-time completion, +30 for a perfect day (everything scheduled that day done on time), +100 per badge; streaks, 7→14→30-day challenges and a badge wall under "My account". Days with nothing scheduled neither count nor break the streak. Same for Free and Pro
 
 ### 📱 iOS app (free download, Pro subscription in-app)
 - The same `index.html` is bundled into a native app (`mobile/`, Capacitor). Works offline; signs in with a token kept in the Keychain; the web version and the app share one account and one set of data

@@ -52,6 +52,7 @@
     --bg: #F6F4EE;
     --panel: #FFFDF7;
     --paper: #FDFAF1;   /* 每日記錄專用的紙色，比 panel 再暖一點 */
+    --plant-leaf: #7FA36B; --plant-leaf-2: #5E8A4E; --plant-stem: #6B7E52; --plant-soil: #CDBE9E; --plant-bloom-2: #F2D6A2;   /* 遊戲化的植物 */
     --art-far: #DCE3D0;   /* 空狀態插畫：遠山 */
     --art-near: #C7D3BA;  /* 空狀態插畫：近坡 */
     --panel-2: #F1EEE5;
@@ -124,6 +125,7 @@
     --bg: #1A1917;
     --panel: #232220;
     --paper: #24211C;
+    --plant-leaf: #6E9A5C; --plant-leaf-2: #4E7B42; --plant-stem: #5C6E46; --plant-soil: #4A423A; --plant-bloom-2: #C99A5A;
     --art-far: #2C332B;
     --art-near: #363E33;
     --panel-2: #2B2A27;
@@ -266,6 +268,31 @@
   /* 週一的回顧：只講做完的。沒做完的那些，逾期的紅字已經在講了 */
   /* 顏色與字級刻意與招呼語相同：它也坐在光暈上，量招呼語就等於量它 */
   .brand-lookback{ font-family: var(--serif); font-size: 14px; color: var(--text); margin-top: 8px; letter-spacing: .5px; }
+  /* 遊戲化：header 的小角色。只是一株植物＋等級＋火焰，不佔版面 */
+  .brand-game{ display:flex; align-items:center; gap:8px; margin-top:8px; font-family:var(--mono); font-size:12.5px; color:var(--text); }
+  .brand-game[hidden]{ display:none; }
+  .game-avatar{ width:30px; height:30px; flex-shrink:0; }
+  .game-avatar svg{ width:100%; height:100%; display:block; overflow:visible; }
+  .game-avatar.big{ width:112px; height:112px; }
+  .game-avatar .plant{ transform-origin:60px 100px; transition: transform .6s ease; }
+  .game-avatar.wilt .plant{ transform: rotate(-7deg); }
+  /* 升級的光：只在升級那一次冒一下（.levelup 由 gameCelebrate 加、animationend 拿掉），不掛在 .game-avatar 本身 */
+  @keyframes level-glow{ 0%{ filter: drop-shadow(0 0 0 rgba(201,130,46,0)); transform:scale(1); } 40%{ filter: drop-shadow(0 0 10px rgba(201,130,46,.75)); transform:scale(1.12); } 100%{ filter: drop-shadow(0 0 0 rgba(201,130,46,0)); transform:scale(1); } }
+  .game-avatar.levelup{ animation: level-glow .9s ease-out; }
+  @media (prefers-reduced-motion: reduce){ .game-avatar.levelup{ animation:none; } .game-avatar .plant{ transition:none; } }
+  .game-card{ display:flex; gap:18px; align-items:flex-start; }
+  .game-body{ flex:1; min-width:0; }
+  .game-level{ font-family:var(--serif); font-size:18px; font-weight:600; margin-bottom:6px; }
+  .xp-bar{ height:8px; border-radius:4px; background:var(--panel-2); overflow:hidden; margin:4px 0 6px; }
+  .xp-fill{ height:100%; background:var(--amber); border-radius:4px; transition: width .4s ease; }
+  .challenge-track{ display:flex; gap:3px; flex-wrap:wrap; margin:6px 0 10px; }
+  .challenge-track i{ width:12px; height:12px; border-radius:3px; background:var(--panel-2); display:block; }
+  .challenge-track i.on{ background:var(--teal); }
+  .badge-wall{ display:flex; gap:6px; flex-wrap:wrap; }
+  .badge-chip{ font-family:var(--mono); font-size:11px; padding:3px 8px; border-radius:6px; background:var(--panel-2); color:var(--text-muted); }
+  .badge-chip.on{ background:var(--amber-dim); color:var(--amber-ink); }
+  .undo-toast.game{ pointer-events:none; }
+  @media (max-width: 640px){ .game-card{ flex-direction:column; align-items:center; text-align:center; } .badge-wall, .challenge-track{ justify-content:center; } }
   .clock-block{ font-family: var(--mono); text-align:right; }
   .clock-block .now-date{ font-size:13px; color:var(--text-muted); }
   .clock-block .now-time{ font-size:19px; font-weight:700; color:var(--amber); letter-spacing:1px; }
@@ -1124,6 +1151,10 @@
       <div class="brand-eyebrow" id="brandGreeting"></div>
       <div class="brand-title" data-i18n>工作排程確認系統</div>
       <div class="brand-lookback" id="brandLookback" hidden></div>
+      <div class="brand-game" id="brandGame" hidden>
+        <div class="game-avatar" id="brandPlant"></div>
+        <span id="brandGameText"></span>
+      </div>
     </div>
     <div style="display:flex; align-items:center; gap:14px;">
       <div class="account-box" id="accountBox" style="display:none;">
@@ -1289,6 +1320,22 @@
           <div class="acct-sub" id="acctPlanSub"></div>
         </div>
 
+        <div class="acct-sec" id="acctGame">
+          <div class="acct-h" data-i18n>🌱 我的角色</div>
+          <div class="game-card">
+            <div class="game-avatar big" id="acctPlant"></div>
+            <div class="game-body">
+              <div class="game-level" id="acctGameLevel">—</div>
+              <div class="xp-bar"><div class="xp-fill" id="acctXpFill" style="width:0%"></div></div>
+              <div class="acct-sub" id="acctGameXp"></div>
+              <div class="acct-sub" id="acctGameStreak"></div>
+              <div class="acct-sub" id="acctGameChallenge" style="margin-bottom:0;"></div>
+              <div class="challenge-track" id="acctChallengeTrack"></div>
+              <div class="badge-wall" id="acctBadges"></div>
+            </div>
+          </div>
+        </div>
+
         <div class="acct-sec" id="acctReminder">
           <div class="acct-h" data-i18n>📧 逾期提醒信</div>
           <div class="acct-sub" id="acctReminderSub"></div>
@@ -1388,6 +1435,7 @@
   <span id="hintText"></span>
 </div>
 
+<div id="gameToast" class="undo-toast game" aria-live="polite"><span id="gameToastText"></span></div>
 <div id="undoToast" class="undo-toast">
   <span id="undoText"></span>
   <button id="undoBtn" type="button" data-i18n>復原</button>
@@ -1964,6 +2012,17 @@
     en: {
       // —— 導覽與頁首 ——
       '工作排程確認系統':'Schedule Control Board',
+      // —— 遊戲化 ——
+      '🌱 我的角色':'🌱 My character', '{0} 天':'{0} days',
+      '種子':'Seed', '發芽':'Sprout', '小苗':'Seedling', '小樹':'Sapling', '開花':'In bloom', '結果':'Bearing fruit',
+      '{0} XP，再 {1} 就升級。按時做完一件 +{2}，完美的一天 +{3}，第一次拿到徽章 +{4}。':'{0} XP, {1} more to level up. On-time completion +{2}, a perfect day +{3}, each new badge +{4}.',
+      '連續 {0} 天，最長 {1} 天。那一天安排的事全部按時做完才算一天；沒安排的日子不算、也不會斷。':'{0}-day streak, best {1}. A day counts when everything scheduled that day is done on time; days with nothing scheduled neither count nor break it.',
+      '目前的挑戰：連續 {0} 天（{1}/{0}）':'Current challenge: {0} days in a row ({1}/{0})',
+      '三階挑戰都完成了。':'All three challenges done.',
+      '第一件':'First one', '十件':'Ten', '五十件':'Fifty', '一百件':'One hundred', '連續 7 天':'7-day streak', '連續 14 天':'14-day streak', '連續 30 天':'30-day streak', '完美的一週':'Perfect week',
+      '今天全部做完了。+{0} XP，連續 {1} 天。':'Everything for today is done. +{0} XP, {1}-day streak.',
+      '升到 Lv.{0} 了！':'Level {0}!', '拿到徽章：{0}':'New badge: {0}',
+      '其中 {0} 件按時，完美的一天有 {1} 天。':'{0} of them on time, with {1} perfect days.',
       // —— 方案與上限 ——
       '免費版的上限':'Free plan limit', '知道了':'Got it', '使用條款':'Terms of Use', '隱私權政策':'Privacy Policy',
       '免費版最多 {0} 個大項目，你已經有 {1} 個。既有的都會留著、照常使用，只是不能再新增。':'The free plan allows up to {0} major projects; you already have {1}. Everything you have stays and keeps working — you just can’t add more.',
@@ -2597,6 +2656,14 @@
     return out;
   }
 
+  /** doneAt：occKey → 完成的毫秒。非有限正數的值丟掉；來源可能是舊存檔、備份或別人的帳號。 */
+  function normalizeDoneAt(raw){
+    const out = {};
+    if(!raw || typeof raw !== 'object') return out;
+    Object.keys(raw).forEach(k => { const v = raw[k]; if(Number.isFinite(v) && v > 0) out[k] = v; });
+    return out;
+  }
+
   function normalizeItems(raw){
     const kept = (Array.isArray(raw) ? raw : []).filter(it => it && it.id && isYmd(it.date));
     const validIds = new Set(kept.map(it => it.id));
@@ -2618,6 +2685,7 @@
       dependsOn: normalizeDependsOn(it.dependsOn, it.id, validIds),
       done: !!it.done,
       doneMap: (it.doneMap && typeof it.doneMap==='object') ? it.doneMap : {},
+      doneAt: normalizeDoneAt(it.doneAt),
       overrides: (it.overrides && typeof it.overrides==='object') ? it.overrides : {},
       skipped: (it.skipped && typeof it.skipped==='object') ? it.skipped : {}
     }));
@@ -3595,6 +3663,11 @@
   function setOccurrenceDone(occ, val){
     if(occ.occKey==='single'){ occ.item.done = val; }
     else{ occ.item.doneMap = occ.item.doneMap || {}; occ.item.doneMap[occ.occKey] = val; }
+    // 完成的時間戳（遊戲化：「那一天結束前做完」才算完美的一天）。只在這裡寫，
+    // 它本來就是完成狀態唯一的寫入點；取消勾選就把時間拿掉。
+    occ.item.doneAt = occ.item.doneAt || {};
+    if(val) occ.item.doneAt[occ.occKey] = Date.now();
+    else delete occ.item.doneAt[occ.occKey];
   }
 
   /**
@@ -3704,6 +3777,127 @@
     if(occ.occKey.charAt(0)==='Y') return occ.occKey.slice(1)+'年';
     if(occ.item.recurrence.freq==='monthly'){ const [y,m]=occ.occKey.split('-'); return y+'年'+parseInt(m)+'月'; }
     const [y,q] = occ.occKey.split('-Q'); return y+'年 第'+q+'季';
+  }
+
+  // ================= 遊戲化 =================
+  // 設計文件 docs/superpowers/specs/2026-09-16-gamification-design.md。
+  //
+  // 所有數字（XP、等級、連續、挑戰、徽章）都從既有資料**算出來**，跟 occurrence 引擎
+  // 一樣不儲存：兩台裝置不必合併帳本、刪掉項目數字跟著對、存檔格式不用升版。
+  // 唯一的儲存是 item.doneAt（setOccurrenceDone 寫的完成時間戳）。
+  // 這一段零 DOM，tests/game.test.mjs 從這裡抽出來求值。
+  const GAME_EPOCH = '2026-09-17';        // 上線日：之前的完成沒有時間戳，一律不算；角色從種子開始
+  const GAME_XP = { onTime: 10, perfectDay: 30, badge: 100 };
+  const GAME_LADDER = [7, 14, 30];        // 挑戰的梯子：拿到 7 才解鎖 14、拿到 14 才解鎖 30
+  const GAME_STAGES = [[1,'seed'],[3,'sprout'],[5,'seedling'],[8,'tree'],[12,'flower'],[17,'fruit']];
+  const GAME_BADGES = ['first','ten','fifty','hundred','streak7','streak14','streak30','perfectWeek'];
+
+  function gameDayEnd(dateStr){ const d = parseYMD(dateStr); d.setHours(23,59,59,999); return d.getTime(); }
+  /** 到期日：跨多天事項以結束日算（同逾期與提醒信） */
+  function gameDueDate(occ){ return (occ.item.endDate && occ.occKey==='single') ? occ.item.endDate : occ.date; }
+  function gameDoneAt(occ){ const m = occ.item.doneAt; const v = m && m[occ.occKey]; return Number.isFinite(v) ? v : null; }
+  /** 按時：在到期那天 23:59:59（本地時間）之前做完。沒有時間戳（上線前的完成）不算。 */
+  function gameOnTime(occ){ const t = gameDoneAt(occ); return t != null && t <= gameDayEnd(gameDueDate(occ)); }
+  /** 那一天的判決：沒安排 → empty（不斷也不加，使用者的裁決）；全部按時 → perfect；否則 missed */
+  function dayVerdict(occs){ if(!occs.length) return 'empty'; return occs.every(gameOnTime) ? 'perfect' : 'missed'; }
+
+  /**
+   * 連續天數。verdicts 依日期升冪、最後一個是今天。
+   *   current：從昨天往回數 perfect，empty 跳過；今天只有已經 perfect 才加——今天還沒過完，missed 不斷
+   *   best   ：歷史最長（挑戰的解鎖看它）
+   */
+  function streakFromVerdicts(verdicts, todayStr){
+    let best = 0, run = 0;
+    verdicts.forEach(v => {
+      if(v.date > todayStr) return;
+      if(v.verdict === 'perfect'){ run++; if(run > best) best = run; }
+      else if(v.verdict === 'missed') run = 0;
+    });
+    let current = 0, todayPerfect = false;
+    for(let i = verdicts.length - 1; i >= 0; i--){
+      const v = verdicts[i];
+      if(v.date > todayStr) continue;
+      if(v.date === todayStr){ if(v.verdict === 'perfect'){ current++; todayPerfect = true; } continue; }
+      if(v.verdict === 'perfect') current++;
+      else if(v.verdict === 'missed') break;
+    }
+    return { current, best, todayPerfect };
+  }
+
+  /** 等級門檻遞增：升到第 n+1 級要累積 100 × n × (n+1) / 2。回 { level, into, need }。 */
+  function levelOf(xp){
+    let level = 1;
+    while(xp >= 100 * level * (level + 1) / 2) level++;
+    return { level, into: xp - 100 * (level - 1) * level / 2, need: 100 * level };
+  }
+  function stageOf(level){ let st = 'seed'; GAME_STAGES.forEach(([min, name]) => { if(level >= min) st = name; }); return st; }
+
+  /** 梯子：目前的目標是第一個還沒拿到的階；進度用 current 數，斷了從 0 重爬同一階，不掉階 */
+  function challengeOf(streak){
+    const unlocked = GAME_LADDER.filter(n => streak.best >= n);
+    const target = GAME_LADDER.find(n => streak.best < n) || null;
+    return { target, done: target ? Math.min(streak.current, target) : GAME_LADDER[GAME_LADDER.length - 1], unlocked };
+  }
+
+  /** 完美的一週：週一到週五五天都在範圍內、至少一天 perfect、沒有 missed（empty 不算破） */
+  function perfectWeeksOf(verdicts){
+    const weeks = new Map();
+    verdicts.forEach(v => {
+      const d = parseYMD(v.date); const wd = d.getDay();
+      if(wd === 0 || wd === 6) return;
+      const mon = new Date(d); mon.setDate(d.getDate() - ((wd + 6) % 7));
+      const k = ymd(mon);
+      const w = weeks.get(k) || { days: 0, perfect: 0, missed: 0 };
+      w.days++; if(v.verdict === 'perfect') w.perfect++; if(v.verdict === 'missed') w.missed++;
+      weeks.set(k, w);
+    });
+    let n = 0; weeks.forEach(w => { if(w.days === 5 && w.perfect > 0 && w.missed === 0) n++; });
+    return n;
+  }
+
+  function badgesOf(onTime, streak, perfectWeeks){
+    const out = [];
+    if(onTime >= 1) out.push('first');
+    if(onTime >= 10) out.push('ten');
+    if(onTime >= 50) out.push('fifty');
+    if(onTime >= 100) out.push('hundred');
+    GAME_LADDER.forEach(n => { if(streak.best >= n) out.push('streak' + n); });
+    if(perfectWeeks >= 1) out.push('perfectWeek');
+    return out;
+  }
+
+  /** 全部算一次。todayStr 可注入（測試與跨日）。上線日之前的日子不看。 */
+  function gameStats(todayStr){
+    todayStr = todayStr || ymd(new Date());
+    const streak0 = { current: 0, best: 0, todayPerfect: false };
+    const empty = { xp: 0, level: 1, into: 0, need: 100, stage: 'seed', streak: streak0, challenge: challengeOf(streak0),
+      badges: [], onTime: 0, perfectDays: 0, perfectWeeks: 0, todayVerdict: 'empty' };
+    if(todayStr < GAME_EPOCH) return empty;
+    const start = parseYMD(GAME_EPOCH); start.setHours(0,0,0,0);
+    const end = parseYMD(todayStr); end.setHours(23,59,59,999);
+    const byDay = new Map();
+    getAllOccurrences(start, end).forEach(o => {
+      const d = gameDueDate(o);
+      if(d < GAME_EPOCH || d > todayStr) return;   // 進行中的跨多天事項還沒到期
+      if(!byDay.has(d)) byDay.set(d, []);
+      byDay.get(d).push(o);
+    });
+    const verdicts = []; let onTime = 0, perfectDays = 0;
+    for(const d = new Date(start); ymd(d) <= todayStr; d.setDate(d.getDate() + 1)){
+      const k = ymd(d); const occs = byDay.get(k) || [];
+      const v = dayVerdict(occs);
+      verdicts.push({ date: k, verdict: v });
+      if(v === 'perfect') perfectDays++;
+      occs.forEach(o => { if(gameOnTime(o)) onTime++; });
+    }
+    const streak = streakFromVerdicts(verdicts, todayStr);
+    const perfectWeeks = perfectWeeksOf(verdicts);
+    const badges = badgesOf(onTime, streak, perfectWeeks);
+    const xp = onTime * GAME_XP.onTime + perfectDays * GAME_XP.perfectDay + badges.length * GAME_XP.badge;
+    const lv = levelOf(xp);
+    return { xp, level: lv.level, into: lv.into, need: lv.need, stage: stageOf(lv.level), streak,
+      challenge: challengeOf(streak), badges, onTime, perfectDays, perfectWeeks,
+      todayVerdict: verdicts[verdicts.length - 1].verdict };
   }
 
   // ================= scope range =================
@@ -3883,6 +4077,118 @@
       alert(tr('目前離線，無法登出其他裝置。'));
     }finally{ this.disabled = false; }
   };
+
+  // ================= 遊戲化畫面 =================
+  // 引擎在〈遊戲化〉區段（純函式）；這裡只負責畫。所有數字每次 renderAll 重算一次——
+  // 展開的是上線日到今天，成本與年度檢視同一個量級，不另外做快取（快取失效才是 bug 的來源）。
+  let lastGame = null;
+
+  /** 一株植物，六階。純 inline SVG，顏色走 CSS 變數（兩種主題各一組）。 */
+  function plantArt(stage, glow){
+    const soil = '<ellipse cx="60" cy="100" rx="34" ry="9" fill="var(--plant-soil)"/>';
+    const halo = glow ? '<circle cx="60" cy="60" r="34" fill="var(--halo-b)" opacity=".5"/>' : '';
+    let body = '';
+    if(stage === 'seed'){
+      body = '<ellipse cx="60" cy="96" rx="9" ry="6" fill="var(--plant-leaf-2)"/>';
+    }else if(stage === 'sprout'){
+      body = '<path d="M60 98 V78" stroke="var(--plant-stem)" stroke-width="3" stroke-linecap="round" fill="none"/>'
+        + '<ellipse cx="50" cy="78" rx="10" ry="5" fill="var(--plant-leaf)" transform="rotate(-25 50 78)"/>'
+        + '<ellipse cx="70" cy="76" rx="10" ry="5" fill="var(--plant-leaf-2)" transform="rotate(25 70 76)"/>';
+    }else if(stage === 'seedling'){
+      body = '<path d="M60 98 V52" stroke="var(--plant-stem)" stroke-width="3.5" stroke-linecap="round" fill="none"/>'
+        + '<ellipse cx="48" cy="84" rx="12" ry="5.5" fill="var(--plant-leaf)" transform="rotate(-25 48 84)"/>'
+        + '<ellipse cx="72" cy="78" rx="12" ry="5.5" fill="var(--plant-leaf-2)" transform="rotate(25 72 78)"/>'
+        + '<ellipse cx="49" cy="66" rx="11" ry="5" fill="var(--plant-leaf-2)" transform="rotate(-30 49 66)"/>'
+        + '<ellipse cx="70" cy="58" rx="11" ry="5" fill="var(--plant-leaf)" transform="rotate(30 70 58)"/>';
+    }else{
+      const canopy = '<path d="M60 98 V60" stroke="var(--plant-stem)" stroke-width="5" stroke-linecap="round" fill="none"/>'
+        + '<circle cx="42" cy="58" r="17" fill="var(--plant-leaf-2)"/>'
+        + '<circle cx="78" cy="58" r="17" fill="var(--plant-leaf-2)"/>'
+        + '<circle cx="60" cy="42" r="20" fill="var(--plant-leaf)"/>'
+        + '<circle cx="60" cy="62" r="18" fill="var(--plant-leaf)"/>';
+      const bloom = (x, y, r) => '<circle cx="'+x+'" cy="'+y+'" r="'+r+'" fill="var(--amber)"/><circle cx="'+x+'" cy="'+y+'" r="'+(r*0.45)+'" fill="var(--plant-bloom-2)"/>';
+      const fruit = (x, y) => '<circle cx="'+x+'" cy="'+y+'" r="4.5" fill="var(--amber)"/>';
+      body = canopy;
+      if(stage === 'flower') body += bloom(47, 50, 5) + bloom(72, 44, 4.5) + bloom(62, 68, 4);
+      if(stage === 'fruit') body += bloom(50, 40, 4) + fruit(42, 64) + fruit(76, 66) + fruit(64, 52) + fruit(56, 74);
+    }
+    return '<svg viewBox="0 0 120 112" aria-hidden="true">' + halo + soil + '<g class="plant">' + body + '</g></svg>';
+  }
+
+  const BADGE_LABEL = { first:'第一件', ten:'十件', fifty:'五十件', hundred:'一百件', streak7:'連續 7 天', streak14:'連續 14 天', streak30:'連續 30 天', perfectWeek:'完美的一週' };
+
+  function renderGameHeader(g){
+    const box = document.getElementById('brandGame'); if(!box) return;
+    const plant = document.getElementById('brandPlant');
+    // 連續斷掉那天植物微微垂下（有紀錄卻是 0）；不枯、不死——那是信的工作，不是畫面的
+    const wilt = g.streak.current === 0 && g.onTime > 0;
+    plant.innerHTML = plantArt(g.stage, g.streak.current >= 3);
+    plant.classList.toggle('wilt', wilt);
+    document.getElementById('brandGameText').textContent =
+      'Lv.' + g.level + (g.streak.current >= 2 ? ' · 🔥 ' + tf('{0} 天', g.streak.current) : '');
+    box.hidden = false;
+  }
+
+  function acctRenderGame(g){
+    const plant = document.getElementById('acctPlant'); if(!plant) return;
+    plant.innerHTML = plantArt(g.stage, g.streak.current >= 3);
+    plant.classList.toggle('wilt', g.streak.current === 0 && g.onTime > 0);
+    document.getElementById('acctGameLevel').textContent = 'Lv.' + g.level + ' · ' + tr({ seed:'種子', sprout:'發芽', seedling:'小苗', tree:'小樹', flower:'開花', fruit:'結果' }[g.stage]);
+    document.getElementById('acctXpFill').style.width = Math.round(g.into / g.need * 100) + '%';
+    document.getElementById('acctGameXp').textContent = tf('{0} XP，再 {1} 就升級。按時做完一件 +{2}，完美的一天 +{3}，第一次拿到徽章 +{4}。', g.xp, g.need - g.into, GAME_XP.onTime, GAME_XP.perfectDay, GAME_XP.badge);
+    document.getElementById('acctGameStreak').textContent = tf('連續 {0} 天，最長 {1} 天。那一天安排的事全部按時做完才算一天；沒安排的日子不算、也不會斷。', g.streak.current, g.streak.best);
+    const ch = document.getElementById('acctGameChallenge'), track = document.getElementById('acctChallengeTrack');
+    track.innerHTML = '';
+    if(g.challenge.target){
+      ch.textContent = tf('目前的挑戰：連續 {0} 天（{1}/{0}）', g.challenge.target, g.challenge.done);
+      for(let i = 0; i < g.challenge.target; i++){ const cell = document.createElement('i'); if(i < g.challenge.done) cell.className = 'on'; track.appendChild(cell); }
+    }else{
+      ch.textContent = tr('三階挑戰都完成了。');
+    }
+    const wall = document.getElementById('acctBadges'); wall.innerHTML = '';
+    GAME_BADGES.forEach(id => {
+      const chip = document.createElement('span'); chip.className = 'badge-chip' + (g.badges.includes(id) ? ' on' : '');
+      chip.textContent = (g.badges.includes(id) ? '★ ' : '☆ ') + tr(BADGE_LABEL[id]);
+      wall.appendChild(chip);
+    });
+  }
+
+  let gameToastTimer = null;
+  function showGameToast(text){
+    const el = document.getElementById('gameToast'); if(!el) return;
+    document.getElementById('gameToastText').textContent = text;
+    el.classList.add('show');
+    clearTimeout(gameToastTimer);
+    gameToastTimer = setTimeout(()=>{ el.classList.remove('show'); }, 4500);
+  }
+
+  /** 比對前後：完美的一天、升級、新徽章。那一刻才是遊戲化真正發生的地方。 */
+  function gameCelebrate(prev, cur){
+    if(!prev) return;
+    const parts = [];
+    if(!prev.streak.todayPerfect && cur.streak.todayPerfect){
+      parts.push(tf('今天全部做完了。+{0} XP，連續 {1} 天。', GAME_XP.perfectDay, cur.streak.current));
+    }
+    if(cur.level > prev.level){
+      parts.push(tf('升到 Lv.{0} 了！', cur.level));
+      ['brandPlant','acctPlant'].forEach(id => {
+        const el = document.getElementById(id); if(!el) return;
+        el.classList.add('levelup');
+        el.addEventListener('animationend', ()=> el.classList.remove('levelup'), { once:true });
+      });
+    }
+    const fresh = cur.badges.filter(b => !prev.badges.includes(b));
+    if(fresh.length) parts.push(tf('拿到徽章：{0}', fresh.map(b => tr(BADGE_LABEL[b])).join('、')));
+    if(parts.length) showGameToast(parts.join(' '));
+  }
+
+  function renderGame(){
+    const prev = lastGame;
+    lastGame = gameStats();
+    renderGameHeader(lastGame);
+    if(currentView === 'account') acctRenderGame(lastGame);
+    gameCelebrate(prev, lastGame);
+  }
 
   // ================= metrics =================
   function renderMetricList(elId, occList, emptyText){
@@ -5493,7 +5799,7 @@
           if(editingOrigFreq !== nextFreq){
             // subDone 也以 occKey 為 key，所以它跟 doneMap／overrides／skipped
             // 是同一件事——漏掉它就會留下孤兒，改回原頻率時舊勾選整批「復活」
-            it.done=false; it.doneMap={}; it.overrides={}; it.skipped={}; it.subDone={};
+            it.done=false; it.doneMap={}; it.doneAt={}; it.overrides={}; it.skipped={}; it.subDone={};
           }
           it.title=title; it.type=modalType; it.parentId=parentId;
           it.meetingTime=meetingTime; it.link=link;
@@ -5513,7 +5819,7 @@
           dependsOn: normalizeDependsOn(modalDeps, newId, new Set(items.map(x=>x.id))),
           subtasks: normalizeSubtasks(modalSubtasks.filter(x=>x.text.trim())),
           subDone: {},
-          date: dateVal, endDate, recurrence, done:false, doneMap:{}, overrides:{}, skipped:{} });
+          date: dateVal, endDate, recurrence, done:false, doneMap:{}, doneAt:{}, overrides:{}, skipped:{} });
       }
       if(currentView==='calendar'){ const dp=parseYMD(dateVal); calYear=dp.getFullYear(); calMonth=dp.getMonth()+1; calSelectedDate=dateVal; calSelectedEnd=null; }
       else{ if(mode==='date') selDate=dateVal; }
@@ -6073,14 +6379,21 @@
     if(now.getDay() !== 1){ el.hidden = true; return; }
     const lastMon = new Date(now); lastMon.setDate(now.getDate() - 7); lastMon.setHours(0,0,0,0);
     const lastSun = new Date(lastMon); lastSun.setDate(lastMon.getDate() + 6); lastSun.setHours(23,59,59,999);
-    const n = getAllOccurrences(lastMon, lastSun).filter(o => o.done).length;
+    const occs = getAllOccurrences(lastMon, lastSun);
+    const n = occs.filter(o => o.done).length;
     if(!n){ el.hidden = true; return; }
-    el.textContent = tf('上週你做完了 {0} 件事。', n);
+    // 遊戲化：上週按時做完幾件、完美幾天。只講做完的（N=0 那句是一根刺，不出現）
+    const onTime = occs.filter(gameOnTime).length;
+    const byDay = new Map();
+    occs.forEach(o => { const d = gameDueDate(o); if(!byDay.has(d)) byDay.set(d, []); byDay.get(d).push(o); });
+    let perfect = 0; byDay.forEach(list => { if(dayVerdict(list) === 'perfect') perfect++; });
+    el.textContent = tf('上週你做完了 {0} 件事。', n)
+      + (onTime ? ' ' + tf('其中 {0} 件按時，完美的一天有 {1} 天。', onTime, perfect) : '');
     el.hidden = false;
   }
 
   function renderAll(){
-    renderMetrics(); renderReminderList(); renderLookback();
+    renderMetrics(); renderReminderList(); renderLookback(); renderGame();
     if(currentView==='calendar') renderCalendar();
     else if(currentView==='gantt') renderGanttView();
     else if(currentView==='shared') renderSharedView();
@@ -6974,7 +7287,7 @@
             // 會靜靜地掛在那裡。使用者自己在 modal 裡連才有意義。
             dependsOn: [],
             date: d, endDate: null, recurrence: null,
-            done:false, doneMap:{}, overrides:{}, skipped:{}
+            done:false, doneMap:{}, doneAt:{}, overrides:{}, skipped:{}
           });
           added++;
         } else {
@@ -6982,6 +7295,7 @@
           if(!it){ skipped++; return; }
           if(r.src.occ==='single') it.done = true;
           else { it.doneMap = it.doneMap || {}; it.doneMap[r.src.occ] = true; }
+          it.doneAt = it.doneAt || {}; it.doneAt[r.src.occ] = Date.now();   // 同 setOccurrenceDone
           marked++;
         }
       });
@@ -7070,6 +7384,8 @@
     const goalsId = uid('item');
     items.push({ id: goalsId, title:'盤點各部門年度目標', type:'work', parentId:mp2, meetingTime:null, date: t.getFullYear()+'-01-05', recurrence:null, done:true, doneMap:{}, overrides:{}, skipped:{} });
     items.find(x=>x.id===quarterlyId).dependsOn = [goalsId];
+    // 完成的時間戳（遊戲化）：示範資料裡做完的兩件算「按時」
+    items.forEach(it=>{ it.doneAt = it.done ? { single: Date.now() } : {}; });
 
     // 「不在」：示範兩天連假。它只在日曆上標出來——不移動任何日期，
     // 也不讓那幾天到期的東西變成不逾期。
