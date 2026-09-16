@@ -170,6 +170,7 @@ Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.Comm
 | `tools/check-contrast.mjs` | 正文級文字在**兩種主題**下都達到 WCAG 對比（4.5:1／大字 3:1） | 動到任何顏色變數或文字顏色 |
 | `tools/check-deps.mjs` | 前置作業的「待前置」徽章、不阻擋勾選；「不在」的標記**與逾期並存**；逾期的顏色就是 `--red` 且字重比旁邊重 | 動到 `dependsOn`、`awayDates`、`toggleOccDone`、逾期判斷或任何視覺改版 |
 | `tools/check-ambience.mjs` | 時段（早／午／晚）的 `data-daypart` 與光暈、每日記錄的提示語照日期決定、打勾的彈跳只在被點的那一個上、週一的回顧（含 N=0 不出現）、**遊戲化**：完美一天的 toast 只在勾掉最後一件時、升級的光只在升級那一次（看計算後的 `animationName`）、reduced-motion 關 | 動到 `tick()`、`<head>` 開機腳本、`DAILY_PROMPTS`、`renderLookback()`、`.checkbox` 的 CSS 或〈遊戲化畫面〉 |
+| `tools/check-native-plugin.mjs` | 原生插件的接線：SceneDelegate → MainViewController → `registerPluginInstance`、storyboard 的 `customClass`，以及 **Swift 的 `jsName`／方法名與 `index.html` 逐字相同**（零相依，在 `check` job） | 動到 `mobile/ios/` 的任何 Swift／storyboard，或 `index.html` 的〈原生外殼〉區段；CI 會自動跑 |
 | `tools/check-sw-version.mjs` | 動到 `public/*.html` 時 `sw.js` 的 `CACHE` 有沒有跟著加（零相依，在 `check` job） | 任何前端改動；CI 會自動跑，本機 `node tools/check-sw-version.mjs origin/main HEAD` |
 | `tools/measure-board.mjs` | 切換檢視／篩選／搜尋卡住主執行緒多久（自己造 64／150／300 項的資料） | 動到 `renderBoard()` 或看板的 CSS。**不在 CI**：數字隨環境浮動，設門檻只會製造沒有人相信的紅燈，用途是改動前後各跑一次自己比對 |
 | `tools/check-mobile.mjs` | 手機（iPhone 13、CPU 降速 4 倍、64 個項目）：五頁都不橫向溢出、切換與互動的停頓、**點擊目標大小** | 動到任何版面或 CSS。同樣不在 CI |
@@ -608,6 +609,8 @@ Turnstile 擋得住「一秒鐘一萬次」的機器人，擋不住「一分鐘�
 | `nativeBoot(...)` 的呼叫**一定要 `.catch`** | 它是 fire-and-forget 的 async：摔倒只會變成 unhandledrejection，**連 `pageerror` 都不算**，smoke 的錯誤收集器看不到、手機上也沒有 console。`initCloudSync` 早就有 catch，這裡是同一條規則漏掉的一格 |
 | app 裡的 `/api/state` 404 判成 `failed` 而不是 `absent` | `absent` 是為了單檔與未部署而存在的「沒有後端」，在 app 裡永遠是謊話（`API_BASE` 是線上網址）。同一段程式在兩個環境下的正確答案不一樣時，要問的是環境而不是狀態碼 |
 | 所有原生相關的失敗都附上 `nativeDiag()`（protocol／有沒有 Capacitor／哪些訊號成立／插件在不在），而且**它自己包 try/catch** | **手機上沒有 console 可看**，同「拿不到購買證明」附上原因。第一版的 `nativeDiag()` 直接呼叫 `nativePlugin()`，外殼壞到「讀 bridge 就丟例外」時它會在 catch 裡再爆一次，把要傳達的訊息一起吞掉——**會爆炸的診斷函式比沒有診斷更糟**（探針 4 實際抓到的） |
+| `SceneDelegate` 的 `rootViewController` **必須是 `MainViewController`**，不是 `CAPBridgeViewController` | 插件是在 `MainViewController.capacitorDidLoad()` 裡 `registerPluginInstance` 的。SceneDelegate 自己建 window 時，`Main.storyboard` 的 `customClass` 形同虛設——**兩條路各自都「看起來對」，合起來卻不通**，於是插件從來沒有註冊過。這就是 TestFlight build 7～10 那個追了四輪的根因，症狀是 `nativePromise` 的 promise **永遠不會 settle**。`tools/check-native-plugin.mjs` 守著 |
+| **跨語言的接線要有一個地方比對兩側**：Swift 的 `jsName`／`pluginMethods` 與 `index.html` 的 `nativePromise('…')`／`call('…')` 逐字相同 | 名字對不上時原生那側不會報錯，它只是不回話。同〈方案與上限〉的前後端 `PLAN_LIMITS` 逐字相同——只要「兩邊必須一致」，就要有東西去比。CI 沒有 Mac（`ios.yml` 是打包不是測試），所以只能靜態比對原始碼，但跑不到一秒 |
 | token 存 **Keychain**，不放 localStorage | WKWebView 的網頁儲存會跟著「清除網站資料」消失，也沒有 Keychain 的保護。自寫的 Swift 插件（約 60 行）做這件事，不裝第三方插件 |
 | 註冊附 **AppTransaction 的 JWS，離線驗簽**（`src/apppurchase.js`） | x5c 鏈逐段驗到內建的 Apple Root CA - G3、ES256 驗本體、比對 bundleId 與環境。不打 Apple 的 API：沒有網路依賴、沒有限流、沒有另一把金鑰。**根憑證可注入只為了測試**（`tests/fake-apple.mjs` 自己當 Apple） |
 | `app_transaction_id` **UNIQUE**：一次購買一個帳號 | 擋「買一份、開十個帳號」。同一個 Apple ID 重灌拿到同一個 id，換手機登入即可；刪掉帳號後 id 空出來可以再註冊。競態靠 UNIQUE 擋，不靠先 SELECT 再 INSERT |
