@@ -1,7 +1,19 @@
 # iOS app：在 GitHub 的 Mac 上打包、簽章、上傳到 App Store Connect。
 #
-# 只在手動觸發或推 ios-v* tag 時跑：Mac runner 貴而且慢，不該每個 PR 都佔。
+# 三種觸發：手動、推 ios-v* tag、以及 **main 的 CI 全綠之後自動跑**。
 # 開發者沒有 Mac 也沒關係——Xcode 只在這台機器上，金鑰只活在這幾分鐘。
+#
+# 自動打包這件事原本是不做的，理由寫著「Mac runner 貴而且慢，不該每個 PR 都佔」。
+# 「慢」仍然是真的（約 3 分鐘），但**「貴」這個前提已經過期**：這是公開 repo，GitHub
+# 的標準 runner 對公開 repo 不計費。前提過期了，結論就要重算——這正是〈忘記密碼〉那節
+# 記過的同一件事（「系統沒有寄信基礎設施」在接上 AgentMail 之後就不成立了）。
+#
+# 真正的代價不是錢而是**打出沒有人要的 build**，所以自動那一條有兩道閘門（見 decide job）：
+#   1. **CI 必須全綠**——紅的 commit 不該變成手機上的 app。所以用 workflow_run 掛在 CI
+#      後面，而不是直接 on.push：後者與 CI 並行，測試還沒跑完就開始打包了。
+#   2. **這次真的動到 app 才打**——只有 public/index.html 會被塞進 app（見
+#      mobile/scripts/prepare-www.mjs），改 Worker、改文件、改 login.html 都不必重打。
+# 判斷放在一個 ubuntu 的小 job 裡，Mac runner 連開都不用開。
 #
 # 需要四個 repository secret（App Store Connect → 使用者和存取權 → 整合 → 團隊金鑰）：
 #   ASC_KEY_ID        金鑰的 Key ID（10 碼）。**金鑰的角色必須是 Admin**：exportArchive 的
@@ -37,14 +49,66 @@ on:
         default: true
   push:
     tags: ['ios-v*']
+  # main 的 CI 跑完就檢查一次。掛在 CI 後面而不是直接 on.push，是為了「CI 綠了才打包」——
+  # workflow_run 拿得到那一次的結論，on.push 只會與 CI 並行。
+  workflow_run:
+    workflows: ['CI']
+    types: [completed]
+    branches: [main]
 
 concurrency:
   group: ios-build
   cancel-in-progress: false   # 上傳到一半被砍會留下不確定的 build，排隊等前一次做完
 
 jobs:
+  decide:
+    name: 判斷要不要打包
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.check.outputs.build }}
+    steps:
+      # workflow_run 觸發時，預設會 checkout 預設分支的最新狀態，而不是觸發那一次的 commit。
+      # 一定要指名 head_sha，否則判斷的是別的東西。fetch-depth: 2 才看得到上一個 commit。
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 2
+
+      - id: check
+        env:
+          EV: ${{ github.event_name }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+        run: |
+          # 手動與 tag：使用者明講了要打包，不問任何條件
+          if [ "$EV" != "workflow_run" ]; then
+            echo "觸發方式是 $EV：一律打包"
+            echo "build=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if [ "$CONCLUSION" != "success" ]; then
+            echo "::notice::main 的 CI 是 $CONCLUSION，不打包——紅的 commit 不該變成手機上的 app"
+            echo "build=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          # PR 一律 squash 合併（見 CLAUDE.md），所以 main 上一個 commit 就是一次完整的改動。
+          # 真的看不到上一個 commit 時**寧可打包**：漏打一次要等下一輪，多打一次只是浪費三分鐘。
+          if ! git rev-parse --verify -q HEAD~1 >/dev/null; then
+            echo "::notice::看不到上一個 commit，保險起見照打"
+            echo "build=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          CHANGED=$(git diff --name-only HEAD~1 HEAD)
+          echo "這次動到的檔案："; echo "$CHANGED"
+          # 只有 public/index.html 會被塞進 app（mobile/scripts/prepare-www.mjs 只複製它）。
+          # login/admin/privacy/terms、sw.js、Worker、文件都不在 app 裡，改了不必重打。
+          if printf '%s\n' "$CHANGED" | grep -qE '^(public/index\.html|mobile/|\.github/workflows/ios\.yml)'; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::這次沒有動到 app 內建的 public/index.html 或 mobile/，不打包"
+            echo "build=false" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
     name: 打包並上傳
+    needs: decide
+    if: ${{ needs.decide.outputs.build == 'true' }}
     # macos-26 映像預設是 Xcode 26.x 正式版（見 actions/runner-images 的 README）。
     # 不要用 `xcode-27`：那是「預覽」映像，裡面只有 beta。beta 打的 build 上傳得了，
     # App Store Connect 卻會拒收——「Unsupported SDK or Xcode version … you need to use
@@ -52,7 +116,10 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 45
     steps:
+      # 同 decide：workflow_run 觸發時要指名那一次的 commit，不然打包的是別的東西
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
       - uses: actions/setup-node@v4
         with:
@@ -122,7 +189,9 @@ jobs:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          UPLOAD: ${{ github.event_name == 'push' || inputs.upload }}
+          # 只有手動觸發才問 inputs；tag 與「CI 綠了」都是一律上傳。
+          # 原本寫 `event_name == 'push' || inputs.upload`，workflow_run 走這條會變成 false。
+          UPLOAD: ${{ github.event_name != 'workflow_dispatch' || inputs.upload }}
         run: |
           DEST=$([ "$UPLOAD" = "true" ] && echo upload || echo export)
           cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
@@ -149,7 +218,7 @@ jobs:
           ls -la "$RUNNER_TEMP/export" || true
 
       - name: 保留 .ipa（只打包不上傳時）
-        if: ${{ github.event_name != 'push' && !inputs.upload }}
+        if: ${{ github.event_name == 'workflow_dispatch' && !inputs.upload }}
         uses: actions/upload-artifact@v4
         with:
           name: ios-ipa-${{ github.run_number }}
