@@ -45,8 +45,11 @@ concurrency:
 jobs:
   build:
     name: 打包並上傳
-    # GitHub 提供的 Xcode 27 映像（見 actions/runner-images 的 README）
-    runs-on: xcode-27
+    # macos-26 映像預設是 Xcode 26.x 正式版（見 actions/runner-images 的 README）。
+    # 不要用 `xcode-27`：那是「預覽」映像，裡面只有 beta。beta 打的 build 上傳得了，
+    # App Store Connect 卻會拒收——「Unsupported SDK or Xcode version … you need to use
+    # the latest Release Candidates (RC)」（第五次打包就是這樣紅的，前面四關全過）。
+    runs-on: macos-26
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
