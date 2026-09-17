@@ -52,6 +52,7 @@ mobile/                iOS app 外殼（Capacitor；自己的 package.json，見
 | `tests/ops.test.mjs` | cron 執行記錄、功能使用狀況 | 直接 import Worker 端模組 |
 | `tests/ai.test.mjs` | AI 端點的限流、記錄、金鑰不外洩 | 直接 import，並注入假的 `fetch` |
 | `tests/deps.test.mjs` | 前置作業的配對與擋環、「不在」不影響任何計算 | 從 `index.html` 抽真正的原始碼求值 |
+| `tests/absence.test.mjs` | `absences` 的正規化、v1→v2→v3 逐階升級、三方合併（含基準／遠端仍是舊形狀） | 從 `index.html` 抽〈富文字〉〈持久化〉〈三方合併〉三個區段求值 |
 | `tests/appauth.test.mjs` | Bearer 與 cookie 並存、購買證明驗簽（五種失敗一種成功）、email 驗證碼、app 註冊／登入 | 直接 import；`tests/fake-apple.mjs` 用純 JS 的 DER 編碼器自己當 Apple 簽憑證鏈 |
 | `tests/account-delete.test.mjs` | 刪除自己的帳號：每張表清空、**別人的每一列原樣**、session 失效 | 直接 import Worker 端模組 |
 | `tests/cors.test.mjs` | iOS app 來源的 CORS：預檢、正常與錯誤回應都帶標頭、別的來源與同源不加、永不開 credentials | 直接打 Worker 的 `fetch` 入口 |
@@ -171,7 +172,8 @@ Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.Comm
 | `tools/check-calendar.mjs` | 日曆的色條軌道對齊、跨月與週界的收邊、每日記錄的 ✎ 記號 | 動到 `renderCalendar()` 或日曆的 CSS |
 | `tools/check-notes.mjs` | 每日記錄／專案筆記的格式（醒目提示、顏色、字級）與內容在離開後仍在 | 動到富文字、`persistSoon()` 或任何 debounce 寫入 |
 | `tools/check-contrast.mjs` | 正文級文字在**兩種主題**下都達到 WCAG 對比（4.5:1／大字 3:1） | 動到任何顏色變數或文字顏色 |
-| `tools/check-deps.mjs` | 前置作業的「待前置」徽章、不阻擋勾選；「不在」的標記**與逾期並存**；逾期的顏色就是 `--red` 且字重比旁邊重 | 動到 `dependsOn`、`awayDates`、`toggleOccDone`、逾期判斷或任何視覺改版 |
+| `tools/check-deps.mjs` | 前置作業的「待前置」徽章、不阻擋勾選；「不在」的標記**與逾期並存**；逾期的顏色就是 `--red` 且字重比旁邊重 | 動到 `dependsOn`、`absences`、`toggleOccDone`、逾期判斷或任何視覺改版 |
+| `tools/check-migrate.mjs` | **舊備份檔真的匯得回來**：造一份 v1 的 .json 丟進 `#importFile`，走完整條使用者路徑，再讀 localStorage 看實際存進去的東西；順便驗「比目前新的版本被擋下來，而且不動現有資料」 | 動到 `STORAGE_VERSION`、`migrateSnapshot`、`snapshot()`／`applySnapshot()`。在 CI 的 `smoke` job |
 | `tools/check-ambience.mjs` | 時段（早／午／晚）的 `data-daypart` 與光暈、每日記錄的提示語照日期決定、打勾的彈跳只在被點的那一個上、週一的回顧（含 N=0 不出現）、**遊戲化**：完美一天的 toast 只在勾掉最後一件時、升級的光只在升級那一次（看計算後的 `animationName`）、reduced-motion 關 | 動到 `tick()`、`<head>` 開機腳本、`DAILY_PROMPTS`、`renderLookback()`、`.checkbox` 的 CSS 或〈遊戲化畫面〉 |
 | `tools/check-native-plugin.mjs` | 原生插件的接線，六件事：SceneDelegate → MainViewController → `registerPluginInstance`、storyboard 的 `customClass`、**方法名兩側完全對齊（雙向）**、推播的 AppDelegate 接線與 **`aps-environment` 的值（Debug／Release 各自的環境，並比對 Swift 的 `#if DEBUG`）**、**訂閱 product id 在 Swift 與 Worker 逐字相同**（零相依，在 `check` job） | 動到 `mobile/ios/` 的任何 Swift／storyboard／entitlements，或 `index.html` 的〈原生外殼〉區段；CI 會自動跑 |
 | `tools/check-sw-version.mjs` | 動到 `public/*.html` 時 `sw.js` 的 `CACHE` 有沒有跟著加（零相依，在 `check` job） | 任何前端改動；CI 會自動跑，本機 `node tools/check-sw-version.mjs origin/main HEAD` |
@@ -302,7 +304,7 @@ UI 類的改動（版面、行動版、主題）**必須真的用瀏覽器看過
 | 功能 | 做什麼 | **不做什麼**（改了就是 bug） |
 |---|---|---|
 | 前置作業 `item.dependsOn` | 前置沒完成時，那一列標「⛓ 待前置」；勾下去時跳一句提示 | 不順延日期、不阻擋勾選、不影響逾期 |
-| 「不在」`awayDates` | 日曆上畫斜線紋 ＋ 🌴；那天到期的列上多一個 🌴 附註 | 不進 `isHoliday()`、不順延、**不豁免逾期** |
+| 「不在」／「休假」`absences` | 日曆上的標記；那天到期的列上多一個附註 | 不進 `isHoliday()`、不順延、**不豁免逾期** |
 
 `tools/check-deps.mjs` 把這些「沒發生」變成看得見的斷言，其中最重要的一條是**逾期標記與 🌴 必須同時出現在同一列**。突變驗證過五種改法都會紅。
 
@@ -341,7 +343,7 @@ UI 類的改動（版面、行動版、主題）**必須真的用瀏覽器看過
 
 ### 資料模型的收尾
 
-新增 `item.dependsOn` 與頂層 `awayDates` 時同步改過的地方，漏一個就是靜默的資料遺失：`snapshot()` / `applySnapshot()` / `normalizeItems()` / `threeWayMerge()`（`tmMergeSets`）/ `clearLocalData()` / `seed()`。`item.doneAt`（遊戲化的完成時間戳）也走過同一份清單，外加 `mergeSharedEdit`（被分享者勾選時伺服器要一起帶回，否則那一次永遠「沒有時間」）與改頻率時的清空。`normalizeDependsOn` **排序**的理由同 `normalizeTags`：三方合併以 stableStringify 比對整個項目，順序不同會被誤判成「兩邊都改過」。它也會剪掉指不到東西的 id——執行時雖然有「找不到就當作沒有前置」的守衛，正因為畫面不會壞，不剪就會靜靜地一直留在存檔裡。
+新增 `item.dependsOn` 與頂層 `absences`（2026-09-17 之前叫 `awayDates`）時同步改過的地方，漏一個就是靜默的資料遺失：`snapshot()` / `applySnapshot()` / `normalizeItems()` / `threeWayMerge()`（`tmMergeSets`、`tmMergeAbsences`）/ `clearLocalData()` / `seed()`。`item.doneAt`（遊戲化的完成時間戳）也走過同一份清單，外加 `mergeSharedEdit`（被分享者勾選時伺服器要一起帶回，否則那一次永遠「沒有時間」）與改頻率時的清空。`normalizeDependsOn` **排序**的理由同 `normalizeTags`：三方合併以 stableStringify 比對整個項目，順序不同會被誤判成「兩邊都改過」。它也會剪掉指不到東西的 id——執行時雖然有「找不到就當作沒有前置」的守衛，正因為畫面不會壞，不剪就會靜靜地一直留在存檔裡。
 
 ## 狀態與資料模型
 
@@ -367,6 +369,32 @@ commit(()=>{ /* 改資料 */ });   // → 重算年份 → 存檔 → renderAll(
 2. **`persist()` 每次都實際嘗試寫入**，不拿 `storageAvailable` 當開關跳過。配額滿是可恢復的錯誤，使用者刪掉資料後應該自動恢復存檔；一次失敗就永久停用會讓存檔靜默死掉。`storageAvailable` 只用來決定 footer 文案。
 3. **`snapshot()` / `applySnapshot()` 是本機與雲端共用的序列化格式。** 新增狀態欄位時只改這兩個函式，否則必定有一邊漏掉。
 4. **套用不了的存檔要先備份再被覆蓋。** 啟動流程是 `loadState()` 失敗 → `seed()` → `persist()`，也就是說**那份存檔會被示範資料直接蓋掉**。失敗有兩種成因：JSON 解析不了（寫入被截斷），以及 `applySnapshot()` 回 `false`——存檔版本比目前這個 build 還新，`migrateSnapshot()` 拒絕。後者是真的會發生的（使用者開到快取住的舊版頁面，或留著沒關的舊分頁），而且被蓋掉的是**比較新**的資料。所以 `loadState()` 會先把原始內容搬到 `workSchedule.v1.unreadable` 再回 false，兩種情況都還有機會人工救回。
+
+### 存檔版本的升級必須逐階往上走
+
+`migrateSnapshot()` 原本是一串 `if`：`v === 1` 那條直接 `return` 一個 v2 物件。**在只有兩個版本時剛好正確**，所以它看起來沒有問題——直到 `STORAGE_VERSION` 變成 3。
+
+那一刻一份 v1 存檔會停在 v2，接著 `applySnapshot()` 讀不到 v3 才有的欄位，於是那些資料**安靜地消失**：沒有例外、沒有紅字，存檔的 `version` 甚至會是 3（因為 `snapshot()` 照新格式寫回去），只是裡面空了一塊。
+
+現在改成查表迴圈（`SNAPSHOT_MIGRATIONS`），每一階只負責自己那一步，加第四版時只要在表上多一列。表寫錯繞成環時有 `guard` 擋著，不會把分頁卡死。
+
+**這件事不能只靠單元測試守。** 單元測試證明得了「`migrateSnapshot` 這個函式對」，證明不了「它真的被接上了」——而使用者手上那份半年前匯出的 `.json` 走的是完整的匯入路徑（含一個 `confirm()`）。`tools/check-migrate.mjs` 因此造一個 v1 的檔案丟進 `#importFile`、按下確定，再去讀 localStorage 看實際存進去的是什麼。突變驗證過：改回「只認上一版」時，第一條斷言（「升到目前版本」）**仍然是綠的**，紅的是第五、六條——這正好示範了為什麼「版本號對了」不等於「資料還在」。
+
+### 「不在」與「休假」是同一份資料的兩種 kind
+
+`absences` 的形狀是 `{ ymd: [{ kind, from, to, icon? }] }`（2026-09-17 之前是只有日期的 `awayDates`）。不做成兩個各自獨立的清單，理由是使用者選了「同一天可以兩種並存」——兩個清單就得在彼此之間對照時段，而那份對照邏輯寫兩份遲早走鐘。
+
+| 決定 | 理由 |
+|---|---|
+| **刻意不檢查時段重疊** | 真實世界就是這麼模糊（上午的會開到一半提早請假）。系統一旦判定「這不合法」就得決定砍掉哪一邊，那是在使用者沒看的時候改掉他填的東西——同〈為什麼前置作業不自動順延〉 |
+| **不設每天的筆數上限** | 丟掉使用者填的東西比留著幾筆冗料糟糕得多。真正會長出重複的那條路（三方合併）是整天二選一，長不出來 |
+| `normalizeAbsences` **排序與去重是正確性，不是美觀** | 三方合併以 stableStringify 比對整天的陣列，順序不同會讓「其實一樣」被判成衝突，然後跳一個根本不存在的對話框給使用者。同 `normalizeTags` / `normalizeDependsOn` |
+| **空陣列不留** | `{'2026-01-01': []}` 與「那天沒有記錄」是同一件事，留著只會讓兩份內容一樣的存檔比對出差異 |
+| 合併的粒度停在**一天** | 單筆層級要回答「這兩筆是同一筆被改過，還是各自新增的兩筆」，那需要每筆各自的 id。為了一年用不到幾次的欄位背一套身分系統不划算，而且「這一天你們兩邊填的不一樣，選一個」對使用者比較好解釋 |
+| `absencesOfSnapshot()` **一定要能讀舊形狀** | 基準（`cloudMeta.baseSnapshot`）與遠端都可能還是 v2。直接讀 `.absences` 會讀到 undefined，於是「本來就有的那幾天」看起來像「對方把它刪掉了」——刪除會生效，資料靜靜消失。有測試守著 |
+| **舊鍵 `awayDates` 不寫回去** | 兩邊都寫的話，「哪一個才是真的」會在某一次同步之後變成猜謎 |
+
+`tools/check-deps.mjs` 的假資料**刻意維持 v2 的舊形狀**：這樣它順便在真的瀏覽器裡走一次 v2 → v3 的搬家。
 
 ## 多語系（`// ====== 語言 ======` 區段）
 

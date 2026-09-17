@@ -1,5 +1,5 @@
 /**
- * 前置作業（`item.dependsOn`）與「不在」（`awayDates`）。
+ * 前置作業（`item.dependsOn`）與「不在」（`absences`）。
  *
  * 這兩件事都會被誤以為「改變了逾期的定義」，而它們**刻意都沒有**：
  *
@@ -40,23 +40,25 @@ const N = new Function(`
 `)();
 
 /**
- * 引擎那一組。`items` / `awayDates` 是它在主程式裡依賴的 module-scoped 變數，
+ * 引擎那一組。`items` / `absences` 是它在主程式裡依賴的 module-scoped 變數，
  * 這裡以同樣的形狀提供。
  */
 function makeEngine() {
   const build = new Function(`
     let customHolidays = new Set();
     let customWorkdays = new Set();
-    let awayDates = new Set();
+    let absences = {};
     let majorProjects = [];
     let items = [];
     ${section('date helpers')}
     ${section('occurrence engine')}
     return {
       occDoneOf, latestOccOnOrBefore, depPending, depWouldCycle,
-      isAway, isHoliday, adjustForHoliday, ymd, parseYMD,
+      isAway, isLeave, absencesOn, isHoliday, adjustForHoliday, ymd, parseYMD,
       setItems(list){ items = list; },
-      setAway(list){ awayDates = new Set(list); },
+      // 整天不在，與改版前 setAway 的語意一字不差
+      setAway(list){ absences = {}; list.forEach(d => { absences[d] = [{ kind:'away', from:null, to:null }]; }); },
+      setAbsences(map){ absences = map; },
       setHolidays(list){ customHolidays = new Set(list); }
     };
   `);
