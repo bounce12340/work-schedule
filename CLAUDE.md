@@ -159,6 +159,7 @@ Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.Comm
 2. 前端語法檢查——`node tools/check-syntax.mjs`（抽出三個 HTML 與 sw.js 的 inline script 編譯一次，錯誤直接指出 HTML 的行號）
 3. `npx wrangler deploy --dry-run` 驗證 wrangler 設定
 4. 起 `npm run dev`，用瀏覽器實際操作四個頁籤，確認 console 無錯誤
+5. **動到 `mobile/ios/` 的 Swift 就在 Mac 上編一次**（見〈開發者有 Mac 了〉）。`check-native-plugin.mjs` 只比對名字，編不過的語法與型別它一個都看不見
 
 `tools/` 底下有三支瀏覽器驗證腳本，把上面幾條從「請記得做」變成「跑得起來」。它們依賴 Playwright，而 Playwright **不是**本專案的相依套件（零相依是前提），所以刻意不在 `npm test` 內：
 
@@ -612,7 +613,7 @@ Turnstile 擋得住「一秒鐘一萬次」的機器人，擋不住「一分鐘�
 | app 裡的 `/api/state` 404 判成 `failed` 而不是 `absent` | `absent` 是為了單檔與未部署而存在的「沒有後端」，在 app 裡永遠是謊話（`API_BASE` 是線上網址）。同一段程式在兩個環境下的正確答案不一樣時，要問的是環境而不是狀態碼 |
 | 所有原生相關的失敗都附上 `nativeDiag()`（protocol／有沒有 Capacitor／哪些訊號成立／插件在不在），而且**它自己包 try/catch** | **手機上沒有 console 可看**，同「拿不到購買證明」附上原因。第一版的 `nativeDiag()` 直接呼叫 `nativePlugin()`，外殼壞到「讀 bridge 就丟例外」時它會在 catch 裡再爆一次，把要傳達的訊息一起吞掉——**會爆炸的診斷函式比沒有診斷更糟**（探針 4 實際抓到的） |
 | `SceneDelegate` 的 `rootViewController` **必須是 `MainViewController`**，不是 `CAPBridgeViewController` | 插件是在 `MainViewController.capacitorDidLoad()` 裡 `registerPluginInstance` 的。SceneDelegate 自己建 window 時，`Main.storyboard` 的 `customClass` 形同虛設——**兩條路各自都「看起來對」，合起來卻不通**，於是插件從來沒有註冊過。這就是 TestFlight build 7～10 那個追了四輪的根因，症狀是 `nativePromise` 的 promise **永遠不會 settle**。`tools/check-native-plugin.mjs` 守著 |
-| **跨語言的接線要有一個地方比對兩側**：Swift 的 `jsName`／`pluginMethods` 與 `index.html` 的 `nativePromise('…')`／`call('…')` 逐字相同 | 名字對不上時原生那側不會報錯，它只是不回話。同〈方案與上限〉的前後端 `PLAN_LIMITS` 逐字相同——只要「兩邊必須一致」，就要有東西去比。CI 沒有 Mac（`ios.yml` 是打包不是測試），所以只能靜態比對原始碼，但跑不到一秒 |
+| **跨語言的接線要有一個地方比對兩側**：Swift 的 `jsName`／`pluginMethods` 與 `index.html` 的 `nativePromise('…')`／`call('…')` 逐字相同 | 名字對不上時原生那側不會報錯，它只是不回話。同〈方案與上限〉的前後端 `PLAN_LIMITS` 逐字相同——只要「兩邊必須一致」，就要有東西去比。**CI 仍然沒有 Mac**（`ios.yml` 是打包不是測試），所以自動化的那一層只能靜態比對原始碼，但跑不到一秒。本機編一次更強，只是**會被忘記**，所以兩者都要（見〈開發者有 Mac 了〉） |
 | token 存 **Keychain**，不放 localStorage | WKWebView 的網頁儲存會跟著「清除網站資料」消失，也沒有 Keychain 的保護。自寫的 Swift 插件（約 60 行）做這件事，不裝第三方插件 |
 | 註冊附 **AppTransaction 的 JWS，離線驗簽**（`src/apppurchase.js`） | x5c 鏈逐段驗到內建的 Apple Root CA - G3、ES256 驗本體、比對 bundleId 與環境。不打 Apple 的 API：沒有網路依賴、沒有限流、沒有另一把金鑰。**根憑證可注入只為了測試**（`tests/fake-apple.mjs` 自己當 Apple） |
 | `app_transaction_id` **UNIQUE**：一次購買一個帳號 | 擋「買一份、開十個帳號」。同一個 Apple ID 重灌拿到同一個 id，換手機登入即可；刪掉帳號後 id 空出來可以再註冊。競態靠 UNIQUE 擋，不靠先 SELECT 再 INSERT |
@@ -625,7 +626,7 @@ Turnstile 擋得住「一秒鐘一萬次」的機器人，擋不住「一分鐘�
 | **刪除自己的帳號**（`DELETE /api/auth/account`）：先記錄再刪，`shares` 兩個方向都刪，`share_activity` 保留 | Apple 5.1.1(v) 硬規定。`ADMIN_EMAILS` 名單內的帳號也能刪自己：名單防的是另一位管理者的橫向操作，本人拿密碼刪自己是直向的。測試守著「別人的每一列原樣」 |
 | `public/privacy.html` 不用登入 | App Store 審查員與還沒註冊的人都會來看。`run_worker_first` 沒列它，靜態資產直接供應 |
 | AI 每日上限依方案：免費 5、Pro 20 | 每次呼叫都要付 DeepSeek 錢；免費版不能不限，給 5 次是讓人試得到 |
-| 打包在 GitHub 的 `macos-26` 映像（**不是 `xcode-27`**） | 開發者沒有 Mac 也不需要。`xcode-27` 標籤是「預覽」映像，裡面只有 beta——beta 打的 build 可以上傳到 App Store Connect 但**會被拒收**（第五次打包：「Unsupported SDK or Xcode version … you need to use the latest Release Candidates」）。`macos-26` 預設是 Xcode 26.x 正式版。自動簽章帶 App Store Connect API 金鑰，四個 secrets：`ASC_KEY_ID`、`ASC_ISSUER_ID`、`ASC_API_KEY_P8`、`APPLE_TEAM_ID`。金鑰寫進 `~/private_keys`，跑完一律刪 |
+| 打包在 GitHub 的 `macos-26` 映像（**不是 `xcode-27`**） | 當初的理由是「開發者沒有 Mac」，**那個前提 2026-09-17 過期了**（見〈開發者有 Mac 了〉）；仍然維持雲端打包，新的理由是**它不受本機環境影響**——Xcode 版本、憑證、描述檔在每個人的機器上都會漂移，而 CI 每次都從乾淨的映像開始。`xcode-27` 標籤是「預覽」映像，裡面只有 beta——beta 打的 build 可以上傳到 App Store Connect 但**會被拒收**（第五次打包：「Unsupported SDK or Xcode version … you need to use the latest Release Candidates」）。`macos-26` 預設是 Xcode 26.x 正式版。自動簽章帶 App Store Connect API 金鑰，四個 secrets：`ASC_KEY_ID`、`ASC_ISSUER_ID`、`ASC_API_KEY_P8`、`APPLE_TEAM_ID`。金鑰寫進 `~/private_keys`，跑完一律刪 |
 | **archive 不簽章**（`CODE_SIGNING_ALLOWED=NO`），簽章整個留給 `exportArchive` | 自動簽章的 archive 一律用**開發用**身分，那種描述檔必須綁至少一台實體裝置，帳號沒裝置就失敗（第一次打包：「Your team has no devices」）；在 archive 硬指定 `Apple Distribution` 又會被 Xcode 拒絕為「conflicting provisioning settings」（第二次）。export（`app-store-connect` + `signingStyle automatic` + `-allowProvisioningUpdates`）自己用**發佈用**身分重簽，不綁裝置，憑證由 Xcode 雲端簽章代管，runner 不需要 .p12。**不要把 `project.pbxproj` 的 `CODE_SIGN_IDENTITY` 改成 Distribution**，那會讓本機用 Xcode 打包也撞同一個錯 |
 | `ASC_KEY_ID` 那把金鑰的角色**必須是 Admin** | 雲端簽章要用雲端代管的發佈憑證，App Manager／Developer 金鑰被拒（第三次打包：「You haven't been given access to cloud-managed distribution certificates」）。使用者帳號有「Access to Cloud Managed Distribution Certificate」的勾選框，**API 金鑰沒有**，只能靠角色。代價是這把金鑰權限很大，只放在 GitHub secrets、跑完就刪 |
 
@@ -639,6 +640,31 @@ Turnstile 擋得住「一秒鐘一萬次」的機器人，擋不住「一分鐘�
 **改版時要做的事**：`mobile/package.json` 的 `version` 往上加（build 號是 GitHub 的 `run_number`，不用管）→ **合併進 main 就會自動打包上傳**（CI 綠、且動到 `public/index.html` 或 `mobile/`）→ App Store Connect 送審。手動觸發與 `ios-v*` tag 仍然留著，兩者都不看路徑條件。
 
 **部署順序**：`migrations/005-app-purchase.sql`、`006-plan.sql`、`007-streak-mail.sql` 與 `008-push.sql` 都要在部署新 Worker **之前**跑（`getSessionUser` 的 SELECT 讀 `plan_source`，欄位不在**每一個**登入請求都會 500；`007`／`008` 的欄位則是 `/api/reminder` 與 cron 會讀），理由見〈資料庫結構變更〉。006 跑完、Worker 部署完之後，還要到 `/admin` 把既有的兩個帳號設成「Pro（永久）」——漏掉的症狀是他們的第四個專案被擋，當場就會知道。
+
+### 開發者有 Mac 了（2026-09-17）
+
+原本整個 iOS 這一段建立在「開發者沒有 Mac」之上。**那個前提已經不成立**——這是這份文件裡第三次遇到前提過期（前兩次：「系統沒有寄信基礎設施」在接上 AgentMail 之後、「Mac runner 貴」在確認公開 repo 不計費之後）。
+
+**改變了什麼**
+
+| 原本 | 現在 |
+|---|---|
+| Swift 改動**編不了**，只能靠 `check-native-plugin.mjs` 比對名字 | **可以真的編一次**（`xcodebuild`）——語法與型別錯誤當場就知道 |
+| 原生行為只能等 TestFlight，一輪半小時起跳 | **模擬器跑得動**。build 7～10 那個「插件從來沒有註冊過」在模擬器裡五分鐘就看得到 |
+
+**沒有改變的**
+
+- **CI 仍然沒有 Mac。** `check` 與 `smoke` 都在 ubuntu 上，`ios.yml` 只是打包。所以 `check-native-plugin.mjs` **不能拿掉**：本機編一次更強，但它靠人記得；靜態檢查每個 PR 都跑。**兩者是地板與天花板，不是二選一。**
+- **雲端打包仍然是預設。** 理由換了（見上面那一列）：它不受本機的 Xcode 版本、憑證、描述檔漂移影響。
+- **真機仍然無可取代的部分**：`AppTransaction`（模擬器拿不到）、真的 APNs token、真的付款。模擬器能做的是 StoreKit Testing 與推播檔拖放，形狀對但不是真的。
+
+**動到 `mobile/ios/` 的任何 Swift 時，本機至少編一次**：
+
+```bash
+cd mobile/ios/App && xcodebuild -scheme App -sdk iphonesimulator -configuration Debug build
+```
+
+編不過的東西沒有理由推上去讓雲端的 Mac 花三分鐘再發現一次。
 
 ## 方案與上限（`src/plan.js`）
 
@@ -783,9 +809,9 @@ TestFlight build 7 回報的症狀是「app 安靜地變成單機模式」——
 
 **探針 5 守的不是某一條路，是那一格本身。** build 8 上線後症狀仍在——而且連新加的紅字都沒出現，因為它走的是第五條（`/api/state` 回 200 卻沒有 `user` → `setCloudNote('')`）。逐條堵洞永遠會漏掉下一條，所以帳號頁多一格 `#acctSignedOutDiag`：**只要走到單機模式、而環境看起來像 app，就把當下的訊號印出來**，不問是哪一條路帶來的。判斷用 `looksNativeShell()` 而**不是 `NATIVE`**——`NATIVE` 判錯正是要診斷的故障之一，讓它決定診斷要不要出現，最需要說話的那一種情況剛好會最安靜。
 
-**驗證**：`tests/appauth.test.mjs`、`tests/account-delete.test.mjs`（突變驗證七種改法都會紅）；`tools/smoke.mjs` 的「iOS app 外殼」那一輪用假的 `window.Capacitor` 走登入畫面、寄驗證碼、登入、**所有線上請求都帶 Bearer**、登出清 Keychain（拿掉 Bearer 那一行當場紅）。真機只能靠 TestFlight。
+**驗證**：`tests/appauth.test.mjs`、`tests/account-delete.test.mjs`（突變驗證七種改法都會紅）；`tools/smoke.mjs` 的「iOS app 外殼」那一輪用假的 `window.Capacitor` 走登入畫面、寄驗證碼、登入、**所有線上請求都帶 Bearer**、登出清 Keychain（拿掉 Bearer 那一行當場紅）。原生那一側：模擬器跑得到插件註冊與大部分行為，`AppTransaction` 與真的推播只能靠 TestFlight。
 
-**真機驗收要分「讀」與「寫」兩半，而且要指名看哪一格**（build 11 就是這樣結案的）：讀＝帳號頁「雲端同步啟用中」綠色**且沒有 `#acctSignedOutDiag` 那一格**（它不在才是證據）；寫＝**把 app 完全關掉再打開，不用重新登入**。第一半全綠時第二半照樣可能是壞的（build 6～10 就是），所以只驗第一半等於把那個無限輪迴留在原地。八支探針擋得住回歸，證明不了這一次真的通了——CI 沒有 Mac，插件註冊只在真機上發生。
+**真機驗收要分「讀」與「寫」兩半，而且要指名看哪一格**（build 11 就是這樣結案的）：讀＝帳號頁「雲端同步啟用中」綠色**且沒有 `#acctSignedOutDiag` 那一格**（它不在才是證據）；寫＝**把 app 完全關掉再打開，不用重新登入**。第一半全綠時第二半照樣可能是壞的（build 6～10 就是），所以只驗第一半等於把那個無限輪迴留在原地。八支探針擋得住回歸，證明不了這一次真的通了。**這一段的成本 2026-09-17 之後降了很多**：插件註冊在**模擬器**上就走得到，那四輪追的東西現在五分鐘看得到；真機仍然無可取代的只剩 `AppTransaction`、真的 APNs token 與真的付款。
 
 ## 跨帳號分享
 
