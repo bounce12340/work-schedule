@@ -155,14 +155,47 @@ if (!/deliverPushToken/.test(appDelegate) || !/static func deliverPushToken/.tes
 
 // entitlements：沒有 aps-environment 的話註冊推播在真機上直接失敗，而錯誤訊息
 // （「no valid aps-environment entitlement」）看起來像簽章問題而不是設定漏掉。
-const entitlements = read(IOS + 'App.entitlements');
-if (!/aps-environment/.test(entitlements)) {
-  fail('App.entitlements 沒有 aps-environment——真機上註冊推播會直接失敗');
-} else if (!/CODE_SIGN_ENTITLEMENTS = App\/App\.entitlements;/.test(read('mobile/ios/App/App.xcodeproj/project.pbxproj'))) {
-  fail('project.pbxproj 沒有指向 App.entitlements——檔案在，但建置時不會被用到');
-} else {
-  checked.push('推播的 entitlements');
+//
+// **值也要驗，不能只驗「有沒有這個字」。** `aps-environment` 決定 device token 是哪一台
+// APNs 的：Release（TestFlight／App Store）一定要 production，Debug 一定要 development。
+// 兩個 configuration 原本共用同一個寫死 development 的檔案，而這支檢查當時只問「有沒有
+// 這一欄」——**整個 bug 從頭到尾它都是綠的**。填錯的症狀是推播送出去卻永遠收不到
+// （400 BadDeviceToken），而那個字看起來像「token 壞了」，會往完全錯誤的方向查。
+//
+// 這裡驗不到的一件事要寫清楚：**Apple 後台的 App ID 有沒有勾 Push Notifications。**
+// 沒勾的話 Xcode 會在簽章時安靜地把這一欄整個拔掉，打包照樣綠燈、照樣上傳得了
+// （build 13 實際踩過）。原始碼這一側只能保證「我們有要求」，要不到是另一回事。
+const pbxproj = read('mobile/ios/App/App.xcodeproj/project.pbxproj');
+const APS = [
+  { file: 'App.entitlements',      want: 'production',  config: 'Release' },
+  { file: 'AppDebug.entitlements', want: 'development', config: 'Debug' },
+];
+let apsOk = true;
+for (const { file, want, config } of APS) {
+  const got = (read(IOS + file).match(/<key>aps-environment<\/key>\s*<string>([^<]*)<\/string>/) || [])[1];
+  if (got === undefined) {
+    fail(`${file} 沒有 aps-environment——真機上註冊推播會直接失敗`); apsOk = false;
+  } else if (got !== want) {
+    fail(`${file} 的 aps-environment 是 "${got}"，${config} 要的是 "${want}"`
+       + '——症狀不是報錯，是推播送出去卻收不到（BadDeviceToken）'); apsOk = false;
+  }
+  if (!pbxproj.includes(`CODE_SIGN_ENTITLEMENTS = App/${file};`)) {
+    fail(`project.pbxproj 的 ${config} 沒有指向 ${file}——檔案在，但建置時不會被用到`); apsOk = false;
+  }
 }
+// 兩個 configuration 各指各的：只驗「兩個字串都出現過」的話，兩邊都指到同一個檔案
+// （正是原本的狀態）也會過。
+if (apsOk && pbxproj.split('CODE_SIGN_ENTITLEMENTS').length - 1 !== APS.length) {
+  fail(`project.pbxproj 裡的 CODE_SIGN_ENTITLEMENTS 不是剛好 ${APS.length} 個——Debug 與 Release 要各指各的`);
+  apsOk = false;
+}
+// Swift 那側在 #if DEBUG 回 sandbox、否則 production，與上面兩個檔案是同一組對應。
+// 分家的症狀同樣是「送得出去、收不到」。
+if (apsOk && !/#if DEBUG\s+return "sandbox"\s+#else\s+return "production"/.test(swift)) {
+  fail('apsEnvironment() 的 #if DEBUG 分支與 entitlements 對不上（Debug→sandbox、Release→production）');
+  apsOk = false;
+}
+if (apsOk) checked.push('推播的 entitlements（Debug／Release 各自的環境）');
 
 // ---- 6. 訂閱的 product id 三側要逐字相同 ----
 // Swift 拿它去跟 StoreKit 要商品、Worker 拿它當白名單、App Store Connect 是真正的來源。

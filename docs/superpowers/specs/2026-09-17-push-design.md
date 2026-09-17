@@ -122,7 +122,10 @@ Swift 插件多兩個方法（名字與 `index.html` 逐字相同，`tools/check
 
 1. **Apple Developer → Certificates, Identifiers & Profiles → Keys → 新增一把金鑰**，勾 **Apple Push Notifications service (APNs)**，下載 `.p8`（**只能下載一次**）
 2. 記下 **Key ID**（10 碼）與 **Team ID**（10 碼）
-3. **Identifiers → 你的 App ID → 勾選 Push Notifications**
+3. **Identifiers → 你的 App ID → 勾選 Push Notifications**——**這一步要在打包之前**。
+   沒勾就打包的話，`exportArchive` 重簽時會安靜地把 `aps-environment` 從 app 裡拔掉：
+   打包綠、上傳成功、裝得起來，只有手機真的註冊推播那一刻才會說「找不到有效的
+   aps-environment 授權字串」（build 13 實際踩過，見 `docs/postmortems/2026-09-17-aps-entitlement-stripped.md`）
 4. 把三個值設成 Worker 的 secret（**不要貼進對話**）：
    ```
    npx wrangler secret put APNS_KEY_ID

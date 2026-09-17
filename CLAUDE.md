@@ -173,7 +173,7 @@ Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.Comm
 | `tools/check-contrast.mjs` | 正文級文字在**兩種主題**下都達到 WCAG 對比（4.5:1／大字 3:1） | 動到任何顏色變數或文字顏色 |
 | `tools/check-deps.mjs` | 前置作業的「待前置」徽章、不阻擋勾選；「不在」的標記**與逾期並存**；逾期的顏色就是 `--red` 且字重比旁邊重 | 動到 `dependsOn`、`awayDates`、`toggleOccDone`、逾期判斷或任何視覺改版 |
 | `tools/check-ambience.mjs` | 時段（早／午／晚）的 `data-daypart` 與光暈、每日記錄的提示語照日期決定、打勾的彈跳只在被點的那一個上、週一的回顧（含 N=0 不出現）、**遊戲化**：完美一天的 toast 只在勾掉最後一件時、升級的光只在升級那一次（看計算後的 `animationName`）、reduced-motion 關 | 動到 `tick()`、`<head>` 開機腳本、`DAILY_PROMPTS`、`renderLookback()`、`.checkbox` 的 CSS 或〈遊戲化畫面〉 |
-| `tools/check-native-plugin.mjs` | 原生插件的接線，六件事：SceneDelegate → MainViewController → `registerPluginInstance`、storyboard 的 `customClass`、**方法名兩側完全對齊（雙向）**、推播的 AppDelegate 接線與 `aps-environment`、**訂閱 product id 在 Swift 與 Worker 逐字相同**（零相依，在 `check` job） | 動到 `mobile/ios/` 的任何 Swift／storyboard／entitlements，或 `index.html` 的〈原生外殼〉區段；CI 會自動跑 |
+| `tools/check-native-plugin.mjs` | 原生插件的接線，六件事：SceneDelegate → MainViewController → `registerPluginInstance`、storyboard 的 `customClass`、**方法名兩側完全對齊（雙向）**、推播的 AppDelegate 接線與 **`aps-environment` 的值（Debug／Release 各自的環境，並比對 Swift 的 `#if DEBUG`）**、**訂閱 product id 在 Swift 與 Worker 逐字相同**（零相依，在 `check` job） | 動到 `mobile/ios/` 的任何 Swift／storyboard／entitlements，或 `index.html` 的〈原生外殼〉區段；CI 會自動跑 |
 | `tools/check-sw-version.mjs` | 動到 `public/*.html` 時 `sw.js` 的 `CACHE` 有沒有跟著加（零相依，在 `check` job） | 任何前端改動；CI 會自動跑，本機 `node tools/check-sw-version.mjs origin/main HEAD` |
 | `tools/measure-board.mjs` | 切換檢視／篩選／搜尋卡住主執行緒多久（自己造 64／150／300 項的資料） | 動到 `renderBoard()` 或看板的 CSS。**不在 CI**：數字隨環境浮動，設門檻只會製造沒有人相信的紅燈，用途是改動前後各跑一次自己比對 |
 | `tools/check-mobile.mjs` | 手機（iPhone 13、CPU 降速 4 倍、64 個項目）：五頁都不橫向溢出、切換與互動的停頓、**點擊目標大小** | 動到任何版面或 CSS。同樣不在 CI |
@@ -732,6 +732,8 @@ cd mobile/ios/App && xcodebuild -scheme App -sdk iphonesimulator -configuration 
 | 失敗時**一定要把 APNs 的 `reason` 讀出來** | 只記狀態碼的話「金鑰不對」與「token 不對」看起來一模一樣。同 AgentMail 那條 |
 | 權限對話框**只在使用者按下開關時才跳** | iOS 只讓你問一次，開機就問的轉換率遠低於「他自己按了那顆按鈕」之後才問 |
 | 權限被拒絕要**說出來**，不是讓開關彈回去 | 那是最典型的沉默：使用者會以為 app 壞了，而不是他自己關掉了通知權限 |
+| `aps-environment` **Debug 與 Release 各一個檔案**（`AppDebug.entitlements`＝development、`App.entitlements`＝production），不共用 | 它決定 device token 是**哪一台 APNs 的**。共用一份寫死 `development` 的檔案等於指望 `exportArchive` 會自己換成 production——那是指望不是保證，猜錯時不報錯，症狀是推播送得出去卻永遠收不到（`BadDeviceToken`，看起來像「token 壞了」）。Swift 的 `apsEnvironment()` 早就 `#if DEBUG` 分兩條路，`check-native-plugin.mjs` 現在把兩側釘在一起 |
+| **Apple 後台的 App ID 要先勾 Push Notifications，而且要在打包之前** | 沒勾的話 `exportArchive` 重簽時會**安靜地把這一欄從 app 裡拔掉**——打包綠、上傳成功、裝得起來，只有手機真的註冊推播那一刻才會說「找不到有效的 aps-environment 授權字串」（build 13 實際踩過，見 `docs/postmortems/2026-09-17-aps-entitlement-stripped.md`）。**原始碼這一側驗不到這件事**：靜態檢查只看得到「我們有沒有寫」，看不到「簽好的 app 身上有沒有」 |
 | 「今天有事要做」**預設關**，另外兩種預設開 | 前兩者有事才響；第三種每天固定時間會響，那種東西預設開是打擾 |
 
 **最大的技術風險：APNs 只收 HTTP/2**，而「Workers 打不打得到」在開發環境證明不了（要真的 `.p8` 與真的 device token）。所以不靠祈禱：
