@@ -622,11 +622,11 @@ async function walkNative(page, log, seen) {
  *   3. `/api/state` 回 404 被當成「這個環境沒有後端」而靜默降級。absent 那條路是為了
  *      單檔／未部署而存在的，在 app 裡永遠是謊話（API_BASE 是線上網址）
  *
- * 八個探針各塞一個**殘缺的** window.Capacitor，每個只驗一件事。刻意不把第五輪的假
+ * 九個探針各塞一個**殘缺的** window.Capacitor，每個只驗一件事。刻意不把第五輪的假
  * Capacitor 改殘缺：那一輪要驗的是「正常的 app 走得完」，混在一起哪個壞了都分不出來。
  */
 {
-  const label = 'iOS app 外殼的八個探針';
+  const label = 'iOS app 外殼的九個探針';
   const server = makeServer(true);
   await new Promise(r => server.listen(PORT, r));
   const launch = process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {};
@@ -636,7 +636,7 @@ async function walkNative(page, log, seen) {
   console.log(`\n▸ ${label}`);
 
   /** 各自一個乾淨的 context：偵測是在載入當下算一次的，改不了就只能重開 */
-  const shell = async (keys, { token = null, state404 = false, stateNoUser = false, stateHang = false } = {}) => {
+  const shell = async (keys, { token = null, state404 = false, stateNoUser = false, stateHang = false, stateSlow = 0 } = {}) => {
     const ctx = await browser.newContext({ viewport: { width: 420, height: 860 }, locale: 'zh-TW' });
     const page = await ctx.newPage();
     page.on('pageerror', e => errors.push(`未捕捉的例外：${e.message}`));
@@ -647,6 +647,13 @@ async function walkNative(page, log, seen) {
       // 永遠不回應：模擬「連線掛在那裡，不回也不錯」。這種請求沒有任何事件，
       // 舊的程式會停在那個 await 上，畫面永遠是示範資料。
       if (stateHang && u.pathname === '/api/state') return;   // 不 fulfill、不 abort
+      // 慢但會回：留出一段「使用者已經切到帳號頁、但同步還沒完成」的時間差。
+      // 那正是探針 9 要重現的形狀，而它在開發機上幾乎快到踩不到。
+      // **只延遲 GET**：同步完成後的 PUT 也被延遲的話，它會落在 ctx.close() 之後，
+      // 然後對著已經關掉的測試伺服器發 fetch（實際踩過，整支測試當場掛掉）。
+      if (stateSlow && u.pathname === '/api/state' && req.method() === 'GET') {
+        await new Promise(r => setTimeout(r, stateSlow));
+      }
       if (state404 && u.pathname === '/api/state') {
         return route.fulfill({ status: 404, body: '{"error":"not found"}', headers: { 'content-type': 'application/json' } });
       }
@@ -654,10 +661,15 @@ async function walkNative(page, log, seen) {
       if (stateNoUser && u.pathname === '/api/state' && req.method() === 'GET') {
         return route.fulfill({ status: 200, body: '{"state":null,"updatedAt":null}', headers: { 'content-type': 'application/json' } });
       }
-      const r = await fetch(`http://127.0.0.1:${PORT}${u.pathname}${u.search}`, {
-        method: req.method(), headers: { 'content-type': 'application/json' }, body: req.postData() ?? undefined,
-      });
-      await route.fulfill({ status: r.status, body: await r.text(), headers: { 'content-type': 'application/json' } });
+      // 這個 handler 可能在 context 關掉之後才跑完（延遲、或瀏覽器排隊）。那時候
+      // 測試伺服器已經收掉，proxy 的 fetch 會丟 ECONNREFUSED 並變成 unhandled
+      // rejection，把整支測試一起帶走——而那與被測的程式完全無關。
+      try {
+        const r = await fetch(`http://127.0.0.1:${PORT}${u.pathname}${u.search}`, {
+          method: req.method(), headers: { 'content-type': 'application/json' }, body: req.postData() ?? undefined,
+        });
+        await route.fulfill({ status: r.status, body: await r.text(), headers: { 'content-type': 'application/json' } });
+      } catch { try { await route.abort(); } catch { /* context 已經關了 */ } }
     });
     await page.addInitScript(([ks, tok, l]) => {
       localStorage.setItem('workSchedule.v1.lang', l);
@@ -807,6 +819,38 @@ async function walkNative(page, log, seen) {
       const t = await noteText(page);
       if (!/signals=/.test(t)) throw new Error(`探針 8：訊息裡沒有附上診斷資訊：「${t}」`);
       checked.push('登入後存不住會說出來，而且不退回登入畫面');
+      await ctx.close();
+    }
+    // 探針 9：外殼、Keychain、網路全部正常，只是 **/api/state 慢了一拍**，而使用者在
+    // 那之前就切到「我的帳號」。前八支守的是「同步真的壞掉」，這一支守的是**同步好好的、
+    // 只有那一頁沒跟上**：帳號頁寫「目前為單機模式」，而同一個畫面下方的 footer 寫
+    // 「雲端同步啟用中」。兩句話互相矛盾，畫面不會壞、不會報錯，使用者只會以為自己
+    // 沒登入（實際回報過）。根因是 cloudEnabled 有五個地方會改，五處都記得更新 footer、
+    // 沒有一處記得帳號頁——所以現在一律走 setCloudEnabled()。
+    {
+      const { ctx, page } = await shell(['isNativePlatform', 'getPlatform', 'nativePromise'], { token: APP_TOKEN, stateSlow: 1500 });
+      // **第一次載入不算數**：那一次走的是「這台裝置初次開啟 → 採用雲端」，而那條分支
+      // 結尾有一個 renderAll()，會順手把帳號頁重畫，bug 被蓋掉（第一版的探針就是這樣
+      // 綠的，突變驗證時才發現它過關的理由是錯的）。要重現的是**另一條**：本機已經有
+      // 資料、版本也對得上 → 直接 cloudPush() 就 return，中間沒有任何重繪。
+      await page.waitForFunction(() => /雲端同步啟用中/.test(document.getElementById('storageNoteText')?.innerText || ''), null, { timeout: 15000 })
+        .catch(() => { throw new Error('探針 9：第一次載入就沒有同步成功，這支測試的前提不成立'); });
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await page.waitForSelector('#navAccount', { timeout: 10000 });
+      await page.click('#navAccount');
+      // 先確認這一刻真的還沒同步完——否則這支測試會在跟 1500ms 賽跑，
+      // 修正拿掉了也可能照樣綠（同〈驗這件事不能用 page.reload()〉那個坑）。
+      const earlyNote = await page.locator('#acctSignedOutNote').isVisible().catch(() => false);
+      if (!earlyNote) throw new Error('探針 9：切過去的當下同步就已經完成了，這支測試沒有測到那個時間差');
+      await page.waitForFunction(() => /雲端同步啟用中/.test(document.getElementById('storageNoteText')?.innerText || ''), null, { timeout: 15000 })
+        .catch(() => { throw new Error('探針 9：同步一直沒有完成，這支測試的前提不成立'); });
+      if (await page.locator('#acctSignedOutNote').isVisible()) {
+        throw new Error('探針 9：同步已經啟用，帳號頁卻還寫著「目前為單機模式」——兩句話互相矛盾');
+      }
+      if (!(await page.locator('#acctReminderSub').isVisible())) {
+        throw new Error('探針 9：同步已經啟用，帳號頁的雲端區塊卻還是隱藏的');
+      }
+      checked.push('同步晚一步完成時帳號頁會跟上');
       await ctx.close();
     }
   } catch (e) {

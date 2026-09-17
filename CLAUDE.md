@@ -165,7 +165,7 @@ Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.Comm
 
 | 腳本 | 驗什麼 | 什麼時候一定要跑 |
 |---|---|---|
-| `tools/smoke.mjs` | 七輪：「單檔開啟 × 中英文」（file://，驗登入閘門）、「已登入 × 中英文」（走四個頁籤；中文那輪是免費版、撞上限要開升級說明，英文那輪是 Pro、要開新增表單）、「iOS app 外殼（假 Capacitor）」、「隱私頁與使用條款頁」、「**iOS app 外殼的八個探針**」：零 pageerror、零 console.error、每頁關鍵錨點存在；app 那一輪還斷言**所有打到線上網址的請求都帶 Bearer**，八個探針各塞一個**殘缺的** `window.Capacitor` 驗「安靜地變成單機模式」的八個成因（見〈app 的八個探針〉） | **任何前端改動**。第 0 條的自動化版本 |
+| `tools/smoke.mjs` | 七輪：「單檔開啟 × 中英文」（file://，驗登入閘門）、「已登入 × 中英文」（走四個頁籤；中文那輪是免費版、撞上限要開升級說明，英文那輪是 Pro、要開新增表單）、「iOS app 外殼（假 Capacitor）」、「隱私頁與使用條款頁」、「**iOS app 外殼的九個探針**」：零 pageerror、零 console.error、每頁關鍵錨點存在；app 那一輪還斷言**所有打到線上網址的請求都帶 Bearer**，九個探針各塞一個殘缺（或刻意變慢）的 `window.Capacitor`／後端，驗「安靜地變成單機模式」的各種成因（見〈app 的九個探針〉） | **任何前端改動**。第 0 條的自動化版本 |
 | `tools/verify-toggle.mjs` | 勾選的就地更新與完整重繪結果完全相同 | 動到 `renderBoard()` 或 `moveOccRowToDone()` |
 | `tools/verify-richtext.mjs` | 富文字過濾器的整條管線（含 DOM 走訪）擋得住 16 種攻擊向量 | 動到富文字 |
 | `tools/check-calendar.mjs` | 日曆的色條軌道對齊、跨月與週界的收邊、每日記錄的 ✎ 記號 | 動到 `renderCalendar()` 或日曆的 CSS |
@@ -627,7 +627,7 @@ Turnstile 擋得住「一秒鐘一萬次」的機器人，擋不住「一分鐘�
 | `public/privacy.html` 不用登入 | App Store 審查員與還沒註冊的人都會來看。`run_worker_first` 沒列它，靜態資產直接供應 |
 | AI 每日上限依方案：免費 5、Pro 20 | 每次呼叫都要付 DeepSeek 錢；免費版不能不限，給 5 次是讓人試得到 |
 | 打包在 GitHub 的 `macos-26` 映像（**不是 `xcode-27`**） | 當初的理由是「開發者沒有 Mac」，**那個前提 2026-09-17 過期了**（見〈開發者有 Mac 了〉）；仍然維持雲端打包，新的理由是**它不受本機環境影響**——Xcode 版本、憑證、描述檔在每個人的機器上都會漂移，而 CI 每次都從乾淨的映像開始。`xcode-27` 標籤是「預覽」映像，裡面只有 beta——beta 打的 build 可以上傳到 App Store Connect 但**會被拒收**（第五次打包：「Unsupported SDK or Xcode version … you need to use the latest Release Candidates」）。`macos-26` 預設是 Xcode 26.x 正式版。自動簽章帶 App Store Connect API 金鑰，四個 secrets：`ASC_KEY_ID`、`ASC_ISSUER_ID`、`ASC_API_KEY_P8`、`APPLE_TEAM_ID`。金鑰寫進 `~/private_keys`，跑完一律刪 |
-| **archive 不簽章**（`CODE_SIGNING_ALLOWED=NO`），簽章整個留給 `exportArchive` | 自動簽章的 archive 一律用**開發用**身分，那種描述檔必須綁至少一台實體裝置，帳號沒裝置就失敗（第一次打包：「Your team has no devices」）；在 archive 硬指定 `Apple Distribution` 又會被 Xcode 拒絕為「conflicting provisioning settings」（第二次）。export（`app-store-connect` + `signingStyle automatic` + `-allowProvisioningUpdates`）自己用**發佈用**身分重簽，不綁裝置，憑證由 Xcode 雲端簽章代管，runner 不需要 .p12。**不要把 `project.pbxproj` 的 `CODE_SIGN_IDENTITY` 改成 Distribution**，那會讓本機用 Xcode 打包也撞同一個錯 |
+| **archive 走 ad-hoc 簽章**（`CODE_SIGN_STYLE=Manual` + `CODE_SIGN_IDENTITY="-"` + `AD_HOC_CODE_SIGNING_ALLOWED=YES`），正式簽章留給 `exportArchive` | 自動簽章的 archive 一律用**開發用**身分，那種描述檔必須綁至少一台實體裝置，帳號沒裝置就失敗（第一次打包：「Your team has no devices」）；在 archive 硬指定 `Apple Distribution` 又會被 Xcode 拒絕為「conflicting provisioning settings」（第二次）。export（`app-store-connect` + `signingStyle automatic` + `-allowProvisioningUpdates`）自己用**發佈用**身分重簽，不綁裝置，憑證由 Xcode 雲端簽章代管，runner 不需要 .p12。**不要把 `project.pbxproj` 的 `CODE_SIGN_IDENTITY` 改成 Distribution**，那會讓本機用 Xcode 打包也撞同一個錯。**但「完全不簽」是錯的**（原本寫 `CODE_SIGNING_ALLOWED=NO`）：沒有簽章那一步，entitlements 就不會被寫進 archive，而 `exportArchive` 重簽時是從 archive 身上讀「原本要求了什麼」——讀到空的就簽出一個沒有推播權限的 app。ad-hoc 簽章把 entitlements 真的寫進去，同時一樣不需要描述檔、不綁裝置、不需要 .p12（build 13／14 兩次都栽在這裡，見 `docs/postmortems/2026-09-17-aps-entitlement-stripped.md`）。`ios.yml` 現在在 archive 之後**斷言** `aps-environment = production` 真的在裡面，缺了就擋下這次打包 |
 | `ASC_KEY_ID` 那把金鑰的角色**必須是 Admin** | 雲端簽章要用雲端代管的發佈憑證，App Manager／Developer 金鑰被拒（第三次打包：「You haven't been given access to cloud-managed distribution certificates」）。使用者帳號有「Access to Cloud Managed Distribution Certificate」的勾選框，**API 金鑰沒有**，只能靠角色。代價是這把金鑰權限很大，只放在 GitHub secrets、跑完就刪 |
 
 | 打包**自動跑**：main 的 CI 全綠、而且這次動到 `public/index.html` 或 `mobile/` | 原本寫的是「只在手動觸發或 tag 時跑，Mac runner 貴而且慢」。**「貴」這個前提過期了**——這是公開 repo，GitHub 的標準 runner 對公開 repo 不計費（同〈忘記密碼〉那節：「系統沒有寄信基礎設施」在接上 AgentMail 之後就不成立了，設計決定的前提會過期）。真正的代價是「打出沒有人要的 build」，所以兩道閘門都不能拿掉 |
@@ -778,7 +778,7 @@ cd mobile/ios/App && xcodebuild -scheme App -sdk iphonesimulator -configuration 
 
 F3（推播版）**已實作**，見〈推播〉：它與 email 版共用 `dayReport` 與同一個 `MIN_STREAK` 門檻，兩邊不一樣的話會出現「信說斷了、推播沒推」。
 
-### app 的八個探針（`tools/smoke.mjs` 第七輪）
+### app 的九個探針（`tools/smoke.mjs` 第七輪）
 
 TestFlight build 7 回報的症狀是「app 安靜地變成單機模式」——沒有紅字、沒有 app 的登入畫面、畫面上是示範資料。那個狀態有**八個各自獨立的成因，而八個在畫面上長得一模一樣**，既有的檢查一個都抓不到。完整經過在 `docs/postmortems/2026-09-16-app-silent-standalone.md`。
 
@@ -792,6 +792,7 @@ TestFlight build 7 回報的症狀是「app 安靜地變成單機模式」——
 | 6 | 電話打得出去、**對面永遠不回話**（promise 不會 settle） | 要超時、回到登入畫面，並在那裡說出 `probe=timeout` |
 | 7 | 外殼與 Keychain 都正常，`/api/state` **永遠不回應** | 看門狗要在 12 秒後開口說「啟動卡住了」 |
 | 8 | 外殼正常、Keychain **讀得到但寫不進去**，使用者真的登入一次 | **不准退回登入畫面**，而且狀態列要說出「存不住登入狀態」並附診斷 |
+| 9 | 外殼、Keychain、網路**全部正常**，只是 `/api/state` 慢一拍，而使用者在那之前就切到「我的帳號」 | 同步完成時那一頁要**跟著變**——帳號頁寫「單機模式」而 footer 寫「雲端同步啟用中」是自相矛盾 |
 
 **刻意不把第五輪的假 Capacitor 改殘缺**：那一輪要驗的是「正常的 app 走得完」，兩件事混在一起，哪一個壞了都分不出來。突變驗證過八種改法各自只紅一支。
 
@@ -808,6 +809,10 @@ TestFlight build 7 回報的症狀是「app 安靜地變成單機模式」——
 - **`nativeTokenSave` 回傳布林，不是 void。** 吞掉這個失敗的代價不是少一行 log，是整個 app 用不了。沒有這個回傳值，呼叫端連「有沒有存進去」都問不到——〈降級可以，沉默不行〉在這裡的具體形狀就是它。
 - **存不住就絕對不能 `reload()`。** reload 回來 Keychain 還是空的，於是又是同一頁。改成：這一次照樣讓她進得去（token 還在記憶體裡），但把原因寫在狀態列上，並明說關掉 app 要重登。
 - **那句話要寫在 `initCloudSync` 之後。** 同步成功會把狀態列改成「已同步」，先寫就被蓋掉了——而被蓋掉的正是這一次唯一要講的那句話（實測踩到，探針 8 第一版就是紅在這裡）。
+
+**探針 9 守的是「同步好好的、只有那一頁沒跟上」。** 前八支守的都是同步真的壞掉；這一支的環境全部正常，只是 `/api/state` 慢一拍，而使用者在那之前就切到「我的帳號」。症狀是**同一個畫面上兩句話互相矛盾**——帳號頁寫「目前為單機模式」，下方的 footer 寫「雲端同步啟用中」。不會壞、不會報錯，使用者只會以為自己沒登入（實際回報過）。根因是 `cloudEnabled` **有五個地方會改**，五處都記得更新 footer、**沒有一處記得帳號頁**，所以現在一律走 `setCloudEnabled()`——把「跟著旗標走的畫面」收斂到一個地方，下一個人加第三塊時不必再記得第四個呼叫點。
+
+**這一支的第一版是綠的，而且綠的理由是錯的**：假後端讓它走到「這台裝置初次開啟 → 採用雲端」那條分支，而那條分支結尾有一個 `renderAll()`，順手把帳號頁重畫了。真正咬人的是另一條（本機有資料、版本對得上 → `cloudPush()` 就 return，中間沒有任何重繪）。**突變驗證是唯一發現這件事的方法**——測試過了不代表它測到了要測的東西。現在探針 9 先載入一次寫下 `cloudMeta`，再 reload 走那條沒有重繪的路。
 
 **探針 5 守的不是某一條路，是那一格本身。** build 8 上線後症狀仍在——而且連新加的紅字都沒出現，因為它走的是第五條（`/api/state` 回 200 卻沒有 `user` → `setCloudNote('')`）。逐條堵洞永遠會漏掉下一條，所以帳號頁多一格 `#acctSignedOutDiag`：**只要走到單機模式、而環境看起來像 app，就把當下的訊號印出來**，不問是哪一條路帶來的。判斷用 `looksNativeShell()` 而**不是 `NATIVE`**——`NATIVE` 判錯正是要診斷的故障之一，讓它決定診斷要不要出現，最需要說話的那一種情況剛好會最安靜。
 
