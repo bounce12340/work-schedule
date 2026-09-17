@@ -98,6 +98,11 @@
        它不是一件要做的事，也不是警示，它只是一個事實。 */
     --away: #4F6070;
     --away-dim: rgba(79,96,112,0.10);
+    /* 休假：刻意選鼠尾草綠而不是暖色。暖色會與 --amber（今天）在低 alpha 下
+       糊成一團，而紅系不能碰——那是逾期的專用色，休假被誤讀成警示就違反紅線。
+       綠色沒有被任何項目型別或狀態用掉，而且它不像警告。 */
+--leave:#355942;
+    --leave-dim: rgba(63,107,79,0.13);
     --span-teal: rgba(31,140,104,0.20);
     --span-amber: rgba(201,130,46,0.22);
     --span-violet: rgba(108,92,224,0.20);
@@ -185,6 +190,8 @@
     --violet-dim: rgba(155,140,245,0.14);
     --away: #9DB0C1;
     --away-dim: rgba(157,176,193,0.14);
+    --leave: #93C2A4;
+    --leave-dim: rgba(147,194,164,0.16);
     --span-teal: rgba(63,191,146,0.24);
     --span-amber: rgba(227,160,82,0.26);
     --span-violet: rgba(155,140,245,0.24);
@@ -544,6 +551,10 @@
               background:var(--amber-dim); color:var(--amber-ink); white-space:nowrap; cursor:help; }
   .away-badge{ font-family:var(--mono); font-size:10.5px; padding:2px 7px; border-radius:5px;
                background:var(--away-dim); color:var(--away); white-space:nowrap; }
+  /* 休假的附註與「不在」同形狀、只換顏色：兩者是同一類資訊（那天人的狀態），
+     長得不一樣只會讓人以為它們是不同種類的東西。**兩者都與逾期的紅字並存** */
+  .leave-badge{ font-family:var(--mono); font-size:10.5px; padding:2px 7px; border-radius:5px;
+                background:var(--leave-dim); color:var(--leave); white-space:nowrap; }
   .sub-list{ flex:1 1 100%; margin:8px 0 0; padding:8px 0 0; border-top:1px solid var(--hairline);
              display:flex; flex-direction:column; gap:5px; }
   .sub-line{ display:flex; align-items:baseline; gap:8px; font-size:13px; cursor:pointer; }
@@ -700,15 +711,66 @@
      三者疊起來會分不出誰是誰。斜線是另一個維度，疊在任何底色上都還看得出來。 */
   .cal-cell.away{ background-image: repeating-linear-gradient(-45deg,
       var(--away-dim) 0 6px, transparent 6px 12px); }
-  .cal-away-mark{ position:absolute; top:5px; left:6px; font-size:9.5px; line-height:1; opacity:.9; }
+  /* 🌴 與 ✎ 並排在右上角（2026-09-17 從左上搬過來，使用者指定）。位置固定，
+     沒有 ✎ 時也留著那 16px——會跳位的記號比對齊到底更難讀。 */
+  .cal-away-mark{ position:absolute; top:5px; right:22px; font-size:9.5px; line-height:1; opacity:.9; }
   .cal-cell.away .cal-daynum{ color: var(--away); }
   .cal-cell.today.away .cal-daynum{ color: var(--amber); }
+
+  /* ---- 休假的格子：整格換底色 ----
+     **用偽元素疊一層，不搶 background-color。** 上面那條規則仍然成立：底色已經
+     被「今天」與「已選取」用掉了。休假若直接搶走 background，「今天剛好休假」
+     那一格的琥珀色就會不見——而「今天在哪裡」是整個日曆最重要的一格。
+     一層低 alpha 的色片疊在上面，底下那兩層都還透得出來，斜線紋（不在）也是。 */
+  .cal-cell.leave::before{ content:''; position:absolute; inset:0; border-radius:inherit;
+                           background: var(--leave-dim); pointer-events:none; }
+  /* 中間那個圖示是浮水印，不是主角：opacity 必須低到不影響上面的文字。
+     check-contrast.mjs 會把「休假格子裡的項目文字」也量一次。 */
+  .cal-leave-icon{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+                   font-size:30px; opacity:.16; pointer-events:none; user-select:none; line-height:1; }
+  .cal-cell.leave .cal-daynum{ color: var(--leave); }
+  .cal-cell.today.leave .cal-daynum{ color: var(--amber); }
+  /* 內容要壓在玻璃紙與浮水印之上。
+     **兩個角落記號不能寫進這一條。** 它們是 position:absolute，而這條規則同樣
+     的優先度又排在後面，會把 absolute 蓋成 relative——兩個記號當場掉回文字流，
+     日期數字被往下推。只補 z-index、不碰 position。（check-deps 的位置斷言抓到的） */
+  .cal-cell > .cal-daynum, .cal-cell > .cal-spans, .cal-cell > .cal-item,
+  .cal-cell > .cal-more{ position:relative; z-index:1; }
+  .cal-away-mark, .cal-log-mark{ z-index:1; }
   /* 底色要不透明：這顆按鈕在日曆詳情區的頭部，後面沒有面板，半透明的底會透出
      光暈，最差處只剩 3.28:1。 */
   .away-btn{ background:var(--panel); border:1px solid var(--away); color:var(--away);
              font-family:var(--mono); font-size:12px; padding:7px 14px; border-radius:999px;
              cursor:pointer; white-space:nowrap; }
   .away-btn:hover{ background:var(--panel-2); }
+
+  /* ---- 不在／休假 modal ---- */
+  .abs-list{ display:flex; flex-direction:column; gap:6px; margin-bottom:14px; }
+  .abs-list:empty{ display:none; }
+  .abs-row{ display:flex; align-items:center; gap:8px; padding:7px 10px; border-radius:8px;
+            background:var(--panel-2); font-size:13px; }
+  .abs-row .abs-when{ font-family:var(--mono); font-size:12px; color:var(--text-muted); margin-left:auto; }
+  .abs-row .abs-del{ background:none; border:none; color:var(--text-dim); cursor:pointer;
+                     font-size:14px; line-height:1; padding:4px; border-radius:5px; }
+  .abs-row .abs-del:hover{ color:var(--red); background:var(--red-dim); }
+  .abs-kinds{ display:flex; gap:8px; }
+  /* 這兩顆是可聚焦控制項：手機上不能小於 16px，也不能小於 44px 的點擊目標
+     （見〈iOS 會因為小字級的輸入框把整頁放大〉與 check-mobile 的點擊目標那條） */
+  .abs-kind{ flex:1; padding:10px 12px; border-radius:9px; cursor:pointer; font-size:14px;
+             background:var(--panel-2); border:1px solid var(--hairline); color:var(--text);
+             min-height:44px; }
+  .abs-kind.active{ border-color:var(--amber); box-shadow: inset 0 0 0 1px var(--amber); }
+  .abs-hint{ font-size:12.5px; color:var(--text-muted); margin-top:7px; line-height:1.6; }
+  .abs-times{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .abs-times input[type=time]{ flex:1; min-width:110px; }
+  .abs-dash{ color:var(--text-dim); }
+  .abs-allday{ white-space:nowrap; min-height:44px; }
+  .abs-icons{ display:flex; flex-wrap:wrap; gap:6px; }
+  /* 44×44：這是使用者真的會點的東西，而 emoji 本身小不代表判定區可以小 */
+  .abs-icon{ width:44px; height:44px; display:flex; align-items:center; justify-content:center;
+             font-size:20px; border-radius:9px; cursor:pointer;
+             background:var(--panel-2); border:1px solid var(--hairline); }
+  .abs-icon.active{ border-color:var(--amber); box-shadow: inset 0 0 0 1px var(--amber); }
 
   .cal-detail-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; flex-wrap:wrap; gap:10px; }
   .cal-detail-title{ font-family: var(--mono); font-size:16px; font-weight:700; }
@@ -1274,7 +1336,7 @@
 
         <div class="cal-detail-head">
           <div class="cal-detail-title" id="calDetailTitle" data-i18n>選擇日期以查看當日安排</div>
-          <button class="away-btn" id="btnToggleAway" style="display:none;" type="button">🌴 標記為不在</button>
+          <button class="away-btn" id="btnToggleAway" style="display:none;" type="button">🌴 不在／休假…</button>
           <button class="add-project-btn" id="openItemModalFromCal" style="display:none;" data-i18n>＋ 為此日期新增</button>
         </div>
         <div class="board" id="calBoard"></div>
@@ -1651,6 +1713,47 @@
 </div>
 
 <!-- ========== 單次日期調整 Modal ========== -->
+<!-- ========== 不在／休假 Modal ==========
+     **唯一的設定入口**（同改版前那顆按鈕的理由）：日曆本來就是挑日子的地方，
+     多開一個批次貼上框等於同一份狀態兩個入口，遲早不同步。 -->
+<div class="overlay" id="absenceOverlay">
+  <div class="modal" style="max-width:420px;">
+    <h3><span class="dot"></span><span data-i18n>不在／休假</span></h3>
+    <div class="scope-note"><span data-i18n>日期</span>：<b id="absModalDays" style="color:var(--amber);">—</b></div>
+
+    <div id="absExisting" class="abs-list"></div>
+
+    <div class="field">
+      <label data-i18n>種類</label>
+      <div class="abs-kinds">
+        <button type="button" class="abs-kind active" id="absKindAway" data-kind="away">🌴 <span data-i18n>不在</span></button>
+        <button type="button" class="abs-kind" id="absKindLeave" data-kind="leave">🏖️ <span data-i18n>休假</span></button>
+      </div>
+      <div class="abs-hint" id="absKindHint" data-i18n>人不在辦公室，但仍然在上班（出差、開會、場勘）。</div>
+    </div>
+
+    <div class="field">
+      <label data-i18n>時段（留空＝整天）</label>
+      <div class="abs-times">
+        <input type="time" id="absFrom" aria-label="起">
+        <span class="abs-dash">–</span>
+        <input type="time" id="absTo" aria-label="訖">
+        <button type="button" class="ghost-btn abs-allday" id="absAllDay" data-i18n>整天</button>
+      </div>
+    </div>
+
+    <div class="field" id="absIconField" style="display:none;">
+      <label data-i18n>圖示（日曆上會放在格子中間）</label>
+      <div class="abs-icons" id="absIcons"></div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn-cancel" id="btnAbsCancel" data-i18n>取消</button>
+      <button class="btn-confirm" id="btnAbsAdd" data-i18n>加上去</button>
+    </div>
+  </div>
+</div>
+
 <div class="overlay" id="occOverlay">
   <div class="modal" style="max-width:380px;">
     <h3><span class="dot"></span>調整本次日期</h3>
@@ -2238,6 +2341,21 @@
   function absencesOn(dateStr){ const l = absences[dateStr]; return Array.isArray(l) ? l : []; }
   function isAway(dateStr){ return absencesOn(dateStr).some(a => a.kind === 'away'); }
   function isLeave(dateStr){ return absencesOn(dateStr).some(a => a.kind === 'leave'); }
+  /** 「09:00–12:00」；整天回空字串——最常見的情況不該佔畫面。 */
+  function absenceRangeText(a){ return (a.from && a.to) ? a.from + '–' + a.to : (a.from ? a.from + '–' : (a.to ? '–' + a.to : '')); }
+  /** 徽章後面那一小段時間。同一種有多筆就串起來。 */
+  function absenceHours(dateStr, kind){
+    const parts = absencesOn(dateStr).filter(a => a.kind === kind).map(absenceRangeText).filter(Boolean);
+    return parts.length ? ' ' + parts.join('、') : '';
+  }
+  /** 給 title 用的一句話：「不在 09:00–12:00／休假 13:00–18:00」 */
+  function absenceSummary(dateStr){
+    return absencesOn(dateStr).map(a => {
+      const name = a.kind === 'away' ? tr('不在') : tr('休假');
+      const t = absenceRangeText(a);
+      return t ? name + ' ' + t : name + tr('（整天）');
+    }).join('　') || '';
+  }
   function adjustForHoliday(d, rule){
     if(!rule || rule==='none') return d;
     let cur = new Date(d); const step = rule==='postpone' ? 1 : -1; let guard=0;
@@ -2447,6 +2565,21 @@
       '標記為不在（{0} 天）':'Mark {0} days as away', '取消不在（{0} 天）':'Clear away on {0} days',
       '只是標記「那天我不在」：不會移動任何日期，也不會讓逾期變成不逾期。':
         'Just a note that you are away: nothing is rescheduled, and nothing overdue stops being overdue.',
+      // —— 不在／休假（2026-09-17） ——
+      '不在／休假':'Away / Leave', '休假':'On leave',
+      '不在／休假…':'Away / leave…', '不在／休假（已標記）':'Away / leave (marked)',
+      '不在／休假（{0} 天）':'Away / leave ({0} days)',
+      '只是標記那幾天人的狀態：不會移動任何日期，也不會讓逾期變成不逾期。':
+        'Just a note about those days: nothing is rescheduled, and nothing overdue stops being overdue.',
+      '這天你休假。逾期判斷不受影響。':'You are on leave this day. Overdue is judged the same way regardless.',
+      '種類':'Kind', '時段（留空＝整天）':'Hours (leave blank for all day)',
+      '整天':'All day', '（整天）':' (all day)',
+      '圖示（日曆上會放在格子中間）':'Icon (shown in the middle of the calendar cell)',
+      '加上去':'Add', '移除這一筆':'Remove this one',
+      '人不在辦公室，但仍然在上班（出差、開會、場勘）。':
+        'Out of the office but still working — a trip, a meeting, a site visit.',
+      '正式請假。那幾天的提醒信與推播會安靜，但逾期的紅字照樣在。':
+        'Formal time off. Reminder mail and push stay quiet on those days, but overdue stays red.',
       // —— 共享 ——
       '你只有檢視權限':'You only have view access',
       '取消分享':'Stop sharing', '從我的畫面移除':'Remove from my view',
@@ -5139,9 +5272,17 @@
     // 但事情本來就排在那天，沒做完就是沒做完。
     if(isAway(occ.date)){
       const aw=document.createElement('span'); aw.className='away-badge';
-      aw.textContent='🌴 '+tr('不在');
+      aw.textContent='🌴 '+tr('不在')+absenceHours(occ.date, 'away');
       aw.title=tr('這天你標記為不在。逾期判斷不受影響。');
       row.appendChild(aw);
+    }
+    // 休假與「不在」同形狀、同位置、同規則——**一樣不豁免逾期**。
+    if(isLeave(occ.date)){
+      const lv=document.createElement('span'); lv.className='leave-badge';
+      const ic = absencesOn(occ.date).find(a => a.kind === 'leave' && a.icon);
+      lv.textContent=(ic ? ic.icon : '🏖️')+' '+tr('休假')+absenceHours(occ.date, 'leave');
+      lv.title=tr('這天你休假。逾期判斷不受影響。');
+      row.appendChild(lv);
     }
     if(it.recurrence){
       const adjBtn=document.createElement('button'); adjBtn.className='icon-btn'; adjBtn.textContent='📅✎'; adjBtn.title=tr('調整本次日期');
@@ -5490,14 +5631,22 @@
 
       const cell=document.createElement('div');
       cell.className='cal-cell'+(dateStr===todayStr?' today':'')+(inCalSelection(dateStr)?' selected':'')
-        +(isAway(dateStr)?' away':'');
+        +(isAway(dateStr)?' away':'')+(isLeave(dateStr)?' leave':'');
       const daynum=document.createElement('div'); daynum.className='cal-daynum'; daynum.textContent=day; cell.appendChild(daynum);
 
-      // 「不在」的標記放**左上**，每日記錄放右上：兩個都是格子角落的小記號，
-      // 擠在同一邊會互相蓋住
+      // 休假：整格一層玻璃紙（CSS 的 ::before）＋ 中間一個很淡的圖示。
+      // 它是**浮水印不是主角**，所以 opacity 很低、也不吃點擊。
+      const leaveEntries = absencesOn(dateStr).filter(a => a.kind === 'leave');
+      if(leaveEntries.length){
+        const li=document.createElement('span'); li.className='cal-leave-icon';
+        li.textContent = leaveEntries.find(a => a.icon) ? leaveEntries.find(a => a.icon).icon : '🏖️';
+        li.title = absenceSummary(dateStr);
+        cell.appendChild(li);
+      }
+      // 🌴 與 ✎ 並排在右上角（2026-09-17 從左上搬過來，使用者指定）
       if(isAway(dateStr)){
         const am=document.createElement('span'); am.className='cal-away-mark'; am.textContent='🌴';
-        am.title=tr('這天你不在');
+        am.title=absenceSummary(dateStr);
         cell.appendChild(am);
       }
       // 每日記錄的標記：有寫東西就在格子右上角留一筆，不必點進去才知道
@@ -5688,27 +5837,104 @@
    * 批次貼上框（像自訂假日那樣）等於同一份狀態有兩個入口，遲早不同步。
    * 「不在」一次也就那幾天，逐日點選不是負擔。
    */
+  /** 目前面板正在編輯哪幾天（開啟時固定下來，之後的重繪不影響它）。 */
+  let absDays = [], absKind = 'away', absIcon = '🏖️';
+
+  /** 休假可以挑的圖示。刻意是一組固定清單而不是自由輸入：
+   *  自由輸入要處理貼進一整段文字、輸入法中途的組字、以及「這是不是 emoji」
+   *  這個沒有好答案的問題。九個涵蓋得了請假的常見理由，挑不到的人可以接受預設。 */
+  const LEAVE_ICONS = ['🏖️','✈️','🤒','🏥','🎂','💒','👶','📚','🏠'];
+
   function syncAwayBtn(range){
     const btn=document.getElementById('btnToggleAway');
     if(!range){ btn.style.display='none'; return; }
     const days=[];
     for(let d=parseYMD(range.start); ymd(d)<=range.end; d.setDate(d.getDate()+1)) days.push(ymd(d));
-    const allAway = days.every(isAway);
     btn.style.display='';
-    btn.textContent = allAway
-      ? '🌴 ' + (days.length>1 ? tf('取消不在（{0} 天）', days.length) : tr('取消不在'))
-      : '🌴 ' + (days.length>1 ? tf('標記為不在（{0} 天）', days.length) : tr('標記為不在'));
-    btn.title = tr('只是標記「那天我不在」：不會移動任何日期，也不會讓逾期變成不逾期。');
-    // 這顆按鈕目前只做「整天不在」，時段與休假的入口在 #62。改掉的只有寫進去的
-    // 形狀，行為一字不差：取消時只拿掉 away 那幾筆，同一天的 leave 留著。
-    btn.onclick = ()=> commit(()=>{
-      days.forEach(x=>{
-        const rest = absencesOn(x).filter(a => a.kind !== 'away');
-        const next = allAway ? rest : rest.concat([{ kind:'away', from:null, to:null }]);
-        if(next.length) absences[x] = next.sort(absenceCmp);
-        else delete absences[x];
+    const marked = days.filter(x => absencesOn(x).length).length;
+    btn.textContent = '🌴 ' + (days.length>1
+      ? tf('不在／休假（{0} 天）', days.length)
+      : (marked ? tr('不在／休假（已標記）') : tr('不在／休假…')));
+    btn.title = tr('只是標記那幾天人的狀態：不會移動任何日期，也不會讓逾期變成不逾期。');
+    btn.onclick = ()=> openAbsenceModal(days);
+  }
+
+  // ---- 不在／休假的設定面板 ----
+  // **唯一的入口**（同改版前那顆按鈕的理由）。它負責四件事：看現有的、加一筆、
+  // 刪一筆、選圖示。刻意不做「編輯既有的一筆」——刪掉再加一次一樣快，而編輯
+  // 要多一組「正在編哪一筆」的狀態，那是這個一年用不到幾次的功能不值得的複雜度。
+  function openAbsenceModal(days){
+    absDays = days.slice();
+    absKind = 'away';
+    absIcon = LEAVE_ICONS[0];
+    document.getElementById('absModalDays').textContent =
+      days.length > 1 ? days[0] + ' → ' + days[days.length-1] + tf('（{0} 天）', days.length) : days[0];
+    document.getElementById('absFrom').value = '';
+    document.getElementById('absTo').value = '';
+    absRenderIcons();
+    absSyncKind();
+    absRenderExisting();
+    document.getElementById('absenceOverlay').classList.add('show');
+  }
+  function closeAbsenceModal(){ document.getElementById('absenceOverlay').classList.remove('show'); }
+
+  function absSyncKind(){
+    document.getElementById('absKindAway').classList.toggle('active', absKind === 'away');
+    document.getElementById('absKindLeave').classList.toggle('active', absKind === 'leave');
+    document.getElementById('absIconField').style.display = absKind === 'leave' ? '' : 'none';
+    document.getElementById('absKindHint').textContent = absKind === 'away'
+      ? tr('人不在辦公室，但仍然在上班（出差、開會、場勘）。')
+      : tr('正式請假。那幾天的提醒信與推播會安靜，但逾期的紅字照樣在。');
+  }
+  function absRenderIcons(){
+    const wrap = document.getElementById('absIcons'); wrap.innerHTML = '';
+    LEAVE_ICONS.forEach(ic => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'abs-icon' + (ic === absIcon ? ' active' : '');
+      b.textContent = ic;
+      b.onclick = () => { absIcon = ic; absRenderIcons(); };
+      wrap.appendChild(b);
+    });
+  }
+  /** 選取範圍內每一天的現有標記。多天時把日期也印出來，否則刪掉的是哪一天分不清。 */
+  function absRenderExisting(){
+    const wrap = document.getElementById('absExisting'); wrap.innerHTML = '';
+    absDays.forEach(d => {
+      absencesOn(d).forEach((a, idx) => {
+        const row = document.createElement('div'); row.className = 'abs-row';
+        const name = document.createElement('span');
+        name.textContent = (a.kind === 'away' ? '🌴 ' + tr('不在') : (a.icon || '🏖️') + ' ' + tr('休假'))
+          + (absDays.length > 1 ? '　' + d.slice(5) : '');
+        const when = document.createElement('span'); when.className = 'abs-when';
+        when.textContent = absenceRangeText(a) || tr('整天');
+        const del = document.createElement('button');
+        del.type = 'button'; del.className = 'abs-del'; del.textContent = '✕';
+        del.title = tr('移除這一筆');
+        del.onclick = () => commit(() => {
+          const rest = absencesOn(d).filter((_, i) => i !== idx);
+          if(rest.length) absences[d] = rest; else delete absences[d];
+          absRenderExisting();
+        });
+        row.appendChild(name); row.appendChild(when); row.appendChild(del);
+        wrap.appendChild(row);
       });
     });
+  }
+  function absAdd(){
+    const from = document.getElementById('absFrom').value || null;
+    const to   = document.getElementById('absTo').value   || null;
+    const entry = { kind: absKind, from, to };
+    if(absKind === 'leave') entry.icon = absIcon;
+    commit(() => {
+      absDays.forEach(d => {
+        // 走 normalizeAbsences 而不是自己 push：白名單、去重、排序是同一份邏輯，
+        // 在這裡重寫一次遲早與存檔那一側分歧。
+        const merged = normalizeAbsences({ [d]: absencesOn(d).concat([entry]) })[d];
+        if(merged && merged.length) absences[d] = merged; else delete absences[d];
+      });
+    });
+    absRenderExisting();
   }
 
   function renderCalDetail(byDate){
@@ -6493,6 +6719,22 @@
       if(currentView==='calendar'){ const dp=parseYMD(dateVal); calYear=dp.getFullYear(); calMonth=dp.getMonth()+1; calSelectedDate=dateVal; calSelectedEnd=null; }
       else{ if(mode==='date') selDate=dateVal; }
     });
+  };
+
+  // ---- 不在／休假 modal 的接線 ----
+  // **這一段漏掉的話畫面不會壞，只是按鈕按下去沒反應**——CLAUDE.md〈驗證方式〉
+  // 第 0 條就是為了這種形狀存在的：npm test 與 node --check 都抓不到。
+  document.getElementById('btnAbsCancel').onclick = closeAbsenceModal;
+  document.getElementById('btnAbsAdd').onclick = () => { absAdd(); closeAbsenceModal(); };
+  document.getElementById('absKindAway').onclick = () => { absKind = 'away'; absSyncKind(); };
+  document.getElementById('absKindLeave').onclick = () => { absKind = 'leave'; absSyncKind(); };
+  document.getElementById('absAllDay').onclick = () => {
+    document.getElementById('absFrom').value = '';
+    document.getElementById('absTo').value = '';
+  };
+  // 點遮罩空白處關閉：與其他 modal 一致
+  document.getElementById('absenceOverlay').onclick = (e) => {
+    if(e.target === document.getElementById('absenceOverlay')) closeAbsenceModal();
   };
 
   // ================= 單次日期調整 modal =================

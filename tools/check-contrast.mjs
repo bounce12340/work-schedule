@@ -69,6 +69,24 @@ const AFTER_CLICKS = [
 ];
 
 /**
+ * 休假格子的日期。它用的是**新的顏色 token**（`--leave`），而且壓在一層玻璃紙上
+ * （`.cal-cell.leave::before`）——那層不是任何元素的祖先，`bgOf()` 看不到它，
+ * 量到的會是「沒有玻璃紙」的漂亮數字。解法同光暈（見 measure 裡的 leaveWorst）。
+ *
+ * **只量非今天的格子**：今天那一格的日期本來就是琥珀色（那是「今天在哪裡」的
+ * 標記，與這層玻璃紙無關）。
+ *
+ * 格子裡的**項目文字**目前沒有量，而不量的理由要寫下來：示範資料在這個月只有
+ * 今天那一格有項目，而 `.cal-cell.today` 的背景是半透明的（alpha 0.09），
+ * `bgOf()` 會直接跳過它、一路掉到 body，量到的變成光暈而不是實際底色。
+ * 要量它得先讓 `bgOf()` 會疊半透明的祖先——那是整支工具的行為改變，會翻出
+ * 一批既有的數字，屬於另一件事（已另開待辦）。
+ */
+const IN_LEAVE_CELL = [
+  ['.cal-cell.leave:not(.today) .cal-daynum', '休假格子的日期'],
+];
+
+/**
  * 空狀態原本掛在上面那份清單裡，但示範資料一定有項目，所以它每次都印
  * 「畫面上沒有這個元素，略過」——**一條永遠不會執行的斷言，與沒有這條一樣**，
  * 而且還會給出「已經量過了」的錯覺。空白時刻現在是這個介面刻意做柔的地方
@@ -122,6 +140,15 @@ const measure = sels => {
     }
     return worst;
   };
+  // 休假的底色畫在 `.cal-cell.leave::before` 上——**同樣不是任何元素的祖先**，
+  // 所以 bgOf() 對格子裡的字量到的是 --panel，不是它實際壓在上面的顏色。
+  // 這與光暈是同一個盲點，用同一個解法：把 --leave-dim 疊上去再算一次，取較差的。
+  const inLeaveCell = el => !!(el.closest && el.closest('.cal-cell.leave'));
+  const leaveWorst = (fg, bg) => {
+    const t = token('--leave-dim'); if (t.length < 3) return Infinity;
+    const L1 = lum(fg), L2 = lum(over(t, bg));
+    return (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05);
+  };
   const sitsOnBody = el => {
     for (let n = el; n && n !== document.body; n = n.parentElement) {
       const c = parse(getComputedStyle(n).backgroundColor);
@@ -139,6 +166,7 @@ const measure = sels => {
     const L1 = lum(fg), L2 = lum(bg);
     let ratio = (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05);
     if (sitsOnBody(el)) ratio = Math.min(ratio, haloWorst(fg, bg));
+    if (inLeaveCell(el)) ratio = Math.min(ratio, leaveWorst(fg, bg));
     const px = parseFloat(cs.fontSize);
     const w = parseInt(cs.fontWeight) || 400;
     const large = px >= 18.66 || (px >= 14 && w >= 700);
@@ -178,6 +206,19 @@ for (const [theme, label, fixedTime] of PASSES) {
   await page.locator('.cal-cell[data-date]').first().click();
   await page.waitForTimeout(300);
   rows.push(...await page.evaluate(measure, AFTER_CLICKS));
+
+  // 造一格休假出來再量。**不能等它自然出現**：示範資料的休假日落在下個月，
+  // 而「畫面上沒有這個元素，略過」是一條永遠不會執行的斷言。
+  // 走的是應用程式自己的寫入路徑（開面板 → 選休假 → 加上去），不是硬塞 class
+  // ——硬塞的話，哪天 renderCalendar 不再畫那個 class 了，這裡還是綠的。
+  await page.locator('.cal-cell[data-date]:not(.today)').first().click();
+  await page.waitForTimeout(250);
+  await page.locator('#btnToggleAway').click();
+  await page.waitForTimeout(200);
+  await page.locator('#absKindLeave').click();
+  await page.locator('#btnAbsAdd').click();
+  await page.waitForTimeout(350);
+  rows.push(...await page.evaluate(measure, IN_LEAVE_CELL));
 
   // 逼出空狀態：回到項目安排頁，搜尋一個不會命中的字
   await page.locator('.nav-item', { hasText: '項目安排' }).click();
