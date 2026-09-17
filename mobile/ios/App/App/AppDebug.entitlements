@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- **Debug 專用**（用 Xcode 直接裝到手機上跑）。Release 走 App.entitlements。
+	     理由與兩者為什麼不能共用一份，寫在 App.entitlements 裡。
+	     這一側要對齊 Swift 的 `apsEnvironment()` 在 `#if DEBUG` 回的 "sandbox"。 -->
+	<key>aps-environment</key>
+	<string>development</string>
+</dict>
+</plist>

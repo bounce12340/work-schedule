@@ -2,12 +2,21 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- 推播（子專案 B）。development / production 決定 device token 是哪一台 APNs 的。
-	     archive 出來的 App Store build 由 Xcode 換成 production；Debug build 是 development。
-	     這個 entitlement 要生效，Apple Developer 後台的 App ID 必須先勾選 Push Notifications
-	     ——沒勾的話簽章會失敗，錯誤訊息是「provisioning profile doesn't support the
-	     aps-environment capability」，看起來像簽章問題而不是設定問題。 -->
+	<!-- **Release 專用**（TestFlight 與 App Store）。Debug 走 AppDebug.entitlements。
+
+	     為什麼要拆成兩個檔案，而不是一個檔案寫 development 就好：
+	     `aps-environment` 決定 device token 是**哪一台 APNs 的**。TestFlight 的 app 拿到的
+	     是 production 的 token，用 sandbox 的伺服器去送就是 400 BadDeviceToken——而那個字
+	     看起來像「token 壞了」，會往完全錯誤的方向查（`src/apns.js` 的 HOSTS 也寫著同一件事）。
+	     原本兩個 configuration 共用一個寫死 development 的檔案，指望 exportArchive 會自己
+	     換成 production。**那是指望，不是保證**，而它猜錯的時候不會報錯。Swift 那側的
+	     `apsEnvironment()` 早就用 `#if DEBUG` 分兩條路了，這裡對齊它。
+
+	     這個 entitlement 要生效，Apple Developer 後台的 App ID 必須先勾選 Push Notifications。
+	     **沒勾的話打包不會失敗**——Xcode 會安靜地把這一欄從簽好的 app 裡拔掉，一路成功上傳、
+	     裝得起來，只有手機真的註冊推播那一刻才會說「找不到應用程式的有效 aps-environment
+	     授權字串」（build 13 實際踩過）。所以「打包綠燈」證明不了這一欄在裡面。 -->
 	<key>aps-environment</key>
-	<string>development</string>
+	<string>production</string>
 </dict>
 </plist>
