@@ -159,7 +159,7 @@ jobs:
           echo "BUILD_NUMBER=${{ github.run_number }}" >> "$GITHUB_ENV"
           echo "版本 $VERSION（build ${{ github.run_number }}）"
 
-      - name: 打包（xcodebuild archive，不簽章；簽章在下一步的 export）
+      - name: 打包（xcodebuild archive，ad-hoc 簽章；正式簽章在下一步的 export）
         working-directory: mobile/ios/App
         env:
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
@@ -177,11 +177,43 @@ jobs:
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
             MARKETING_VERSION="$MARKETING_VERSION" \
             CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="-" \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES \
+            PROVISIONING_PROFILE_SPECIFIER="" \
             | tee "$RUNNER_TEMP/archive.log" | grep -E "error|warning: .*sign|Archive Succeeded|BUILD" || true
           test -d "$RUNNER_TEMP/App.xcarchive" || { echo "::error::archive 沒有產生，看上面的 log"; tail -80 "$RUNNER_TEMP/archive.log"; exit 1; }
+
+      # build 13／14 的 aps-environment 就是在這裡掉的，而當時沒有任何一關在看。
+      # archive 原本完全不簽章（CODE_SIGNING_ALLOWED=NO），於是 entitlements 從來沒有被
+      # 寫進去；exportArchive 重簽時是從 archive 身上讀「原本要求了什麼」，讀到空的就簽出
+      # 一個沒有推播權限的 app——**打包綠、上傳成功、裝得起來**，只有手機真的註冊推播
+      # 那一刻才會說「找不到有效的 aps-environment 授權字串」。
+      #
+      # 所以 archive 改成 **ad-hoc 簽章**（`-`）：它會把 entitlements 真的寫進去，而且
+      # 不需要描述檔、不需要綁裝置、不需要 .p12——原本那三個 `CODE_SIGNING_*=NO` 是為了
+      # 避開「開發用描述檔要綁裝置」與「conflicting provisioning settings」兩次失敗，
+      # ad-hoc + Manual 同樣避得開（見 CLAUDE.md 那兩列）。正式簽章仍然只在 export。
+      #
+      # 這一步是**斷言而不是印出來就好**：印出來沒有人會看，而這個 bug 的全部代價就是
+      # 「沒有人在看結果」。寧可擋下這次打包，也不要再上傳一個推播壞掉的 build。
+      - name: 確認 archive 真的帶著 aps-environment
+        run: |
+          APP="$RUNNER_TEMP/App.xcarchive/Products/Applications/App.app"
+          ENT="$RUNNER_TEMP/archived.entitlements"
+          test -d "$APP" || { echo "::error::archive 裡找不到 App.app（$APP）"; exit 1; }
+          codesign -d --entitlements :- "$APP" > "$ENT" 2>"$RUNNER_TEMP/codesign.err" || true
+          echo "── 簽進 archive 的 entitlements ──"
+          cat "$ENT" || true
+          echo "── codesign 的 stderr ──"
+          cat "$RUNNER_TEMP/codesign.err" || true
+          grep -q 'aps-environment' "$ENT" || {
+            echo "::error::archive 裡沒有 aps-environment——推播在真機上一定失敗（build 13／14 就是這樣）。上面印出來的就是這個 app 實際帶著的全部 entitlements"
+            exit 1; }
+          grep -A1 'aps-environment' "$ENT" | grep -q '<string>production</string>' || {
+            echo "::error::archive 裡的 aps-environment 不是 production——TestFlight 的 token 會送錯一台 APNs（BadDeviceToken）"
+            exit 1; }
+          echo "✓ aps-environment = production，真的在 archive 裡"
 
       - name: 匯出並上傳到 App Store Connect
         working-directory: mobile/ios/App
