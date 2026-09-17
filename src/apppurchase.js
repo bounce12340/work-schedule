@@ -1,10 +1,23 @@
 /**
- * App Store 購買證明（StoreKit 2 的 AppTransaction）的離線驗證。
+ * Apple 簽出來的 JWS 的離線驗證：購買證明（AppTransaction）、訂閱交易
+ * （JWSTransaction）、伺服器通知（App Store Server Notifications V2）三者
+ * **都是同一條憑證鏈、同一種簽章**，只差在 payload 裡有哪些欄位。
  *
- * app 是**付費下載**：錢在 App Store 那一刻就收完了，後端唯一要回答的問題是
- * 「這個帳號的主人真的買了 app 嗎」。iOS 16 起 StoreKit 會給 app 一段 Apple 簽過
- * 名的 JWS（`AppTransaction.shared.jwsRepresentation`），裡面有 bundleId、環境、
- * 一個代表這次購買的 appTransactionId。app 註冊時把它附上來，這裡驗。
+ * 所以這個模組分兩層：
+ *
+ *   verifyAppleJws()              驗鏈、驗簽，回 payload。三種都走它
+ *   ├ verifyAppTransaction()      讀 appTransactionId（註冊用）
+ *   └ verifySubscriptionTransaction()  讀 productId／expiresDate／…（訂閱用）
+ *
+ * bundleId 與環境的檢查**刻意留在上層**，不放進 verifyAppleJws。設計文件原本寫
+ * 「底層一併驗 bundleId 與環境」，實作時改掉，理由是伺服器通知把這兩個欄位放在
+ * `data.bundleId` / `data.environment`（低一層），而交易放在 payload 頂層。硬要
+ * 塞進底層就得傳一個「去哪裡拿」的存取器，比讓三個呼叫端各自讀自己的欄位、
+ * 再共用 `checkBundleEnvironment()` 複雜。
+ *
+ * app 註冊仍然要附購買證明：訂閱制之後它不再是「有沒有付錢」的憑據，而是
+ * 「一個 Apple ID 一個帳號」的防濫用機制（免費版有上限，開十個帳號是最直接的
+ * 繞過方式）。
  *
  * 為什麼離線驗、不打 Apple 的 API
  * ---------------------------------------------------------------------------
@@ -46,16 +59,17 @@ const CURVE = {
 };
 
 /**
- * @param {string} jws            AppTransaction 的 jwsRepresentation
- * @param {object} opts
- * @param {string} opts.bundleId  期望的 Bundle ID
- * @param {boolean} [opts.allowSandbox]  TestFlight／Xcode 環境放不放行
+ * 驗一段 Apple 簽的 JWS：憑證鏈接得到 Apple 根、鏈上每一段簽章都對、本體的簽章
+ * 也對。**不看 payload 裡的任何業務欄位**——那是呼叫端的事。
+ *
+ * @param {string} jws
+ * @param {object} [opts]
  * @param {Uint8Array} [opts.trustedRootDer]  只給測試注入；正式路徑不傳
  * @param {number} [opts.nowMs]
- * @returns {Promise<{ok:true, appTransactionId:string, originalPurchaseDate:number|null, environment:string}
- *                  |{ok:false, reason:'format'|'chain'|'signature'|'bundle'|'environment'|'expired'}>}
+ * @returns {Promise<{ok:true, header:object, payload:object}
+ *                  |{ok:false, reason:'format'|'chain'|'signature'|'expired'}>}
  */
-export async function verifyAppTransaction(jws, opts) {
+export async function verifyAppleJws(jws, opts = {}) {
   const root = opts.trustedRootDer || ROOT_DER;
   const now = opts.nowMs ?? Date.now();
 
@@ -113,14 +127,47 @@ export async function verifyAppTransaction(jws, opts) {
   }
   if (!sigOk) return fail('signature');
 
-  if (payload.bundleId !== opts.bundleId) return fail('bundle');
+  return { ok: true, header, payload };
+}
 
-  // AppTransaction 用 receiptType 表達環境（Production / Sandbox / Xcode）；
-  // 其他 App Store JWS 用 environment。兩個都看，哪個有就用哪個。
-  const environment = String(payload.receiptType || payload.environment || '');
-  if (environment !== 'Production' && !(opts.allowSandbox && (environment === 'Sandbox' || environment === 'Xcode'))) {
-    return fail('environment');
+/**
+ * bundleId 與環境的共用檢查。回 null（通過）或失敗原因。
+ *
+ * AppTransaction 用 `receiptType` 表達環境（Production / Sandbox / Xcode），
+ * 交易與通知用 `environment`。兩個都看，哪個有就用哪個。
+ *
+ * **預設拒絕 Sandbox**：忘記關比忘記開安全。TestFlight 測試期間由
+ * `APP_PURCHASE_ALLOW_SANDBOX=1` 放行，上架後關掉。
+ */
+export function checkBundleEnvironment({ bundleId, environment }, opts) {
+  if (bundleId !== opts.bundleId) return 'bundle';
+  const env = String(environment || '');
+  if (env !== 'Production' && !(opts.allowSandbox && (env === 'Sandbox' || env === 'Xcode'))) {
+    return 'environment';
   }
+  return null;
+}
+
+/**
+ * 購買證明（AppTransaction）。註冊時用，回那個帳號綁定的 appTransactionId。
+ *
+ * @param {string} jws            AppTransaction 的 jwsRepresentation
+ * @param {object} opts
+ * @param {string} opts.bundleId  期望的 Bundle ID
+ * @param {boolean} [opts.allowSandbox]  TestFlight／Xcode 環境放不放行
+ * @param {Uint8Array} [opts.trustedRootDer]  只給測試注入；正式路徑不傳
+ * @param {number} [opts.nowMs]
+ * @returns {Promise<{ok:true, appTransactionId:string, originalPurchaseDate:number|null, environment:string}
+ *                  |{ok:false, reason:'format'|'chain'|'signature'|'bundle'|'environment'|'expired'}>}
+ */
+export async function verifyAppTransaction(jws, opts) {
+  const res = await verifyAppleJws(jws, opts);
+  if (!res.ok) return res;
+  const payload = res.payload;
+
+  const environment = String(payload.receiptType || payload.environment || '');
+  const bad = checkBundleEnvironment({ bundleId: payload.bundleId, environment }, opts);
+  if (bad) return fail(bad);
 
   const appTransactionId = String(payload.appTransactionId || '');
   if (!appTransactionId) return fail('format');
@@ -130,6 +177,49 @@ export async function verifyAppTransaction(jws, opts) {
     appTransactionId,
     originalPurchaseDate: Number.isFinite(payload.originalPurchaseDate) ? payload.originalPurchaseDate : null,
     environment,
+  };
+}
+
+/**
+ * 訂閱交易（StoreKit 2 的 `Transaction.jwsRepresentation`，以及伺服器通知裡的
+ * `data.signedTransactionInfo`）。
+ *
+ * 回的是寫入權利需要的四個欄位。**這裡不判斷 productId 是不是我們的**——那是
+ * 業務規則，屬於 handler（`src/handlers/planapple.js` 的 `PRODUCT_IDS`）；驗簽
+ * 模組只回答「這段資料是不是 Apple 簽的、裡面寫了什麼」。
+ *
+ * `expiresDate` 只有自動續訂訂閱才有；消耗型／非消耗型商品沒有，那種交易在這裡
+ * 會被判成 `format`——我們只賣訂閱，收到別的東西就是不對。
+ *
+ * @returns {Promise<{ok:true, productId:string, originalTransactionId:string,
+ *                    transactionId:string, expiresDate:number,
+ *                    revocationDate:number|null, environment:string}
+ *                  |{ok:false, reason:string}>}
+ */
+export async function verifySubscriptionTransaction(jws, opts) {
+  const res = await verifyAppleJws(jws, opts);
+  if (!res.ok) return res;
+  const payload = res.payload;
+
+  const bad = checkBundleEnvironment(
+    { bundleId: payload.bundleId, environment: payload.environment },
+    opts
+  );
+  if (bad) return fail(bad);
+
+  const productId = String(payload.productId || '');
+  const originalTransactionId = String(payload.originalTransactionId || '');
+  const expiresDate = Number(payload.expiresDate);
+  if (!productId || !originalTransactionId || !Number.isFinite(expiresDate)) return fail('format');
+
+  return {
+    ok: true,
+    productId,
+    originalTransactionId,
+    transactionId: String(payload.transactionId || ''),
+    expiresDate,
+    revocationDate: Number.isFinite(payload.revocationDate) ? Number(payload.revocationDate) : null,
+    environment: String(payload.environment || ''),
   };
 }
 

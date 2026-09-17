@@ -1320,6 +1320,23 @@
           <div class="acct-h" data-i18n>⭐ 方案</div>
           <div class="acct-id-email" id="acctPlanName">—</div>
           <div class="acct-sub" id="acctPlanSub"></div>
+          <!-- 訂閱只在 app 裡出現（Apple 3.1.1：app 裡解鎖的功能只能走 IAP）。
+               網頁版整塊隱藏，只留上面那行「在 iPhone app 裡訂閱」的說明。 -->
+          <div id="acctSub" style="display:none">
+            <div class="acct-row" id="acctSubProducts"></div>
+            <!-- Apple 對訂閱 app 的硬規定，缺一個就退件：自動續訂的說明、可隨時取消、
+                 「恢復購買」按鈕、隱私權政策與使用條款的連結。不要為了版面把它們拿掉。 -->
+            <div class="acct-sub" id="acctSubTerms" style="margin-top:8px;"></div>
+            <div class="acct-row" style="margin-top:8px;">
+              <button class="ghost-btn" id="btnRestorePurchase" type="button" data-i18n>恢復購買</button>
+              <button class="ghost-btn" id="btnManageSub" type="button" style="display:none" data-i18n>管理訂閱</button>
+            </div>
+            <div class="acct-sub" style="margin-top:8px;">
+              <a href="/terms.html" target="_blank" rel="noopener" data-i18n>使用條款</a> ·
+              <a href="/privacy.html" target="_blank" rel="noopener" data-i18n>隱私權政策</a>
+            </div>
+            <div class="acct-sub" id="acctSubMsg" style="margin-top:8px;"></div>
+          </div>
         </div>
 
         <div class="acct-sec" id="acctGame">
@@ -1348,6 +1365,17 @@
           <div class="acct-sub" style="margin:14px 0 10px;" data-i18n>另外，連續中斷的隔天早上，你的小植物會寄一封信給你。只在斷掉的那一天寄、一天最多一封；連續不到兩天不寄。</div>
           <div class="acct-row">
             <button id="btnStreakMail" class="ghost-btn" type="button"></button>
+          </div>
+          <!-- 推播（子專案 B）。只在 app 裡出現——網頁版沒有 APNs 可以註冊。
+               三個開關與上面兩個寄信開關**各自獨立**：關掉信不代表不想要推播。 -->
+          <div id="acctPush" style="display:none">
+            <div class="acct-sub" style="margin:14px 0 10px;" data-i18n>推播會直接亮在手機的鎖定畫面上。它與上面的信各自獨立——可以只要其中一種。沒事的日子完全不推。</div>
+            <div class="acct-row">
+              <button id="btnPushOverdue" class="ghost-btn" type="button"></button>
+              <button id="btnPushStreak" class="ghost-btn" type="button"></button>
+              <button id="btnPushToday" class="ghost-btn" type="button"></button>
+            </div>
+            <div class="acct-sub" id="acctPushMsg" style="margin-top:8px;"></div>
           </div>
         </div>
 
@@ -1850,7 +1878,12 @@
     );
     nativePluginCache = {
       keychainGet: call('keychainGet'), keychainSet: call('keychainSet'), keychainDelete: call('keychainDelete'),
-      getAppTransaction: call('getAppTransaction')
+      getAppTransaction: call('getAppTransaction'),
+      // 訂閱（E2）。名字與 Swift 的 pluginMethods 逐字相同，tools/check-native-plugin.mjs 比對兩側。
+      getProducts: call('getProducts'), purchase: call('purchase'),
+      currentEntitlements: call('currentEntitlements'), manageSubscriptions: call('manageSubscriptions'),
+      // 推播（B）
+      requestPush: call('requestPush'), pushStatus: call('pushStatus')
     };
     return nativePluginCache;
   }
@@ -2067,6 +2100,14 @@
     // 走完了、沒有丟例外、卻也沒有同步，而且連一句說明都沒有——那就是還有一條沒被說出來的路
     // （例如伺服器回 200 但 body 裡沒有 user）。app 裡「安靜的單機模式」永遠不是合法結果。
     if(!cloudEnabled && !cloudNoteText()) nativeShellBroken(tr('同步沒有啟用，但沒有任何錯誤'));
+
+    // 訂閱：兩件事都**不 await**，也都自己接 catch。它們與「這個 app 能不能用」無關，
+    // 卡住或失敗都不該讓啟動停下來——而沒有 await 的 async 一律要接 .catch，那條規則
+    // 是 build 7～10 那次事故留下來的（見 docs/postmortems/2026-09-16-app-silent-standalone.md）。
+    if(cloudEnabled){
+      subPushEntitlements().catch(e=>console.error('entitlements push failed', e));
+      subLoadProducts().catch(e=>console.error('load products failed', e));
+    }
   }
   /**
    * 開機看門狗——這一輪真正的保險。
@@ -2216,6 +2257,33 @@
       '大項目與專案各最多 {0} 個，AI 小幫手每天 {1} 次。':'Up to {0} major projects and {0} projects; AI assistant {1} times a day.',
       '訂閱 Pro 的功能即將在這個 app 裡推出。':'Pro subscriptions are coming to this app soon.',
       '要升級請在 iPhone app 的「我的帳號」裡訂閱 Pro，網頁版會一起變成 Pro。':'To upgrade, subscribe to Pro from “My account” in the iPhone app; the web version becomes Pro too.',
+      // ---- 訂閱（E2）----
+      '要新增更多請訂閱 Pro：到「我的帳號」分頁的「方案」那一區。':'To add more, subscribe to Pro under “Plan” on the My account tab.',
+      '恢復購買':'Restore purchase', '管理訂閱':'Manage subscription',
+      '每月':'Monthly', '每年':'Yearly', '每週':'Weekly', '每天':'Daily',
+      '處理中…':'Working…', '讀取中…':'Loading…',
+      '訂閱會自動續訂，可隨時在 iPhone 的「設定 → Apple ID → 訂閱項目」裡取消。取消後到期前仍可使用。付款由 App Store 處理。':'Your subscription renews automatically. Cancel any time in Settings → Apple ID → Subscriptions on your iPhone; you keep access until the period ends. Payment is handled by the App Store.',
+      '目前拿不到訂閱方案，請稍後再試。':'Subscription options are unavailable right now. Please try again later.',
+      '暫時拿不到訂閱方案':'Subscription options unavailable',
+      '訂閱完成，已經是 Pro 了 🎉':'Subscribed — you are Pro now 🎉',
+      '目前沒有有效的訂閱':'No active subscription',
+      '這個 Apple ID 上沒有找到有效的訂閱':'No active subscription found for this Apple ID',
+      '讀不到這台裝置上的購買記錄':'Could not read purchases on this device',
+      '這筆購買要等家長核准，核准後會自動生效。':'This purchase is waiting for approval. It will take effect once approved.',
+      '購買沒有回傳憑證，請稍後再試':'The purchase returned no receipt. Please try again.',
+      '購買失敗':'Purchase failed',
+      '伺服器沒有接受這筆訂閱':'The server did not accept this subscription',
+      '打不開訂閱管理頁':'Could not open the subscription settings',
+      // ---- 推播（子專案 B）----
+      '推播會直接亮在手機的鎖定畫面上。它與上面的信各自獨立——可以只要其中一種。沒事的日子完全不推。':'Push notifications appear right on your lock screen. They are independent of the emails above — you can have either or both. Nothing is sent on quiet days.',
+      '🔔 逾期提醒：開':'🔔 Overdue alerts: on', '🔔 逾期提醒：關':'🔔 Overdue alerts: off',
+      '🌱 小植物：開':'🌱 Your plant: on', '🌱 小植物：關':'🌱 Your plant: off',
+      '☀️ 今天有事：開':'☀️ Today’s tasks: on', '☀️ 今天有事：關':'☀️ Today’s tasks: off',
+      'iOS 的通知權限是關著的。要到「設定 → 通知 → 工作排程」裡打開。':'Notifications are turned off in iOS. Enable them in Settings → Notifications → Work Schedule.',
+      '這個版本的 app 還不支援推播':'This version of the app does not support push notifications yet',
+      '開啟推播失敗':'Could not turn on push notifications',
+      '這台裝置註冊不了推播':'Could not register this device for push notifications',
+      '目前離線，無法變更推播設定。':'You are offline; push settings cannot be changed right now.',
       // —— 登入閘門 ——
       '這個工具需要登入才能使用。排程存在你的帳號裡，登入後在任何裝置都看得到同一份。':'You need to sign in to use this. Your schedule lives in your account, so every device sees the same one.',
       '前往登入':'Sign in',
@@ -3208,7 +3276,7 @@
     const limit = PLAN_LIMITS.free[kind];
     document.getElementById('upgradeText').textContent = tf(PLAN_KIND_TEXT[kind], limit, count);
     document.getElementById('upgradeHow').textContent = NATIVE
-      ? tr('要新增更多請訂閱 Pro——訂閱功能即將在這個 app 裡推出。')
+      ? tr('要新增更多請訂閱 Pro：到「我的帳號」分頁的「方案」那一區。')
       : tr('要新增更多請訂閱 Pro。訂閱在 iPhone app 的「我的帳號」裡進行，網頁版會一起變成 Pro。');
     document.getElementById('upgradeOverlay').classList.add('show');
   }
@@ -3425,6 +3493,25 @@
   // app 裡沒有 admin.html：用 Safari 開網頁版的管理頁
   document.getElementById('btnAdmin').onclick = ()=>{ if(NATIVE){ window.open(API_BASE + '/admin', '_blank'); return; } location.href = '/admin'; };
 
+  // 訂閱的兩顆按鈕。**「恢復購買」是 Apple 的硬規定**：換手機、重灌、換帳號登入之後，
+  // 使用者要有一條路把已經付過的訂閱接回來，而且不能要求他再付一次。
+  {
+    const restore = document.getElementById('btnRestorePurchase');
+    if(restore) restore.onclick = async ()=>{
+      restore.disabled = true; subMsg(tr('讀取中…'));
+      try{ await subPushEntitlements({ loud: true }); }
+      finally{ restore.disabled = false; }
+    };
+    // 取消訂閱只能在 iOS 的訂閱管理頁做，Apple 不讓 app 自己取消。
+    const manage = document.getElementById('btnManageSub');
+    if(manage) manage.onclick = async ()=>{
+      const pl = nativePlugin();
+      if(!pl || !pl.manageSubscriptions) return;
+      try{ await pl.manageSubscriptions(); }
+      catch(e){ console.error('manageSubscriptions failed', e); subMsg(tr('打不開訂閱管理頁') + '：' + String((e && e.message) || e), 'err'); }
+    };
+  }
+
   const pwOverlay=document.getElementById('pwOverlay');
   function setPwMsg(t,cls){ const el=document.getElementById('pwMsg'); el.textContent=t||''; el.className='msg-inline'+(t?' '+cls:''); }
   document.getElementById('btnChangePw').onclick=()=>{
@@ -3558,7 +3645,12 @@
         reminderEnabled = !!d.enabled;
         if(typeof d.streakMail === 'boolean') streakMailEnabled = d.streakMail;
         if(typeof d.leadDays === 'number') reminderLeadDays = d.leadDays;
+        // 推播的三個開關同理：讀不回來的話按鈕會一律顯示預設值，即使他早就改過了
+        for(const k of ['pushOverdue','pushStreak','pushToday']){
+          if(typeof d[k] === 'boolean') pushPrefs[k] = d[k];
+        }
         syncReminderBtn();
+        syncPushBtns();
       } }).catch(e=>{ console.error('reminder status failed', e); });
     // 分享清單與 state 各自獨立，不 await：它慢或失敗都不該拖住主資料的同步
     fetchShares().then(()=>{ if(currentView==='shared') renderAll(); });
@@ -4197,6 +4289,155 @@
   /** 沿用既有的 ymd()，不另造一個——兩個格式化日期的函式遲早會不一致 */
   function acctYmd(ms){ return ms ? ymd(new Date(ms)) : ''; }
 
+  // ================= 訂閱（E2） =================
+  //
+  // 三件事在這裡，而三件都是 Apple 的硬規定（缺一個就退件）：訂閱畫面上要有價格與
+  // 週期、要說「自動續訂、可隨時在設定裡取消」、要有「恢復購買」按鈕；隱私權政策與
+  // 使用條款的連結寫在 markup 裡。
+  //
+  // **價格一律從 StoreKit 拿，不寫死**：各國幣別與 Apple 的匯率換算都在那裡。寫死
+  // US$4.99 的話，台灣的使用者會看到一個與結帳畫面不一樣的數字——那正是審查會看的。
+  let subProducts = null;          // null = 還沒問過；[] = 問過但一個都沒有
+  let subBusy = false;
+
+  function subMsg(text, cls){
+    const el = document.getElementById('acctSubMsg');
+    if(!el) return;
+    el.textContent = text || '';
+    el.style.color = text ? (cls === 'err' ? 'var(--red)' : 'var(--teal)') : '';
+  }
+
+  /** 週期的譯名。StoreKit 回的是 'month' / 'year' 這種 key，不是給人看的字。 */
+  const SUB_PERIOD = { month:'每月', year:'每年', week:'每週', day:'每天' };
+
+  async function subLoadProducts(){
+    const p = nativePlugin();
+    if(!p || !p.getProducts) return;
+    try{
+      const r = await p.getProducts();
+      subProducts = Array.isArray(r && r.products) ? r.products : [];
+    }catch(e){
+      // 拿不到商品的原因要說出來：App Store Connect 還沒建 product、還沒同意 Paid Apps
+      // Agreement、或這台裝置沒網路——三種要做的事完全不同，而手機上沒有 console。
+      console.error('getProducts failed', e);
+      subProducts = [];
+      subMsg(tr('暫時拿不到訂閱方案') + '：' + String((e && e.message) || e), 'err');
+    }
+    acctRenderSub();
+  }
+
+  async function subBuy(productId){
+    if(subBusy) return;
+    const p = nativePlugin(); if(!p || !p.purchase) return;
+    subBusy = true; subMsg(tr('處理中…'));
+    try{
+      const r = await p.purchase({ productId });
+      // 使用者自己按取消**不是錯誤**，不要跳紅字說失敗
+      if(r && r.cancelled){ subMsg(''); return; }
+      if(r && r.pending){ subMsg(tr('這筆購買要等家長核准，核准後會自動生效。')); return; }
+      if(!r || !r.jws){ subMsg(tr('購買沒有回傳憑證，請稍後再試'), 'err'); return; }
+      await subSendTransactions([r.jws], { loud: true });
+    }catch(e){
+      console.error('purchase failed', e);
+      subMsg(tr('購買失敗') + '：' + String((e && e.message) || e), 'err');
+    }finally{
+      subBusy = false;
+    }
+  }
+
+  /**
+   * 把交易送到 `/api/plan/apple`。**權利的真相在伺服器**，畫面上的方案一律以它回的為準：
+   * 前端自己把 accountMe.plan 改成 'pro' 的話，下一次同步就會打臉自己。
+   *
+   * @param {string[]} list  一批 JWS（currentEntitlements 本來就是清單）
+   * @param {object} [o]     loud=true 時把結果寫在訂閱區塊上（使用者剛按了按鈕）
+   */
+  async function subSendTransactions(list, { loud = false } = {}){
+    if(!list || !list.length) return false;
+    try{
+      const r = await fetch('/api/plan/apple', {
+        method:'POST', headers:{ 'content-type':'application/json' },
+        body: JSON.stringify({ signedTransactions: list })
+      });
+      const d = await r.json().catch(()=>({}));
+      if(!r.ok){
+        if(loud) subMsg(tr('伺服器沒有接受這筆訂閱') + '：' + (d.error || ('HTTP ' + r.status)), 'err');
+        else console.error('plan/apple failed', r.status, d.error || '');
+        return false;
+      }
+      if(accountMe){
+        accountMe.plan = d.plan;
+        accountMe.planExpiresAt = d.planExpiresAt ?? null;
+        accountMe.planSource = d.planSource ?? null;
+      }
+      if(loud) subMsg(d.plan === 'pro' ? tr('訂閱完成，已經是 Pro 了 🎉') : tr('目前沒有有效的訂閱'));
+      if(currentView === 'account') renderAccountView();
+      return d.plan === 'pro';
+    }catch(e){
+      // 網路不通不該讓畫面停在「處理中…」——那與當掉長得一樣
+      console.error('plan/apple request failed', e);
+      if(loud) subMsg(tr('連線失敗，請確認網路後再試'), 'err');
+      return false;
+    }
+  }
+
+  /**
+   * 把目前有效的權利推上去。**啟動與回到前景各一次**，取代 Transaction.updates 的事件：
+   * 家庭共享、在別台裝置續訂、Ask to Buy 核准之後，這三種都會在下一次問的時候看到。
+   *
+   * 靜默失敗（只 console.error）是刻意的：這是背景動作，使用者沒有按任何東西。它失敗的
+   * 後果是「方案晚一點才更新」，不是「操作沒有生效」——跳紅字反而會嚇到人。
+   */
+  async function subPushEntitlements({ loud = false } = {}){
+    const p = nativePlugin();
+    if(!NATIVE || !p || !p.currentEntitlements) return;
+    let jws = [];
+    try{
+      const r = await p.currentEntitlements();
+      jws = Array.isArray(r && r.jws) ? r.jws : [];
+    }catch(e){
+      console.error('currentEntitlements failed', e);
+      if(loud) subMsg(tr('讀不到這台裝置上的購買記錄') + '：' + String((e && e.message) || e), 'err');
+      return;
+    }
+    if(!jws.length){
+      if(loud) subMsg(tr('這個 Apple ID 上沒有找到有效的訂閱'), 'err');
+      return;
+    }
+    await subSendTransactions(jws, { loud });
+  }
+
+  function acctRenderSub(){
+    const box = document.getElementById('acctSub');
+    if(!box) return;
+    // 網頁版沒有這一塊：Apple 不允許 app 連到外部付款，而網頁這邊也還沒有付款（E4）
+    box.style.display = NATIVE ? '' : 'none';
+    if(!NATIVE) return;
+
+    const wrap = document.getElementById('acctSubProducts');
+    const terms = document.getElementById('acctSubTerms');
+    const manage = document.getElementById('btnManageSub');
+    if(manage) manage.style.display = (accountMe && accountMe.planSource === 'apple') ? '' : 'none';
+
+    if(!wrap) return;
+    wrap.innerHTML = '';
+    if(subProducts === null){ if(terms) terms.textContent = tr('讀取中…'); return; }
+    if(!subProducts.length){
+      if(terms) terms.textContent = tr('目前拿不到訂閱方案，請稍後再試。');
+      return;
+    }
+    for(const prod of subProducts){
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'ghost-btn';
+      const period = tr(SUB_PERIOD[prod.period] || prod.period || '');
+      btn.textContent = period ? (period + ' ' + prod.displayPrice) : prod.displayPrice;
+      btn.onclick = ()=> subBuy(prod.id);
+      wrap.appendChild(btn);
+    }
+    if(terms) terms.textContent = tr('訂閱會自動續訂，可隨時在 iPhone 的「設定 → Apple ID → 訂閱項目」裡取消。取消後到期前仍可使用。付款由 App Store 處理。');
+  }
+
   const ACCT_CLOUD_SECTIONS = ['acctIdentity','acctPlan','acctReminder','acctIcs','acctDevices','acctDanger'];
   function acctRenderPlan(){
     const nameEl = document.getElementById('acctPlanName'), subEl = document.getElementById('acctPlanSub');
@@ -4209,8 +4450,9 @@
     }else{
       nameEl.textContent = tr('免費版');
       subEl.textContent = tf('大項目與專案各最多 {0} 個，AI 小幫手每天 {1} 次。', PLAN_LIMITS.free.majorProjects, PLAN_LIMITS.free.aiPerDay)
-        + ' ' + (NATIVE ? tr('訂閱 Pro 的功能即將在這個 app 裡推出。') : tr('要升級請在 iPhone app 的「我的帳號」裡訂閱 Pro，網頁版會一起變成 Pro。'));
+        + (NATIVE ? '' : ' ' + tr('要升級請在 iPhone app 的「我的帳號」裡訂閱 Pro，網頁版會一起變成 Pro。'));
     }
+    acctRenderSub();
   }
 
   function renderAccountView(){
@@ -7194,6 +7436,100 @@
     }
   };
 
+  // ================= 推播（子專案 B） =================
+  //
+  // 三個開關，與上面兩個寄信開關**各自獨立**。只在 app 裡出現：網頁版沒有 APNs
+  // 可以註冊，而 Web Push 是另一套金鑰與另一條 service worker 路徑（刻意不做）。
+  let pushPrefs = { pushOverdue: true, pushStreak: true, pushToday: false };
+  let pushToken = null;
+
+  function pushMsg(text, cls){
+    const el = document.getElementById('acctPushMsg');
+    if(!el) return;
+    el.textContent = text || '';
+    el.style.color = text ? (cls === 'err' ? 'var(--red)' : 'var(--teal)') : '';
+  }
+
+  const PUSH_BTNS = [
+    { key:'pushOverdue', id:'btnPushOverdue', on:'🔔 逾期提醒：開', off:'🔔 逾期提醒：關' },
+    { key:'pushStreak',  id:'btnPushStreak',  on:'🌱 小植物：開',   off:'🌱 小植物：關' },
+    { key:'pushToday',   id:'btnPushToday',   on:'☀️ 今天有事：開', off:'☀️ 今天有事：關' },
+  ];
+
+  function syncPushBtns(){
+    const box = document.getElementById('acctPush');
+    if(box) box.style.display = (NATIVE && cloudEnabled) ? '' : 'none';
+    for(const b of PUSH_BTNS){
+      const el = document.getElementById(b.id);
+      if(el) el.textContent = tr(pushPrefs[b.key] ? b.on : b.off);
+    }
+  }
+
+  /**
+   * 打開任一個推播之前要先有 device token。**權限對話框只在這一刻才跳**——iOS 只讓
+   * 你問一次，開機就問的轉換率遠低於「他自己按了那顆按鈕」之後才問。
+   *
+   * 回 true 代表可以繼續。被拒絕時**要說出來**：只讓開關彈回去是最典型的沉默，
+   * 使用者會以為是 app 壞了，而不是他自己關掉了通知權限。
+   */
+  async function pushEnsureToken(){
+    if(pushToken) return true;
+    const p = nativePlugin();
+    if(!p || !p.requestPush){ pushMsg(tr('這個版本的 app 還不支援推播'), 'err'); return false; }
+    let r;
+    try{
+      r = await p.requestPush();
+    }catch(e){
+      console.error('requestPush failed', e);
+      pushMsg(tr('開啟推播失敗') + '：' + String((e && e.message) || e), 'err');
+      return false;
+    }
+    if(!r || !r.granted || !r.token){
+      pushMsg(tr('iOS 的通知權限是關著的。要到「設定 → 通知 → 工作排程」裡打開。'), 'err');
+      return false;
+    }
+    try{
+      const res = await fetch('/api/push/register', {
+        method:'POST', headers:{'content-type':'application/json'},
+        body: JSON.stringify({ token: r.token, environment: r.environment })
+      });
+      if(!res.ok) throw new Error('HTTP ' + res.status);
+    }catch(e){
+      console.error('push register failed', e);
+      pushMsg(tr('這台裝置註冊不了推播') + '：' + String((e && e.message) || e), 'err');
+      return false;
+    }
+    pushToken = r.token;
+    return true;
+  }
+
+  async function pushToggle(key, btn){
+    const next = !pushPrefs[key];
+    // 只有「要打開」才需要權限與 token；關掉不需要，否則權限被拒的人連關都關不掉
+    if(next && !(await pushEnsureToken())) return;
+    btn.disabled = true;
+    try{
+      const body = Object.assign({ enabled: reminderEnabled, leadDays: reminderLeadDays, streakMail: streakMailEnabled }, pushPrefs);
+      body[key] = next;
+      const r = await fetch('/api/reminder', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(body) });
+      if(r.status===401){ sessionExpired(); return; }
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      pushPrefs[key] = next;
+      pushMsg('');
+      syncPushBtns();
+    }catch(e){
+      console.error('push toggle failed', e);
+      pushMsg(tr('目前離線，無法變更推播設定。'), 'err');
+    }finally{
+      btn.disabled = false;
+    }
+  }
+
+  for(const b of PUSH_BTNS){
+    const el = document.getElementById(b.id);
+    if(el) el.onclick = ()=> pushToggle(b.key, el);
+  }
+
   function syncReminderBtn(){
     if(!btnReminder) return;
     btnReminder.style.display = cloudEnabled ? '' : 'none';
@@ -7202,9 +7538,12 @@
       ? tr('目前會在有逾期項目時寄信到你的註冊信箱')
       : tr('開啟後，有逾期項目時會寄信到你的註冊信箱（沒有逾期就不寄）');
 
+    syncStreakMailBtn();
+    // 推播的三個按鈕要跟著一起重畫（切語言、切單機模式時）。**放在 return 之前**：
+    // 放在後面的話，selReminderLead 不存在時它就永遠不會跑，而那是靜默的。
+    syncPushBtns();
     // 提前天數只在提醒開著時才有意義——關著的時候顯示它只會讓人以為還會收到信
     if(!selReminderLead) return;
-    syncStreakMailBtn();
     selReminderLead.style.display = (cloudEnabled && reminderEnabled) ? '' : 'none';
     selReminderLead.title = tr('提前幾天開始提醒。選「只在逾期時」就是原本的行為。');
     // 每次重建：語言切換後選項文字要跟著換，而選項只有五個，重建比逐一改省事
@@ -7760,7 +8099,13 @@
   // 掛在這裡而不是 flushPendingWrites() 旁邊，是因為那個區段會被
   // tests/richtext.test.mjs 抽出來在 Node 裡求值（為了測 migrateSnapshot），
   // 頂層碰 document 會讓整支測試爆掉——那支測試已經實際擋下來一次。
-  document.addEventListener('visibilitychange', ()=>{ if(document.hidden) flushPendingWrites(); });
+  document.addEventListener('visibilitychange', ()=>{
+    if(document.hidden){ flushPendingWrites(); return; }
+    // 回到前景：把目前有效的訂閱權利推一次。這取代了 Transaction.updates 的事件——
+    // 家庭共享、在別台裝置續訂、Ask to Buy 核准，三種都會在這一刻被看到。
+    // 靜默失敗是刻意的：使用者沒有按任何東西，跳紅字只會嚇到人（見 subPushEntitlements）。
+    if(NATIVE && cloudEnabled) subPushEntitlements().catch(e=>console.error('entitlements push failed', e));
+  });
   window.addEventListener('pagehide', flushPendingWrites);
   // app 裡先看 Keychain 有沒有 token：沒有就顯示登入畫面，有才同步（見〈原生外殼〉）
   // .catch 不是防禦性程式碼，是**必要**的：這裡是 fire-and-forget 的 async，摔倒只會變成

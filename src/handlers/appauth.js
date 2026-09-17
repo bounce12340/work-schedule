@@ -222,6 +222,7 @@ export async function handleDeleteAccount(request, env, user) {
     env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(id),
     env.DB.prepare('DELETE FROM ics_feed WHERE user_id = ?').bind(id),
     env.DB.prepare('DELETE FROM reminder_feed WHERE user_id = ?').bind(id),
+    env.DB.prepare('DELETE FROM device_tokens WHERE user_id = ?').bind(id),
     env.DB.prepare('DELETE FROM password_resets WHERE user_id = ?').bind(id),
     env.DB.prepare('DELETE FROM email_codes WHERE email = ?').bind(user.email),
     env.DB.prepare('DELETE FROM users WHERE id = ?').bind(id),

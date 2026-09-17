@@ -21,13 +21,17 @@
  * 這條接線只有在**真機**上才走得到：CI 沒有 Mac（`ios.yml` 才有，而且那是打包不是測試），
  * 模擬器也不在這個專案的能力範圍。唯一能在每個 PR 上跑的，就是「把原始碼讀出來比對」。
  *
- * 它驗四件事，每一件都是那次事故裡「兩邊必須一致、卻沒有人檢查」的一處：
+ * 它驗六件事，每一件都是「兩邊必須一致、卻沒有人檢查」的一處：
  *
  *   1. SceneDelegate 的 rootViewController 是 MainViewController（不是 CAPBridgeViewController）
  *   2. MainViewController 真的有註冊那個插件
  *   3. storyboard 的 customClass 也指著它（兩條路要一致，免得下一個人改了其中一條）
  *   4. **Swift 的 jsName／方法名與 index.html 呼叫的字串逐字相同**——同〈方案與上限〉
  *      那條「前後端 PLAN_LIMITS 逐字相同」：名字對不上的症狀不是報錯，是永遠不回話
+ *   5. **推播的 AppDelegate 接線與 entitlements**——device token 只會從
+ *      UIApplicationDelegate 回來，接不起來的症狀是「那通電話永遠不 settle」
+ *   6. **訂閱的 product id 在 Swift 與 Worker 兩側逐字相同**——打錯的症狀是
+ *      「買得下去，但買完還是免費版」，使用者付了錢而畫面沒有變
  *
  * 零相依、跑不到一秒，所以放在 `check` job 而不是要 Chromium 的 `smoke`。
  */
@@ -111,8 +115,69 @@ for (const m of called) {
     fail(`Swift 宣告了 \`${m}\` 卻沒有對應的 \`@objc func ${m}\``);
   }
 }
-if (called.size && declared.size && ![...called].some(m => !declared.has(m))) {
-  checked.push(`方法都對得上（${[...called].sort().join('、')}）`);
+// 反方向也要驗：**Swift 宣告了、前端卻沒有接進插件表**的方法。
+//
+// 這個洞是實際踩到的：Swift 有 requestPush，前端卻只寫了 `p.requestPush(...)` 而忘了
+// 在 nativePluginCache 裡加上 `requestPush: call('requestPush')`——於是 `p.requestPush`
+// 是 undefined，畫面上顯示「這個版本的 app 還不支援推播」。**兩邊各自看起來都對**，
+// 而 JS 那側連錯都不算（讀一個不存在的屬性不會丟例外）。
+for (const m of declared) {
+  if (!called.has(m)) {
+    fail(`Swift 宣告了 \`${m}\`，但 index.html 的 nativePluginCache 沒有接它——`
+       + '前端讀到的會是 undefined，而讀一個不存在的屬性不會報錯，只會安靜地走進「不支援」那條路');
+  }
+}
+if (called.size && declared.size && ![...called].some(m => !declared.has(m)) && ![...declared].some(m => !called.has(m))) {
+  checked.push(`方法兩側完全對齊（${[...called].sort().join('、')}）`);
+}
+
+// ---- 5. 推播的接線（子專案 B）----
+// device token 只會從 UIApplicationDelegate 的兩個 callback 回來，**不會**出現在插件裡。
+// 所以 AppDelegate 收到之後要交給插件——**又一條跨檔案的接線**，與 build 7～10 那個
+// 「storyboard 指著 A、實際跑的是 B」同一個形狀：兩邊各自看起來都對，合起來卻不通，
+// 而且不報錯，只是永遠不回話（那通電話不會 settle）。
+const appDelegate = read(IOS + 'AppDelegate.swift');
+for (const [cb, why] of [
+  ['didRegisterForRemoteNotificationsWithDeviceToken', 'token 回來了卻沒有人接，requestPush 的 promise 永遠不會 settle'],
+  ['didFailToRegisterForRemoteNotificationsWithError', '註冊失敗時同樣沒有人接——失敗比成功更需要說話'],
+]) {
+  if (!appDelegate.includes(cb)) fail(`AppDelegate.swift 少了 \`${cb}\`——${why}`);
+}
+if (!/deliverPushToken/.test(appDelegate) || !/static func deliverPushToken/.test(swift)) {
+  fail('AppDelegate 與插件之間的 deliverPushToken 接不起來——device token 送不回 JS');
+} else if (appDelegate.includes('didRegisterForRemoteNotificationsWithDeviceToken')) {
+  checked.push('推播的 AppDelegate 接線');
+}
+
+// entitlements：沒有 aps-environment 的話註冊推播在真機上直接失敗，而錯誤訊息
+// （「no valid aps-environment entitlement」）看起來像簽章問題而不是設定漏掉。
+const entitlements = read(IOS + 'App.entitlements');
+if (!/aps-environment/.test(entitlements)) {
+  fail('App.entitlements 沒有 aps-environment——真機上註冊推播會直接失敗');
+} else if (!/CODE_SIGN_ENTITLEMENTS = App\/App\.entitlements;/.test(read('mobile/ios/App/App.xcodeproj/project.pbxproj'))) {
+  fail('project.pbxproj 沒有指向 App.entitlements——檔案在，但建置時不會被用到');
+} else {
+  checked.push('推播的 entitlements');
+}
+
+// ---- 6. 訂閱的 product id 三側要逐字相同 ----
+// Swift 拿它去跟 StoreKit 要商品、Worker 拿它當白名單、App Store Connect 是真正的來源。
+// 打錯的症狀不是報錯，是**「買得下去，但買完還是免費版」**——使用者付了錢而畫面沒變，
+// 而三個地方各有一份字串，沒有任何東西會發現它們不一樣。同 PLAN_LIMITS 那條。
+// （App Store Connect 那一份沒有辦法從原始碼驗，只能在這裡把另外兩份釘在一起。）
+const planApple = read('src/handlers/planapple.js');
+const workerIds = [...planApple.matchAll(/'(com\.bounceto\.workschedule\.pro\.[a-z]+)'/g)].map(m => m[1]).sort();
+const swiftIds = [...swift.matchAll(/"(com\.bounceto\.workschedule\.pro\.[a-z]+)"/g)].map(m => m[1]).sort();
+
+if (!workerIds.length) {
+  fail('src/handlers/planapple.js 裡讀不到任何 pro product id——PRODUCT_IDS 改過形狀了，這支檢查要跟著更新');
+} else if (!swiftIds.length) {
+  fail('WorkScheduleNativePlugin.swift 裡讀不到任何 pro product id');
+} else if (workerIds.join(',') !== swiftIds.join(',')) {
+  fail(`訂閱 product id 對不上：\n      Worker：${workerIds.join('、')}\n      Swift ：${swiftIds.join('、')}\n`
+     + '      症狀不是報錯，是「買得下去，但買完還是免費版」');
+} else {
+  checked.push(`product id 一致（${workerIds.length} 個）`);
 }
 
 // ---- 結果 ----

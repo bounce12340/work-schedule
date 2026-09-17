@@ -1,6 +1,14 @@
 import UIKit
 import Capacitor
 
+/**
+ * 推播的 device token 只會從 UIApplicationDelegate 的兩個 callback 回來，**不會**
+ * 出現在插件裡。所以這裡收到之後要交給插件，再由它 resolve 那通還在等的電話。
+ *
+ * 這是**又一條跨檔案的接線**——與 build 7～10 那個「storyboard 指著 A、實際跑的是 B」
+ * 同一個形狀：兩邊各自看起來都對，合起來卻不通，而且不會報錯，只是永遠不回話。
+ * tools/check-native-plugin.mjs 因此也驗這兩個 callback 在不在。
+ */
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
 
@@ -9,6 +17,20 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // Override point for customization after application launch.
         return true
+    }
+
+    // MARK: - 推播（子專案 B）
+
+    func application(_ application: UIApplication,
+                     didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        WorkScheduleNativePlugin.deliverPushToken(deviceToken.map { String(format: "%02x", $0) }.joined(), error: nil)
+    }
+
+    func application(_ application: UIApplication,
+                     didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        // 失敗一定要往上送。不送的話那通電話會**永遠不會 settle**，而那種故障沒有任何
+        // 事件——build 9 追了一整輪的就是這個形狀。
+        WorkScheduleNativePlugin.deliverPushToken(nil, error: error.localizedDescription)
     }
 
     func applicationWillResignActive(_ application: UIApplication) {

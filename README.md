@@ -172,13 +172,16 @@ APP_URL=<optional>
 - The same `index.html` is bundled into a native app (`mobile/`, Capacitor). Works offline; signs in with a token kept in the Keychain; the web version and the app share one account and one set of data
 - Registering inside the app attaches Apple's purchase proof (StoreKit `AppTransaction`), verified offline by the Worker: no administrator approval, one purchase = one account. A 6-digit email code replaces Turnstile, which cannot run inside the app
 - Building and uploading happen on GitHub's Mac runners (`.github/workflows/ios.yml`, manual trigger); no Mac required. Four repository secrets: `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_API_KEY_P8`, `APPLE_TEAM_ID`. Set `APP_PURCHASE_ALLOW_SANDBOX=1` on the Worker while testing through TestFlight
+- **Pro is an auto-renewing subscription bought inside the app** (StoreKit 2). Prices always come from StoreKit, never hard-coded. The subscription screen carries the price, the renewal terms, a Restore purchase button and links to the terms and privacy policy — all four are App Review requirements
+- Entitlements are written by two paths: the app pushes its transactions (at launch, on purchase, on restore) and Apple's **server notifications** keep the expiry current for people who renew but only ever use the web. Expiry only moves forward, except refunds
+- **Push notifications** (APNs): overdue/upcoming, the plant's message when a streak breaks, and an optional "you have N things today". Each has its own switch, independent of the emails. Nothing is sent on quiet days. Three Worker secrets: `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_P8`
 - A public [privacy policy](./public/privacy.html) is served at `/privacy.html`
 
 ### 💾 Automatic backups and reminders (after deployment)
 - Every day all schedules are backed up to Cloudflare R2, keeping the latest 14 copies (**password hashes excluded**; after a restore everyone resets through "Forgot password")
 - Overdue reminder emails are **on by default**, with a configurable **lead time** (default 3 days; can also be set to overdue-only or turned off)
 - The admin page lists the backups (date, size, number of schedules) and has a button to run one right now
-- When nothing is overdue and nothing is coming due, no email is sent at all
+- When nothing is overdue and nothing is coming due, no email is sent at all — and the same rule applies to push notifications
 
 ### 🔗 Sharing (after deployment)
 
@@ -244,5 +247,5 @@ For the full architecture and data model see [`工作排程確認系統_專案�
 | "Away" | Only a mark on the calendar and the row: it moves no dates and **does not affect overdue**, reminder emails or the calendar subscription |
 | Weekend work days | Supported: weekend dates added to the "work days" list count as working days, so recurrences are not pushed past them |
 | Gantt | Bars cannot be dragged; dates are changed through the task table |
-| iOS app | Free download, Pro is an in-app subscription (not yet released); one Apple ID = one account. Every front-end release needs a new build submitted to the App Store. Public registration happens only inside the app |
+| iOS app | Free download, Pro is an in-app auto-renewing subscription; one Apple ID = one account. Every front-end release needs a new build submitted to the App Store. Public registration happens only inside the app |
 | Changing recurrence frequency | Switching monthly ↔ quarterly resets the per-occurrence done / override / skip records (you are warned before saving) |
