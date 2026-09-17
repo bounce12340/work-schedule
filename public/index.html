@@ -2130,9 +2130,8 @@
   function nativeSessionExpired(){
     appToken = null;
     nativeTokenClear();
-    cloudEnabled = false;
     setCloudNote('');
-    updateStorageNote();
+    setCloudEnabled(false);
     appAuthShow();
   }
 
@@ -3589,9 +3588,8 @@
       // 「初始化失敗」而 console 一片乾淨——使用者回報時完全沒有線索可查，
       // 只能靠逐行讀程式碼猜（實際踩過）。降級與沉默是兩件事。
       console.error('雲端同步初始化失敗', e && e.stack ? e.stack : String(e));
-      cloudEnabled = false;
       setCloudNote(tr('初始化失敗，僅使用本機資料'), 'err');
-      updateStorageNote();
+      setCloudEnabled(false);
     }
   }
 
@@ -3606,14 +3604,13 @@
       // 文案與 console 都要說得出差別，否則使用者只會看到「怎麼變單機了」。
       console.error('雲端同步：取得雲端資料失敗，暫時只用本機資料',
         res.error && res.error.stack ? res.error.stack : String(res.error));
-      cloudEnabled = false;
       setCloudNote(tr('連線失敗，暫時只用本機資料（稍後重新整理再試）'), 'err');
-      updateStorageNote();
+      setCloudEnabled(false);
       return;
     }
     const remote = res.kind === 'ok' ? res.data : null;
     if(!remote || !remote.user){
-      cloudEnabled = false; setCloudNote(''); updateStorageNote();
+      setCloudNote(''); setCloudEnabled(false);
       // 沒有後端、也從來沒登入過：不能用（見〈登入閘門〉）。app 不走這裡，nativeBoot 自己擋。
       if(!NATIVE && !signedInBefore()) loginGateShow();
       return;
@@ -3631,8 +3628,8 @@
     }
     currentUserEmail = me.email;
 
-    cloudEnabled = true;
-    updateStorageNote();   // 文案要從「單機」改成「雲端同步」
+    // 帳號頁也要跟著變——只更新 footer 的話，先切過去的人會停在「單機模式」
+    setCloudEnabled(true);
     document.getElementById('btnIcs').style.display='';
     syncReminderBtn();
     fetch('/api/ics/status',{cache:'no-store'}).then(r=>r.ok?r.json():null)
@@ -3692,6 +3689,25 @@
     // 本機有資料、雲端也被改過，且基準對不上 → 真衝突，交給使用者決定
     cloudUpdatedAt = meta ? meta.updatedAt : null;
     handleConflict(remote);
+  }
+
+  /**
+   * `cloudEnabled` 是全檔唯一決定「現在有沒有帳號」的旗標，而**五個地方會改它**
+   * （初始化失敗、連線失敗、回應裡沒有 user、session 過期、同步成功）。
+   *
+   * 五處原本都記得順手更新 footer 的那句話，**但沒有一處記得帳號頁**。於是切到
+   * 「我的帳號」的時間點只要早於同步完成，那一頁就永遠停在「目前為單機模式」，
+   * 而底下的 footer 同時寫著「雲端同步啟用中」——**兩句話互相矛盾，畫面卻不會壞、
+   * 不會報錯**，使用者只會以為自己沒登入（實際回報過）。
+   *
+   * 所以改旗標一律走這裡。這不是包裝，是把「跟著旗標走的畫面」收斂到一個地方：
+   * 下一個人加第三塊時，不必再記得去找第四個呼叫點。`tools/smoke.mjs` 的探針 9
+   * 用「同步很慢、使用者先切過去」重現那個時間差。
+   */
+  function setCloudEnabled(on){
+    cloudEnabled = on;
+    updateStorageNote();
+    if(currentView === 'account') renderAccountView();
   }
 
   function updateStorageNote(){
