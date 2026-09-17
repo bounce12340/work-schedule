@@ -70,15 +70,16 @@ async function withFakeApns(reply, fn) {
 
 function addFeed(env, userId, over = {}) {
   const f = {
-    digest: '[]', lead_days: 3, streak_current: 0,
+    digest: '[]', lead_days: 3, streak_current: 0, leave_days: '[]',
     push_overdue: 1, push_streak: 1, push_today: 0,
     push_overdue_ymd: null, push_streak_ymd: null, push_today_ymd: null, ...over,
   };
   env.DB.prepare(
-    `INSERT INTO reminder_feed (user_id, enabled, digest, lead_days, streak_current,
+    `INSERT INTO reminder_feed (user_id, enabled, digest, lead_days, streak_current, leave_days,
        push_overdue, push_streak, push_today, push_overdue_ymd, push_streak_ymd, push_today_ymd, updated_at)
-     VALUES (?,1,?,?,?,?,?,?,?,?,?,?)`
-  ).bind(userId, f.digest, f.lead_days, f.streak_current, f.push_overdue, f.push_streak, f.push_today,
+     VALUES (?,1,?,?,?,?,?,?,?,?,?,?,?)`
+  ).bind(userId, f.digest, f.lead_days, f.streak_current, f.leave_days,
+    f.push_overdue, f.push_streak, f.push_today,
     f.push_overdue_ymd, f.push_streak_ymd, f.push_today_ymd, NOW).run();
 }
 
@@ -369,6 +370,59 @@ test('停用中的帳號不推', async () => {
     const out = await sendPushes(env, NOW);
     assert.equal(calls.length, 0);
     assert.equal(out.notApproved, 1);
+  });
+});
+
+test('休假那天三種全部不推，而且一個 *_ymd 都不寫（C-3）', async () => {
+  const env = pushEnv();
+  addUser(env, 'u1', 'a@x.test');
+  // 三種都會觸發：逾期、昨天把連續弄斷、今天還有事沒做
+  addFeed(env, 'u1', {
+    digest: JSON.stringify([
+      rem('遲交的', '2026-07-01'),
+      rem('昨天沒按時', '2026-07-14'),
+      rem('今天要做', TODAY),
+    ]),
+    streak_current: 5, push_today: 1,
+    leave_days: JSON.stringify(['2026-07-14', TODAY, '2026-08-01']),
+  });
+  addToken(env, 'u1');
+
+  await withFakeApns({ status: 200 }, async calls => {
+    const out = await sendPushes(env, NOW);
+    assert.equal(calls.length, 0, '休假那天要安靜——震動手機比多一封未讀的信打擾得多');
+    assert.equal(out.onLeave, 1, '跳過的原因要分得出來，不能與「今天沒事」共用一個數字');
+    assert.equal(out.nothingToSay, 0);
+  });
+  const f = feed(env, 'u1');
+  assert.equal(f.push_overdue_ymd, null, '沒推就不算推過，休假結束的第一天要能補');
+  assert.equal(f.push_streak_ymd, null);
+  assert.equal(f.push_today_ymd, null);
+});
+
+test('休假是「哪一天」而不是「有沒有休假」：不是今天的那幾天照推', async () => {
+  const env = pushEnv();
+  addUser(env, 'u1', 'a@x.test');
+  addFeed(env, 'u1', {
+    digest: JSON.stringify([rem('遲交的', '2026-07-01')]),
+    leave_days: JSON.stringify(['2026-07-14', '2026-07-16']),   // 昨天與明天，就是不含今天
+  });
+  addToken(env, 'u1');
+  await withFakeApns({ status: 200 }, async calls => {
+    const out = await sendPushes(env, NOW);
+    assert.equal(calls.length, 1, '今天要上班，照推');
+    assert.equal(out.onLeave, 0);
+  });
+});
+
+test('leave_days 壞掉時照推，不是靜靜地從此不推', async () => {
+  const env = pushEnv();
+  addUser(env, 'u1', 'a@x.test');
+  addFeed(env, 'u1', { digest: JSON.stringify([rem('遲交的', '2026-07-01')]), leave_days: '{壞掉的' });
+  addToken(env, 'u1');
+  await withFakeApns({ status: 200 }, async calls => {
+    await sendPushes(env, NOW);
+    assert.equal(calls.length, 1, '多推一則看得見，從此不推沒有人會發現');
   });
 });
 

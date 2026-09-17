@@ -188,6 +188,12 @@ CREATE TABLE IF NOT EXISTS reminder_feed (
   push_overdue_ymd TEXT,
   push_streak_ymd  TEXT,
   push_today_ymd   TEXT,
+  -- 休假那幾天閉嘴（C-3）：前端推上來的「有休假的日子」清單（JSON 字串陣列）。
+  -- **只列 leave，不列 away**——「不在」仍在上班，照寄照推。判斷在前端（同 ot、
+  -- streak_current、ICS、逾期提醒），Worker 只問「今天在不在這個清單裡」。
+  -- 在 → 那一天的信與推播整批不送，而且**不寫任何 *_ymd**：沒送就不算送過，
+  -- 休假結束後的第一天要能補上。
+  leave_days    TEXT NOT NULL DEFAULT '[]',
   updated_at    INTEGER NOT NULL
 );
 

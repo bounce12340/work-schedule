@@ -28,6 +28,46 @@ const MAX_ERRORS = 5;
 export const DEFAULT_LEAD_DAYS = 3;
 const MAX_LEAD_DAYS = 30;
 
+/**
+ * 休假那幾天閉嘴（C-3）。
+ *
+ * 前端推上來「有休假的日子」，**只列 leave 不列 away**——「不在」的人仍在上班，
+ * 照寄照推；「休假」才是正式請假。判斷在前端，同 `ot`、`streak_current`、ICS 與
+ * 逾期提醒本身：日期語意（跨多天以結束日算、時段、同一天兩種並存）只存在
+ * `public/index.html` 裡，在這裡重寫一份必然分歧。
+ *
+ * 一天最多留這麼多筆。digest 的窗口是「回看一年、前瞻三個月」，一年半的每一天
+ * 都請假也塞不滿——這個上限防的是有人把它當第二個儲存空間用。
+ */
+const MAX_LEAVE_DAYS = 800;
+
+/** 回 null 代表「沒有指定」，呼叫端據此決定要不要沿用舊值（同 normalizeLeadDays） */
+function normalizeLeaveDays(v) {
+  if (!Array.isArray(v)) return null;
+  const seen = new Set();
+  for (const d of v) {
+    if (typeof d !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(d)) continue;
+    seen.add(d);
+    if (seen.size >= MAX_LEAVE_DAYS) break;
+  }
+  // 排序只是為了讓存進去的內容穩定（同一份資料每次序列化都一樣），
+  // 判斷本身用的是集合，與順序無關
+  return JSON.stringify([...seen].sort());
+}
+
+/**
+ * 今天是不是「休假日」。純函式，方便直接測。
+ *
+ * **壞掉的 JSON 一律當成「沒有休假」**：解析失敗時讓提醒照常寄，比讓它從此靜靜
+ * 地不寄安全得多——沒有人會發現「信不見了」，而多收一封信看得見。
+ */
+export function isOnLeave(leaveDaysJson, ymd) {
+  if (!leaveDaysJson) return false;
+  let list;
+  try { list = JSON.parse(leaveDaysJson); } catch { return false; }
+  return Array.isArray(list) && list.includes(ymd);
+}
+
 /** 回 null 代表「沒有指定」，呼叫端據此決定要不要沿用舊值 */
 function normalizeLeadDays(v) {
   if (v === undefined || v === null || v === '') return null;
@@ -158,6 +198,10 @@ export async function handleReminderPut(request, env, user) {
   const streak = Number.isFinite(body?.streak?.current)
     ? Math.max(0, Math.min(9999, Math.round(body.streak.current))) : null;
 
+  // 休假的日子同理：前端算好推上來（C-3）。沒帶就沿用現有值——舊版前端還沒開始
+  // 推這個欄位，不該因為它少送一個東西就把使用者的休假清單清空。
+  const leaveDays = normalizeLeaveDays(body?.leaveDays);
+
   const serialized = JSON.stringify(digest);
   if (serialized.length > MAX_DIGEST_BYTES) return json({ error: 'Digest too large' }, 413);
 
@@ -172,12 +216,14 @@ export async function handleReminderPut(request, env, user) {
   // 先前這裡寫死 enabled = 0，等於讓 schema 的預設值永遠用不到——「預設開啟」
   // 只改 schema 是不夠的，因為實際建立這一列的就是這句 SQL。
   await env.DB.prepare(
-    `INSERT INTO reminder_feed (user_id, digest, streak_current, updated_at) VALUES (?, ?, ?, ?)
+    `INSERT INTO reminder_feed (user_id, digest, streak_current, leave_days, updated_at)
+     VALUES (?, ?, ?, ?, ?)
      ON CONFLICT(user_id) DO UPDATE SET
        digest = excluded.digest,
        streak_current = COALESCE(?, reminder_feed.streak_current),
+       leave_days = COALESCE(?, reminder_feed.leave_days),
        updated_at = excluded.updated_at`
-  ).bind(user.id, serialized, streak ?? 0, now, streak).run();
+  ).bind(user.id, serialized, streak ?? 0, leaveDays ?? '[]', now, streak, leaveDays).run();
   return json({ ok: true, count: digest.length });
 }
 
@@ -282,7 +328,7 @@ ${rest > 0 ? `<tr><td colspan="3" style="padding:8px 0;color:#A2A099;font-size:1
 export async function sendOverdueReminders(env, nowMs = Date.now()) {
   const today = taipeiYmd(nowMs);
   const rows = await env.DB.prepare(
-    `SELECT r.user_id, r.digest, r.last_sent_ymd, r.lead_days, u.email, u.status
+    `SELECT r.user_id, r.digest, r.last_sent_ymd, r.lead_days, r.leave_days, u.email, u.status
        FROM reminder_feed r JOIN users u ON u.id = r.user_id
       WHERE r.enabled = 1`
   ).all();
@@ -290,13 +336,17 @@ export async function sendOverdueReminders(env, nowMs = Date.now()) {
   // 跳過的三種原因**分開計數**。原本它們共用一個 skipped，於是「今天大家都沒事」
   // 與「這個帳號被停用了」在統計裡完全一樣——而這份統計現在會進 cron_runs 給人看，
   // 分不出原因的數字等於沒有記。這與 cloudPull() 要區分 absent 與 failed 是同一件事。
-  const out = { checked: 0, sent: 0, nothingToSay: 0, alreadySent: 0, notApproved: 0, failed: 0, errors: [] };
+  const out = { checked: 0, sent: 0, nothingToSay: 0, alreadySent: 0, notApproved: 0, onLeave: 0, failed: 0, errors: [] };
   for (const row of rows.results || []) {
     out.checked++;
     // 停用中的帳號不該繼續收到信
     if (row.status !== 'approved') { out.notApproved++; continue; }
     // 同一天不重寄：cron 可能重試，重試不該變成第二封
     if (row.last_sent_ymd === today) { out.alreadySent++; continue; }
+    // 今天請假就整封不寄（C-3）。**整天跳過，不是把那幾項挑掉**——挑掉會寄出一封
+    // 說「你有 3 件事」但實際漏講 2 件的信，那比不寄更糟，因為收件人會以為那就是
+    // 全部。也**刻意不寫 last_sent_ymd**：沒寄就不算寄過，休假結束的第一天要能補。
+    if (isOnLeave(row.leave_days, today)) { out.onLeave++; continue; }
 
     let digest = [];
     try { digest = JSON.parse(row.digest); } catch { digest = []; }
@@ -424,17 +474,20 @@ export async function sendStreakBroken(env, nowMs = Date.now()) {
   const today = taipeiYmd(nowMs);
   const yesterday = addDays(today, -1);
   const rows = await env.DB.prepare(
-    `SELECT r.user_id, r.digest, r.streak_current, r.streak_mail_ymd, u.email, u.status
+    `SELECT r.user_id, r.digest, r.streak_current, r.streak_mail_ymd, r.leave_days, u.email, u.status
        FROM reminder_feed r JOIN users u ON u.id = r.user_id
       WHERE r.streak_mail = 1`
   ).all();
 
   // 跳過的原因分開計數，理由同 sendOverdueReminders：分不出原因的數字等於沒有記
-  const out = { checked: 0, sent: 0, notBroken: 0, tooShort: 0, alreadySent: 0, notApproved: 0, failed: 0, errors: [] };
+  const out = { checked: 0, sent: 0, notBroken: 0, tooShort: 0, alreadySent: 0, notApproved: 0, onLeave: 0, failed: 0, errors: [] };
   for (const row of rows.results || []) {
     out.checked++;
     if (row.status !== 'approved') { out.notApproved++; continue; }
     if (row.streak_mail_ymd === today) { out.alreadySent++; continue; }
+    // 問的是「**今天**在不在休假」而不是昨天：這封信是今天寄出去打擾人的那一封。
+    // 昨天請假、今天上班的人照樣會收到——他的連續確實斷了，而植物講的是事實。
+    if (isOnLeave(row.leave_days, today)) { out.onLeave++; continue; }
 
     let digest = [];
     try { digest = JSON.parse(row.digest); } catch { digest = []; }

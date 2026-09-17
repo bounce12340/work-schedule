@@ -11,7 +11,7 @@
 import { json } from './auth.js';
 import { apnsSend, apnsConfigured } from '../apns.js';
 import {
-  taipeiYmd, addDays, pickOverdue, pickUpcoming, dayReport, DEFAULT_LEAD_DAYS,
+  taipeiYmd, addDays, pickOverdue, pickUpcoming, dayReport, isOnLeave, DEFAULT_LEAD_DAYS,
 } from './reminder.js';
 
 /** 連續不到兩天不吵人。與 email 版同一個門檻——兩邊不一樣的話會出現「信說斷了、推播沒推」。 */
@@ -110,7 +110,7 @@ export async function sendPushes(env, nowMs = Date.now()) {
   const today = taipeiYmd(nowMs);
   const yesterday = addDays(today, -1);
   const rows = await env.DB.prepare(
-    `SELECT r.user_id, r.digest, r.lead_days, r.streak_current,
+    `SELECT r.user_id, r.digest, r.lead_days, r.streak_current, r.leave_days,
             r.push_overdue, r.push_streak, r.push_today,
             r.push_overdue_ymd, r.push_streak_ymd, r.push_today_ymd,
             u.status
@@ -119,11 +119,14 @@ export async function sendPushes(env, nowMs = Date.now()) {
   ).all();
 
   // 跳過的原因分開計數，同 sendOverdueReminders：分不出原因的數字等於沒有記
-  const out = { checked: 0, sent: 0, nothingToSay: 0, alreadySent: 0, notApproved: 0, failed: 0, errors: [] };
+  const out = { checked: 0, sent: 0, nothingToSay: 0, alreadySent: 0, notApproved: 0, onLeave: 0, failed: 0, errors: [] };
 
   for (const row of rows.results || []) {
     out.checked++;
     if (row.status !== 'approved') { out.notApproved++; continue; }
+    // 今天請假就三種全部不推（C-3），**不是只跳過其中一種**：休假那天要的是安靜，
+    // 而震動手機比多一封未讀的信打擾得多。三個 *_ymd 一個都不寫——沒推就不算推過。
+    if (isOnLeave(row.leave_days, today)) { out.onLeave++; continue; }
 
     let digest = [];
     try { digest = JSON.parse(row.digest); } catch { digest = []; }

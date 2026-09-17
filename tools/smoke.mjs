@@ -46,6 +46,14 @@ const APP_TOKEN = 'smoke-app-token-0123456789abcdef';
 const APP_API_ORIGIN = 'https://work-schedule.bounceto12340.workers.dev';
 
 /** 有循環、有跨多天、有子代辦、有筆記——讓每條 render 分支都有東西可畫 */
+/**
+ * 休假與「不在」各一天，**都在今天之後**：`buildReminderLeaveDays()` 的窗口是
+ * 「回看一年、前瞻三個月」，寫死日期的話某天會掉出窗口，變成一條安靜失效的斷言。
+ */
+const plusDays = n => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+const LEAVE_DAY = plusDays(21);
+const AWAY_DAY = plusDays(22);
+
 function seed() {
   const items = [];
   const types = ['work', 'meeting', 'assignment'];
@@ -69,7 +77,11 @@ function seed() {
     });
   }
   return {
-    version: 2,
+    // v3：帶種類與時段的 absences。**刻意放一天「不在」與一天「休假」**——下面
+    // 「休假那幾天閉嘴」那條斷言要靠它們分辨「只列 leave、不列 away」。
+    // 這裡不留 v2 的 awayDates 並不會少掉遷移的覆蓋：`tools/check-migrate.mjs`
+    // 在真的瀏覽器裡走完整的 v1 → v2 → v3，連 awayDates → absences 都斷言過。
+    version: 3,
     // 剛好 3 個：免費版的上限。已登入的中文那一輪靠這個數字撞上限（見 walk 的「上限」段）
     majorProjects: [{ id: 'mp1', name: '年度大型專案' }, { id: 'mp2', name: '第二個' }, { id: 'mp3', name: '第三個' }],
     items,
@@ -82,6 +94,10 @@ function seed() {
       ]
     }],
     dailyLogs: { '2026-07-15': '<p>今天的記錄</p>' },
+    absences: {
+      [LEAVE_DAY]: [{ kind: 'leave', from: '13:00', to: '18:00', icon: '🏖️' }],
+      [AWAY_DAY]: [{ kind: 'away', from: null, to: null }],
+    },
     customHolidays: ['2026-10-09'], customWorkdays: [],
     selectedGanttProjectId: 'g1', availableYears: [2026, 2027]
   };
@@ -104,6 +120,11 @@ async function loadChromium() {
  */
 function makeServer(loggedIn, plan = 'pro') {
   const assets = new Map();
+  // 前端推上來的提醒摘要都收在這裡，讓「休假那幾天閉嘴」那條斷言有東西可看。
+  // **這是第 0 條（新增的前端函式一定要在瀏覽器裡真的走一次）在這一張卡的形狀**：
+  // `buildReminderLeaveDays()` 只在 cloudPush 成功後 3 秒才被呼叫到，
+  // npm test 與 node --check 都證明不了它有沒有被定義。
+  const reminderPuts = [];
   for (const f of ['index.html', 'login.html', 'admin.html', 'privacy.html', 'terms.html']) {
     assets.set('/' + f, readFileSync(PUBLIC + f, 'utf8'));
   }
@@ -111,7 +132,7 @@ function makeServer(loggedIn, plan = 'pro') {
   // navigator.serviceWorker 偽造成 undefined 更糟——`'serviceWorker' in navigator`
   // 仍然為真，於是 .register 就丟 TypeError。真實瀏覽器不會有那種狀態。
   const SW = readFileSync(PUBLIC + 'sw.js', 'utf8');
-  return createServer((req, res) => {
+  const server = createServer((req, res) => {
     const url = new URL(req.url, 'http://x');
     const send = (code, body, type = 'application/json') => {
       res.writeHead(code, { 'Content-Type': `${type}; charset=utf-8` });
@@ -128,7 +149,17 @@ function makeServer(loggedIn, plan = 'pro') {
       if (url.pathname === '/api/auth/app/code') return send(200, { ok: true, message: 'sent' });
       if (url.pathname === '/api/shares') return send(200, { outgoing: [], incoming: [] });
       if (url.pathname === '/api/activity') return send(200, { activity: [] });
-      if (url.pathname === '/api/reminder') return send(200, { enabled: false, lastSent: null, email: ME.email });
+      if (url.pathname === '/api/reminder') {
+        if (req.method === 'PUT') {
+          let raw = '';
+          req.on('data', c => { raw += c; });
+          return req.on('end', () => {
+            try { reminderPuts.push(JSON.parse(raw)); } catch { reminderPuts.push(null); }
+            send(200, { ok: true });
+          });
+        }
+        return send(200, { enabled: false, lastSent: null, email: ME.email });
+      }
       return send(200, { ok: true });
     }
     const path = url.pathname === '/' ? '/index.html' : url.pathname;
@@ -136,6 +167,8 @@ function makeServer(loggedIn, plan = 'pro') {
     if (assets.has(path)) return send(200, assets.get(path), 'text/html');
     return send(404, 'not found', 'text/plain');
   });
+  server.reminderPuts = reminderPuts;
+  return server;
 }
 
 /** 走完一輪所有頁面與主要互動 */
@@ -290,6 +323,38 @@ async function walk(page, log, plan = 'pro') {
   log(`      走過：${checked.join('、')}`);
 }
 
+/**
+ * 休假那幾天閉嘴（C-3）：`buildReminderLeaveDays()` 真的被呼叫到，而且**只列 leave**。
+ *
+ * 這一條守的是〈驗證方式〉第 0 條：那個函式只在 cloudPush 成功後 3 秒才會跑，
+ * 少寫一個字母的話 `npm test` 與 `node --check` 一個都不會紅，症狀只是「休假那天
+ * 照樣收到信」——沒有人會把它連到某一次前端改版。
+ *
+ * 斷言分兩半，缺一不可：**休假那天在裡面**（不是永遠回空陣列）、**出差那天不在
+ * 裡面**（「不在」的人仍在上班，照寄照推）。只驗前者的話，把 away 一起列進去
+ * 仍然是綠的。
+ */
+async function expectLeaveDaysPushed(page, server, log) {
+  // pushReminderSoon 是 3 秒的 debounce；多給一點，慢的機器上不要變成隨機紅燈
+  await page.waitForFunction(() => true);
+  const deadline = Date.now() + 8000;
+  while (!server.reminderPuts.length && Date.now() < deadline) await page.waitForTimeout(250);
+
+  const last = server.reminderPuts[server.reminderPuts.length - 1];
+  if (!last) throw new Error('前端從來沒有推送提醒摘要——pushReminderSoon 那條路沒走到');
+  if (!Array.isArray(last.leaveDays)) {
+    throw new Error(`推上來的 leaveDays 不是陣列（${JSON.stringify(last.leaveDays)}）`
+      + '——buildReminderLeaveDays 沒有被定義或沒有被帶進 body');
+  }
+  if (!last.leaveDays.includes(LEAVE_DAY)) {
+    throw new Error(`休假那天（${LEAVE_DAY}）不在 leaveDays 裡：${JSON.stringify(last.leaveDays)}`);
+  }
+  if (last.leaveDays.includes(AWAY_DAY)) {
+    throw new Error(`出差那天（${AWAY_DAY}）被當成休假了——「不在」的人仍在上班，照寄照推`);
+  }
+  log(`      休假那幾天閉嘴：leaveDays=${JSON.stringify(last.leaveDays)}（出差那天不在裡面）`);
+}
+
 const chromium = await loadChromium();
 const failures = [];
 
@@ -330,8 +395,10 @@ for (const loggedIn of [false, true]) {
       // 也只有 file:// 能在第一次繪製前就關上閘門（http 要等 /api/state 回 404）。
       await page.goto(loggedIn ? `http://127.0.0.1:${PORT}/` : 'file://' + PUBLIC + 'index.html',
         { waitUntil: 'domcontentloaded' });
-      if (loggedIn) await walk(page, console.log, plan);
-      else await expectGate(page, console.log);
+      if (loggedIn) {
+        await walk(page, console.log, plan);
+        await expectLeaveDaysPushed(page, server, console.log);
+      } else await expectGate(page, console.log);
     } catch (e) {
       // 一定要說是「哪一步」走不完，否則 timeout 訊息只有選擇器，看不出走到哪
       const at = typeof walk.lastStep === 'function' ? walk.lastStep() : '未知';
