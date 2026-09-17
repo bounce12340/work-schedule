@@ -103,8 +103,26 @@
     --span-violet: rgba(108,92,224,0.20);
     --mono: 'JetBrains Mono', monospace;
     --sans: 'Noto Sans TC', 'Inter', sans-serif;
+    /* ---- 招牌用的黑體 ----
+       只給「工作排程確認系統」這個系統標題用（header 的 .brand-title 與 app
+       登入畫面的 .app-auth-title）。使用者指定微軟正黑體。
+
+       **為什麼是一個變數而不是就地寫死三次**：顏色那條規則（「新增顏色一律加進
+       :root 與 [data-theme=dark] 兩組，不要在個別選擇器裡硬寫色碼」）背後的道理
+       對字體同樣成立——三處寫死，日後改字體一定會漏掉一處，而漏掉的那一處**看
+       起來只是「有點不一樣」**，不會有任何檢查紅。
+
+       **它取代的是 --serif，不是加在它旁邊。** 下面〈兩種聲音〉把宋體指派給
+       「人在說話」，而系統標題原本算其中一項。這次把**系統標題**從「人的聲音」
+       移到「產品的招牌」——招呼語、空白時刻、每日記錄、做完之後那一句仍然是
+       宋體。兩種聲音的規則沒有變，只是標題換邊站。
+
+       微軟正黑與蘋方都是**系統內建**，所以這一行離線時反而比原本的宋體更穩
+       （宋體要等 Google Fonts）。不必進 dark 的那一組：字體不隨主題變。 */
+    --sans-heading: 'Microsoft JhengHei', '微軟正黑體', 'PingFang TC', 'Noto Sans TC', 'Inter', sans-serif;
     /* ---- 這個介面有兩種聲音 ----
-       宋體＝**人在說話**：標題、空白時刻、每日記錄、做完之後的那一句。
+       宋體＝**人在說話**：招呼語、空白時刻、每日記錄、做完之後的那一句。
+       （系統標題 2026-09-17 起改走 --sans-heading，理由在上面那一段。）
        等寬＝**機器在報數**：日期、數量、徽章，以及**逾期**。
 
        這不是為了好看而混用兩套字。〈視覺基調〉那條紅線是「氣質可以柔，警示
@@ -264,7 +282,7 @@
      3.29:1（check-contrast 把光暈算進去之後抓到的）。改用 --text，階層靠字級
      （14 vs 27）而不是靠把顏色淡掉，同空狀態那次的判斷。 */
   .brand-eyebrow{ font-family: var(--serif); font-size: 14px; letter-spacing: 1px; color: var(--text); margin-bottom:8px; }
-  .brand-title{ font-family: var(--serif); font-size: 27px; font-weight: 600; letter-spacing: 1.5px; color:var(--text-strong); }
+  .brand-title{ font-family: var(--sans-heading); font-size: 27px; font-weight: 600; letter-spacing: 1.5px; color:var(--text-strong); }
   /* 週一的回顧：只講做完的。沒做完的那些，逾期的紅字已經在講了 */
   /* 顏色與字級刻意與招呼語相同：它也坐在光暈上，量招呼語就等於量它 */
   .brand-lookback{ font-family: var(--serif); font-size: 14px; color: var(--text); margin-top: 8px; letter-spacing: .5px; }
@@ -900,7 +918,7 @@
   #upgradeOverlay a{ color: var(--amber-ink); }   /* 淺底上的連結：--amber 本身只有 2.84:1（見〈顏色不只要好看〉） */
   .app-auth{ z-index:90; background: var(--bg); backdrop-filter:none; padding-top: calc(20px + env(safe-area-inset-top)); padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
   .app-auth-brand{ margin-bottom:16px; }
-  .app-auth-title{ font-family: var(--serif); font-size:20px; font-weight:600; color: var(--text); }
+  .app-auth-title{ font-family: var(--sans-heading); font-size:20px; font-weight:600; color: var(--text); }
   .app-auth-sub{ font-size:12.5px; color: var(--text-muted); margin-top:4px; line-height:1.6; }
   /* 閘門的診斷行：只在「看起來像 app 卻沒認出自己」時才填內容（見 loginGateShow） */
   .gate-diag{ margin-top:12px; font-family: var(--mono); font-size:11.5px; color: var(--text-muted); word-break:break-all; line-height:1.6; }
