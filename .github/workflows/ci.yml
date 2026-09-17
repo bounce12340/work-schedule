@@ -155,6 +155,13 @@ jobs:
       - name: 氛圍（時段／提示語／彈跳／回顧）
         run: node tools/check-ambience.mjs
 
+      # 使用者手上那份半年前匯出的 .json 是永遠不會再改變的舊格式，而
+      # STORAGE_VERSION 每加一版，升級路徑就多一階。單元測試證明得了
+      # migrateSnapshot 這個函式對，證明不了它真的被接上了——而兩者分家的症狀是
+      # 「套用不了的存檔被示範資料蓋掉」，畫面上看起來一切正常。
+      - name: 舊備份檔匯得回來
+        run: node tools/check-migrate.mjs
+
   deploy:
     name: 部署到 Cloudflare
     needs: [check, smoke]

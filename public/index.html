@@ -2158,10 +2158,25 @@
   let items = [];
   let customHolidays = new Set();
   let customWorkdays = new Set();   // 補班日：週六日但要上班
-  // 「不在」的日子（請假、出差、在別的地方）。形狀刻意與 customHolidays 相同，
-  // 但**語意完全不同**：它不參與 isHoliday()，不移動任何項目的日期，也不改變
-  // 逾期的判斷。它只回答一個問題——「那天我不在」。
-  let awayDates = new Set();
+  // 「不在」與「休假」：那幾天人的狀態。**它不參與 isHoliday()、不移動任何項目
+  // 的日期，也不改變逾期的判斷**——使用者的裁決是「不在就是不在，逾期就照樣逾期」。
+  //
+  //   { 'YYYY-MM-DD': [{ kind:'away'|'leave', from:'HH:MM'|null, to:'HH:MM'|null, icon? }] }
+  //
+  //   away  ＝ 人不在辦公室，**但仍在上班**（出差、開會、場勘）
+  //   leave ＝ 正式請假
+  //
+  // 同一天兩種可以並存、各自有時段——半天假加半天出差是真實會發生的事。
+  // from/to 皆為 null 代表整天（最常見，所以是預設）。icon 只有 leave 有，
+  // 是使用者當次自己挑的 emoji。
+  //
+  // **刻意不檢查時段重疊。** 真實世界就是這麼模糊（上午的會開到一半提早請假），
+  // 而系統一旦判定「這不合法」就得決定砍掉哪一邊——那等於在使用者沒看的時候
+  // 改掉他填的東西，與〈為什麼前置作業不自動順延〉是同一種失敗模式。
+  //
+  // 2026-09-17 之前這裡是 awayDates（只有日期的 Set），裝不下時段與圖示。
+  // 舊存檔由 migrateSnapshot 的 v2 → v3 搬過來，見那裡。
+  let absences = {};
   let dailyLogs = {}; // 'YYYY-MM-DD' -> text
   let ganttProjects = []; // {id,name,tasks:[{id,name,start,end,progress,done}]}
   let selectedGanttProjectId = null;
@@ -2220,7 +2235,9 @@
    * 它也**不影響逾期**。這是使用者明確定下的：「不在就是不在，逾期就照樣逾期」。
    * 沒做完就是沒做完，人在不在不改變這件事的後果。
    */
-  function isAway(dateStr){ return awayDates.has(dateStr); }
+  function absencesOn(dateStr){ const l = absences[dateStr]; return Array.isArray(l) ? l : []; }
+  function isAway(dateStr){ return absencesOn(dateStr).some(a => a.kind === 'away'); }
+  function isLeave(dateStr){ return absencesOn(dateStr).some(a => a.kind === 'leave'); }
   function adjustForHoliday(d, rule){
     if(!rule || rule==='none') return d;
     let cur = new Date(d); const step = rule==='postpone' ? 1 : -1; let guard=0;
@@ -2821,7 +2838,7 @@
   const STORAGE_KEY = 'workSchedule.v1';
   // 套用不了的存檔會被搬到這裡再讓啟動流程覆蓋，見 loadState()
   const CORRUPT_KEY = 'workSchedule.v1.unreadable';
-  const STORAGE_VERSION = 2;
+  const STORAGE_VERSION = 3;
   let storageAvailable = true;
 
   // snapshot / applySnapshot 是本機與雲端共用的序列化格式，
@@ -2832,12 +2849,75 @@
       majorProjects, items, ganttProjects, dailyLogs,
       customHolidays: [...customHolidays],
       customWorkdays: [...customWorkdays],
-      awayDates: [...awayDates],
+      // **活的參照，不是副本**——與 items / ganttProjects 一致（見 withUndo 的註解）。
+      // 上一版這裡是 `[...awayDates]`，看起來像複製，其實只是把 Set 攤成陣列。
+      // 淺拷貝 `{...absences}` 會更糟：裡面的陣列仍然共用，卻給人「已經複製了」的
+      // 錯覺。要快照的呼叫端自己深拷貝一次，那是 withUndo 已經在做的事。
+      absences,
       selectedGanttProjectId, availableYears
     };
   }
 
   const isYmd = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+  const isHm  = v => typeof v === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(v);
+
+  /**
+   * 「不在／休假」的正規化。與 normalizeItems / normalizeTags 同一個理由：
+   * 存檔、雲端、另一台還沒更新的裝置送來的東西都可能缺欄位或帶垃圾。
+   *
+   * 三件事非做不可：
+   *  1. **白名單**：kind 不在表上就整筆丟掉，時間不是 HH:MM 就當作「沒填」＝整天。
+   *     同富文字過濾器的第一條原則——不在表上就不通過。
+   *  2. **去重 ＋ 排序**：三方合併以 stableStringify 比對整天的陣列，順序不同會
+   *     被誤判成「兩邊都改過」，然後跳一個根本不存在的衝突對話框給使用者。
+   *     理由同 normalizeTags 與 normalizeDependsOn。
+   *  3. **空陣列不留**：`{'2026-01-01': []}` 與「那天沒有記錄」意思完全相同，
+   *     留著只會讓兩份內容一樣的存檔比對出差異。
+   *
+   * **刻意不設每天的筆數上限。** 丟掉使用者填的東西比留著幾筆冗料糟糕得多，
+   * 而真正會長出重複的那條路（三方合併）是整天二選一，長不出來。
+   */
+  const ABSENCE_KINDS = new Set(['away', 'leave']);
+  /** 圖示只收「看起來像一個 emoji」的東西：它會被塞進 textContent，風險不是 XSS
+   *  而是有人把一整段文字放進去、把日曆格子撐爛。家庭那種合體 emoji 有七個
+   *  碼位，所以上限放寬到 8 而不是 1。 */
+  function normalizeAbsenceIcon(v){
+    if(typeof v !== 'string') return null;
+    const t = v.trim();
+    if(!t || t.length > 32) return null;
+    return [...t].length <= 8 ? t : null;
+  }
+  function normalizeAbsenceEntry(e){
+    if(!e || typeof e !== 'object') return null;
+    if(!ABSENCE_KINDS.has(e.kind)) return null;
+    const out = { kind: e.kind, from: isHm(e.from) ? e.from : null, to: isHm(e.to) ? e.to : null };
+    if(e.kind === 'leave'){
+      const icon = normalizeAbsenceIcon(e.icon);
+      if(icon) out.icon = icon;
+    }
+    return out;
+  }
+  function absenceCmp(a, b){
+    if(a.kind !== b.kind) return a.kind < b.kind ? -1 : 1;
+    return (a.from || '').localeCompare(b.from || '');
+  }
+  function normalizeAbsences(raw){
+    const out = {};
+    if(!raw || typeof raw !== 'object') return out;
+    Object.keys(raw).sort().forEach(k => {
+      if(!isYmd(k)) return;
+      const seen = new Set(), kept = [];
+      (Array.isArray(raw[k]) ? raw[k] : []).forEach(e => {
+        const n = normalizeAbsenceEntry(e);
+        if(!n) return;
+        const sig = n.kind + '|' + n.from + '|' + n.to + '|' + (n.icon || '');
+        if(seen.has(sig)) return;
+        seen.add(sig); kept.push(n);
+      });
+      if(kept.length) out[k] = kept.sort(absenceCmp);
+    });
+    return out;
+  }
 
   // 存檔與雲端資料都可能來自舊版本、不同裝置或已損毀。缺少 date 這類必要
   // 欄位的項目會讓 occurrence 展開時 parseYMD 直接拋錯，整個 render 掛掉；
@@ -3001,15 +3081,20 @@
    *
    * v1 → v2：每日記錄與專案筆記從純文字改存 HTML。舊資料逐一escape 後把換行
    * 轉成 <br>，內容一字不差，只是換了表示法。
+   * v2 → v3：awayDates（只有日期的陣列）換成 absences（每天一個清單，帶種類與
+   * 時段）。舊的每一天都變成「整天不在」，語意一字不差。
    *
    * 認不得的版本（比目前新，例如從新版匯出的備份）仍然回 null 由呼叫端拒絕——
    * 猜測未來的格式只會把資料弄壞。
+   *
+   * **升級一定要逐階往上走，不能只認「上一版」。** 原本的寫法是一串 if，v1 那條
+   * 直接 return 一個 v2 物件——在只有兩個版本時剛好正確，但第三版一加，一份 v1
+   * 存檔就會停在 v2，接著 applySnapshot 讀不到 v3 才有的欄位，於是那些資料**安靜
+   * 地消失**（畫面不會壞，只是「不在」那幾天不見了）。所以改成查表迴圈：每一階
+   * 只負責自己那一步，加第四版時只要在表上多一列。
    */
-  function migrateSnapshot(s){
-    if(!s || typeof s !== 'object') return null;
-    const v = s.version;
-    if(v === STORAGE_VERSION) return s;
-    if(v === 1){
+  const SNAPSHOT_MIGRATIONS = {
+    1(s){
       const up = { ...s, version: 2 };
       const logs = (s.dailyLogs && typeof s.dailyLogs === 'object') ? s.dailyLogs : {};
       up.dailyLogs = {};
@@ -3017,8 +3102,31 @@
       up.ganttProjects = (Array.isArray(s.ganttProjects) ? s.ganttProjects : [])
         .map(gp => (gp && typeof gp === 'object') ? { ...gp, notes: rtFromPlain(gp.notes) } : gp);
       return up;
+    },
+    2(s){
+      const up = { ...s, version: 3 };
+      const abs = {};
+      (Array.isArray(s.awayDates) ? s.awayDates : []).forEach(d => {
+        if(isYmd(d)) abs[d] = [{ kind: 'away', from: null, to: null }];
+      });
+      // 已經有 absences 就以它為準（理論上不會發生，但兩個來源並存時要有個說法）
+      up.absences = (s.absences && typeof s.absences === 'object') ? s.absences : abs;
+      // **舊鍵不留。** 兩邊都寫的話，「哪一個才是真的」會在某一次同步之後變成猜謎。
+      delete up.awayDates;
+      return up;
     }
-    return null;
+  };
+
+  function migrateSnapshot(s){
+    if(!s || typeof s !== 'object') return null;
+    let cur = s, guard = 0;
+    while(cur.version !== STORAGE_VERSION){
+      const step = SNAPSHOT_MIGRATIONS[cur.version];
+      if(!step) return null;               // 認不得，或比目前這個 build 還新
+      cur = step(cur);
+      if(++guard > 20) return null;        // 表寫錯（繞成環）時不要把分頁卡死
+    }
+    return cur;
   }
 
   function applySnapshot(raw){
@@ -3040,7 +3148,7 @@
     }
     customHolidays = new Set((Array.isArray(s.customHolidays) ? s.customHolidays : []).filter(isYmd));
     customWorkdays = new Set((Array.isArray(s.customWorkdays) ? s.customWorkdays : []).filter(isYmd));
-    awayDates = new Set((Array.isArray(s.awayDates) ? s.awayDates : []).filter(isYmd));
+    absences = normalizeAbsences(s.absences);
     selectedGanttProjectId = s.selectedGanttProjectId || (ganttProjects[0] ? ganttProjects[0].id : null);
     if(Array.isArray(s.availableYears) && s.availableYears.length){
       availableYears = s.availableYears.filter(y => Number.isInteger(y));
@@ -3208,6 +3316,57 @@
     return out.sort();
   }
 
+  /**
+   * 「不在／休假」的合併。**粒度停在「一天」**，不到單筆時段。
+   *
+   * 單筆層級的合併必須回答「這兩筆是同一筆被改過，還是各自新增的兩筆」，而那需要
+   * 每一筆各自帶一個 id——為了一年用不到幾次的欄位背一整套身分系統不划算。一天
+   * 當成不可分割的單位，語意也比較好對使用者解釋：「這一天你們兩邊填的不一樣，
+   * 選一個。」
+   *
+   * 比對用 tmEq（stableStringify），所以 normalizeAbsences 的排序與去重是正確性的
+   * 一部分，不是美觀：順序不同會讓「其實一樣」被判成衝突。
+   *
+   * 形狀與 tmMergeLogs 相同（keyed map ＋ conflicts），連刪除的判斷也一樣：
+   * 只有「基準有、單邊拿掉」才算刪除，兩邊都動過才問人。
+   */
+  function tmMergeAbsences(base, local, remote){
+    base=base||{}; local=local||{}; remote=remote||{};
+    const merged={}, conflicts=[];
+    for(const k of new Set([...Object.keys(local), ...Object.keys(remote), ...Object.keys(base)])){
+      const b=base[k], l=local[k], r=remote[k];
+      if(l!==undefined && r!==undefined){
+        if(tmEq(l,r)){ merged[k]=r; }
+        else if(tmEq(l,b)){ merged[k]=r; }
+        else if(tmEq(r,b)){ merged[k]=l; }
+        else { merged[k]=l; conflicts.push({ id:k, local:l, remote:r }); }
+      } else if(l!==undefined){
+        if(b===undefined){ merged[k]=l; }
+        else if(!tmEq(l,b)){ merged[k]=l; conflicts.push({ id:k, local:l, remote:undefined }); }
+      } else if(r!==undefined){
+        if(b===undefined){ merged[k]=r; }
+        else if(!tmEq(r,b)){ merged[k]=r; conflicts.push({ id:k, local:undefined, remote:r }); }
+      }
+    }
+    return { merged, conflicts };
+  }
+
+  /**
+   * 基準與遠端可能是**還沒升級的舊快照**（cloudMeta.baseSnapshot 存的是當時那一份，
+   * 另一台裝置也可能還在跑舊 build）。直接讀 .absences 會讀到 undefined，於是
+   * 「本來就有的那幾天」看起來像「遠端把它刪掉了」——刪除會生效，資料靜靜消失。
+   * 所以一律經過這裡：舊形狀當場折算成新形狀。
+   */
+  function absencesOfSnapshot(snap){
+    if(!snap || typeof snap !== 'object') return {};
+    if(snap.absences && typeof snap.absences === 'object') return normalizeAbsences(snap.absences);
+    const abs = {};
+    (Array.isArray(snap.awayDates) ? snap.awayDates : []).forEach(d => {
+      if(isYmd(d)) abs[d] = [{ kind:'away', from:null, to:null }];
+    });
+    return abs;
+  }
+
   function threeWayMerge(base, local, remote){
     const conflicts=[];
     const items = tmMergeList(base.items, local.items, remote.items);
@@ -3218,6 +3377,8 @@
     majors.conflicts.forEach(c=>conflicts.push({ kind:'major', name:(c.local||c.remote).name||'（未命名）', ...c }));
     const logs = tmMergeLogs(base.dailyLogs, local.dailyLogs, remote.dailyLogs);
     logs.conflicts.forEach(c=>conflicts.push({ kind:'log', name:'每日記錄 '+c.id, ...c }));
+    const abs = tmMergeAbsences(absencesOfSnapshot(base), absencesOfSnapshot(local), absencesOfSnapshot(remote));
+    abs.conflicts.forEach(c=>conflicts.push({ kind:'absence', name:'不在／休假 '+c.id, ...c }));
     const merged = {
       ...local,                      // version 與其他純量欄位
       items: items.merged,
@@ -3226,9 +3387,10 @@
       dailyLogs: logs.merged,
       customHolidays: tmMergeSets(base.customHolidays, local.customHolidays, remote.customHolidays),
       customWorkdays: tmMergeSets(base.customWorkdays, local.customWorkdays, remote.customWorkdays),
-      awayDates: tmMergeSets(base.awayDates, local.awayDates, remote.awayDates),
+      absences: abs.merged,
       availableYears: [...new Set([...(local.availableYears||[]), ...(remote.availableYears||[])])].sort((a,b)=>a-b)
     };
+    delete merged.awayDates;   // ...local 若來自舊形狀，別讓它跟著合併結果復活
     return { merged, conflicts };
   }
 
@@ -3240,6 +3402,11 @@
       if(c.kind==='log'){
         if(want===undefined) delete merged.dailyLogs[c.id];
         else merged.dailyLogs[c.id]=want;
+        continue;
+      }
+      if(c.kind==='absence'){
+        if(want===undefined) delete merged.absences[c.id];
+        else merged.absences[c.id]=want;
         continue;
       }
       const arr=merged[listKey[c.kind]];
@@ -3344,7 +3511,7 @@
     }catch(e){ /* 記憶體模式下略過 */ }
     majorProjects = []; items = []; ganttProjects = [];
     dailyLogs = {}; customHolidays = new Set(); customWorkdays = new Set();
-    awayDates = new Set(); selectedGanttProjectId = null;
+    absences = {}; selectedGanttProjectId = null;
   }
 
   /** 狀態列現在寫著什麼（空字串＝什麼都沒說）。用來判斷「有沒有人已經解釋過了」 */
@@ -5532,9 +5699,15 @@
       ? '🌴 ' + (days.length>1 ? tf('取消不在（{0} 天）', days.length) : tr('取消不在'))
       : '🌴 ' + (days.length>1 ? tf('標記為不在（{0} 天）', days.length) : tr('標記為不在'));
     btn.title = tr('只是標記「那天我不在」：不會移動任何日期，也不會讓逾期變成不逾期。');
+    // 這顆按鈕目前只做「整天不在」，時段與休假的入口在 #62。改掉的只有寫進去的
+    // 形狀，行為一字不差：取消時只拿掉 away 那幾筆，同一天的 leave 留著。
     btn.onclick = ()=> commit(()=>{
-      if(allAway) days.forEach(x=> awayDates.delete(x));
-      else days.forEach(x=> awayDates.add(x));
+      days.forEach(x=>{
+        const rest = absencesOn(x).filter(a => a.kind !== 'away');
+        const next = allAway ? rest : rest.concat([{ kind:'away', from:null, to:null }]);
+        if(next.length) absences[x] = next.sort(absenceCmp);
+        else delete absences[x];
+      });
     });
   }
 
@@ -8022,11 +8195,12 @@
     // 完成的時間戳（遊戲化）：示範資料裡做完的兩件算「按時」
     items.forEach(it=>{ it.doneAt = it.done ? { single: Date.now() } : {}; });
 
-    // 「不在」：示範兩天連假。它只在日曆上標出來——不移動任何日期，
-    // 也不讓那幾天到期的東西變成不逾期。
+    // 「不在」與「休假」：示範一天出差（整天）、一天休假（半天，帶圖示）。
+    // 兩者都只在日曆上標出來——不移動任何日期，也不讓那幾天到期的東西變成不逾期。
     const a1=new Date(t); a1.setDate(t.getDate()+21);
     const a2=new Date(t); a2.setDate(t.getDate()+22);
-    awayDates.add(ymd(a1)); awayDates.add(ymd(a2));
+    absences[ymd(a1)] = [{ kind:'away', from:null, to:null }];
+    absences[ymd(a2)] = [{ kind:'leave', from:'13:00', to:'18:00', icon:'🏖️' }];
 
     const gp = { id: uid('gp'), name:'官網改版專案', tasks: [], notes:'' };
     ganttProjects.push(gp); selectedGanttProjectId = gp.id;

@@ -74,6 +74,8 @@ const SEED = {
   ],
   majorProjects: [], ganttProjects: [], dailyLogs: {},
   customHolidays: [], customWorkdays: [],
+  // **刻意維持 v2 的舊形狀**：這樣這支腳本順便在真的瀏覽器裡走一次 v2 → v3 的
+  // 搬家路徑。單元測試證明得了搬家函式對，證明不了它真的被接上了。
   awayDates: ['2026-08-25', '2026-09-15', '2026-09-16'],
   availableYears: [2026],
 };
@@ -178,8 +180,13 @@ ok('按鈕文案是「標記」而不是「取消」', /標記為不在/.test(aw
 await page.locator('#btnToggleAway').click();
 await page.waitForTimeout(400);
 ok('按下去那一格就多了 🌴', await cell('17').locator('.cal-away-mark').count() === 1);
-ok('而且真的存進去了', await page.evaluate(() =>
-  (JSON.parse(localStorage.getItem('workSchedule.v1')).awayDates || []).includes('2026-09-17')));
+ok('而且真的存進去了', await page.evaluate(() => {
+  const saved = JSON.parse(localStorage.getItem('workSchedule.v1'));
+  const day = (saved.absences || {})['2026-09-17'] || [];
+  return saved.version === 3 && day.some(a => a.kind === 'away' && a.from === null);
+}));
+ok('存下去的是新形狀，舊鍵沒有跟著復活', await page.evaluate(() =>
+  !('awayDates' in JSON.parse(localStorage.getItem('workSchedule.v1')))));
 ok('已經是「不在」時，按鈕改講「取消不在」', /取消不在/.test(await page.locator('#btnToggleAway').innerText()));
 await page.locator('#btnToggleAway').click();
 await page.waitForTimeout(400);
