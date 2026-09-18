@@ -250,6 +250,70 @@ ok('上週一件都沒做完時不出現——那會是一根刺，不是回顧'
    await monEmpty.evaluate(() => document.getElementById('brandLookback').hidden) === true);
 await monEmpty.close();
 
+console.log('\n── 開機的櫻花：它是遮罩，不是關卡 ──');
+// 上線日之後連續七天各一件按時做完：7 × 40 = 280，加「第一件」與「連續 7 天」兩個徽章
+// 200 → 480 XP → Lv.3 → 第二階（抽枝）。要的就是「不只一階」，才驗得到成長動畫真的
+// 演到使用者現在那一階，而不是永遠停在第一幀。
+const BOOT_SEED = { ...SEED, items:
+  ['2026-09-17', '2026-09-18', '2026-09-19', '2026-09-20', '2026-09-21', '2026-09-22', '2026-09-23']
+    .map((d, i) => mk({ id: 'b' + i, title: '之前的 ' + d, date: d, done: true, doneAt: { single: at(d, 10) } })),
+};
+async function bootRun(opts = {}) {
+  const pg = await br.newPage({ viewport: { width: 1280, height: 1000 }, locale: 'zh-TW', ...opts });
+  if (opts.javaScriptEnabled !== false) {
+    pg.on('pageerror', e => errors.push('pageerror: ' + e.message));
+    await pg.clock.setFixedTime(new Date('2026-09-24T10:00:00'));   // 等級要算得出來，就不能靠執行當天是幾號
+    await pg.addInitScript(s => { try { localStorage.setItem('workSchedule.v1', JSON.stringify(s)); localStorage.setItem('workSchedule.v1.lang', 'zh'); } catch (e) {} }, BOOT_SEED);
+    await markSignedIn(pg);
+  }
+  // 量的是**計算後**的樣式：看得見 = 還沒被 CSS 的動畫收掉
+  const shot = () => pg.evaluate(() => {
+    const el = document.getElementById('bootSakura');
+    if (!el) return { missing: true };
+    const cs = getComputedStyle(el);
+    return {
+      display: cs.display, visibility: cs.visibility, opacity: Number(cs.opacity),
+      pointer: cs.pointerEvents, art: (document.getElementById('bootSakuraArt') || {}).innerHTML || '',
+    };
+  });
+  await pg.goto(`http://localhost:${PORT}/`);
+  const early = await shot();
+  await pg.waitForTimeout(820);
+  const grown = await shot();
+  await pg.waitForTimeout(700);           // 累計 ~1520ms，過了 1200ms 的上限
+  const late = await shot();
+  return { pg, early, grown, late, shot };
+}
+
+const b = await bootRun();
+ok('第一次繪製就看得見（不必等任何東西，它蓋在已經畫好的畫面上）',
+   b.early.opacity > 0.9 && b.early.visibility === 'visible');
+ok('它是遮罩不是關卡：pointer-events 是 none', b.early.pointer === 'none');
+ok('開場畫的是第一階（新芽：只有芽與葉，沒有枝）',
+   /var\(--sakura-trunk\)/.test(b.early.art) && !/var\(--sakura-branch\)/.test(b.early.art));
+ok('成長動畫演到使用者現在那一階（Lv.3 → 抽枝，長出枝了）', /var\(--sakura-branch\)/.test(b.grown.art));
+ok('1200ms 的上限到了就走（1500ms 時已經收掉）',
+   b.late.visibility === 'hidden' || b.late.opacity === 0);
+// 「只在開機出現一次」：切頁籤不會讓它再冒出來
+await b.pg.locator('.nav-btn').nth(1).click().catch(() => {});
+await b.pg.waitForTimeout(150);
+const after = await b.shot();
+ok('只在開機出現一次：切過頁籤之後它沒有回來', after.visibility === 'hidden' || after.opacity === 0);
+await b.pg.close();
+
+// **上限本身**：它是 CSS 的，不是 JS 的。JS 整個不跑時它照樣要自己走——
+// 交給 JS 的計時器的話，JS 一摔倒就留下一張永遠蓋住整個 app 的紙。
+const bNoJs = await bootRun({ javaScriptEnabled: false });
+ok('上限不靠 JS：JavaScript 整個關掉，1500ms 時它一樣已經收掉',
+   bNoJs.late.visibility === 'hidden' || bNoJs.late.opacity === 0);
+ok('（而且那一輪的 JS 真的沒跑：樹沒有被畫進去）', bNoJs.late.art === '');
+await bNoJs.pg.close();
+
+const bReduced = await bootRun({ reducedMotion: 'reduce' });
+ok('prefers-reduced-motion：它根本不出現（display:none，不是淡出）',
+   bReduced.early.display === 'none');
+await bReduced.pg.close();
+
 console.log('');
 let bad = 0;
 for (const [n, c] of checks) if (!c) { bad++; console.log('  ✗ 未通過：' + n); }

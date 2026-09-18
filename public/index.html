@@ -313,6 +313,27 @@
   @keyframes level-glow{ 0%{ filter: drop-shadow(0 0 0 rgba(201,130,46,0)); transform:scale(1); } 40%{ filter: drop-shadow(0 0 10px rgba(201,130,46,.75)); transform:scale(1.12); } 100%{ filter: drop-shadow(0 0 0 rgba(201,130,46,0)); transform:scale(1); } }
   .game-avatar.levelup{ animation: level-glow .9s ease-out; }
   @media (prefers-reduced-motion: reduce){ .game-avatar.levelup{ animation:none; } .game-avatar .sakura{ transition:none; } }
+
+  /* 開機的櫻花。**它是遮罩，不是關卡**，而那句話有兩個具體的實作：
+     1. `pointer-events:none` —— 畫面照常繪製、照常按得到，它只是蓋在上面演一段。
+     2. **由 CSS 決定它何時消失，不是 JS。** 交給 JS 的話，JS 一摔倒就會留下一張永遠
+        蓋住整個 app 的紙——同 `.ai-panel[hidden]` 那個看不見的全屏遮罩，而那一次是
+        瀏覽器測試才抓到的。現在 JS 只負責畫：畫不出來最多是一片乾淨的底色，1200ms
+        後照樣自己走。**上限因此是唯一的機制，不是 JS 的備援。**
+     設計文件的「資料就緒（renderAll 跑完一次）就淡出」在實作時併進了上限這一條：
+     `renderAll()` 是同步的、第一次繪製之前就已經跑完，所以那個條件在 t=0 永遠成立，
+     照字面做的話這段動畫一幀都不會播。 */
+  .boot-sakura{
+    position:fixed; inset:0; z-index:200; display:grid; place-items:center;
+    background:var(--bg); pointer-events:none;
+    animation: boot-sakura-out 1200ms ease-in forwards;
+  }
+  .boot-sakura-art{ width:176px; height:176px; animation: boot-sakura-grow 760ms ease-out both; }
+  .boot-sakura-art svg{ width:100%; height:100%; display:block; overflow:visible; }
+  @keyframes boot-sakura-grow{ from{ transform:scale(.72); opacity:0; } to{ transform:scale(1); opacity:1; } }
+  @keyframes boot-sakura-out{ 0%, 76%{ opacity:1; } 100%{ opacity:0; visibility:hidden; } }
+  /* 純氛圍、沒有任何資訊在裡面，是最該被關掉的那一種動畫（同光暈、同升級的光） */
+  @media (prefers-reduced-motion: reduce){ .boot-sakura{ display:none; } }
   .game-card{ display:flex; gap:18px; align-items:flex-start; }
   .game-body{ flex:1; min-width:0; }
   .game-level{ font-family:var(--serif); font-size:18px; font-weight:600; margin-bottom:6px; }
@@ -1928,6 +1949,10 @@
     </div>
   </div>
 </div>
+
+<!-- 開機的櫻花。預設就是看得見的（第一次繪製它就在），由 CSS 自己淡掉——理由寫在
+     .boot-sakura 那一段。裡面是空的：inline script 在同一次解析裡就會把樹畫進去。 -->
+<div class="boot-sakura" id="bootSakura" aria-hidden="true"><div class="boot-sakura-art" id="bootSakuraArt"></div></div>
 
 <script>
 (function(){
@@ -5028,6 +5053,22 @@
       chip.textContent = (g.badges.includes(id) ? '★ ' : '☆ ') + tr(BADGE_LABEL[id]);
       wall.appendChild(chip);
     });
+  }
+
+  /**
+   * 開機的櫻花：從新芽長到**你現在那一階**，不是每次都從頭長到滿——那樣才有「我的樹」
+   * 的意思。整段最多 760ms，而它何時消失不歸這裡管（見 `.boot-sakura` 的 CSS 註解）。
+   *
+   * 它只在開機被呼叫一次。切頁籤不播：播一次是儀式，第三次就變成「這個 app 好慢」。
+   */
+  function bootSakuraPlay(stage){
+    const box = document.getElementById('bootSakuraArt'); if(!box) return;
+    const order = GAME_STAGES.map(([, name]) => name);   // 不另外抄一份：抄出來的那一份遲早走鐘
+    const upto = Math.max(0, order.indexOf(stage));
+    box.innerHTML = sakuraArt(order[0], false);
+    for(let i = 1; i <= upto; i++){
+      setTimeout(() => { box.innerHTML = sakuraArt(order[i], false); }, 760 / (upto + 1) * i);
+    }
   }
 
   let gameToastTimer = null;
@@ -8695,6 +8736,7 @@
   if(!availableYears.includes(selYear)) selYear = today.getFullYear();
   if(!loadedFromStorage && !gatedAtBoot) persist();   // 首次開啟即建立存檔，之後重整才接得回來
   applyLang();                        // 內含 renderAll()：語言要在第一次繪製前就套好
+  bootSakuraPlay(lastGame && lastGame.stage);   // 開機的櫻花：演到你現在那一階（閘門關著時也演，那台裝置就是第一階）
   if(gatedAtBoot) loginGateShow();
   else setTimeout(showReminderToast, 700);
 
