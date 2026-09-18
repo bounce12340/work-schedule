@@ -68,7 +68,7 @@ npx wrangler secret put APP_URL              # optional, used for the link insid
 **Existing databases need the newest migration before deploying** (`schema.sql` cannot add columns to tables that already exist):
 
 ```bash
-npx wrangler d1 execute work-schedule-db --remote --file=./migrations/005-app-purchase.sql
+npx wrangler d1 execute work-schedule-db --remote --file=./migrations/010-mail-log.sql
 ```
 
 Finally, deploy:
@@ -156,7 +156,8 @@ APP_URL=<optional>
 - **Forgot password**: press "Forgot password?" on the sign-in page and the system emails a one-time link (valid for one hour, usable once); setting a new password signs out every device
 - Repeated failed logins are throttled (sliding window, recovers on its own, no manual unlock needed)
 - Every administrator action (approve / suspend / change role / reset password / delete) is logged, and every administrator can see the log
-- Administrators can also reset a password from `/admin`, producing a temporary password shown exactly once
+- Administrators can also reset a password from `/admin`, producing a temporary password shown exactly once. Accounts pinned by `ADMIN_EMAILS` show a `設定檔指定` badge instead of those buttons — they can only reset themselves through "Forgot password"
+- When every path is blocked (mail provider down, mailbox unreachable, no administrator left), the break-glass tool is `npm run admin:reset`. **The runbook is [`docs/runbook-account-recovery.md`](docs/runbook-account-recovery.md)** — which path to try in what order, how to confirm each step really worked, and the checklist to run *before* the day you need it
 - Every account starts from a **blank interface** and sees nobody else's data
 
 ### 👤 My account
@@ -182,6 +183,7 @@ APP_URL=<optional>
 - Every day all schedules are backed up to Cloudflare R2, keeping the latest 14 copies (**password hashes excluded**; after a restore everyone resets through "Forgot password")
 - Overdue reminder emails are **on by default**, with a configurable **lead time** (default 3 days; can also be set to overdue-only or turned off)
 - The admin page lists the backups (date, size, number of schedules) and has a button to run one right now
+- The admin page also lists **every email the system sent in the last 30 days**, grouped by kind, with the provider's error text on the failures. Password resets and verification codes are marked as transactional — those are the ones a user is actively waiting for
 - When nothing is overdue and nothing is coming due, no email is sent at all — and the same rule applies to push notifications
 
 ### 🔗 Sharing (after deployment)

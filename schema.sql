@@ -347,3 +347,29 @@ CREATE TABLE IF NOT EXISTS ai_activity (
 );
 
 CREATE INDEX IF NOT EXISTS idx_ai_activity_user ON ai_activity(user_id, created_at);
+
+-- 每一封信寄出去的結果。
+--
+-- 為什麼要有這張表：Helen 按了「忘記密碼」，連結**真的產生了**，信卻被
+-- AgentMail 底下的 Amazon SES 以退訂名單擋掉——而系統從頭到尾一片安靜。
+-- `handleForgotPassword` 一律回 200（那是對的，回「查無此 email」等於做出一個
+-- 帳號列舉工具），寄信失敗只留了一行 console.error，而那行字在 Cloudflare 後台。
+-- 結果是：沒有任何畫面回答得了「那封信到底寄出去了嗎」。
+--
+-- 理由與 cron_runs 完全相同（〈看得見的備份才是備份〉）：**只留在 console 的
+-- 失敗等於沒有失敗。**
+--
+-- **只記 metadata，不記信的內容。** 要回答的是「有沒有寄成功、為什麼失敗」，
+-- 沒有理由為此把密碼重設連結、驗證碼、或某個人的排程摘要留在資料庫裡——
+-- 同 listBackups 與 /api/admin/usage 只回數量的判斷。detail 只在失敗時有值，
+-- 存的是寄信商的回應原文（那是分辨「key 無效」與「收件人被擋」的唯一線索）。
+CREATE TABLE IF NOT EXISTS mail_log (
+  id         TEXT PRIMARY KEY,
+  kind       TEXT NOT NULL,      -- 'reset' / 'verify' / 'reminder' / 'streak'
+  to_email   TEXT NOT NULL,      -- 要回答「他那一封有沒有寄到」就一定要記
+  ok         INTEGER NOT NULL,   -- 1 成功、0 失敗
+  detail     TEXT,               -- 失敗時是寄信商的回應原文；成功時是 NULL
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_mail_log_time ON mail_log(created_at);

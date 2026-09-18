@@ -70,7 +70,7 @@ export async function handleAppCode(request, env) {
   ).bind(email, await codeHash(email, code), now + CODE_TTL_MS, now).run();
 
   try {
-    await sendMail(env, email, codeMail(code));
+    await sendMail(env, email, codeMail(code), 'verify');
   } catch (e) {
     // 回應仍是 200（不洩漏帳號存在），但一定要留下痕跡——降級可以，沉默不行
     console.error('app code mail failed', email, e?.stack || String(e));

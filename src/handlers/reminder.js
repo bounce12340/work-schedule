@@ -357,7 +357,7 @@ export async function sendOverdueReminders(env, nowMs = Date.now()) {
 
     try {
       await sendMail(env, row.email,
-        buildReminderEmail(overdue, upcoming, today, env.APP_URL || ''));
+        buildReminderEmail(overdue, upcoming, today, env.APP_URL || ''), 'reminder');
       await env.DB.prepare('UPDATE reminder_feed SET last_sent_ymd = ? WHERE user_id = ?')
         .bind(today, row.user_id).run();
       out.sent++;
@@ -501,7 +501,7 @@ export async function sendStreakBroken(env, nowMs = Date.now()) {
     if (days < MIN_STREAK_FOR_MAIL) { out.tooShort++; continue; }
 
     try {
-      await sendMail(env, row.email, buildStreakEmail(days, day.missed, env.APP_URL || ''));
+      await sendMail(env, row.email, buildStreakEmail(days, day.missed, env.APP_URL || ''), 'streak');
       await env.DB.prepare('UPDATE reminder_feed SET streak_mail_ymd = ? WHERE user_id = ?')
         .bind(today, row.user_id).run();
       out.sent++;

@@ -88,7 +88,7 @@ export async function handleForgotPassword(request, env) {
 
   const link = resetLink(env, request, token);
   try {
-    await sendMail(env, user.email, buildResetEmail(link));
+    await sendMail(env, user.email, buildResetEmail(link), 'reset');
   } catch (e) {
     // 寄信失敗仍然回同一個 200：把失敗說出來一樣會洩漏「這個 email 存在」。
     // 但一定要留下 stack——降級可以，沉默不行。沒有這行的話，管理者只會看到

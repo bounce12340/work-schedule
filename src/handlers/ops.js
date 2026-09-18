@@ -190,11 +190,55 @@ export async function usageSummary(env, nowMs = Date.now()) {
   return { now: nowMs, users, totals, ai };
 }
 
-/** 路由層：兩支都只給管理者，權限在 index.js 的 /api/admin/ 前綴一次擋掉。 */
+/**
+ * 寄信記錄。
+ *
+ * 為什麼是這一頁而不是別的地方：Helen 按了「忘記密碼」，連結**真的產生了**，
+ * 信卻被寄信商底下的退訂名單擋掉——而系統從頭到尾一片安靜。這一區要回答的
+ * 就是那一個問題：**那封信到底寄出去了嗎。**
+ *
+ * `failed` 單獨算出來，理由同 cron 那一區的「最後一次成功」：一份只有時間戳的
+ * 清單裡，「今天寄了 4 封」與「今天寄了 4 封、其中 3 封被擋」看起來很像。
+ *
+ * 只回這張表本來就只存的東西（kind / to / ok / detail / 時間）——信的內容
+ * 一開始就沒有寫進去，所以這裡也不必特別擋。
+ */
+export async function listMailLog(env, nowMs = Date.now()) {
+  const rows = await env.DB.prepare(
+    `SELECT kind, to_email, ok, detail, created_at
+       FROM mail_log ORDER BY created_at DESC LIMIT ?`
+  ).bind(LIST_LIMIT).all();
+
+  const mails = (rows.results || []).map(r => ({
+    kind: r.kind,
+    to: r.to_email,
+    ok: !!r.ok,
+    detail: r.detail,
+    at: r.created_at,
+  }));
+
+  // 分 kind 統計，而且**失敗要單獨數**。「交易信（reset / verify）有沒有寄出去」
+  // 與「訂閱信（reminder / streak）有沒有寄出去」是兩個不同的問題，
+  // 而 Helen 那次正是前者被後者的退訂連坐（見 #58）——分開數才看得出來。
+  const byKind = {};
+  for (const m of mails) {
+    const k = byKind[m.kind] || (byKind[m.kind] = { sent: 0, failed: 0, lastOkAt: null, lastFailAt: null, lastError: null });
+    if (m.ok) { k.sent++; if (k.lastOkAt == null) k.lastOkAt = m.at; }
+    else { k.failed++; if (k.lastFailAt == null) { k.lastFailAt = m.at; k.lastError = m.detail; } }
+  }
+
+  return { now: nowMs, keepDays: KEEP_DAYS, byKind, mails };
+}
+
+/** 路由層：三支都只給管理者，權限在 index.js 的 /api/admin/ 前綴一次擋掉。 */
 export async function handleCronStatus(env) {
   return json(await listCronRuns(env));
 }
 
 export async function handleUsage(env) {
   return json(await usageSummary(env));
+}
+
+export async function handleMailLog(env) {
+  return json(await listMailLog(env));
 }

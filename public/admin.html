@@ -78,6 +78,7 @@
   .badge.rejected,.badge.suspended{background:var(--red-dim);color:var(--red);}
   .badge.pro{background:var(--amber-dim);color:var(--amber);}
   .badge.free{background:var(--panel-2);color:var(--text-muted);}
+  .badge.pinned{background:var(--panel-2);color:var(--text-muted);border:1px solid var(--line);}
   .when{font-family:var(--mono);font-size:10.5px;color:var(--text-dim);}
   .ops{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto;}
   .op{font-family:var(--mono);font-size:11px;padding:6px 10px;border-radius:6px;cursor:pointer;
@@ -165,6 +166,11 @@
   </div>
 
   <div class="log">
+    <h2>寄信記錄（最近 30 天）</h2>
+    <div id="maillog"><div class="empty">載入中…</div></div>
+  </div>
+
+  <div class="log">
     <h2>使用狀況</h2>
     <div id="usage"><div class="empty">載入中…</div></div>
   </div>
@@ -220,6 +226,7 @@
     loadLog();
     loadBackups();
     opsLoadCron();
+    opsLoadMailLog();
     opsLoadUsage();
   }
 
@@ -372,6 +379,78 @@
         }).join('');
     }
     el.innerHTML = html;
+  }
+
+  // 四種信。交易信（reset / verify）與訂閱信（reminder / streak）**分開顯示**，
+  // 因為 Helen 那次正是前者被後者的退訂連坐：訂閱信照寄，密碼重設信一封都出不去。
+  // 混在一個總數裡的話，畫面會顯示「今天寄了 3 封」——完全看不出問題。
+  var OPS_MAIL_KINDS = [
+    ['reset',    '密碼重設', '交易信'],
+    ['verify',   'app 驗證碼', '交易信'],
+    ['reminder', '逾期提醒', '訂閱信'],
+    ['streak',   '櫻花樹的信', '訂閱信']
+  ];
+
+  async function opsLoadMailLog(){
+    var el = document.getElementById('maillog');
+    try { opsRenderMailLog(await api('/api/admin/mail-log')); }
+    catch (e) { el.innerHTML = '<div class="empty">寄信記錄讀取失敗：' + esc(e.message) + '</div>'; }
+  }
+
+  function opsRenderMailLog(d){
+    var el = document.getElementById('maillog');
+    var now = d.now || Date.now();
+    var byKind = d.byKind || {};
+
+    var seen = {};
+    var names = OPS_MAIL_KINDS.slice();
+    OPS_MAIL_KINDS.forEach(function(p){ seen[p[0]] = 1; });
+    // 沒列在上面的 kind 照樣顯示。'unknown' 會出現在這裡，而它的意思很明確：
+    // 有一個 sendMail 的呼叫端忘了帶 kind——看得見才修得掉。
+    Object.keys(byKind).forEach(function(k){ if (!seen[k]) names.push([k, k, '']); });
+
+    var html = names.map(function(p){
+      var k = byKind[p[0]];
+      // **一封都沒寄過不是壞事，但要說出來。** 留白會讓人以為看過了。
+      if (!k) {
+        return '<div class="ops-row"><span class="ops-name">' + esc(p[1]) + '</span>' +
+          '<span class="ops-meta">— 這 ' + (d.keepDays || 30) + ' 天內沒有寄過</span></div>';
+      }
+      var cls = k.failed ? (k.sent ? 'ops-warn' : 'ops-bad') : 'ops-ok';
+      var head = k.failed
+        ? (k.sent ? '⚠️ 成功 ' + k.sent + '、失敗 ' + k.failed : '✗ 全部失敗（' + k.failed + '）')
+        : '✓ 成功 ' + k.sent;
+      var meta = (p[2] ? p[2] + ' · ' : '') +
+        (k.lastOkAt != null ? '最後寄成功 ' + opsAgo(k.lastOkAt, now) : '沒有成功過');
+      return '<div class="ops-row">' +
+        '<span class="ops-name">' + esc(p[1]) + '</span>' +
+        '<span class="' + cls + '">' + head + '</span>' +
+        '<span class="ops-meta">' + esc(meta) + '</span>' +
+        // 回應原文是分辨原因的唯一線索：「金鑰無效」與「這個收件人被擋」
+        // 在一個 failed 數字底下看起來一模一樣
+        (k.lastError ? '<span class="ops-err">最近的錯誤：' + esc(k.lastError) + '</span>' : '') +
+        '</div>';
+    }).join('');
+
+    var mails = d.mails || [];
+    if (mails.length) {
+      html += '<div class="section-label">最近寄出的信（保留 ' + (d.keepDays || 30) + ' 天；只記收件人與結果，不記內容）</div>' +
+        mails.slice(0, 40).map(function(m){
+          return '<div class="ops-row">' +
+            '<span class="log-when">' + esc(opsStamp(m.at)) + '</span>' +
+            '<span class="' + (m.ok ? 'ops-ok' : 'ops-bad') + '">' + (m.ok ? '✓' : '✗') + '</span>' +
+            '<span class="ops-name">' + esc(opsMailLabel(m.kind)) + '</span>' +
+            '<span class="ops-meta">' + esc(m.to) + '</span>' +
+            (m.detail ? '<span class="ops-err">' + esc(String(m.detail).slice(0, 200)) + '</span>' : '') +
+            '</div>';
+        }).join('');
+    }
+    el.innerHTML = html;
+  }
+
+  function opsMailLabel(kind){
+    for (var i = 0; i < OPS_MAIL_KINDS.length; i++) if (OPS_MAIL_KINDS[i][0] === kind) return OPS_MAIL_KINDS[i][1];
+    return kind;
   }
 
   function opsLabel(step){
@@ -531,6 +610,7 @@
     row.appendChild(email);
 
     row.appendChild(badge(ROLE_LABEL[u.role] || u.role, u.role));
+    if (u.configAdmin) row.appendChild(badge('設定檔指定', 'pinned'));
     row.appendChild(badge(STATUS_LABEL[u.status] || u.status, u.status));
     row.appendChild(badge(planLabel(u), u.plan === 'pro' ? 'pro' : 'free'));
 
@@ -549,10 +629,21 @@
       ops.appendChild(op('Pro 到某日…', '', function(){ setPlanUntil(u); }));
     }
 
-    if (me && u.id === me.id) {
-      var self = document.createElement('span');
-      self.className = 'locked'; self.textContent = '（你自己，角色與狀態無法變更）';
-      ops.appendChild(self);
+    // 「設定檔指定」那幾個操作本來就會被伺服器擋成 403。把按鈕留著只是讓人按下去、
+    // 看到紅字、以為系統壞了——實際發生過一次，而當時想到的解法（去 Cloudflare 把
+    // email 從 ADMIN_EMAILS 拿掉）正是 tools/reset-password.mjs 檔頭寫的那個地雷。
+    //
+    // 自己那一列也要講。名單內的那兩個帳號其中一個通常就是正在看這一頁的人，
+    // 而「你自己」只解釋得了角色與狀態，解釋不了「為什麼我連重設自己的密碼都沒有按鈕」。
+    var isSelf = !!(me && u.id === me.id);
+    if (isSelf || u.configAdmin) {
+      var why = document.createElement('span');
+      why.className = 'locked';
+      why.textContent = u.configAdmin
+        ? '（設定檔指定的管理者：停用、降級、重設密碼、刪除都不開放。'
+          + '忘記密碼請本人走登入頁的「忘記密碼」；連信都寄不出去時見 docs/runbook-account-recovery.md）'
+        : '（你自己，角色與狀態無法變更）';
+      ops.appendChild(why);
     } else {
       if (u.status !== 'approved') ops.appendChild(op('核准', 'approve', function(){ patch(u, { status:'approved' }); }));
       if (u.status === 'pending')  ops.appendChild(op('拒絕', 'danger',  function(){ patch(u, { status:'rejected' }); }));
