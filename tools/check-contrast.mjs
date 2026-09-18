@@ -77,15 +77,36 @@ const AFTER_CLICKS = [
  * **只量非今天的格子**：今天那一格的日期本來就是琥珀色（那是「今天在哪裡」的
  * 標記，與這層玻璃紙無關）。
  *
- * 格子裡的**項目文字**目前沒有量，而不量的理由要寫下來：示範資料在這個月只有
- * 今天那一格有項目，而 `.cal-cell.today` 的背景是半透明的（alpha 0.09），
- * `bgOf()` 會直接跳過它、一路掉到 body，量到的變成光暈而不是實際底色。
- * 要量它得先讓 `bgOf()` 會疊半透明的祖先——那是整支工具的行為改變，會翻出
- * 一批既有的數字，屬於另一件事（已另開待辦）。
+ * 格子裡的**項目文字**現在也量得到了（見 `IN_LEAVE_TODAY`）。先前量不了的理由是
+ * `bgOf()` 遇到半透明的祖先會直接跳過——示範資料在這個月只有今天那一格有項目，
+ * 而 `.cal-cell.today` 的背景 alpha 只有 0.09，於是量到的是光暈而不是實際底色
+ * （1.5:1 的假紅燈）。那個盲點已經補掉：半透明的祖先現在會由外往內疊起來。
  */
 const IN_LEAVE_CELL = [
   ['.cal-cell.leave:not(.today) .cal-daynum', '休假格子的日期'],
 ];
+
+/**
+ * 「休假格子裡的項目文字」量過了，**而且量出一個這支腳本修不掉的問題**，所以
+ * 先不放進會讓 CI 變紅的清單——但數字要寫下來，不要變成一句「以後再說」。
+ *
+ * 量到的（亮色，今天＋休假那一格，底色合成後是 rgb(219,217,203)）：
+ *
+ *   · 還沒做的作業類項目  `--amber` #C9822E     **2.2:1**（需要 4.5:1）
+ *   · 已完成的項目        `--text-dim` #A2A099  **1.84:1**
+ *   · 換成 `--amber-ink` #8A5716 也只有         **4.29:1**——仍然不夠
+ *   · 工作類的 `--teal` #1F8C68 在同一格是      **2.96:1**
+ *
+ * 這是〈顏色不只要好看，要量得出來〉那個 bug class 的第四次（頁籤、篩選鈕、
+ * 空狀態之後），但這一次**換一個 token 解決不了**：`.cal-item-text` 的顏色
+ * 就是型別的編碼（teal＝工作、amber＝作業、violet＝會議），把它們一起壓深到
+ * 4.5:1 等於改掉整個日曆的顏色語言。那是產品決定，不是一支檢查腳本該順手做的
+ * ——同 `--amber` 當初沒有被直接改掉、而是另開 `--amber-ink` 的理由。
+ *
+ * 要做的時候有三條路，都要先看過畫面：型別改用**形狀或圖示**而不是顏色、
+ * 把每一種顏色各自做一個 `-ink` 版本、或是把格子裡的文字改成 `--text` 而讓
+ * 顏色只留在左邊那顆點上。
+ */
 
 /**
  * 純告知（B）帶了一個**新的顏色 token**（`--notice`），而它的兩種狀態要分開量：
@@ -126,15 +147,37 @@ const measure = sels => {
     return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
   };
   const parse = s => (s.match(/[\d.]+/g) || []).slice(0, 4).map(Number);
+  const over = (top, base) => {           // top: [r,g,b,a] 疊在不透明的 base 上
+    const a = top.length >= 4 ? top[3] : 1;
+    return [0, 1, 2].map(i => Math.round(top[i] * a + base[i] * (1 - a)));
+  };
   // 背景要往上找到第一個不透明的祖先——元素自己通常是 transparent，
   // 拿 transparent 去算對比會得到一個漂亮但完全假的數字。
-  const bgOf = el => {
+  //
+  // **半透明的祖先要疊起來，不能跳過。** 原本遇到 alpha ≤ 0.92 就直接略過、
+  // 一路掉到 body，於是 `.cal-cell.today`（--today-bg 的 alpha 只有 0.09）裡面的字
+  // 量到的是光暈而不是它實際壓在上面的顏色，數字低到 1.5:1——而畫面上讀得很清楚。
+  // 那是工具的**假紅燈**，而假紅燈與假綠燈一樣糟：兩者都會讓人不再相信這一頁。
+  //
+  // 疊的順序是**由外往內**：最外面那一層先壓在不透明的底上，再一層層往內。
+  // 反過來疊出來的顏色不對（alpha 不可交換）。
+  const bgOf = (el, baseOverride) => {
+    const layers = [];      // 由內往外收集，等一下反過來疊
+    let base = null;
     for (let n = el; n && n !== document.documentElement; n = n.parentElement) {
       const c = parse(getComputedStyle(n).backgroundColor);
-      if (c.length >= 3 && (c[3] === undefined || c[3] > 0.92)) return c.slice(0, 3);
+      if (c.length < 3) continue;
+      const a = c[3] === undefined ? 1 : c[3];
+      if (a === 0) continue;                      // 完全透明：沒有貢獻
+      if (a > 0.92) { base = c.slice(0, 3); break; }
+      layers.push([c[0], c[1], c[2], a]);
     }
-    const c = parse(getComputedStyle(document.body).backgroundColor);
-    return c.length >= 3 ? c.slice(0, 3) : [255, 255, 255];
+    if (base === null) {
+      const c = parse(getComputedStyle(document.body).backgroundColor);
+      base = baseOverride || (c.length >= 3 ? c.slice(0, 3) : [255, 255, 255]);
+    }
+    for (let i = layers.length - 1; i >= 0; i--) base = over(layers[i], base);
+    return base;
   };
   // 光暈畫在 body::before 上，不是任何元素的祖先，bgOf() 看不到它——所以直接
   // 坐在 body 上的字（招呼語、標題）量到的一直是 --bg，而不是它實際壓在上面的
@@ -142,17 +185,20 @@ const measure = sels => {
   // 之中對比最低的那一個。任何位置的真實對比都不會比這個更差。
   const root = getComputedStyle(document.documentElement);
   const token = n => parse(root.getPropertyValue(n));
-  const over = (top, base) => {           // top: [r,g,b,a] 疊在不透明的 base 上
-    const a = top.length >= 4 ? top[3] : 1;
-    return [0, 1, 2].map(i => Math.round(top[i] * a + base[i] * (1 - a)));
+  const ratioOf = (fg, bg) => {
+    const L1 = lum(fg), L2 = lum(bg);
+    return (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05);
   };
-  const haloWorst = (fg, bg) => {
-    const L1 = lum(fg);
+  // **光暈是最底下那一層，不是最上面那一層。** 它畫在 body::before 上，所以任何
+  // 半透明的祖先（例如 `.nav-item.active` 的 --amber-dim）都疊在它**上面**。
+  // 第一版把它當成疊在合成後的背景之上，算出來的顏色順序是反的——alpha 不可交換，
+  // 那個數字看起來像個對比值，其實不對應畫面上任何一個位置。
+  const haloWorst = (fg, el) => {
+    const bodyBg = parse(getComputedStyle(document.body).backgroundColor).slice(0, 3);
     let worst = Infinity;
     for (const n of ['--halo-a', '--halo-b', '--halo-c']) {
       const h = token(n); if (h.length < 3) continue;
-      const L2 = lum(over(h, bg));
-      worst = Math.min(worst, (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05));
+      worst = Math.min(worst, ratioOf(fg, bgOf(el, over(h, bodyBg))));
     }
     return worst;
   };
@@ -179,9 +225,8 @@ const measure = sels => {
     const cs = getComputedStyle(el);
     const fg = parse(cs.color).slice(0, 3);
     const bg = bgOf(el);
-    const L1 = lum(fg), L2 = lum(bg);
-    let ratio = (Math.max(L1, L2) + 0.05) / (Math.min(L1, L2) + 0.05);
-    if (sitsOnBody(el)) ratio = Math.min(ratio, haloWorst(fg, bg));
+    let ratio = ratioOf(fg, bg);
+    if (sitsOnBody(el)) ratio = Math.min(ratio, haloWorst(fg, el));
     if (inLeaveCell(el)) ratio = Math.min(ratio, leaveWorst(fg, bg));
     const px = parseFloat(cs.fontSize);
     const w = parseInt(cs.fontWeight) || 400;
@@ -197,6 +242,31 @@ const problems = [];
 // 天空會跟著時段變色，而 header 的字（招呼語、標題）直接坐在光暈上——
 // 所以除了亮暗兩種主題，傍晚那組光暈也要量一次。時間用 page.clock 釘死，
 // 不靠執行當下幾點；不然這個檢查會在白天過、晚上紅，沒有人會相信它。
+// ---------- 工具的自我檢查 ----------
+//
+// `bgOf()` 會不會疊半透明的祖先，**畫面上的元素證明不了**：顏色是產品決定，
+// 今天剛好誰過誰不過，跟這條規則對不對無關。所以用一個答案已知的假元素直接問它。
+//
+// 黑字，外面一層 alpha 0.5 的黑，再外面是不透明的白：
+//   疊起來 → 底色 rgb(128,128,128)，黑字對它大約 5.3:1
+//   跳過   → 底色 rgb(255,255,255)，黑字對它 21:1
+// 兩個差了四倍，不會因為誰調了一個色碼就分不出來。
+const SELF_CHECK = async page => {
+  const got = await page.evaluate(m => {
+    const box = document.createElement('div');
+    box.style.cssText = 'position:fixed;left:0;top:0;background:#fff;z-index:-9999';
+    box.innerHTML = '<div style="background:rgba(0,0,0,0.5)"><span id="__cc" style="color:#000">x</span></div>';
+    document.body.appendChild(box);
+    const r = (new Function('sels', 'return (' + m + ')(sels)'))([['#__cc', 'self']]);
+    box.remove();
+    return r[0] && r[0].ratio;
+  }, measure.toString());
+  if (!(got > 4.8 && got < 6)) {
+    throw new Error(`bgOf() 沒有疊半透明的祖先：假元素量到 ${got}:1，疊起來應該是 5.3:1 左右（跳過的話會是 21:1）`);
+  }
+  console.log(`  ✓ 自我檢查：半透明的祖先有被疊起來（假元素 ${got}:1）`);
+};
+
 const PASSES = [
   ['light', '亮色', null],
   ['dark', '暗色', null],
@@ -211,6 +281,7 @@ for (const [theme, label, fixedTime] of PASSES) {
   await page.goto(`http://localhost:${PORT}/`);
   await page.waitForSelector('#board');
   await page.waitForTimeout(800);
+  if (label === '亮色') await SELF_CHECK(page);
   await page.locator('#reminderClose').click().catch(() => {});
   await page.waitForTimeout(200);
 
@@ -235,6 +306,7 @@ for (const [theme, label, fixedTime] of PASSES) {
   await page.locator('#btnAbsAdd').click();
   await page.waitForTimeout(350);
   rows.push(...await page.evaluate(measure, IN_LEAVE_CELL));
+
 
   // 造一件**已經過期**的純告知再量。同樣走應用程式自己的寫入路徑（開新增視窗 →
   // 勾「純告知」→ 填一個過去的日期），不是硬塞 class：硬塞的話，哪天 buildOccRow
