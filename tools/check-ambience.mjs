@@ -195,15 +195,28 @@ async function gameRun(reduced) {
   const afterFirst = await toastShown();
   await pg.locator('.occ-row').filter({ hasText: '今天第二件' }).first().locator('.checkbox').click();
   await pg.waitForTimeout(120);
-  const anim = await pg.evaluate(() => getComputedStyle(document.getElementById('brandPlant')).animationName);
+  const anim = await pg.evaluate(() => getComputedStyle(document.getElementById('brandTree')).animationName);
   await pg.waitForTimeout(400);
   const afterSecond = await toastShown();
   const text = await toastText();
   const after = await pg.evaluate(() => document.getElementById('brandGameText').textContent);
   await pg.waitForTimeout(1200);
-  const cleared = await pg.evaluate(() => !document.getElementById('brandPlant').classList.contains('levelup'));
+  const cleared = await pg.evaluate(() => !document.getElementById('brandTree').classList.contains('levelup'));
+  // 櫻花樹的畫皮：三件事。畫的顏色真的走 --sakura-*（舊的 --plant-* 一個都不剩）、
+  // SVG 的群組 class 與 CSS 選擇器對得上、加上 .wilt 真的會垂下。
+  // 中間那一條是這次換畫皮唯一會安靜壞掉的地方：class 對不上時 CSS 整條不作用，
+  // 畫面看起來完全正常，只是「連續斷掉那天微微垂下」從此再也不會發生。
+  const skin = await pg.evaluate(() => {
+    const box = document.getElementById('brandTree');
+    const g = box.querySelector('svg > g');
+    const origin = getComputedStyle(g).transformOrigin;
+    box.classList.add('wilt');
+    const wilted = getComputedStyle(g).transform;
+    box.classList.remove('wilt');
+    return { html: box.innerHTML, group: g.getAttribute('class'), origin, wilted };
+  });
   await pg.close();
-  return { before, afterFirst, afterSecond, text, after, anim, cleared };
+  return { before, afterFirst, afterSecond, text, after, anim, cleared, skin };
 }
 const g = await gameRun(false);
 ok('開場：Lv.2、連續 4 天（週末有安排也算）', /Lv\.2/.test(g.before) && /4/.test(g.before));
@@ -212,6 +225,12 @@ ok('勾掉今天最後一件：toast 出現，說「今天全部做完了」', g
 ok('同一次也升級了（260 → 300）：toast 說升到 Lv.3', /Lv\.3/.test(g.text) && /Lv\.3/.test(g.after));
 ok('升級的光在跑（計算後的 animationName 是 level-glow，不是 class 而已）', g.anim === 'level-glow');
 ok('動畫結束後 .levelup 拿掉——不會每次重繪都再冒一次', g.cleared === true);
+ok('畫的是櫻花樹：顏色走 --sakura-*，舊的 --plant-* 一個都不剩',
+  /var\(--sakura-/.test(g.skin.html) && !/var\(--plant-/.test(g.skin.html));
+ok('SVG 的群組 class 與 CSS 的 .game-avatar .sakura 對得上（量得到 transform-origin）',
+  g.skin.group === 'sakura' && g.skin.origin === '60px 100px');
+ok('連續斷掉那天仍然只是微微垂下：加上 .wilt 之後計算後的 transform 是旋轉',
+  /^matrix\(/.test(g.skin.wilted) && g.skin.wilted !== 'none');
 const gr = await gameRun(true);
 ok('prefers-reduced-motion：升級的光不跑（animationName 是 none），其餘照常', gr.anim === 'none' && gr.afterSecond === true);
 

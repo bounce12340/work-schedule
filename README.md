@@ -165,8 +165,8 @@ APP_URL=<optional>
 - **Delete my account**: at the bottom of the tab; confirm with your password and the account, every schedule in the cloud, shares, calendar feed and reminder settings are gone (daily backups expire after 14 days). Works on the web and in the iOS app
 - A device that has never signed in only sees the sign-in gate; a device that has signed in keeps working offline on local data
 - **Free and Pro**: Free has no time limit but caps: up to 3 major projects and 3 projects, 5 AI requests a day. Pro lifts the caps (20 AI requests a day). When Pro lapses nothing is deleted; you just can't add more. Subscriptions are bought inside the iPhone app (not yet released) and the web shares the same one
-- **Gamification**: a plant that grows as your character. +10 XP per on-time completion, +30 for a perfect day (everything scheduled that day done on time), +100 per badge; streaks, 7→14→30-day challenges and a badge wall under "My account". Days with nothing scheduled neither count nor break the streak. Same for Free and Pro
-- **The morning after a streak breaks, the plant writes to you** (switchable off under "My account"). Only on the day it breaks, at most once a day, and never for a streak under two days
+- **Gamification**: a cherry tree that grows as your character (new shoot → branching → in bud → in bloom → petals falling → new shoot again, with a thicker trunk each round). +10 XP per on-time completion, +30 for a perfect day (everything scheduled that day done on time), +100 per badge; streaks, 7→14→30-day challenges and a badge wall under "My account". Days with nothing scheduled neither count nor break the streak. Same for Free and Pro
+- **The morning after a streak breaks, the tree writes to you** (switchable off under "My account"). Only on the day it breaks, at most once a day, and never for a streak under two days
 
 ### 📱 iOS app (free download, Pro subscription in-app)
 - The same `index.html` is bundled into a native app (`mobile/`, Capacitor). Works offline; signs in with a token kept in the Keychain; the web version and the app share one account and one set of data
@@ -174,7 +174,7 @@ APP_URL=<optional>
 - Building and uploading happen on GitHub's Mac runners (`.github/workflows/ios.yml`, manual trigger); no Mac required. Four repository secrets: `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_API_KEY_P8`, `APPLE_TEAM_ID`. Set `APP_PURCHASE_ALLOW_SANDBOX=1` on the Worker while testing through TestFlight
 - **Pro is an auto-renewing subscription bought inside the app** (StoreKit 2). Prices always come from StoreKit, never hard-coded. The subscription screen carries the price, the renewal terms, a Restore purchase button and links to the terms and privacy policy — all four are App Review requirements
 - Entitlements are written by two paths: the app pushes its transactions (at launch, on purchase, on restore) and Apple's **server notifications** keep the expiry current for people who renew but only ever use the web. Expiry only moves forward, except refunds
-- **Push notifications** (APNs): overdue/upcoming, the plant's message when a streak breaks, and an optional "you have N things today". Each has its own switch, independent of the emails. Nothing is sent on quiet days. Three Worker secrets: `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_P8`
+- **Push notifications** (APNs): overdue/upcoming, the tree's message when a streak breaks, and an optional "you have N things today". Each has its own switch, independent of the emails. Nothing is sent on quiet days. Three Worker secrets: `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_P8`
 - A public [privacy policy](./public/privacy.html) is served at `/privacy.html`
 
 ### 💾 Automatic backups and reminders (after deployment)
@@ -244,7 +244,7 @@ For the full architecture and data model see [`工作排程確認系統_專案�
 | Sync conflicts | Merged item by item against the last synced content; you only choose a side when the same item changed on both |
 | Holidays | Weekends are automatic. Public holidays are bundled only for years that have been officially published (currently 2026 and 2027); other years can be pasted in bulk |
 | Prerequisites | Display only: they never move a date and never block ticking. At most five prerequisites per item |
-| FYI-only items | A `noticeOnly` item is just a placeholder: no checkbox, **never overdue**, and excluded from the four metric cards, the done section, the scope counts and your plant. It still shows up in the calendar feed; no reminder email and no push |
+| FYI-only items | A `noticeOnly` item is just a placeholder: no checkbox, **never overdue**, and excluded from the four metric cards, the done section, the scope counts and your tree. It still shows up in the calendar feed; no reminder email and no push |
 | "Away" and "Leave" | Only a mark on the calendar and the row: they move no dates and **do not affect overdue** or the calendar subscription. The single difference: **on a leave day no email and no push go out at all**, while the red overdue text on screen stays exactly as it is |
 | Weekend work days | Supported: weekend dates added to the "work days" list count as working days, so recurrences are not pushed past them |
 | Gantt | Bars cannot be dragged; dates are changed through the task table |

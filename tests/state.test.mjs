@@ -442,11 +442,14 @@ test('dayReport：壞掉的 digest 不會讓 cron 爆掉', () => {
     assert.equal(dayReport(d, '2026-09-20').broken, false));
 });
 
-test('信件是植物在講話：講事實、不評價、不寫「加油」', () => {
+test('信件是櫻花樹在講話：講事實、不評價、不寫「加油」', () => {
   const mail = buildStreakEmail(12, [gRow('標案初審', '2026-09-20'), gRow('查廠報告', '2026-09-20')], 'https://app.test');
   assert.match(mail.text, /12 天/);
   assert.match(mail.text, /〈標案初審〉和〈查廠報告〉/, '點名要像人在講話，不是條列');
-  assert.match(mail.text, /你的小植物/, '署名是角色本人');
+  // 畫面上的角色是櫻花樹，信的署名必須是同一個角色——不一致的症狀是
+  // 「畫面上是櫻花樹，信卻是別的植物寫的」，不會壞也不會報錯
+  assert.match(mail.text, /你的櫻花樹/, '署名是角色本人');
+  assert.ok(!/植物/.test(mail.text) && !/植物/.test(mail.html), '植物已經退休了，信裡不該再有它');
   assert.ok(!/加油|沒關係|放棄/.test(mail.text), '那三句會把這封信的用途取消掉');
   assert.match(mail.html, /https:\/\/app\.test/);
 });
@@ -520,12 +523,12 @@ test('cron：連續不到兩天不寄——「沒事就閉嘴」在這裡比逾�
   });
 });
 
-test('cron：關掉小植物的信就不寄，而且與逾期提醒的開關各自獨立', async () => {
+test('cron：關掉櫻花樹的信就不寄，而且與逾期提醒的開關各自獨立', async () => {
   const base = makeEnv();
   addUser(base, 'u1', 'off@x.com'); addUser(base, 'u2', 'onlyplant@x.com');
-  // 逾期提醒開著、植物的信關掉 → 不寄
+  // 逾期提醒開著、櫻花樹的信關掉 → 不寄
   feed(base, 'u1', [gRow('x', YDAY, 0)], { enabled: 1, streak_mail: 0 });
-  // 逾期提醒關掉、植物的信開著 → 要寄（兩個開關互不牽連）
+  // 逾期提醒關掉、櫻花樹的信開著 → 要寄（兩個開關互不牽連）
   feed(base, 'u2', [gRow('x', YDAY, 0)], { enabled: 0, streak_mail: 1 });
 
   await withFakeMail(async sent => {
@@ -564,7 +567,7 @@ test('cron：停用中的帳號不寄；寄失敗不記錄已寄，下次會重�
 //
 // 突變驗證（加完測試實際做過，各自只紅在對的地方）：
 //   - 拿掉 sendOverdueReminders 的 isOnLeave 判斷 → 「逾期信」那條紅
-//   - 拿掉 sendStreakBroken 的 → 「植物的信」那條紅
+//   - 拿掉 sendStreakBroken 的 → 「櫻花樹的信」那條紅
 //   - 跳過時順手寫 last_sent_ymd → 「休假結束的第一天要補上」紅
 //   - isOnLeave 改成「清單非空就算休假」→ 兩條「不是今天就照寄」紅
 //   - isOnLeave 解析失敗時回 true → 「壞掉時照寄」紅
@@ -612,12 +615,12 @@ test('cron：今天休假就整封不寄，而且不寫 last_sent_ymd（結束�
   });
 });
 
-test('cron：休假那天連植物的信也不寄——問的是今天，不是斷掉的那一天', async () => {
+test('cron：休假那天連櫻花樹的信也不寄——問的是今天，不是斷掉的那一天', async () => {
   const base = makeEnv();
   addUser(base, 'u1', 'onleave@x.com'); addUser(base, 'u2', 'backtowork@x.com');
   // u1 今天請假 → 不寄
   feed(base, 'u1', [gRow('沒做完的', YDAY, 0)], { leave_days: JSON.stringify(['2026-09-21']) });
-  // u2 昨天（斷掉的那一天）請假、今天上班 → 照寄：他的連續確實斷了，植物講的是事實
+  // u2 昨天（斷掉的那一天）請假、今天上班 → 照寄：他的連續確實斷了，櫻花樹講的是事實
   feed(base, 'u2', [gRow('沒做完的', YDAY, 0)], { leave_days: JSON.stringify([YDAY]) });
 
   await withFakeMail(async sent => {
@@ -666,7 +669,7 @@ test('PUT /api/reminder 收下 ot 與連續天數；POST 的兩個開關互不�
   assert.equal(row.streak_current, 12);
   assert.equal(row.streak_mail, 1, '新建的列採用預設值（開啟）');
 
-  // 關掉植物的信，逾期提醒維持開著
+  // 關掉櫻花樹的信，逾期提醒維持開著
   await handleReminderEnable(new Request('https://x.test', { method: 'POST',
     body: JSON.stringify({ enabled: true, streakMail: false }) }), env, user);
   row = read();

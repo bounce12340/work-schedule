@@ -381,11 +381,14 @@ export async function sendOverdueReminders(env, nowMs = Date.now()) {
 //
 // 設計文件 docs/superpowers/specs/2026-09-16-gamification-design.md〈斷掉之後的情勒信〉。
 //
-// 這封信不是系統在講話，是**那株植物**在講話——它有立場撒嬌（火焰是它的、葉子是
+// 這封信不是系統在講話，是**那棵櫻花樹**在講話——它有立場撒嬌（火焰是它的、花是
 // 它的），系統沒有。使用者的裁決是「會撒嬌的口氣」。
 //
+// 畫面上的角色換成櫻花樹之後這封信必須跟著改口，否則症狀是「畫面上是櫻花樹，信卻
+// 是別的植物寫的」——不會壞、不會報錯，只會讓人覺得哪裡怪怪的。
+//
 // 與逾期提醒共用同一條 cron 與同一張表，但**開關各自獨立**：關掉逾期提醒不代表
-// 不想聽植物說話，反過來也一樣。
+// 不想聽櫻花樹說話，反過來也一樣。
 
 /** 連續要有這麼多天才值得為它寄一封信 */
 const MIN_STREAK_FOR_MAIL = 2;
@@ -423,7 +426,7 @@ function namePhrase(rows) {
  *
  *   - **講事實**（幾天、哪幾件），**不評價**。沒有「你放棄了」「你又……」——
  *     撒嬌的力量來自「它在等你」，不是來自羞辱。
- *   - **第一人稱是植物**，署名也是。畫面上它垂下葉子，信裡它說想你，是同一件事。
+ *   - **第一人稱是那棵樹**，署名也是。畫面上它垂下枝子，信裡它說想你，是同一件事。
  *   - 不寫「加油」（那是提醒信的語氣）、不寫「沒關係」（那會把這封信的用途取消掉）。
  *
  * 罵人的信會被封鎖寄件人，然後逾期提醒也一起收不到；撒嬌的信不會。
@@ -433,24 +436,24 @@ export function buildStreakEmail(days, missed, appUrl) {
   const text = [
     `我們一起走了 ${days} 天耶。`,
     '',
-    '昨天你沒有把事情做完，我的火焰熄掉了，葉子也垂下來一點點。',
+    '昨天你沒有把事情做完，我的火焰熄掉了，枝子也垂下來一點點。',
     '我不生氣啦，只是有點想你。',
     '',
-    `今天可以回來嗎？把${names}做完，我就會再亮起來。`,
+    `今天可以回來嗎？把${names}做完，我就會再開花。`,
     '',
     appUrl ? `${appUrl}` : '',
     '',
-    '——你的小植物'
+    '——你的櫻花樹'
   ].join('\n');
 
   const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:15px;line-height:1.9;color:#2A2A26;max-width:520px">
-<p style="margin:0 0 4px;font-size:26px">🌱</p>
+<p style="margin:0 0 4px;font-size:26px">🌸</p>
 <p style="margin:0 0 14px">我們一起走了 <b style="color:#C9822E">${days}</b> 天耶。</p>
-<p style="margin:0 0 14px">昨天你沒有把事情做完，我的火焰熄掉了，葉子也垂下來一點點。<br>我不生氣啦，只是有點想你。</p>
+<p style="margin:0 0 14px">昨天你沒有把事情做完，我的火焰熄掉了，枝子也垂下來一點點。<br>我不生氣啦，只是有點想你。</p>
 <p style="margin:0 0 18px">今天可以回來嗎？把 ${missed.slice(0, MAX_NAMED).map(r => `<b>${esc(r.t)}</b>`).join('、')}${
-    missed.length > MAX_NAMED ? `，還有 ${missed.length - MAX_NAMED} 件` : ''} 做完，我就會再亮起來。</p>
+    missed.length > MAX_NAMED ? `，還有 ${missed.length - MAX_NAMED} 件` : ''} 做完，我就會再開花。</p>
 ${appUrl ? `<p style="margin:0 0 22px"><a href="${esc(appUrl)}" style="color:#C9822E">回來看看我 →</a></p>` : ''}
-<p style="margin:0;color:#71706A">——你的小植物</p>
+<p style="margin:0;color:#71706A">——你的櫻花樹</p>
 <p style="margin:22px 0 0;color:#A2A099;font-size:12px">連續中斷的那一天才會收到這封信，一天最多一封。不想收的話，可以在「我的帳號」裡關掉。</p>
 </div>`;
 
@@ -458,7 +461,7 @@ ${appUrl ? `<p style="margin:0 0 22px"><a href="${esc(appUrl)}" style="color:#C9
 }
 
 /**
- * Cron 進入點：昨天把連續弄斷的人，由植物寄一封信。
+ * Cron 進入點：昨天把連續弄斷的人，由櫻花樹寄一封信。
  *
  * 幾個不能拿掉的判斷：
  *
@@ -468,7 +471,7 @@ ${appUrl ? `<p style="margin:0 0 22px"><a href="${esc(appUrl)}" style="color:#C9
  * - **以最後一次同步為準。** 昨天 23:50 勾完但沒同步的人，今天早上會收到一封
  *   冤枉的信。與逾期提醒的取捨相同，可接受。
  * - 反過來，今天一早自己打開 app 同步過的人，推上來的連續已經歸零，就不會收到
- *   這封信——他已經回來了，植物不必再叫他。
+ *   這封信——他已經回來了，櫻花樹不必再叫他。
  */
 export async function sendStreakBroken(env, nowMs = Date.now()) {
   const today = taipeiYmd(nowMs);
@@ -486,7 +489,7 @@ export async function sendStreakBroken(env, nowMs = Date.now()) {
     if (row.status !== 'approved') { out.notApproved++; continue; }
     if (row.streak_mail_ymd === today) { out.alreadySent++; continue; }
     // 問的是「**今天**在不在休假」而不是昨天：這封信是今天寄出去打擾人的那一封。
-    // 昨天請假、今天上班的人照樣會收到——他的連續確實斷了，而植物講的是事實。
+    // 昨天請假、今天上班的人照樣會收到——他的連續確實斷了，而櫻花樹講的是事實。
     if (isOnLeave(row.leave_days, today)) { out.onLeave++; continue; }
 
     let digest = [];

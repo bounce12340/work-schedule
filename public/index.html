@@ -52,7 +52,7 @@
     --bg: #F6F4EE;
     --panel: #FFFDF7;
     --paper: #FDFAF1;   /* 每日記錄專用的紙色，比 panel 再暖一點 */
-    --plant-leaf: #7FA36B; --plant-leaf-2: #5E8A4E; --plant-stem: #6B7E52; --plant-soil: #CDBE9E; --plant-bloom-2: #F2D6A2;   /* 遊戲化的植物 */
+    --sakura-trunk: #6E5A4A; --sakura-branch: #8A7360; --sakura-leaf: #7FA36B; --sakura-petal: #F0BCCB; --sakura-petal-2: #D98AA6; --sakura-soil: #CDBE9E;   /* 遊戲化的櫻花樹 */
     --art-far: #DCE3D0;   /* 空狀態插畫：遠山 */
     --art-near: #C7D3BA;  /* 空狀態插畫：近坡 */
     --panel-2: #F1EEE5;
@@ -152,7 +152,7 @@
     --bg: #1A1917;
     --panel: #232220;
     --paper: #24211C;
-    --plant-leaf: #6E9A5C; --plant-leaf-2: #4E7B42; --plant-stem: #5C6E46; --plant-soil: #4A423A; --plant-bloom-2: #C99A5A;
+    --sakura-trunk: #5C4C40; --sakura-branch: #705E4E; --sakura-leaf: #6E9A5C; --sakura-petal: #C4889B; --sakura-petal-2: #A2687E; --sakura-soil: #4A423A;
     --art-far: #2C332B;
     --art-near: #363E33;
     --panel-2: #2B2A27;
@@ -299,18 +299,20 @@
   /* 週一的回顧：只講做完的。沒做完的那些，逾期的紅字已經在講了 */
   /* 顏色與字級刻意與招呼語相同：它也坐在光暈上，量招呼語就等於量它 */
   .brand-lookback{ font-family: var(--serif); font-size: 14px; color: var(--text); margin-top: 8px; letter-spacing: .5px; }
-  /* 遊戲化：header 的小角色。只是一株植物＋等級＋火焰，不佔版面 */
+  /* 遊戲化：header 的小角色。只是一棵櫻花樹＋等級＋火焰，不佔版面 */
   .brand-game{ display:flex; align-items:center; gap:8px; margin-top:8px; font-family:var(--mono); font-size:12.5px; color:var(--text); }
   .brand-game[hidden]{ display:none; }
   .game-avatar{ width:30px; height:30px; flex-shrink:0; }
   .game-avatar svg{ width:100%; height:100%; display:block; overflow:visible; }
   .game-avatar.big{ width:112px; height:112px; }
-  .game-avatar .plant{ transform-origin:60px 100px; transition: transform .6s ease; }
-  .game-avatar.wilt .plant{ transform: rotate(-7deg); }
+  /* 群組的 class 必須與 sakuraArt 吐出來的 <g class="sakura"> 逐字相同：對不上的話「垂下」
+     會安靜地停止作用，而畫面看起來完全正常。check-ambience.mjs 量 transform-origin 守著這件事 */
+  .game-avatar .sakura{ transform-origin:60px 100px; transition: transform .6s ease; }
+  .game-avatar.wilt .sakura{ transform: rotate(-7deg); }
   /* 升級的光：只在升級那一次冒一下（.levelup 由 gameCelebrate 加、animationend 拿掉），不掛在 .game-avatar 本身 */
   @keyframes level-glow{ 0%{ filter: drop-shadow(0 0 0 rgba(201,130,46,0)); transform:scale(1); } 40%{ filter: drop-shadow(0 0 10px rgba(201,130,46,.75)); transform:scale(1.12); } 100%{ filter: drop-shadow(0 0 0 rgba(201,130,46,0)); transform:scale(1); } }
   .game-avatar.levelup{ animation: level-glow .9s ease-out; }
-  @media (prefers-reduced-motion: reduce){ .game-avatar.levelup{ animation:none; } .game-avatar .plant{ transition:none; } }
+  @media (prefers-reduced-motion: reduce){ .game-avatar.levelup{ animation:none; } .game-avatar .sakura{ transition:none; } }
   .game-card{ display:flex; gap:18px; align-items:flex-start; }
   .game-body{ flex:1; min-width:0; }
   .game-level{ font-family:var(--serif); font-size:18px; font-weight:600; margin-bottom:6px; }
@@ -1254,7 +1256,7 @@
       <div class="brand-title" data-i18n>工作排程確認系統</div>
       <div class="brand-lookback" id="brandLookback" hidden></div>
       <div class="brand-game" id="brandGame" hidden>
-        <div class="game-avatar" id="brandPlant"></div>
+        <div class="game-avatar" id="brandTree"></div>
         <span id="brandGameText"></span>
       </div>
     </div>
@@ -1440,9 +1442,9 @@
         </div>
 
         <div class="acct-sec" id="acctGame">
-          <div class="acct-h" data-i18n>🌱 我的角色</div>
+          <div class="acct-h" data-i18n>🌸 我的角色</div>
           <div class="game-card">
-            <div class="game-avatar big" id="acctPlant"></div>
+            <div class="game-avatar big" id="acctTree"></div>
             <div class="game-body">
               <div class="game-level" id="acctGameLevel">—</div>
               <div class="xp-bar"><div class="xp-fill" id="acctXpFill" style="width:0%"></div></div>
@@ -1462,7 +1464,7 @@
             <button id="btnReminder" class="ghost-btn" type="button"></button>
             <select id="reminderLead" class="ghost-btn"></select>
           </div>
-          <div class="acct-sub" style="margin:14px 0 10px;" data-i18n>另外，連續中斷的隔天早上，你的小植物會寄一封信給你。只在斷掉的那一天寄、一天最多一封；連續不到兩天不寄。</div>
+          <div class="acct-sub" style="margin:14px 0 10px;" data-i18n>另外，連續中斷的隔天早上，你的櫻花樹會寄一封信給你。只在斷掉的那一天寄、一天最多一封；連續不到兩天不寄。</div>
           <div class="acct-row">
             <button id="btnStreakMail" class="ghost-btn" type="button"></button>
           </div>
@@ -1618,7 +1620,7 @@
     </div>
     <div class="field">
       <label class="check-line"><input type="checkbox" id="inputNoticeOnly"><span data-i18n>純告知（只是要知道，不用做）</span></label>
-      <div class="field-hint" data-i18n>不長勾選框、永遠不逾期，也不算進今日／本週／逾期／會議的數字與小植物。行事曆訂閱看得到，提醒信與推播不會通知。</div>
+      <div class="field-hint" data-i18n>不長勾選框、永遠不逾期，也不算進今日／本週／逾期／會議的數字與櫻花樹。行事曆訂閱看得到，提醒信與推播不會通知。</div>
     </div>
     <div class="field" id="itemMeetingTimeField"><label data-i18n>時間（選填）</label><input type="time" id="inputItemMeetingTime"></div>
     <div class="field"><label data-i18n>連結（選填，例如會議連結或文件）</label><input type="url" id="inputItemLink" placeholder="https://…"></div>
@@ -2407,11 +2409,11 @@
       // —— 導覽與頁首 ——
       '工作排程確認系統':'Schedule Control Board',
       // —— 連續斷掉的信（F2）——
-      '另外，連續中斷的隔天早上，你的小植物會寄一封信給你。只在斷掉的那一天寄、一天最多一封；連續不到兩天不寄。':'Also, the morning after your streak breaks, your little plant writes to you. Only on that day, at most once a day, and never for a streak under two days.',
-      '🌱 關掉小植物的信':'🌱 Turn off the plant’s letters', '🌱 讓小植物寄信給我':'🌱 Let the plant write to me',
+      '另外，連續中斷的隔天早上，你的櫻花樹會寄一封信給你。只在斷掉的那一天寄、一天最多一封；連續不到兩天不寄。':'Also, the morning after your streak breaks, your cherry tree writes to you. Only on that day, at most once a day, and never for a streak under two days.',
+      '🌸 關掉櫻花樹的信':'🌸 Turn off the tree’s letters', '🌸 讓櫻花樹寄信給我':'🌸 Let the tree write to me',
       // —— 遊戲化 ——
-      '🌱 我的角色':'🌱 My character', '{0} 天':'{0} days',
-      '種子':'Seed', '發芽':'Sprout', '小苗':'Seedling', '小樹':'Sapling', '開花':'In bloom', '結果':'Bearing fruit',
+      '🌸 我的角色':'🌸 My tree', '{0} 天':'{0} days',
+      '新芽':'New shoot', '抽枝':'Branching', '花苞':'In bud', '綻放':'In bloom', '花落':'Petals falling', '新芽（第二輪）':'New shoot, round two',
       '{0} XP，再 {1} 就升級。按時做完一件 +{2}，完美的一天 +{3}，第一次拿到徽章 +{4}。':'{0} XP, {1} more to level up. On-time completion +{2}, a perfect day +{3}, each new badge +{4}.',
       '連續 {0} 天，最長 {1} 天。那一天安排的事全部按時做完才算一天；沒安排的日子不算、也不會斷。':'{0}-day streak, best {1}. A day counts when everything scheduled that day is done on time; days with nothing scheduled neither count nor break it.',
       '目前的挑戰：連續 {0} 天（{1}/{0}）':'Current challenge: {0} days in a row ({1}/{0})',
@@ -2453,7 +2455,7 @@
       // ---- 推播（子專案 B）----
       '推播會直接亮在手機的鎖定畫面上。它與上面的信各自獨立——可以只要其中一種。沒事的日子完全不推。':'Push notifications appear right on your lock screen. They are independent of the emails above — you can have either or both. Nothing is sent on quiet days.',
       '🔔 逾期提醒：開':'🔔 Overdue alerts: on', '🔔 逾期提醒：關':'🔔 Overdue alerts: off',
-      '🌱 小植物：開':'🌱 Your plant: on', '🌱 小植物：關':'🌱 Your plant: off',
+      '🌸 櫻花樹：開':'🌸 Your tree: on', '🌸 櫻花樹：關':'🌸 Your tree: off',
       '☀️ 今天有事：開':'☀️ Today’s tasks: on', '☀️ 今天有事：關':'☀️ Today’s tasks: off',
       'iOS 的通知權限是關著的。要到「設定 → 通知 → 工作排程」裡打開。':'Notifications are turned off in iOS. Enable them in Settings → Notifications → Work Schedule.',
       '這個版本的 app 還不支援推播':'This version of the app does not support push notifications yet',
@@ -2594,8 +2596,8 @@
       '純告知（只是要知道，不用做）':'Just an FYI (nothing to do)',
       '純告知：只是讓你知道，不用打勾，也不算進任何數字。':
         'FYI only: nothing to tick, and it counts towards none of the numbers.',
-      '不長勾選框、永遠不逾期，也不算進今日／本週／逾期／會議的數字與小植物。行事曆訂閱看得到，提醒信與推播不會通知。':
-        'No checkbox, never overdue, and excluded from the today / this week / overdue / meeting counts and from your plant. It still shows up in the calendar feed, but no reminder email and no push.',
+      '不長勾選框、永遠不逾期，也不算進今日／本週／逾期／會議的數字與櫻花樹。行事曆訂閱看得到，提醒信與推播不會通知。':
+        'No checkbox, never overdue, and excluded from the today / this week / overdue / meeting counts and from your tree. It still shows up in the calendar feed, but no reminder email and no push.',
       // —— 不在／休假（2026-09-17） ——
       '不在／休假':'Away / Leave', '休假':'On leave',
       '不在／休假…':'Away / leave…', '不在／休假（已標記）':'Away / leave (marked)',
@@ -4481,6 +4483,9 @@
   const GAME_EPOCH = '2026-09-17';        // 上線日：之前的完成沒有時間戳，一律不算；角色從種子開始
   const GAME_XP = { onTime: 10, perfectDay: 30, badge: 100 };
   const GAME_LADDER = [7, 14, 30];        // 挑戰的梯子：拿到 7 才解鎖 14、拿到 14 才解鎖 30
+  // 六階的畫皮是櫻花的四季（新芽／抽枝／花苞／綻放／花落／新芽·第二輪，見 sakuraArt），
+  // 但這裡的 key 刻意維持原來的序數名字：它們是「第幾階」的識別字，不是畫皮的名字。
+  // 換畫皮不該讓 tests/game.test.mjs 改動——那支測試正是「畫皮有沒有動到語意」的絆線。
   const GAME_STAGES = [[1,'seed'],[3,'sprout'],[5,'seedling'],[8,'tree'],[12,'flower'],[17,'fruit']];
   const GAME_BADGES = ['first','ten','fifty','hundred','streak7','streak14','streak30','perfectWeek'];
 
@@ -4935,57 +4940,77 @@
   // 展開的是上線日到今天，成本與年度檢視同一個量級，不另外做快取（快取失效才是 bug 的來源）。
   let lastGame = null;
 
-  /** 一株植物，六階。純 inline SVG，顏色走 CSS 變數（兩種主題各一組）。 */
-  function plantArt(stage, glow){
-    const soil = '<ellipse cx="60" cy="100" rx="34" ry="9" fill="var(--plant-soil)"/>';
+  /**
+   * 一棵櫻花樹，六階，四季循環。純 inline SVG，顏色走 CSS 變數（兩種主題各一組）。
+   *
+   * 引擎傳進來的 stage（seed…fruit）是**序數**，不是畫皮的名字（見 GAME_STAGES 的註解），
+   * 所以第一件事就是把它翻成櫻花的四季，底下只講櫻花的話——否則下一個人讀到
+   * `stage === 'fruit'` 會照字面畫一顆果實出來。
+   */
+  function sakuraArt(stage, glow){
+    const season = { seed:'shoot', sprout:'branch', seedling:'bud', tree:'bloom', flower:'fall', fruit:'shoot2' }[stage] || 'shoot';
+    const soil = '<ellipse cx="60" cy="100" rx="34" ry="9" fill="var(--sakura-soil)"/>';
     const halo = glow ? '<circle cx="60" cy="60" r="34" fill="var(--halo-b)" opacity=".5"/>' : '';
+    const leaf = (x, y, deg) => '<ellipse cx="'+x+'" cy="'+y+'" rx="9" ry="4.5" fill="var(--sakura-leaf)" transform="rotate('+deg+' '+x+' '+y+')"/>';
+    /** 五瓣的花：五片花瓣繞著一個深色的花心 */
+    const flower = (x, y, r) => [18, 90, 162, 234, 306].map(a => {
+      const t = a * Math.PI / 180;
+      return '<circle cx="'+(x + Math.cos(t) * r * 0.55).toFixed(1)+'" cy="'+(y + Math.sin(t) * r * 0.55).toFixed(1)+'" r="'+(r * 0.52).toFixed(1)+'" fill="var(--sakura-petal)"/>';
+    }).join('') + '<circle cx="'+x+'" cy="'+y+'" r="'+(r * 0.24).toFixed(1)+'" fill="var(--sakura-petal-2)"/>';
+    const budDot = (x, y) => '<circle cx="'+x+'" cy="'+y+'" r="3.2" fill="var(--sakura-petal-2)"/>';
+    // 抽枝之後每一階都用同一副骨架：升級才看得出來「是我那棵樹長大了」，不是換了一棵
+    const skeleton = (w) =>
+        '<path d="M60 100 V54" stroke="var(--sakura-trunk)" stroke-width="'+w+'" stroke-linecap="round" fill="none"/>'
+      + '<path d="M60 78 L41 59" stroke="var(--sakura-branch)" stroke-width="3" stroke-linecap="round" fill="none"/>'
+      + '<path d="M60 70 L79 54" stroke="var(--sakura-branch)" stroke-width="3" stroke-linecap="round" fill="none"/>'
+      + '<path d="M60 58 L60 43" stroke="var(--sakura-branch)" stroke-width="2.5" stroke-linecap="round" fill="none"/>';
+    const TIPS = [[40,57],[50,68],[80,52],[70,62],[60,41],[52,50],[70,45]];
     let body = '';
-    if(stage === 'seed'){
-      body = '<ellipse cx="60" cy="96" rx="9" ry="6" fill="var(--plant-leaf-2)"/>';
-    }else if(stage === 'sprout'){
-      body = '<path d="M60 98 V78" stroke="var(--plant-stem)" stroke-width="3" stroke-linecap="round" fill="none"/>'
-        + '<ellipse cx="50" cy="78" rx="10" ry="5" fill="var(--plant-leaf)" transform="rotate(-25 50 78)"/>'
-        + '<ellipse cx="70" cy="76" rx="10" ry="5" fill="var(--plant-leaf-2)" transform="rotate(25 70 76)"/>';
-    }else if(stage === 'seedling'){
-      body = '<path d="M60 98 V52" stroke="var(--plant-stem)" stroke-width="3.5" stroke-linecap="round" fill="none"/>'
-        + '<ellipse cx="48" cy="84" rx="12" ry="5.5" fill="var(--plant-leaf)" transform="rotate(-25 48 84)"/>'
-        + '<ellipse cx="72" cy="78" rx="12" ry="5.5" fill="var(--plant-leaf-2)" transform="rotate(25 72 78)"/>'
-        + '<ellipse cx="49" cy="66" rx="11" ry="5" fill="var(--plant-leaf-2)" transform="rotate(-30 49 66)"/>'
-        + '<ellipse cx="70" cy="58" rx="11" ry="5" fill="var(--plant-leaf)" transform="rotate(30 70 58)"/>';
+    if(season === 'shoot' || season === 'shoot2'){
+      // 第 5 階回到第 0 階的樣子，只有**樹幹更粗**——那是「第幾輪」唯一的證據。
+      // 少了這個差別，Lv.17 與 Lv.1 長得一模一樣，升級就沒有意義了。
+      // 兩階的芽與葉**逐字相同**，差別只有樹幹的粗細：多畫一片葉子就會變成另一個形狀，
+      // 那樣看的人會以為是別的東西長出來了，而不是「同一棵樹，第二輪」
+      const thick = season === 'shoot2';
+      body = '<path d="M60 100 V86" stroke="var(--sakura-trunk)" stroke-width="'+(thick ? 8.5 : 3.5)+'" stroke-linecap="round" fill="none"/>'
+        + leaf(50, 85, -34) + leaf(70, 83, 34);
+    }else if(season === 'branch'){
+      body = skeleton(5) + leaf(39, 57, -42) + leaf(81, 52, 42) + leaf(60, 40, 0);
+    }else if(season === 'bud'){
+      body = skeleton(5.5) + TIPS.slice(0, 5).map(([x, y]) => budDot(x, y)).join('') + leaf(50, 73, -30);
+    }else if(season === 'bloom'){
+      body = skeleton(5.5) + TIPS.map(([x, y]) => flower(x, y, 7)).join('');
     }else{
-      const canopy = '<path d="M60 98 V60" stroke="var(--plant-stem)" stroke-width="5" stroke-linecap="round" fill="none"/>'
-        + '<circle cx="42" cy="58" r="17" fill="var(--plant-leaf-2)"/>'
-        + '<circle cx="78" cy="58" r="17" fill="var(--plant-leaf-2)"/>'
-        + '<circle cx="60" cy="42" r="20" fill="var(--plant-leaf)"/>'
-        + '<circle cx="60" cy="62" r="18" fill="var(--plant-leaf)"/>';
-      const bloom = (x, y, r) => '<circle cx="'+x+'" cy="'+y+'" r="'+r+'" fill="var(--amber)"/><circle cx="'+x+'" cy="'+y+'" r="'+(r*0.45)+'" fill="var(--plant-bloom-2)"/>';
-      const fruit = (x, y) => '<circle cx="'+x+'" cy="'+y+'" r="4.5" fill="var(--amber)"/>';
-      body = canopy;
-      if(stage === 'flower') body += bloom(47, 50, 5) + bloom(72, 44, 4.5) + bloom(62, 68, 4);
-      if(stage === 'fruit') body += bloom(50, 40, 4) + fruit(42, 64) + fruit(76, 66) + fruit(64, 52) + fruit(56, 74);
+      // 花落：樹上只剩三朵，其餘的花瓣在往下飄
+      body = skeleton(5.5) + TIPS.slice(0, 3).map(([x, y]) => flower(x, y, 6.5)).join('')
+        + '<ellipse cx="34" cy="80" rx="4" ry="2.6" fill="var(--sakura-petal)" transform="rotate(-25 34 80)"/>'
+        + '<ellipse cx="88" cy="74" rx="4" ry="2.6" fill="var(--sakura-petal)" transform="rotate(20 88 74)"/>'
+        + '<ellipse cx="76" cy="90" rx="3.6" ry="2.4" fill="var(--sakura-petal)" transform="rotate(-15 76 90)"/>';
     }
-    return '<svg viewBox="0 0 120 112" aria-hidden="true">' + halo + soil + '<g class="plant">' + body + '</g></svg>';
+    // 群組的 class 必須與 CSS 的 .game-avatar .sakura 逐字相同，否則「垂下」會安靜地失效
+    return '<svg viewBox="0 0 120 112" aria-hidden="true">' + halo + soil + '<g class="sakura">' + body + '</g></svg>';
   }
 
   const BADGE_LABEL = { first:'第一件', ten:'十件', fifty:'五十件', hundred:'一百件', streak7:'連續 7 天', streak14:'連續 14 天', streak30:'連續 30 天', perfectWeek:'完美的一週' };
 
   function renderGameHeader(g){
     const box = document.getElementById('brandGame'); if(!box) return;
-    const plant = document.getElementById('brandPlant');
-    // 連續斷掉那天植物微微垂下（有紀錄卻是 0）；不枯、不死——那是信的工作，不是畫面的
+    const tree = document.getElementById('brandTree');
+    // 連續斷掉那天櫻花樹微微垂下（有紀錄卻是 0）；不枯、不死——那是信的工作，不是畫面的
     const wilt = g.streak.current === 0 && g.onTime > 0;
-    plant.innerHTML = plantArt(g.stage, g.streak.current >= 3);
-    plant.classList.toggle('wilt', wilt);
+    tree.innerHTML = sakuraArt(g.stage, g.streak.current >= 3);
+    tree.classList.toggle('wilt', wilt);
     document.getElementById('brandGameText').textContent =
       'Lv.' + g.level + (g.streak.current >= 2 ? ' · 🔥 ' + tf('{0} 天', g.streak.current) : '');
     box.hidden = false;
   }
 
   function acctRenderGame(g){
-    const plant = document.getElementById('acctPlant'); if(!plant) return;
-    plant.innerHTML = plantArt(g.stage, g.streak.current >= 3);
-    plant.classList.toggle('wilt', g.streak.current === 0 && g.onTime > 0);
-    document.getElementById('acctGameLevel').textContent = 'Lv.' + g.level + ' · ' + tr({ seed:'種子', sprout:'發芽', seedling:'小苗', tree:'小樹', flower:'開花', fruit:'結果' }[g.stage]);
+    const tree = document.getElementById('acctTree'); if(!tree) return;
+    tree.innerHTML = sakuraArt(g.stage, g.streak.current >= 3);
+    tree.classList.toggle('wilt', g.streak.current === 0 && g.onTime > 0);
+    // 這一份才是給人看的名字（櫻花的四季）；引擎那邊的 key 是序數，兩者刻意不同
+    document.getElementById('acctGameLevel').textContent = 'Lv.' + g.level + ' · ' + tr({ seed:'新芽', sprout:'抽枝', seedling:'花苞', tree:'綻放', flower:'花落', fruit:'新芽（第二輪）' }[g.stage]);
     document.getElementById('acctXpFill').style.width = Math.round(g.into / g.need * 100) + '%';
     document.getElementById('acctGameXp').textContent = tf('{0} XP，再 {1} 就升級。按時做完一件 +{2}，完美的一天 +{3}，第一次拿到徽章 +{4}。', g.xp, g.need - g.into, GAME_XP.onTime, GAME_XP.perfectDay, GAME_XP.badge);
     document.getElementById('acctGameStreak').textContent = tf('連續 {0} 天，最長 {1} 天。那一天安排的事全部按時做完才算一天；沒安排的日子不算、也不會斷。', g.streak.current, g.streak.best);
@@ -5023,7 +5048,7 @@
     }
     if(cur.level > prev.level){
       parts.push(tf('升到 Lv.{0} 了！', cur.level));
-      ['brandPlant','acctPlant'].forEach(id => {
+      ['brandTree','acctTree'].forEach(id => {
         const el = document.getElementById(id); if(!el) return;
         el.classList.add('levelup');
         el.addEventListener('animationend', ()=> el.classList.remove('levelup'), { once:true });
@@ -7910,7 +7935,7 @@
   // 今天不逾期的項目後天就逾期了。讓 cron 每天自己比對，使用者一段時間沒開
   // app 也不影響正確性。
   let reminderEnabled = false;
-  // 連續斷掉時由植物寄信（F2）。與逾期提醒是**兩個各自獨立的開關**，預設開啟——
+  // 連續斷掉時由櫻花樹寄信（F2）。與逾期提醒是**兩個各自獨立的開關**，預設開啟——
   // 伺服器那邊還沒有那一列的人也回 true，畫面才不會先顯示「關著」再莫名其妙變開。
   let streakMailEnabled = true;
   // 提前幾天開始提醒。0 = 只在逾期時（原本的行為）。伺服器端的預設也是 3，
@@ -7983,13 +8008,13 @@
 
   /**
    * 「連續斷掉的信」的開關。與逾期提醒**各自獨立**：關掉逾期提醒不代表不想聽
-   * 植物說話，反過來也一樣，所以這裡不看 reminderEnabled。
+   * 櫻花樹說話，反過來也一樣，所以這裡不看 reminderEnabled。
    */
   function syncStreakMailBtn(){
     if(!btnStreakMail) return;
     btnStreakMail.style.display = cloudEnabled ? '' : 'none';
     btnStreakMail.textContent = streakMailEnabled
-      ? tr('🌱 關掉小植物的信') : tr('🌱 讓小植物寄信給我');
+      ? tr('🌸 關掉櫻花樹的信') : tr('🌸 讓櫻花樹寄信給我');
   }
   if(btnStreakMail) btnStreakMail.onclick = async ()=>{
     const next = !streakMailEnabled;
@@ -8027,7 +8052,7 @@
 
   const PUSH_BTNS = [
     { key:'pushOverdue', id:'btnPushOverdue', on:'🔔 逾期提醒：開', off:'🔔 逾期提醒：關' },
-    { key:'pushStreak',  id:'btnPushStreak',  on:'🌱 小植物：開',   off:'🌱 小植物：關' },
+    { key:'pushStreak',  id:'btnPushStreak',  on:'🌸 櫻花樹：開',   off:'🌸 櫻花樹：關' },
     { key:'pushToday',   id:'btnPushToday',   on:'☀️ 今天有事：開', off:'☀️ 今天有事：關' },
   ];
 
