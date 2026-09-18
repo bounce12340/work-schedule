@@ -397,6 +397,28 @@
     catch (e) { el.innerHTML = '<div class="empty">寄信記錄讀取失敗：' + esc(e.message) + '</div>'; }
   }
 
+  // 分家的狀態要**主動講**，不能只靠「有沒有失敗」去推。沒設定時交易信會安靜地
+  // 退回共用那一組，而那正是 helen 那次的形狀——畫面上沒有任何徵兆。
+  // 同〈看得見的備份才是備份〉：說得出「現在是共用的」，才不會以為已經修好了。
+  function opsMailSplit(sd){
+    if (!sd) return '';
+    if (sd.halfConfigured) {
+      return '<div class="ops-row"><span class="ops-name">寄件帳號</span>' +
+        '<span class="ops-warn">⚠️ 設定不完整</span>' +
+        '<span class="ops-meta">AGENTMAIL_TX_API_KEY 與 AGENTMAIL_TX_INBOX_ID 只設了一個，' +
+        '交易信仍然與訂閱信共用同一個帳號</span></div>';
+    }
+    if (sd.split) {
+      return '<div class="ops-row"><span class="ops-name">寄件帳號</span>' +
+        '<span class="ops-ok">✓ 已分家</span>' +
+        '<span class="ops-meta">交易信 ' + esc(sd.tx) + ' · 訂閱信 ' + esc(sd.shared || '未設定') + '</span></div>';
+    }
+    return '<div class="ops-row"><span class="ops-name">寄件帳號</span>' +
+      '<span class="ops-warn">⚠️ 共用一個</span>' +
+      '<span class="ops-meta">' + esc(sd.shared || '未設定') +
+      ' · 訂閱名單擋掉某個收件人時，他的密碼重設信與驗證碼也會一起收不到</span></div>';
+  }
+
   function opsRenderMailLog(d){
     var el = document.getElementById('maillog');
     var now = d.now || Date.now();
@@ -409,7 +431,7 @@
     // 有一個 sendMail 的呼叫端忘了帶 kind——看得見才修得掉。
     Object.keys(byKind).forEach(function(k){ if (!seen[k]) names.push([k, k, '']); });
 
-    var html = names.map(function(p){
+    var html = opsMailSplit(d.senders) + names.map(function(p){
       var k = byKind[p[0]];
       // **一封都沒寄過不是壞事，但要說出來。** 留白會讓人以為看過了。
       if (!k) {
@@ -421,7 +443,10 @@
         ? (k.sent ? '⚠️ 成功 ' + k.sent + '、失敗 ' + k.failed : '✗ 全部失敗（' + k.failed + '）')
         : '✓ 成功 ' + k.sent;
       var meta = (p[2] ? p[2] + ' · ' : '') +
-        (k.lastOkAt != null ? '最後寄成功 ' + opsAgo(k.lastOkAt, now) : '沒有成功過');
+        (k.lastOkAt != null ? '最後寄成功 ' + opsAgo(k.lastOkAt, now) : '沒有成功過') +
+        // 設定說的是「現在設成什麼」，這一欄說的是「那幾封實際從哪裡出去」。
+        // 分家那天要證明它真的生效了，看的是這一欄。
+        (k.senders && k.senders.length ? ' · 寄件 ' + k.senders.join('、') : '');
       return '<div class="ops-row">' +
         '<span class="ops-name">' + esc(p[1]) + '</span>' +
         '<span class="' + cls + '">' + head + '</span>' +
@@ -440,7 +465,7 @@
             '<span class="log-when">' + esc(opsStamp(m.at)) + '</span>' +
             '<span class="' + (m.ok ? 'ops-ok' : 'ops-bad') + '">' + (m.ok ? '✓' : '✗') + '</span>' +
             '<span class="ops-name">' + esc(opsMailLabel(m.kind)) + '</span>' +
-            '<span class="ops-meta">' + esc(m.to) + '</span>' +
+            '<span class="ops-meta">' + esc(m.to) + (m.sender ? ' ← ' + esc(m.sender) : '') + '</span>' +
             (m.detail ? '<span class="ops-err">' + esc(String(m.detail).slice(0, 200)) + '</span>' : '') +
             '</div>';
         }).join('');

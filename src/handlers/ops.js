@@ -18,6 +18,7 @@
 import { uuid } from '../crypto.js';
 import { json } from './auth.js';
 import { aiUsageSummary, aiConfigured } from './ai.js';
+import { mailSenders } from '../mail.js';
 
 /** 執行記錄保留幾天。一天三列，量極小；價值只存在於事發後的短期內。 */
 const KEEP_DAYS = 30;
@@ -205,7 +206,7 @@ export async function usageSummary(env, nowMs = Date.now()) {
  */
 export async function listMailLog(env, nowMs = Date.now()) {
   const rows = await env.DB.prepare(
-    `SELECT kind, to_email, ok, detail, created_at
+    `SELECT kind, to_email, ok, detail, sender, created_at
        FROM mail_log ORDER BY created_at DESC LIMIT ?`
   ).bind(LIST_LIMIT).all();
 
@@ -214,20 +215,28 @@ export async function listMailLog(env, nowMs = Date.now()) {
     to: r.to_email,
     ok: !!r.ok,
     detail: r.detail,
+    sender: r.sender || null,
     at: r.created_at,
   }));
 
   // 分 kind 統計，而且**失敗要單獨數**。「交易信（reset / verify）有沒有寄出去」
   // 與「訂閱信（reminder / streak）有沒有寄出去」是兩個不同的問題，
   // 而 Helen 那次正是前者被後者的退訂連坐（見 #58）——分開數才看得出來。
+  //
+  // 每一種也收集**實際用過的寄件信箱**。設定狀態（senders）回答的是「現在設成
+  // 什麼」，這裡回答的是「那幾封到底從哪裡出去的」——分家那天要證明它真的
+  // 生效了，靠的是後者；前者在改設定的那一刻就變了，證明不了歷史。
   const byKind = {};
   for (const m of mails) {
-    const k = byKind[m.kind] || (byKind[m.kind] = { sent: 0, failed: 0, lastOkAt: null, lastFailAt: null, lastError: null });
+    const k = byKind[m.kind] || (byKind[m.kind] = {
+      sent: 0, failed: 0, lastOkAt: null, lastFailAt: null, lastError: null, senders: [],
+    });
     if (m.ok) { k.sent++; if (k.lastOkAt == null) k.lastOkAt = m.at; }
     else { k.failed++; if (k.lastFailAt == null) { k.lastFailAt = m.at; k.lastError = m.detail; } }
+    if (m.sender && !k.senders.includes(m.sender)) k.senders.push(m.sender);
   }
 
-  return { now: nowMs, keepDays: KEEP_DAYS, byKind, mails };
+  return { now: nowMs, keepDays: KEEP_DAYS, byKind, mails, senders: mailSenders(env) };
 }
 
 /** 路由層：三支都只給管理者，權限在 index.js 的 /api/admin/ 前綴一次擋掉。 */

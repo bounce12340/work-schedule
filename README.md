@@ -68,7 +68,7 @@ npx wrangler secret put APP_URL              # optional, used for the link insid
 **Existing databases need the newest migration before deploying** (`schema.sql` cannot add columns to tables that already exist):
 
 ```bash
-npx wrangler d1 execute work-schedule-db --remote --file=./migrations/010-mail-log.sql
+npx wrangler d1 execute work-schedule-db --remote --file=./migrations/011-mail-sender.sql
 ```
 
 Finally, deploy:
@@ -184,6 +184,7 @@ APP_URL=<optional>
 - Overdue reminder emails are **on by default**, with a configurable **lead time** (default 3 days; can also be set to overdue-only or turned off)
 - The admin page lists the backups (date, size, number of schedules) and has a button to run one right now
 - The admin page also lists **every email the system sent in the last 30 days**, grouped by kind, with the provider's error text on the failures. Password resets and verification codes are marked as transactional — those are the ones a user is actively waiting for
+- Transactional mail can be sent through a **separate provider account** (`AGENTMAIL_TX_API_KEY` + `AGENTMAIL_TX_INBOX_ID`), so a suppression list built from bulk mail cannot also block somebody's password reset. Both unset is fine — it falls back to the shared account, and the admin page says so rather than looking configured
 - When nothing is overdue and nothing is coming due, no email is sent at all — and the same rule applies to push notifications
 
 ### 🔗 Sharing (after deployment)

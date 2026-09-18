@@ -381,3 +381,102 @@ test('listMailLog：分 kind 數，而且失敗要單獨數得出來', async () 
   assert.match(d.byKind.reset.lastError, /message_rejected/);
   assert.equal(d.mails[0].kind, 'reset', '最新的在最前面');
 });
+
+// ------------------------------------- 交易信與訂閱信分家（#58）
+//
+// 擋掉 helen 密碼重設信的那份退訂名單是**帳號層級**的：三個 inbox 的 per-inbox
+// 名單全都是空的（唯讀 API 查過兩次），名單卻照樣生效。所以修法只有一個方向
+// ——交易信走另一組憑證。這幾條守的是那條路真的通、而且**沒設定時看得出來**。
+//
+// 突變驗證：TX_KINDS 改成空集合 → 2 紅；只設一半就採用 → 1 紅；
+// mailSenders 的 split 永遠回 true → 1 紅；sender 不寫進 mail_log → 2 紅。
+
+/** 用假的 fetch 寄一封信，回傳「實際打去哪個 inbox 的 URL」。 */
+async function sentTo(env, kind) {
+  const realFetch = globalThis.fetch;
+  try {
+    const seen = fakeFetch([{ status: 200 }]);
+    const { sendMail } = await import('../src/mail.js');
+    await sendMail(env, 'helen@x.com', { subject: 's', text: 't' }, kind);
+    return seen[0].url;
+  } finally { globalThis.fetch = realFetch; }
+}
+// 刻意**不**在這裡把 console.warn 消音：pickSender 的「只設一半」就是靠它說話的，
+// 消音等於把要測的那句話吃掉（第一版就是這樣紅的，而紅的理由是 helper 的錯）。
+
+test('分家：設定好之後，交易信走 TX 帳號、訂閱信照舊', async () => {
+  const env = makeEnv();
+  env.AGENTMAIL_API_KEY = 'bulk-key'; env.AGENTMAIL_INBOX_ID = 'bulk@agentmail.to';
+  env.AGENTMAIL_TX_API_KEY = 'tx-key'; env.AGENTMAIL_TX_INBOX_ID = 'tx@agentmail.to';
+
+  // 交易信＝使用者按了按鈕正在等的那一封。退訂名單不該擋得住它。
+  assert.match(await sentTo(env, 'reset'), /tx%40agentmail\.to/);
+  assert.match(await sentTo(env, 'verify'), /tx%40agentmail\.to/);
+  // 訂閱信＝系統主動送的。它本來就該受退訂名單管。
+  assert.match(await sentTo(env, 'reminder'), /bulk%40agentmail\.to/);
+  assert.match(await sentTo(env, 'streak'), /bulk%40agentmail\.to/);
+  // 沒帶 kind 的走訂閱那一組：多一個帳號的成本由「主動送的」承擔才合理
+  assert.match(await sentTo(env, 'unknown'), /bulk%40agentmail\.to/);
+});
+
+test('分家：沒設定時安靜退回共用那一組——今天的信不能因此寄不出去', async () => {
+  const env = makeEnv();
+  env.AGENTMAIL_API_KEY = 'bulk-key'; env.AGENTMAIL_INBOX_ID = 'bulk@agentmail.to';
+  assert.match(await sentTo(env, 'reset'), /bulk%40agentmail\.to/);
+
+  const { mailSenders } = await import('../src/mail.js');
+  const sd = mailSenders(env);
+  assert.equal(sd.split, false, '沒分家就要說沒分家——這一格就是 helen 那次的形狀');
+  assert.equal(sd.halfConfigured, false);
+});
+
+test('分家：只設一半要退回去、要出聲，而且不准當成已經分家', async () => {
+  const realWarn = console.warn;
+  const warned = [];
+  try {
+    console.warn = (...a) => warned.push(a.join(' '));
+    const env = makeEnv();
+    env.AGENTMAIL_API_KEY = 'bulk-key'; env.AGENTMAIL_INBOX_ID = 'bulk@agentmail.to';
+    env.AGENTMAIL_TX_INBOX_ID = 'tx@agentmail.to';   // 少了 TX_API_KEY
+
+    // 退回去而不是丟例外：丟例外的症狀是交易信全部停掉，比「設定沒生效」更糟
+    assert.match(await sentTo(env, 'reset'), /bulk%40agentmail\.to/);
+    assert.ok(warned.some(w => /AGENTMAIL_TX/.test(w)),
+      '靜靜退回去的症狀是「我明明設定了，卻什麼都沒發生」');
+
+    const { mailSenders } = await import('../src/mail.js');
+    const sd = mailSenders(env);
+    assert.equal(sd.split, false, '半套不算分家');
+    assert.equal(sd.halfConfigured, true, '而且要分得出「半套」與「根本沒設」');
+    assert.equal(sd.tx, null, '沒真的生效就不要報一個會讓人以為生效了的位址');
+  } finally { console.warn = realWarn; }
+});
+
+test('mailSenders 不回任何一把 key', async () => {
+  const env = makeEnv();
+  env.AGENTMAIL_API_KEY = 'BULK-SECRET'; env.AGENTMAIL_INBOX_ID = 'bulk@agentmail.to';
+  env.AGENTMAIL_TX_API_KEY = 'TX-SECRET'; env.AGENTMAIL_TX_INBOX_ID = 'tx@agentmail.to';
+  const { mailSenders } = await import('../src/mail.js');
+  const dump = JSON.stringify(mailSenders(env));
+  assert.ok(!dump.includes('SECRET'), '信箱位址是公開的 From，key 不是');
+});
+
+test('mail_log 記下實際用了哪個信箱——設定說不出「歷史上到底有沒有分家」', async () => {
+  const env = makeEnv();
+  env.AGENTMAIL_API_KEY = 'bulk-key'; env.AGENTMAIL_INBOX_ID = 'bulk@agentmail.to';
+  env.AGENTMAIL_TX_API_KEY = 'tx-key'; env.AGENTMAIL_TX_INBOX_ID = 'tx@agentmail.to';
+  await sentTo(env, 'reset');
+  await sentTo(env, 'reminder');
+
+  const rs = mailRows(env);
+  assert.equal(rs.find(r => r.kind === 'reset').sender, 'tx@agentmail.to');
+  assert.equal(rs.find(r => r.kind === 'reminder').sender, 'bulk@agentmail.to');
+
+  // 而且要走得到管理頁：改設定的那一刻 senders 就變了，證明不了歷史，
+  // 所以「那幾封從哪裡出去的」一定要從每一列本身讀出來
+  const { listMailLog } = await import('../src/handlers/ops.js');
+  const d = await listMailLog(env, T0 + 10);
+  assert.deepEqual(d.byKind.reset.senders, ['tx@agentmail.to']);
+  assert.deepEqual(d.byKind.reminder.senders, ['bulk@agentmail.to']);
+  assert.equal(d.senders.split, true);
+});

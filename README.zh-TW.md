@@ -68,7 +68,7 @@ npx wrangler secret put APP_URL              # 選填，信件內的連結
 **既有的資料庫要先跑最新的 migration 再部署**（`schema.sql` 補不了已存在資料表的新欄位）：
 
 ```bash
-npx wrangler d1 execute work-schedule-db --remote --file=./migrations/010-mail-log.sql
+npx wrangler d1 execute work-schedule-db --remote --file=./migrations/011-mail-sender.sql
 ```
 
 最後部署：
@@ -184,6 +184,7 @@ APP_URL=<選填>
 - 管理頁看得到備份清單（日期、大小、幾份排程），也可以按鈕立刻備份一次
 - **帳號救援手冊**：[`docs/runbook-account-recovery.md`](docs/runbook-account-recovery.md)。有人進不去時照哪個順序試、每一步怎麼確認真的成功了，以及哪幾件事要在需要它的那一天**之前**就先確認好
 - 管理頁也看得到**最近 30 天每一封信的結果**，依種類分組，失敗的那幾筆附上寄信商的原始錯誤訊息。密碼重設與驗證碼標成「交易信」——那是使用者按了按鈕正在等的信
+- 交易信可以走**另一個寄信商帳號**（`AGENTMAIL_TX_API_KEY` ＋ `AGENTMAIL_TX_INBOX_ID`），讓訂閱信累積出來的退訂名單擋不到密碼重設信。兩個都不設也沒關係——會退回共用那一組，而且管理頁會直接說「目前共用一個」，不會看起來像已經設定好了
 - 沒有逾期、也沒有即將到期的項目時完全不寄信
 
 ### 🔗 分享（部署後才啟用）

@@ -652,6 +652,50 @@ grep -nE '(const|let|var)[[:space:]]+(tr|tf|weekName)\b' public/index.html
 
 **這張表證明不了「信有沒有被讀到」**，它只證明到「寄信商收下了」為止。helen 那一次寄信商是明白回 403 的，所以看得見；如果寄信商回 200 之後才在自己那邊丟掉，這張表仍然會顯示綠色。要再往下就必須接 webhook，那是另一件事。
 
+### 交易信與訂閱信分家（`pickSender`）
+
+**退訂名單是帳號層級的。** 2026-09-09 helen 的密碼重設信被 AgentMail 以
+`message_rejected: recipient is suppressed` 擋掉，而那個帳號底下**三個 inbox 的
+per-inbox 名單全都是空的**（用唯讀 API 查過兩次，2026-09-18 再確認一次仍然成立）。
+兩個直接的後果：
+
+- **「寄之前先查名單」做不出來。** per-inbox API 看不到那份名單，寫出來的檢查
+  會永遠回答「沒事」——那比沒有檢查更糟，因為它會讓人以為查過了。
+- **換一個同帳號底下的 inbox 沒有用。** 要另一個**帳號**（或另一家寄信商）。
+
+所以 `sendMail` 依 `kind` 挑憑證：
+
+| | 走哪一組 | 退訂名單該不該擋得住 |
+|---|---|---|
+| `reset` / `verify`（**交易信**） | `AGENTMAIL_TX_*`，沒設就退回共用那一組 | **不該**——使用者自己剛剛按了按鈕在等 |
+| `reminder` / `streak`（訂閱信） | `AGENTMAIL_*` | 該。那本來就是系統主動送的 |
+
+差別不是內容，是**誰開口**——與〈休假那幾天閉嘴〉是同一條線。
+
+| 決定 | 理由 |
+|---|---|
+| **沒設定就退回共用那一組，不是失敗** | 讓新的 secret 變成必填等於今天所有的信都寄不出去。代價是「有沒有真的分家」在畫面上看不出來，所以下一列是必要的 |
+| **管理頁主動講「現在是共用的」** | 退回去如果是安靜的，就與 helen 那次同一個形狀：沒有任何徵兆。同〈看得見的備份才是備份〉——說得出「還沒修好」，才不會以為修好了 |
+| **只設一半要退回去、而且要 `console.warn`** | 丟例外的症狀是交易信全部停掉（更糟）；靜靜退回去的症狀是「我明明設定了，卻什麼都沒發生」。所以退回去但出聲，管理頁也標成「設定不完整」 |
+| **`TX_KINDS` 只寫一份**，在 `mail.js` 裡 | 在各呼叫端各判斷一次的話，日後多一種信會被默默歸錯類，而症狀是「某一種信從某一天起靜靜地不見了」。同〈純告知：不要在八個地方各寫一次〉 |
+| **沒帶 `kind` 的走訂閱那一組** | 多一個帳號的成本由「系統主動送的」承擔才合理；而且漏傳 `kind` 本來就會在管理頁顯示成 `unknown`，看得見 |
+| **`mail_log.sender` 記的是信箱位址，不是 `'tx'` / `'bulk'` 標籤** | 要回答的問題正是「**到底有沒有真的分家**」。標籤在設定前後都讀成 `'tx'`，看起來一模一樣；位址才分得出來。而且設定改掉的那一刻 `senders` 就變了，證明不了歷史——歷史只能從每一列自己讀 |
+| **`mailSenders()` 只回信箱位址，永遠不回 key** | 位址是每一封信的 From，本來就公開；key 不是。同 `listBackups` 只回 metadata、`usage` 不回排程內容 |
+
+`tests/ops.test.mjs` 六條守著，突變驗證過六種改法各自會紅（`TX_KINDS` 清空、
+只設一半也採用、`split` 永遠回 true、`sender` 不寫進去、`mailSenders` 連 key 一起回、
+`listMailLog` 不收集 senders）。三種設定狀態各在瀏覽器裡渲染確認過。
+
+**這張只把路鋪好，沒有真的分家。** 分家要一個**新的 AgentMail 帳號**（或另一家
+寄信商），那是帳號層級的事，程式這一側做不到。開好之後：
+
+```bash
+npx wrangler secret put AGENTMAIL_TX_API_KEY    # 新帳號的 API key
+npx wrangler secret put AGENTMAIL_TX_INBOX_ID   # 新帳號的寄件信箱
+```
+
+設完打開 `/admin` 的「寄信記錄」，最上面那一列會從「⚠️ 共用一個」變成「✓ 已分家」。
+
 ### 使用狀況（`/api/admin/usage`）
 
 「做好了但沒有人用」是產品訊號，而它原本只有**直接查 D1** 才知道。系統上線至今 `ics_feed` 與 `shares` 都是 0——那件事應該要在管理頁上看得到，而不是靠有人想起來去查。
@@ -753,7 +797,7 @@ Turnstile 擋得住「一秒鐘一萬次」的機器人，擋不住「一分鐘�
 
 **改版時要做的事**：`mobile/package.json` 的 `version` 往上加（build 號是 GitHub 的 `run_number`，不用管）→ **合併進 main 就會自動打包上傳**（CI 綠、且動到 `public/index.html` 或 `mobile/`）→ App Store Connect 送審。手動觸發與 `ios-v*` tag 仍然留著，兩者都不看路徑條件。
 
-**部署順序**：`migrations/005-app-purchase.sql`、`006-plan.sql`、`007-streak-mail.sql`、`008-push.sql`、`009-leave-days.sql` 與 `010-mail-log.sql` 都要在部署新 Worker **之前**跑（`010` 是新增資料表，漏跑只會讓寄信多一行警告，不會 500）（`getSessionUser` 的 SELECT 讀 `plan_source`，欄位不在**每一個**登入請求都會 500；`007`／`008`／`009` 的欄位則是 `/api/reminder` 與 cron 會讀），理由見〈資料庫結構變更〉。006 跑完、Worker 部署完之後，還要到 `/admin` 把既有的兩個帳號設成「Pro（永久）」——漏掉的症狀是他們的第四個專案被擋，當場就會知道。
+**部署順序**：`migrations/005-app-purchase.sql`、`006-plan.sql`、`007-streak-mail.sql`、`008-push.sql`、`009-leave-days.sql`、`010-mail-log.sql` 與 `011-mail-sender.sql` 都要在部署新 Worker **之前**跑（`010` 是新增資料表，漏跑只會讓寄信多一行警告，不會 500；**`011` 是加欄位，漏跑會讓 `/api/admin/mail-log` 的 SELECT 直接失敗**）（`getSessionUser` 的 SELECT 讀 `plan_source`，欄位不在**每一個**登入請求都會 500；`007`／`008`／`009` 的欄位則是 `/api/reminder` 與 cron 會讀），理由見〈資料庫結構變更〉。006 跑完、Worker 部署完之後，還要到 `/admin` 把既有的兩個帳號設成「Pro（永久）」——漏掉的症狀是他們的第四個專案被擋，當場就會知道。
 
 ### 開發者有 Mac 了（2026-09-17）
 
@@ -1029,6 +1073,8 @@ TestFlight build 7 回報的症狀是「app 安靜地變成單機模式」——
 |---|---|---|
 | `AGENTMAIL_API_KEY` | `am_us_inbox_b1e2…` | 帳號層級的憑證。**前綴雖然寫著 `inbox`，它是 API key 不是 inbox id** |
 | `AGENTMAIL_INBOX_ID` | `uic_ai@agentmail.to` | 寄件信箱的識別碼，形式是 **email 位址** |
+| `AGENTMAIL_TX_API_KEY` | 同上形狀 | **選填。** 交易信（密碼重設／驗證碼）專用，要是**另一個帳號**的 key。沒設就與訂閱信共用，見〈交易信與訂閱信分家〉 |
+| `AGENTMAIL_TX_INBOX_ID` | 同上形狀 | **選填。** 上面那個帳號的寄件信箱。兩個都設才生效，只設一個會退回共用並在 `/admin` 標成「設定不完整」 |
 
 推播另外要三個（見〈推播〉與設計文件的〈使用者要做的事〉）：
 
@@ -1287,12 +1333,14 @@ AI 的批次寫入正是就地修改，第一版因此復原不了，是瀏覽�
 新增欄位因此要在 `migrations/` 下留一支單獨的 SQL，並在**部署之前**跑過：
 
 ```bash
-npx wrangler d1 execute work-schedule-db --remote --file=./migrations/010-mail-log.sql   # 最新的一支；舊的照編號
+npx wrangler d1 execute work-schedule-db --remote --file=./migrations/011-mail-sender.sql   # 最新的一支；舊的照編號
 ```
 
 **順序不能反。** 新程式碼 `SELECT r.lead_days`，欄位還沒加就會讓提醒的 cron 與 `/api/reminder` 直接失敗。新增**資料表**沒有這個問題（`db:init` 重跑 `schema.sql` 就會建），只有**欄位**需要 migration。
 
 **`010-mail-log.sql` 是新增資料表，所以它是唯一漏跑也不會壞的一支**：`recordMail` 的寫入包在 try/catch 裡，表不在只會讓每寄一封信多一行 `console.warn`，信照樣寄得出去（那條規則本身的理由見〈寄信記錄〉）。仍然要跑——漏跑的代價是那張表一直是空的，而「空的」與「都沒失敗」在管理頁上長得一模一樣。
+
+**緊接著的 `011-mail-sender.sql` 就不是那樣了**：它是 `ALTER TABLE ... ADD COLUMN`，漏跑會讓 `listMailLog` 的 `SELECT ... sender` 直接失敗，管理頁那一區整個讀不出來。兩支一起跑就不會搞混。
 
 SQLite 沒有 `ADD COLUMN IF NOT EXISTS`，重跑會報 `duplicate column name`——那個錯誤是安全的，代表已經加過了。
 
@@ -1663,7 +1711,8 @@ class 命名沿用 `type-<type>`（列）與 `type-badge <type>`（徽章）；�
 16. **網頁上不開放陌生人自己註冊**：註冊只在 app 裡發生；網頁註冊仍走管理者核准，留給例外
 17. **遊戲化的數字從 2026-09-17 起算**：之前的完成沒有時間戳，不算按時；連續天數不防「把日期往後改」。**開機的櫻花只在開機演一次**，切頁籤不播；它是 `pointer-events:none` 的遮罩，底下照樣按得到，1200ms 的上限由 CSS 保證（JS 不跑也會走），`prefers-reduced-motion` 開著時完全不出現
 18. **推播只有 iOS app 有**：網頁版沒有（Web Push 要另一套金鑰與另一條 service worker 路徑，刻意不做）。推播**不取代 email**，兩者各自有開關——token 會因為換手機／刪 app／關權限而安靜失效，信箱是唯一不會這樣消失的管道
-19. **通知不做「稍後提醒」與互動按鈕**：那要 Notification Service Extension，而且要處理「在通知上勾完成」之後的同步衝突。先看有沒有人用
+19. **交易信與訂閱信目前共用同一個寄件帳號**：程式已經支援分家（設 `AGENTMAIL_TX_*` 兩個 secret 即可，`/admin` 看得到目前是哪一種），但真的要分家需要**另一個 AgentMail 帳號**——退訂名單是帳號層級的，換同帳號底下的另一個信箱沒有用。在那之前，某個收件人被退訂名單擋掉時，他的密碼重設信與驗證碼也會一起收不到
+20. **通知不做「稍後提醒」與互動按鈕**：那要 Notification Service Extension，而且要處理「在通知上勾完成」之後的同步衝突。先看有沒有人用
 
 ## 尚未做的重構
 
