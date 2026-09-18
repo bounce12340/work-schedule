@@ -7837,6 +7837,28 @@
     }));
   }
 
+  /**
+   * 休假那幾天閉嘴（C-3）：把「有休假的日子」推上去，cron 據此整天不寄信不推播。
+   *
+   * **只列 leave，不列 away。** 「不在」的人仍在上班（出差、開會、場勘），照寄照推；
+   * 「休假」才是正式請假。兩者在 `absences` 裡是同一份資料的兩種 kind，差別只在這裡。
+   *
+   * **判斷在這裡，不在 Worker**——同 `ot`、`streak_current`、ICS 與逾期提醒本身：
+   * 日期語意只存在這個檔案裡，在 Worker 重寫一份必然分歧。
+   *
+   * 窗口與 digest **刻意用同一個**（回看一年、前瞻三個月）：兩個窗口就是兩份要維護
+   * 的規則，而它們一旦不一致，症狀是「某一天的信該閉嘴卻寄了」——沒有人會發現。
+   * 過去的日子對「今天在不在清單裡」沒有作用，留著只是為了不必多一條規則。
+   */
+  function buildReminderLeaveDays(){
+    const start=new Date(); start.setHours(0,0,0,0); start.setFullYear(start.getFullYear()-1);
+    const end=new Date(); end.setHours(23,59,59,999); end.setMonth(end.getMonth()+3);
+    const lo=ymd(start), hi=ymd(end);
+    return Object.keys(absences || {})
+      .filter(d => d >= lo && d <= hi && absencesOn(d).some(a => a.kind === 'leave'))
+      .sort();
+  }
+
   let reminderPushTimer=null;
   function pushReminderSoon(){
     if(!cloudEnabled) return;
@@ -7846,7 +7868,8 @@
         // 連續天數一起推：信裡印的就是它，與閘門用的是同一個數字
         const g = lastGame || gameStats();
         await fetch('/api/reminder', { method:'PUT', headers:{'content-type':'application/json'},
-          body: JSON.stringify({ digest: buildReminderDigest(), streak: { current: g.streak.current, best: g.streak.best } }) });
+          body: JSON.stringify({ digest: buildReminderDigest(), leaveDays: buildReminderLeaveDays(),
+            streak: { current: g.streak.current, best: g.streak.best } }) });
       }catch(e){ /* 下次同步再補 */ }
     }, 3000);
   }

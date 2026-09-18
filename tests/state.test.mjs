@@ -419,7 +419,7 @@ test('cron：停用中的帳號不寄；寄失敗不記錄已寄，下次會重�
 // broken 改成「有安排就算斷」→ 2 紅；不寫 streak_mail_ymd → 1 紅；
 // WHERE streak_mail = 1 改成 enabled = 1 → 1 紅。
 
-import { dayReport, buildStreakEmail, sendStreakBroken } from '../src/handlers/reminder.js';
+import { dayReport, buildStreakEmail, sendStreakBroken, isOnLeave } from '../src/handlers/reminder.js';
 
 /** 昨天到期的一筆。ot = 按時完成（由前端的遊戲化引擎判斷後推上來） */
 const gRow = (t, d, ot = 0) => ({ t, d, k: 'work', done: ot, ot });
@@ -461,11 +461,13 @@ test('信件：超過三件用「還有 N 件」帶過，標題要跳脫', () =>
 
 /** 建一個開著 streak_mail 的 feed 列 */
 function feed(env, userId, digest, extra = {}) {
-  const o = { enabled: 1, streak_mail: 1, streak_current: 12, streak_mail_ymd: null, ...extra };
+  const o = { enabled: 1, streak_mail: 1, streak_current: 12, streak_mail_ymd: null, leave_days: '[]', ...extra };
   env.DB.prepare(
-    `INSERT INTO reminder_feed (user_id, enabled, digest, streak_mail, streak_current, streak_mail_ymd, updated_at)
-     VALUES (?,?,?,?,?,?,?)`
-  ).bind(userId, o.enabled, JSON.stringify(digest), o.streak_mail, o.streak_current, o.streak_mail_ymd, 1).run();
+    `INSERT INTO reminder_feed (user_id, enabled, digest, streak_mail, streak_current, streak_mail_ymd,
+                                leave_days, updated_at)
+     VALUES (?,?,?,?,?,?,?,?)`
+  ).bind(userId, o.enabled, JSON.stringify(digest), o.streak_mail, o.streak_current, o.streak_mail_ymd,
+    o.leave_days, 1).run();
 }
 
 // cron 在台北早上 8 點跑；那一刻的「昨天」是 2026-09-20
@@ -552,6 +554,101 @@ test('cron：停用中的帳號不寄；寄失敗不記錄已寄，下次會重�
     const row = base.DB.prepare("SELECT streak_mail_ymd FROM reminder_feed WHERE user_id = 'u2'").first();
     assert.equal(row.streak_mail_ymd, null, '沒寄成功就不算寄過');
   } finally { globalThis.fetch = real; }
+});
+
+// ------------------------------------------------------------ 休假那幾天閉嘴（C-3）
+//
+// 守的是一件**壞掉也沒有徵兆**的事：休假不該讓任何一種主動送出去的東西照常送，
+// 而它一旦反過來壞掉（休假結束後從此不寄了），使用者只會覺得「提醒好像不見了」。
+// 所以每一條「不寄」都配一條「該寄的照寄」。
+//
+// 突變驗證（加完測試實際做過，各自只紅在對的地方）：
+//   - 拿掉 sendOverdueReminders 的 isOnLeave 判斷 → 「逾期信」那條紅
+//   - 拿掉 sendStreakBroken 的 → 「植物的信」那條紅
+//   - 跳過時順手寫 last_sent_ymd → 「休假結束的第一天要補上」紅
+//   - isOnLeave 改成「清單非空就算休假」→ 兩條「不是今天就照寄」紅
+//   - isOnLeave 解析失敗時回 true → 「壞掉時照寄」紅
+//   - normalizeLeaveDays 不擋格式 → 「PUT 只收 YYYY-MM-DD」紅
+
+test('isOnLeave：問的是「今天在不在清單裡」，壞掉的內容一律當成沒休假', () => {
+  const list = JSON.stringify(['2026-07-14', '2026-07-16']);
+  assert.equal(isOnLeave(list, '2026-07-14'), true);
+  assert.equal(isOnLeave(list, '2026-07-15'), false, '清單非空不等於今天休假');
+  // 讀不到就照寄：多一封信看得見，從此不寄沒有人會發現
+  [null, undefined, '', '{壞掉的', '"不是陣列"', '42'].forEach(v =>
+    assert.equal(isOnLeave(v, '2026-07-14'), false));
+});
+
+test('cron：今天休假就整封不寄，而且不寫 last_sent_ymd（結束後第一天要補上）', async () => {
+  const base = makeEnv();
+  addUser(base, 'u1', 'leave@x.com'); addUser(base, 'u2', 'work@x.com');
+  const now = Date.parse('2026-07-31T00:00:00Z');   // 台北 2026-07-31
+  const mk = (id, leave) => base.DB.prepare(
+    'INSERT INTO reminder_feed (user_id, enabled, digest, leave_days, updated_at) VALUES (?,1,?,?,?)'
+  ).bind(id, JSON.stringify([rem('遲交的', '2026-07-20')]), JSON.stringify(leave), now).run();
+  mk('u1', ['2026-07-31']);
+  // 昨天與下週休假，今天要上班。**故意不放隔天**——下面還要用隔天驗「休假結束
+  // 後第一天真的補上」，那一天 u2 也休假的話，測到的就不是 u1 那條路了。
+  mk('u2', ['2026-07-30', '2026-08-05']);
+
+  await withFakeMail(async sent => {
+    const env = { ...MAIL_ENV, DB: base.DB };
+    const out = await sendOverdueReminders(env, now);
+    assert.equal(out.sent, 1, '今天要上班的人照寄');
+    assert.equal(out.onLeave, 1);
+    assert.equal(out.nothingToSay, 0, '跳過的原因要分得出來，不能與「今天沒事」共用一個數字');
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].body.to, 'work@x.com');
+
+    assert.equal(base.DB.prepare("SELECT last_sent_ymd FROM reminder_feed WHERE user_id = 'u1'")
+      .first().last_sent_ymd, null, '沒寄就不算寄過');
+
+    // 休假結束的第一天要真的補上（逾期本來就會繼續累積）。u2 隔天也會再收到一封
+    // ——那是逾期提醒本來就每天寄，所以這裡問的是「u1 收到了沒」而不是總數
+    const next = await sendOverdueReminders(env, now + 86400000);
+    assert.equal(next.onLeave, 0);
+    assert.equal(sent.filter(m => m.body.to === 'leave@x.com').length, 1,
+      '休假那天一封都沒有，結束後的第一天補上');
+  });
+});
+
+test('cron：休假那天連植物的信也不寄——問的是今天，不是斷掉的那一天', async () => {
+  const base = makeEnv();
+  addUser(base, 'u1', 'onleave@x.com'); addUser(base, 'u2', 'backtowork@x.com');
+  // u1 今天請假 → 不寄
+  feed(base, 'u1', [gRow('沒做完的', YDAY, 0)], { leave_days: JSON.stringify(['2026-09-21']) });
+  // u2 昨天（斷掉的那一天）請假、今天上班 → 照寄：他的連續確實斷了，植物講的是事實
+  feed(base, 'u2', [gRow('沒做完的', YDAY, 0)], { leave_days: JSON.stringify([YDAY]) });
+
+  await withFakeMail(async sent => {
+    const out = await sendStreakBroken({ ...MAIL_ENV, DB: base.DB }, CRON_NOW);
+    assert.equal(out.sent, 1);
+    assert.equal(out.onLeave, 1);
+    assert.equal(sent[0].body.to, 'backtowork@x.com');
+    assert.equal(base.DB.prepare("SELECT streak_mail_ymd FROM reminder_feed WHERE user_id = 'u1'")
+      .first().streak_mail_ymd, null, '沒寄就不算寄過');
+  });
+});
+
+test('PUT /api/reminder：leaveDays 只收 YYYY-MM-DD，去重排序，沒帶就沿用舊值', async () => {
+  const env = makeEnv(); addUser(env, 'u1', 'a@x.com');
+  const user = { id: 'u1', email: 'a@x.com', role: 'user', status: 'approved' };
+  const put = body => handleReminderPut(
+    new Request('https://x.test/api/reminder', { method: 'PUT', body: JSON.stringify(body) }), env, user);
+  const leave = () => JSON.parse(env.DB
+    .prepare("SELECT leave_days FROM reminder_feed WHERE user_id = 'u1'").first().leave_days);
+
+  await put({ digest: [], leaveDays: ['2026-09-20', '2026-09-18', '2026-09-20', '2026/09/19', 42, null] });
+  assert.deepEqual(leave(), ['2026-09-18', '2026-09-20'],
+    '格式不對的丟掉、重複的去掉、存進去的順序穩定（同一份資料每次序列化都一樣）');
+
+  // 舊版前端還沒開始推這個欄位，不該因此把使用者的休假清單清空
+  await put({ digest: [] });
+  assert.deepEqual(leave(), ['2026-09-18', '2026-09-20'], '沒帶就沿用');
+
+  // 真的清空要送一個空陣列
+  await put({ digest: [], leaveDays: [] });
+  assert.deepEqual(leave(), []);
 });
 
 test('PUT /api/reminder 收下 ot 與連續天數；POST 的兩個開關互不影響', async () => {

@@ -122,7 +122,7 @@ APP_URL=<optional>
 - **On phones it follows the Google Calendar approach**: cells show only coloured dots for what's on that day, and tapping a date expands the full content below. Cramming three or four lines of text into a 50px cell carries no usable information on a phone
 - **Tapping a date** expands the full item cards plus a **daily note** field (with formatting, see below); nothing hangs below the grid until you select a date. Days that have a note carry a small `✎` mark in the top-right corner of the cell
 - **Press and drag across several days** to select a range and create a multi-day item directly (trip, leave, project phase); the start and end dates are filled into the form
-- **🌴 Mark as away**: select a day or a range and press "Mark as away". Those cells get a faint hatch pattern and a 🌴. Leave no longer has to pretend to be a to-do item waiting to be ticked. **Overdue stays overdue, though**: the work was scheduled for that day, and your absence does not change its consequences
+- **🌴 Away / 🏖️ Leave**: select a day or a range and press the button — a small panel opens where you pick the kind, the hours (leave both blank for the whole day), and, for leave, an icon. Away days get a faint hatch pattern and a 🌴; leave days get a tinted overlay across the whole cell. Time off no longer has to pretend to be a to-do item waiting to be ticked. **Overdue stays overdue, though**: the work was scheduled for that day, and your absence does not change its consequences. The one extra thing leave does is **stay quiet that day** — no reminder email, no push (away days still get both; you are still working)
 
 ### 📊 Projects (Gantt)
 - Multiple projects; timeline bars with progress percentage and a today marker
@@ -225,9 +225,9 @@ src/handlers/          auth / state / admin / share APIs
 schema.sql             D1 tables
 wrangler.jsonc         Worker config and bindings
 tests/                 occurrence engine, three-way merge, optimistic locking, rich-text filter, variable shadowing,
-                       prerequisites and "away" (node:test, zero deps, npm test)
+                       prerequisites and away/leave (node:test, zero deps, npm test)
 tools/                 smoke test, toggle-equivalence check, rich-text pipeline check, calendar / notes / contrast /
-                       prerequisites-and-away checks (need Playwright, hence outside npm test)
+                       prerequisites/away/leave checks (need Playwright, hence outside npm test)
                        + script that parses the official office calendar (yearly holiday updates)
 public/sw.js           service worker (home screen / offline)
 ```
@@ -244,7 +244,7 @@ For the full architecture and data model see [`工作排程確認系統_專案�
 | Sync conflicts | Merged item by item against the last synced content; you only choose a side when the same item changed on both |
 | Holidays | Weekends are automatic. Public holidays are bundled only for years that have been officially published (currently 2026 and 2027); other years can be pasted in bulk |
 | Prerequisites | Display only: they never move a date and never block ticking. At most five prerequisites per item |
-| "Away" | Only a mark on the calendar and the row: it moves no dates and **does not affect overdue**, reminder emails or the calendar subscription |
+| "Away" and "Leave" | Only a mark on the calendar and the row: they move no dates and **do not affect overdue** or the calendar subscription. The single difference: **on a leave day no email and no push go out at all**, while the red overdue text on screen stays exactly as it is |
 | Weekend work days | Supported: weekend dates added to the "work days" list count as working days, so recurrences are not pushed past them |
 | Gantt | Bars cannot be dragged; dates are changed through the task table |
 | iOS app | Free download, Pro is an in-app auto-renewing subscription; one Apple ID = one account. Every front-end release needs a new build submitted to the App Store. Public registration happens only inside the app |
