@@ -174,7 +174,7 @@ Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.Comm
 | `tools/check-contrast.mjs` | 正文級文字在**兩種主題**下都達到 WCAG 對比（4.5:1／大字 3:1） | 動到任何顏色變數或文字顏色 |
 | `tools/check-deps.mjs` | 前置作業的「待前置」徽章、不阻擋勾選；「不在」的標記**與逾期並存**；逾期的顏色就是 `--red` 且字重比旁邊重；**純告知的八個「不算進去」** | 動到 `dependsOn`、`absences`、`noticeOnly`／`isActionable`、`toggleOccDone`、逾期判斷或任何視覺改版 |
 | `tools/check-migrate.mjs` | **舊備份檔真的匯得回來**：造一份 v1 的 .json 丟進 `#importFile`，走完整條使用者路徑，再讀 localStorage 看實際存進去的東西；順便驗「比目前新的版本被擋下來，而且不動現有資料」 | 動到 `STORAGE_VERSION`、`migrateSnapshot`、`snapshot()`／`applySnapshot()`。在 CI 的 `smoke` job |
-| `tools/check-ambience.mjs` | 時段（早／午／晚）的 `data-daypart` 與光暈、每日記錄的提示語照日期決定、打勾的彈跳只在被點的那一個上、週一的回顧（含 N=0 不出現）、**遊戲化**：完美一天的 toast 只在勾掉最後一件時、升級的光只在升級那一次（看計算後的 `animationName`）、reduced-motion 關 | 動到 `tick()`、`<head>` 開機腳本、`DAILY_PROMPTS`、`renderLookback()`、`.checkbox` 的 CSS 或〈遊戲化畫面〉 |
+| `tools/check-ambience.mjs` | 時段（早／午／晚）的 `data-daypart` 與光暈、每日記錄的提示語照日期決定、打勾的彈跳只在被點的那一個上、週一的回顧（含 N=0 不出現）、**遊戲化**：完美一天的 toast 只在勾掉最後一件時、升級的光只在升級那一次（看計算後的 `animationName`）、櫻花樹的畫皮（群組 class 與 CSS 對得上、垂下還在）、**開機的櫻花**（1200ms 的上限**在 JavaScript 關掉時**照樣成立、演到使用者現在那一階、reduced-motion 完全不出現）、reduced-motion 關 | 動到 `tick()`、`<head>` 開機腳本、`DAILY_PROMPTS`、`renderLookback()`、`.checkbox` 的 CSS、〈遊戲化畫面〉或 `.boot-sakura` |
 | `tools/check-native-plugin.mjs` | 原生插件的接線，六件事：SceneDelegate → MainViewController → `registerPluginInstance`、storyboard 的 `customClass`、**方法名兩側完全對齊（雙向）**、推播的 AppDelegate 接線與 **`aps-environment` 的值（Debug／Release 各自的環境，並比對 Swift 的 `#if DEBUG`）**、**訂閱 product id 在 Swift 與 Worker 逐字相同**（零相依，在 `check` job） | 動到 `mobile/ios/` 的任何 Swift／storyboard／entitlements，或 `index.html` 的〈原生外殼〉區段；CI 會自動跑 |
 | `tools/check-sw-version.mjs` | 動到 `public/*.html` 時 `sw.js` 的 `CACHE` 有沒有跟著加（零相依，在 `check` job） | 任何前端改動；CI 會自動跑，本機 `node tools/check-sw-version.mjs origin/main HEAD` |
 | `tools/measure-board.mjs` | 切換檢視／篩選／搜尋卡住主執行緒多久（自己造 64／150／300 項的資料） | 動到 `renderBoard()` 或看板的 CSS。**不在 CI**：數字隨環境浮動，設門檻只會製造沒有人相信的紅燈，用途是改動前後各跑一次自己比對 |
@@ -870,6 +870,27 @@ cd mobile/ios/App && xcodebuild -scheme App -sdk iphonesimulator -configuration 
 
 畫皮換完之後要一起看的還有：`--sakura-*` 六個變數（`:root` 與 `[data-theme="dark"]` **兩組**）、帳號頁的階段名稱、I18N 的中英兩版、帳號頁與推播開關上的 🌸、以及 `tests/state.test.mjs` 裡比對署名的那一條。
 
+### 開機的櫻花：它是遮罩，不是關卡
+
+開機時一層 `position:fixed` 的櫻花蓋在畫面上，從新芽長到**你現在那一階**，約一秒後自己淡掉。「遮罩不是關卡」這句話有兩個具體的實作，兩個都不能拿掉：
+
+| 決定 | 理由 |
+|---|---|
+| **`pointer-events:none`** | 畫面照常繪製、照常按得到，它只是蓋在上面演一段。〈字型不阻擋首次繪製〉量過：CDN 慢 1.5 秒時擋住繪製會讓 FCP 從 536ms 變成 2060ms——一個純粹為了好看的動畫沒有資格讓 app 開起來慢四倍。順帶解掉 `page.click()` 會打到它的問題（設計文件原本擔心的那一條） |
+| **由 CSS 決定它何時消失，不是 JS** | 交給 JS 的計時器，JS 一摔倒就留下一張**永遠蓋住整個 app 的紙**——與 `.ai-panel[hidden]` 那個看不見的全屏遮罩是同一個 bug class，而那一次是瀏覽器測試才抓到的。現在 JS 只負責畫：畫不出來最多是一片乾淨的底色，1200ms 後照樣自己走。**上限因此是唯一的機制，不是 JS 的備援**，所以「它會不會消失」與「JS 有沒有跑」完全無關 |
+| `prefers-reduced-motion` 是 **`display:none`**，不是淡出 | 純氛圍、沒有任何資訊在裡面，是最該被關掉的那一種動畫（同光暈、同升級的光） |
+| 階段順序從 `GAME_STAGES` 取，**不另外抄一份** | 抄出來的那一份遲早走鐘。`bootSakuraPlay` 只做「畫到第 N 階」，等級與階段仍然是引擎算的 |
+| **只在開機呼叫一次**（〈啟動〉區段，`applyLang()` 之後） | 切頁籤播一次是儀式，第三次就變成「這個 app 好慢」。那時 `renderAll()` 已經跑過，`lastGame.stage` 現成 |
+
+**設計文件的「資料就緒（`renderAll()` 跑完一次）就淡出」在實作時併進了上限那一條，而那是實作階段才看得出來的事**：`renderAll()` 是同步的、在第一次繪製之前就已經跑完，所以「資料就緒」在 t=0 永遠成立——照字面做的話這段動畫一幀都不會播。它要等的東西其實不存在，所以它不等任何東西，只有上限。
+
+`tools/check-ambience.mjs` 九條守著，其中兩條是這一節的重點：
+
+- **上限本身**要被測到，而不是只測「正常情況下會消失」——那一輪把 **JavaScript 整個關掉**再看 1500ms 時它在不在。改成 JS 的計時器當場紅。
+- 成長動畫真的**演到使用者現在那一階**：種子造到 Lv.3（抽枝），斷言開場那一幀沒有枝、820ms 後有枝。永遠停在第一幀的話只有這一條會紅。
+
+那一輪的種子**要釘死時鐘**（`page.clock`）：等級是從「上線日到今天」算出來的，靠執行當天是幾號的話，過幾天這支檢查就會自己變色。
+
 ### F2：連續斷掉時，由櫻花樹寄一封撒嬌的信
 
 走既有的每日 cron 與 `reminder_feed`（`sendStreakBroken`）。不能拿掉的判斷：
@@ -1558,7 +1579,7 @@ class 命名沿用 `type-<type>`（列）與 `type-badge <type>`（徽章）；�
 14. **免費版有上限**：大項目與甘特專案各最多 3 個、AI 每天 5 次；Pro（app 內自動續訂訂閱）不限。降級不刪資料，只是不能再新增。在 app 裡註冊仍要附 Apple 的購買證明——一個 Apple ID 一個帳號，那是防濫用不是收費
 15. **前端每次改版，app 要重新打包送審**：`index.html` 內建在 app 裡（自動更新是之後的子專案）。**打包本身已經自動化**——合併進 main、CI 全綠、而且動到 `public/index.html` 或 `mobile/` 就會自己打包並上傳到 TestFlight；要送審仍然要自己去 App Store Connect 按
 16. **網頁上不開放陌生人自己註冊**：註冊只在 app 裡發生；網頁註冊仍走管理者核准，留給例外
-17. **遊戲化的數字從 2026-09-17 起算**：之前的完成沒有時間戳，不算按時；連續天數不防「把日期往後改」
+17. **遊戲化的數字從 2026-09-17 起算**：之前的完成沒有時間戳，不算按時；連續天數不防「把日期往後改」。**開機的櫻花只在開機演一次**，切頁籤不播；它是 `pointer-events:none` 的遮罩，底下照樣按得到，1200ms 的上限由 CSS 保證（JS 不跑也會走），`prefers-reduced-motion` 開著時完全不出現
 18. **推播只有 iOS app 有**：網頁版沒有（Web Push 要另一套金鑰與另一條 service worker 路徑，刻意不做）。推播**不取代 email**，兩者各自有開關——token 會因為換手機／刪 app／關權限而安靜失效，信箱是唯一不會這樣消失的管道
 19. **通知不做「稍後提醒」與互動按鈕**：那要 Notification Service Extension，而且要處理「在通知上勾完成」之後的同步衝突。先看有沒有人用
 
