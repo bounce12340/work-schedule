@@ -10,6 +10,15 @@ const VALID_ROLE = ['user', 'admin'];
 /**
  * 使用者清單。刻意只回傳帳號欄位，不含任何排程內容——
  * 管理者的職權範圍是帳號管理，不是看別人的資料。
+ *
+ * `configAdmin` 標出 ADMIN_EMAILS 名單內的帳號。**它不是新的權限，是把既有的
+ * 權限說出來**：那四個操作（停用、降級、重設密碼、刪除）本來就會被擋，但擋在
+ * 按下去之後的 403，於是管理者按了、看到紅字、以為系統壞了——實際踩過一次，
+ * 當時的結論是「去 Cloudflare 把 email 從名單拿掉」，而那條路正是 tools/
+ * reset-password.mjs 的檔頭寫著的地雷（拿掉之後忘記加回去，保護就永遠沒了）。
+ *
+ * 把這件事寫在畫面上，那一次就不會發生。列出來不算洩漏：這張清單只有管理者
+ * 看得到，而名單內的帳號本來就已經顯示為 admin。
  */
 export async function handleListUsers(env) {
   const { results } = await env.DB.prepare(
@@ -17,7 +26,10 @@ export async function handleListUsers(env) {
        FROM users
       ORDER BY CASE status WHEN 'pending' THEN 0 ELSE 1 END, created_at DESC`
   ).all();
-  return json({ users: (results || []).map(withPlan) });
+  const pinned = adminEmails(env);
+  return json({
+    users: (results || []).map(r => ({ ...withPlan(r), configAdmin: pinned.includes(r.email) })),
+  });
 }
 
 /** 方案以算好的 plan 回給管理頁，不讓前端自己重算到期與寬限。 */

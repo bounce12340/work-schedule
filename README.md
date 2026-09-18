@@ -156,7 +156,8 @@ APP_URL=<optional>
 - **Forgot password**: press "Forgot password?" on the sign-in page and the system emails a one-time link (valid for one hour, usable once); setting a new password signs out every device
 - Repeated failed logins are throttled (sliding window, recovers on its own, no manual unlock needed)
 - Every administrator action (approve / suspend / change role / reset password / delete) is logged, and every administrator can see the log
-- Administrators can also reset a password from `/admin`, producing a temporary password shown exactly once
+- Administrators can also reset a password from `/admin`, producing a temporary password shown exactly once. Accounts pinned by `ADMIN_EMAILS` show a `設定檔指定` badge instead of those buttons — they can only reset themselves through "Forgot password"
+- When every path is blocked (mail provider down, mailbox unreachable, no administrator left), the break-glass tool is `npm run admin:reset`. **The runbook is [`docs/runbook-account-recovery.md`](docs/runbook-account-recovery.md)** — which path to try in what order, how to confirm each step really worked, and the checklist to run *before* the day you need it
 - Every account starts from a **blank interface** and sees nobody else's data
 
 ### 👤 My account

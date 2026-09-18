@@ -78,6 +78,7 @@
   .badge.rejected,.badge.suspended{background:var(--red-dim);color:var(--red);}
   .badge.pro{background:var(--amber-dim);color:var(--amber);}
   .badge.free{background:var(--panel-2);color:var(--text-muted);}
+  .badge.pinned{background:var(--panel-2);color:var(--text-muted);border:1px solid var(--line);}
   .when{font-family:var(--mono);font-size:10.5px;color:var(--text-dim);}
   .ops{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto;}
   .op{font-family:var(--mono);font-size:11px;padding:6px 10px;border-radius:6px;cursor:pointer;
@@ -609,6 +610,7 @@
     row.appendChild(email);
 
     row.appendChild(badge(ROLE_LABEL[u.role] || u.role, u.role));
+    if (u.configAdmin) row.appendChild(badge('設定檔指定', 'pinned'));
     row.appendChild(badge(STATUS_LABEL[u.status] || u.status, u.status));
     row.appendChild(badge(planLabel(u), u.plan === 'pro' ? 'pro' : 'free'));
 
@@ -627,10 +629,21 @@
       ops.appendChild(op('Pro 到某日…', '', function(){ setPlanUntil(u); }));
     }
 
-    if (me && u.id === me.id) {
-      var self = document.createElement('span');
-      self.className = 'locked'; self.textContent = '（你自己，角色與狀態無法變更）';
-      ops.appendChild(self);
+    // 「設定檔指定」那幾個操作本來就會被伺服器擋成 403。把按鈕留著只是讓人按下去、
+    // 看到紅字、以為系統壞了——實際發生過一次，而當時想到的解法（去 Cloudflare 把
+    // email 從 ADMIN_EMAILS 拿掉）正是 tools/reset-password.mjs 檔頭寫的那個地雷。
+    //
+    // 自己那一列也要講。名單內的那兩個帳號其中一個通常就是正在看這一頁的人，
+    // 而「你自己」只解釋得了角色與狀態，解釋不了「為什麼我連重設自己的密碼都沒有按鈕」。
+    var isSelf = !!(me && u.id === me.id);
+    if (isSelf || u.configAdmin) {
+      var why = document.createElement('span');
+      why.className = 'locked';
+      why.textContent = u.configAdmin
+        ? '（設定檔指定的管理者：停用、降級、重設密碼、刪除都不開放。'
+          + '忘記密碼請本人走登入頁的「忘記密碼」；連信都寄不出去時見 docs/runbook-account-recovery.md）'
+        : '（你自己，角色與狀態無法變更）';
+      ops.appendChild(why);
     } else {
       if (u.status !== 'approved') ops.appendChild(op('核准', 'approve', function(){ patch(u, { status:'approved' }); }));
       if (u.status === 'pending')  ops.appendChild(op('拒絕', 'danger',  function(){ patch(u, { status:'rejected' }); }));
