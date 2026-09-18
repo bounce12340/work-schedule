@@ -82,6 +82,10 @@ const SEED = {
     mk({ id: 'noticePast',  title: '上個月的公告', date: '2026-08-20', noticeOnly: true }),
     // 曾經被勾過、之後才被改成純告知的：不准掉進「已完成」區（那裡找不到它）
     mk({ id: 'noticeDone',  title: '被標成完成的純告知', date: '2026-09-11', noticeOnly: true, done: true }),
+    // 跨多天的純告知：色條是**另一條建構路徑**（不是 .occ-row 也不是 .cal-item-row），
+    // 少了這一筆，「色條長出勾選框」那種改法會一路綠到上線。突變驗證抓到的。
+    mk({ id: 'noticeSpan', title: '年度盤點期間公告', date: '2026-09-21', endDate: '2026-09-24', noticeOnly: true }),
+    mk({ id: 'realSpan',   title: '出差三天',        date: '2026-09-21', endDate: '2026-09-23' }),
   ],
   majorProjects: [], ganttProjects: [], dailyLogs: {},
   customHolidays: [], customWorkdays: [],
@@ -262,7 +266,8 @@ ok('標記「不在」不會移動任何項目的日期', await page.evaluate((T
     prereq2: '2026-09-02', blocked2: '2026-09-12',
     // 純告知那幾筆也在這張表裡：漏一個的話 every() 會對 undefined 比較而整條紅，
     // 而那個紅燈長得像「不在把日期移走了」——完全錯誤的方向（實際踩過兩次）
-    realToday: TODAY, noticeToday: TODAY, noticePast: '2026-08-20', noticeDone: '2026-09-11'
+    realToday: TODAY, noticeToday: TODAY, noticePast: '2026-08-20', noticeDone: '2026-09-11',
+    noticeSpan: '2026-09-21', realSpan: '2026-09-21'
   }[x.id]), TODAY));
 
 console.log('\n── 日曆上的「休假」 ──');
@@ -364,6 +369,26 @@ ok('同一天兩種並存：休假那一筆沒有被蓋掉', await page.evaluate
 ok('而且那一格同時有兩種樣式', /\bleave\b/.test(await cell('20').getAttribute('class') || '')
    && /\baway\b/.test(await cell('20').getAttribute('class') || ''));
 
+// 日曆格子裡的純告知**也不能長勾選框**。這一條是突變驗證抓到的漏洞：把
+// `cal-item-nocheck` 改回 `cal-item-check` 時，上面那一整段（看板那一側）全部照樣
+// 綠——因為它們量的是 `.occ-row`，而日曆格子是另一條建構路徑。
+// 「同一個規則、兩個地方各寫一次」正是〈勾選不重建看板〉警告的形狀，所以兩邊都要守。
+console.log('\n── 純告知：日曆格子那一側 ──');
+const noticeCell = cell('09').locator('.cal-item-row').filter({ hasText: '總部政策宣達' });
+ok('日曆格子裡看得到那一筆純告知', await noticeCell.count() === 1);
+ok('而且它沒有勾選框', await noticeCell.locator('.cal-item-check').count() === 0);
+ok('佔位的空格仍然在（文字才不會忽左忽右）', await noticeCell.locator('.cal-item-nocheck').count() === 1);
+// 對照組：同一天真的要做的那一筆，勾選框照樣在
+const realCell = cell('09').locator('.cal-item-row').filter({ hasText: '今天真的要做的事' });
+ok('同一格裡真的待辦那一筆勾選框照樣在', await realCell.locator('.cal-item-check').count() === 1);
+
+// 跨多天的色條是**第三條建構路徑**。勾選框只放在本月第一段上，所以只看 9/21 那一格。
+const noticeSpan = cell('21').locator('.cal-span').filter({ hasText: '年度盤點期間公告' });
+ok('跨多天的純告知畫得出色條', await noticeSpan.count() === 1);
+ok('而且色條上沒有勾選框', await noticeSpan.locator('.cal-span-check').count() === 0);
+const realSpan = cell('21').locator('.cal-span').filter({ hasText: '出差三天' });
+ok('真的跨多天事項的色條照樣有勾選框', await realSpan.locator('.cal-span-check').count() === 1);
+
 console.log('\n── 純告知：八個「不算進去」──');
 await page.locator('.nav-item', { hasText: '項目安排' }).click();
 await page.waitForTimeout(300);
@@ -407,7 +432,7 @@ ok('它留在上面的清單裡（不然就找不到它了）',
 const pillTotal = parseInt((await page.locator('#statPills .pill').first().innerText()).replace(/\D/g, ''), 10);
 const allRows = await page.locator('#board .occ-row, #doneBoard .occ-row').count();
 const noticeRows = await page.locator('#board .occ-row.notice-only, #doneBoard .occ-row.notice-only').count();
-ok('看板上真的有純告知（否則下面那條是空的斷言）', noticeRows === 3);
+ok('看板上真的有純告知（否則下面那條是空的斷言）', noticeRows === 4);
 ok('範圍列的「項目」數 = 全部列數 − 純告知', pillTotal === allRows - noticeRows);
 
 // 「只看未完成」是唯一的例外方向：純告知不受它影響、一直都在

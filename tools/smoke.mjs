@@ -53,6 +53,9 @@ const APP_API_ORIGIN = 'https://work-schedule.bounceto12340.workers.dev';
 const plusDays = n => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
 const LEAVE_DAY = plusDays(21);
 const AWAY_DAY = plusDays(22);
+// 分享過來的那一筆要落在「最近三個月」那個展開窗口裡，否則共享頁會顯示
+// 「最近三個月內沒有安排」而整條斷言變成空的
+const SHARED_DAY = plusDays(5);
 
 function seed() {
   const items = [];
@@ -147,7 +150,21 @@ function makeServer(loggedIn, plan = 'pro') {
       // iOS app 的登入／驗證碼：回一個假 token，讓「app 外殼」那一輪走得完
       if (url.pathname === '/api/auth/app/login') return send(200, { ok: true, token: APP_TOKEN, expiresAt: 9e12, user: ME });
       if (url.pathname === '/api/auth/app/code') return send(200, { ok: true, message: 'sent' });
-      if (url.pathname === '/api/shares') return send(200, { outgoing: [], incoming: [] });
+      // 別人分享給我的東西裡**放一件純告知**。擁有者標成「不用做」的東西，被分享者
+      // 若還勾得動，那一勾會 PUT 回擁有者的雲端資料——那是別人替你決定一件事做完了。
+      // 共享頁是**第四條**會長勾選框的建構路徑，而 check-deps 沒有後端、走不到這裡。
+      if (url.pathname === '/api/shares') return send(200, {
+        outgoing: [],
+        incoming: [{
+          id: 'sh1', kind: 'item', permission: 'edit', ownerEmail: 'other@x.test',
+          resource: {
+            id: 'shared-notice', title: '別人分享的純告知', type: 'work', parentId: null,
+            meetingTime: null, link: null, endDate: null, recurrence: null,
+            tags: [], subtasks: [], subDone: {}, dependsOn: [], noticeOnly: true,
+            date: SHARED_DAY, done: false, doneMap: {}, doneAt: {}, overrides: {}, skipped: {},
+          },
+        }],
+      });
       if (url.pathname === '/api/activity') return send(200, { activity: [] });
       if (url.pathname === '/api/reminder') {
         if (req.method === 'PUT') {
@@ -274,6 +291,18 @@ async function walk(page, log, plan = 'pro') {
   await need('#viewShared.active', '共享頁');
   await need('#sharedIncoming', '別人分享給我');
   await need('#sharedOutgoing', '我分享出去的');
+  // 純告知在共享頁**也不長勾選框**。這一條是突變驗證抓到的：把那個判斷改掉時，
+  // check-deps 那一整批照樣綠——它沒有後端，共享頁永遠是空的。
+  {
+    step = '共享頁的純告知沒有勾選框';
+    const shRow = page.locator('#sharedIncoming .share-occ').filter({ hasText: '別人分享的純告知' });
+    if (!await shRow.count()) throw new Error('共享頁看不到那一筆——斷言會變成空的');
+    if (await shRow.locator('.checkbox').count()) {
+      throw new Error('擁有者標成「不用做」的東西，被分享者卻勾得動——那一勾會寫回擁有者的資料');
+    }
+    if (!await shRow.locator('.notice-gap').count()) throw new Error('佔位的空格不見了');
+    checked.push('共享頁的純告知(無勾選框)');
+  }
 
   // ---- 我的帳號 ----
   // 這一頁的每一個控制項都是從 header／footer 搬過來的**同一個元素**。搬移最
