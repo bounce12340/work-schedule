@@ -315,6 +315,33 @@ console.log('\n  改善後仍偏小的點擊目標：' + (small2.length ? '' : '
 small2.forEach(x => console.log(`    ${x.w}×${x.h}  ${x.label}`));
 small2.forEach(x => problems.push(`點擊目標偏小 ${x.w}×${x.h}（${x.label}）`));
 
+// ---------- 英文版也要量一次版面 ----------
+//
+// **這一段補的是工具本身的洞。** 上面那一輪只跑中文，而英文字串一律比中文長——
+// 所以「五頁都不橫向溢出」這條斷言，天生驗不到最容易溢出的那一種情況。
+// 同〈「畫面上沒有這個元素，略過」是一條永遠不會執行的斷言〉：檢查涵蓋不到的地方
+// 等於沒有檢查，而且還會給出「已經量過了」的錯覺。
+//
+// **重新載入再量**，不是就地切語言：上面那一輪走過子清單、AI 面板、勾選，頁面已經
+// 不是乾淨的狀態，就地量到的數字沒有辦法跟中文那一輪對照。
+// 只重量版面、不重量速度：速度那一份再跑一次要多花一分鐘，而字串長度不影響它。
+await page.evaluate(() => { try { localStorage.setItem('workSchedule.v1.lang', 'en'); } catch (e) {} });
+await page.reload();
+await page.waitForSelector('#board');
+await page.waitForTimeout(2000);
+await page.locator('#reminderClose').click().catch(() => {});
+await page.waitForTimeout(300);
+console.log('\n  英文版（字串比中文長，最容易撐破版面）');
+console.log('  頁面        橫向溢出');
+console.log('  ----------  --------');
+for (const [sel, name] of navs) {
+  await page.evaluate(x => document.querySelector(x).click(), sel);   // 直接呼叫 click：量版面不必經過命中測試
+  await page.waitForTimeout(400);
+  const ov = await overflowOf();
+  console.log('  ' + name.padEnd(11) + (ov > 0 ? `✗ ${ov}px` : '✓ 無'));
+  if (ov > 0) problems.push(`英文版的${name}頁橫向溢出 ${ov}px`);
+}
+
 console.log('');
 if (problems.length) { console.log('  ⚠ 找到的問題：'); problems.forEach(p => console.log('    · ' + p)); }
 else console.log('  ✓ 沒有找到版面或速度問題');

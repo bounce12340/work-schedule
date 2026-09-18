@@ -178,7 +178,7 @@ Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.Comm
 | `tools/check-native-plugin.mjs` | 原生插件的接線，六件事：SceneDelegate → MainViewController → `registerPluginInstance`、storyboard 的 `customClass`、**方法名兩側完全對齊（雙向）**、推播的 AppDelegate 接線與 **`aps-environment` 的值（Debug／Release 各自的環境，並比對 Swift 的 `#if DEBUG`）**、**訂閱 product id 在 Swift 與 Worker 逐字相同**（零相依，在 `check` job） | 動到 `mobile/ios/` 的任何 Swift／storyboard／entitlements，或 `index.html` 的〈原生外殼〉區段；CI 會自動跑 |
 | `tools/check-sw-version.mjs` | 動到 `public/*.html` 時 `sw.js` 的 `CACHE` 有沒有跟著加（零相依，在 `check` job） | 任何前端改動；CI 會自動跑，本機 `node tools/check-sw-version.mjs origin/main HEAD` |
 | `tools/measure-board.mjs` | 切換檢視／篩選／搜尋卡住主執行緒多久（自己造 64／150／300 項的資料） | 動到 `renderBoard()` 或看板的 CSS。**不在 CI**：數字隨環境浮動，設門檻只會製造沒有人相信的紅燈，用途是改動前後各跑一次自己比對 |
-| `tools/check-mobile.mjs` | 手機（iPhone 13、CPU 降速 4 倍、64 個項目）：五頁都不橫向溢出、切換與互動的停頓、**點擊目標大小** | 動到任何版面或 CSS。同樣不在 CI |
+| `tools/check-mobile.mjs` | 手機（iPhone 13、CPU 降速 4 倍、64 個項目）：五頁都不橫向溢出（**中英文各量一次**——英文字串比中文長，只量中文的話驗不到最容易溢出的那一種）、切換與互動的停頓、**點擊目標大小** | 動到任何版面或 CSS。同樣不在 CI |
 
 （`tools/check-syntax.mjs` 不在這張表裡：它零相依、跑不到一秒，已經放進 CI 的 `check` job 與上面〈驗證方式〉第 2 條。）
 
@@ -1118,6 +1118,27 @@ Authorization: Bearer <API_KEY>
 | AI 的回覆一律 `textContent`，絕不 `innerHTML` | 那是外部內容 |
 
 **`.ai-panel[hidden]{ display:none; }` 這一行不能拿掉。** `display:flex` 的優先度高於瀏覽器內建的 `[hidden]{display:none}`，少了它，「關著」的面板仍然佔滿右半邊並吃掉所有點擊——一個看不見的全屏遮罩。這是瀏覽器測試抓到的真實 bug，靜態檢查與單元測試都不會紅。
+
+### `align-items` 在 column 底下管的是寬度，不是對齊
+
+英文版在 390px 會橫向溢出 21px，中文不會。追下去的根因不在任何一個「太寬」的元素上：
+
+```css
+.layout{ display:flex; gap:20px; align-items:flex-start; }          /* 桌機：橫排 */
+@media (max-width:820px){ .layout{ flex-direction:column; } }        /* 行動版：直排 */
+```
+
+橫排時 `align-items:flex-start` 管的是**垂直對齊**（讓側欄不要被拉到跟看板一樣高，那是刻意的）。`flex-direction` 一變成 column，同一個宣告管的就變成**寬度**——`.main-panel` 因此不再是容器的寬度，而是縮到「內容的寬度」，也就是它裡面最寬的那一列說了算。
+
+**最誤導的地方是 `.main-panel` 早就寫了 `flex:1; min-width:0`。** 那兩個管的是**主軸**，在 column 底下完全使不上力，所以看起來「該做的都做了」。修法是在那個 media query 裡把 `align-items` 一起改成 `stretch`。
+
+第二個成因是 `.filter-types`（標籤篩選那一排）沒有 `flex-wrap`，內容比面板寬時把面板的內容寬度一起撐大。改成換行而不是橫向捲動：標籤數量是使用者自己長出來的，橫捲會讓後面幾個藏起來，而「找不到的東西等於不存在」。
+
+**但這一節真正的重點是工具的洞。** `tools/check-mobile.mjs` 一直有「五頁都不橫向溢出」這條斷言，而它**只跑中文**——英文字串一律比中文長，所以這條斷言天生驗不到最容易溢出的那一種情況。同〈「畫面上沒有這個元素，略過」是一條永遠不會執行的斷言〉：檢查涵蓋不到的地方等於沒有檢查，而且還會給出「已經量過了」的錯覺。
+
+現在它**中英文各量一次版面**（速度只量一次——字串長度不影響它，而再跑一輪要多花一分鐘）。英文那一輪**重新載入再量**，不是就地切語言：上一輪走過子清單、AI 面板、勾選，頁面已經不是乾淨的狀態，就地量到的數字沒辦法跟中文那一輪對照。
+
+突變驗證：兩個修法各自拿掉，**英文那一輪都會紅、中文那一輪都是綠的**——後者正是這條新斷言存在的理由。
 
 ### iOS 會因為小字級的輸入框把整頁放大
 
