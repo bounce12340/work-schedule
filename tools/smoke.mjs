@@ -326,7 +326,7 @@ async function walk(page, log, plan = 'pro') {
     throw new Error('「登出」不在我的帳號頁上（或看不見）');
   }
   // 連續斷掉的信（F2）：與逾期提醒各自一顆按鈕
-  await need('#btnStreakMail', '小植物的信開關');
+  await need('#btnStreakMail', '櫻花樹的信開關');
 
   // 「刪除我的帳號」（Apple 5.1.1(v)）是雲端區塊：單機隱藏、登入顯示，與帳號資訊那一區同步。
   // 顯示時按下去要開得起對話框（不確認，只按取消）。
