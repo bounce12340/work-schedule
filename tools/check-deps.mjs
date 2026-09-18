@@ -74,6 +74,14 @@ const SEED = {
     mk({ id: 'prereq2', title: '覆核報表', date: '2026-09-02' }),
     mk({ id: 'blocked2', title: '歸檔', date: '2026-09-12', dependsOn: ['prereq2'] }),
     mk({ id: 'plain', title: '沒有前置也不在的事', date: '2026-09-20' }),
+    // 純告知（B）。四種形狀各一個，因為「不算進去」有八個地方，每一個壞掉的
+    // 症狀都是「畫面看起來是對的，只是數字不對」。
+    mk({ id: 'realToday',   title: '今天真的要做的事', date: TODAY }),
+    mk({ id: 'noticeToday', title: '總部政策宣達', date: TODAY, noticeOnly: true }),
+    // 日期已過的純告知：**留在看板上**、標「已過」，而且**沒有紅字**
+    mk({ id: 'noticePast',  title: '上個月的公告', date: '2026-08-20', noticeOnly: true }),
+    // 曾經被勾過、之後才被改成純告知的：不准掉進「已完成」區（那裡找不到它）
+    mk({ id: 'noticeDone',  title: '被標成完成的純告知', date: '2026-09-11', noticeOnly: true, done: true }),
   ],
   majorProjects: [], ganttProjects: [], dailyLogs: {},
   customHolidays: [], customWorkdays: [],
@@ -247,12 +255,15 @@ await page.waitForTimeout(300);
 ok('刪掉之後那一格的 🌴 就不見了', await cell('17').locator('.cal-away-mark').count() === 0);
 
 // 「不在」不會讓日曆上的項目換一天出現
-ok('標記「不在」不會移動任何項目的日期', await page.evaluate(() =>
+ok('標記「不在」不會移動任何項目的日期', await page.evaluate((TODAY) =>
   JSON.parse(localStorage.getItem('workSchedule.v1')).items.every(x => x.date === {
     prereq: '2026-09-01', blocked: '2026-09-10', early: '2026-08-20',
     awayOverdue: '2026-08-25', leaveOverdue: '2026-08-26', plain: '2026-09-20',
-    prereq2: '2026-09-02', blocked2: '2026-09-12'
-  }[x.id])));
+    prereq2: '2026-09-02', blocked2: '2026-09-12',
+    // 純告知那幾筆也在這張表裡：漏一個的話 every() 會對 undefined 比較而整條紅，
+    // 而那個紅燈長得像「不在把日期移走了」——完全錯誤的方向（實際踩過兩次）
+    realToday: TODAY, noticeToday: TODAY, noticePast: '2026-08-20', noticeDone: '2026-09-11'
+  }[x.id]), TODAY));
 
 console.log('\n── 日曆上的「休假」 ──');
 // 9/16 同一天既「不在」也「休假」——使用者選的形狀，兩種要能並存。
@@ -352,6 +363,61 @@ ok('同一天兩種並存：休假那一筆沒有被蓋掉', await page.evaluate
 }));
 ok('而且那一格同時有兩種樣式', /\bleave\b/.test(await cell('20').getAttribute('class') || '')
    && /\baway\b/.test(await cell('20').getAttribute('class') || ''));
+
+console.log('\n── 純告知：八個「不算進去」──');
+await page.locator('.nav-item', { hasText: '項目安排' }).click();
+await page.waitForTimeout(300);
+
+const notice = row('總部政策宣達');
+ok('純告知不長勾選框', await notice.locator('.checkbox').count() === 0);
+// 沒有勾選框那一格仍然要佔位，否則整排欄位會往左跑一格
+ok('但仍然佔住勾選框的位置', await notice.locator('.notice-gap').count() === 1);
+ok('列上標「純告知」', /純告知/.test(await notice.locator('.notice-badge').innerText()));
+
+// 過期的純告知：留著、換小標、**沒有紅字**。這一條是紅線的另一面——
+// 紅字只留給真的遲交的事，而「順手讓純告知也紅一下」不會有任何東西壞掉。
+const past = row('上個月的公告');
+ok('日期過了的純告知留在看板上', await past.count() === 1);
+ok('而且標的是「已過」', /已過/.test(await past.locator('.notice-badge').innerText()));
+ok('純告知永遠不逾期：日期欄沒有 .overdue', await past.locator('.occ-date.overdue').count() === 0);
+ok('字級降一階（靠字級表達階層，不是把顏色淡到讀不了）',
+   parseFloat(await past.locator('.occ-title').evaluate(el => getComputedStyle(el).fontSize))
+   < parseFloat(await row('今天真的要做的事').locator('.occ-title').evaluate(el => getComputedStyle(el).fontSize)));
+// 對照組：真的逾期的那一列紅字一個字都沒少（紅線不動）
+ok('真的逾期的那一列照樣是紅字', await row('不在那天到期的事').locator('.occ-date.overdue').count() === 1);
+
+const dayCard = await page.locator('#metricDayList').innerText();
+ok('今日待辦卡不含純告知', !dayCard.includes('總部政策宣達'));
+ok('但今天真的要做的事在裡面', dayCard.includes('今天真的要做的事'));
+ok('本週待辦卡也不含純告知', !(await page.locator('#metricWeekList').innerText()).includes('總部政策宣達'));
+ok('逾期卡不含過期的純告知', !(await page.locator('#metricOverdueList').innerText()).includes('上個月的公告'));
+// 會議卡：把純告知那一項改成會議型別也不該進去（它是 type 與 noticeOnly 垂直的證據）
+ok('今日會議卡不含純告知', !(await page.locator('#metricMeetingList').innerText()).includes('總部政策宣達'));
+
+// 已完成區：先展開才看得到裡面有什麼
+await page.locator('#doneHead').click();
+await page.waitForTimeout(300);
+ok('被標成完成的純告知不在「已完成」區',
+   await page.locator('#doneBoard .occ-row').filter({ hasText: '被標成完成的純告知' }).count() === 0);
+ok('它留在上面的清單裡（不然就找不到它了）',
+   await page.locator('#board .occ-row').filter({ hasText: '被標成完成的純告知' }).count() === 1);
+
+// 範圍列的三顆數字：純告知不算分母。**不寫死數字**——寫死的話改一次 fixture
+// 就要改一次期望值，而那種期望值遲早會被改成「現在算出來是多少」。
+const pillTotal = parseInt((await page.locator('#statPills .pill').first().innerText()).replace(/\D/g, ''), 10);
+const allRows = await page.locator('#board .occ-row, #doneBoard .occ-row').count();
+const noticeRows = await page.locator('#board .occ-row.notice-only, #doneBoard .occ-row.notice-only').count();
+ok('看板上真的有純告知（否則下面那條是空的斷言）', noticeRows === 3);
+ok('範圍列的「項目」數 = 全部列數 − 純告知', pillTotal === allRows - noticeRows);
+
+// 「只看未完成」是唯一的例外方向：純告知不受它影響、一直都在
+await page.locator('#btnHideDone').click();
+await page.waitForTimeout(300);
+ok('「只看未完成」不會把純告知藏起來',
+   await page.locator('#board .occ-row').filter({ hasText: '總部政策宣達' }).count() === 1
+   && await page.locator('#board .occ-row').filter({ hasText: '被標成完成的純告知' }).count() === 1);
+await page.locator('#btnHideDone').click();
+await page.waitForTimeout(300);
 
 console.log('\n── 擋環：候選清單裡不會出現繞得回來的項目 ──');
 await page.locator('.nav-item', { hasText: '項目安排' }).click();

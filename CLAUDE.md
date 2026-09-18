@@ -51,13 +51,13 @@ mobile/                iOS app 外殼（Capacitor；自己的 package.json，見
 | `tests/holidays.test.mjs` | 內建國定假日清單的完整性 | 從 `index.html` 取出 `BUILTIN_HOLIDAYS` 求值 |
 | `tests/ops.test.mjs` | cron 執行記錄、功能使用狀況 | 直接 import Worker 端模組 |
 | `tests/ai.test.mjs` | AI 端點的限流、記錄、金鑰不外洩 | 直接 import，並注入假的 `fetch` |
-| `tests/deps.test.mjs` | 前置作業的配對與擋環、「不在」不影響任何計算 | 從 `index.html` 抽真正的原始碼求值 |
+| `tests/deps.test.mjs` | 前置作業的配對與擋環、「不在」不影響任何計算、`normalizeItems` 的 `noticeOnly` | 從 `index.html` 抽真正的原始碼求值 |
 | `tests/absence.test.mjs` | `absences` 的正規化、v1→v2→v3 逐階升級、三方合併（含基準／遠端仍是舊形狀） | 從 `index.html` 抽〈富文字〉〈持久化〉〈三方合併〉三個區段求值 |
 | `tests/appauth.test.mjs` | Bearer 與 cookie 並存、購買證明驗簽（五種失敗一種成功）、email 驗證碼、app 註冊／登入 | 直接 import；`tests/fake-apple.mjs` 用純 JS 的 DER 編碼器自己當 Apple 簽憑證鏈 |
 | `tests/account-delete.test.mjs` | 刪除自己的帳號：每張表清空、**別人的每一列原樣**、session 失效 | 直接 import Worker 端模組 |
 | `tests/cors.test.mjs` | iOS app 來源的 CORS：預檢、正常與錯誤回應都帶標頭、別的來源與同源不加、永不開 credentials | 直接打 Worker 的 `fetch` 入口 |
 | `tests/plan.test.mjs` | 方案：`planOf` 與寬限、「只有變多才擋」、`PUT /api/state` 的 402 且列不動、管理者設方案、AI 上限依方案、**前後端 `PLAN_LIMITS` 逐字相同** | 直接 import；上限那一份從 `index.html` 抽出來比 |
-| `tests/game.test.mjs` | 遊戲化引擎：按時＝到期那天結束前、沒安排的日子跳過、今天 missed 不斷、上線日之前不算、等級門檻、挑戰梯子、徽章、`setOccurrenceDone` 寫時間戳 | 從 `index.html` 抽〈遊戲化〉區段求值（連同 date helpers 與 occurrence engine） |
+| `tests/game.test.mjs` | 遊戲化引擎：按時＝到期那天結束前、沒安排的日子跳過、今天 missed 不斷、上線日之前不算、等級門檻、挑戰梯子、徽章、`setOccurrenceDone` 寫時間戳、**純告知不算安排** | 從 `index.html` 抽〈遊戲化〉區段求值（連同 date helpers 與 occurrence engine） |
 | `tests/plan-apple.test.mjs` | 訂閱交易與 Apple 通知：只往後、退款往前、永久不被蓋、搬移、去重、驗簽失敗 401 | 直接 import；`fake-apple.mjs` 自己當 Apple 簽 |
 | `tests/push.test.mjs` | 推播：APNs JWT 與快取、410 刪 token、換人登入搬 token、沒事不推、三個開關獨立、失敗不寫 ymd | 直接 import，攔 `fetch` 當假的 APNs |
 | `tests/state.test.mjs`（下半） | 連續斷掉的信：`dayReport`、三個「不該寄」（沒斷、連續 < 2、開關關著）、同一天只寄一次、寄失敗不記錄、兩個開關互不影響 | 直接 import Worker 端模組，攔 `fetch` 當假信箱 |
@@ -172,7 +172,7 @@ Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.Comm
 | `tools/check-calendar.mjs` | 日曆的色條軌道對齊、跨月與週界的收邊、每日記錄的 ✎ 記號 | 動到 `renderCalendar()` 或日曆的 CSS |
 | `tools/check-notes.mjs` | 每日記錄／專案筆記的格式（醒目提示、顏色、字級）與內容在離開後仍在 | 動到富文字、`persistSoon()` 或任何 debounce 寫入 |
 | `tools/check-contrast.mjs` | 正文級文字在**兩種主題**下都達到 WCAG 對比（4.5:1／大字 3:1） | 動到任何顏色變數或文字顏色 |
-| `tools/check-deps.mjs` | 前置作業的「待前置」徽章、不阻擋勾選；「不在」的標記**與逾期並存**；逾期的顏色就是 `--red` 且字重比旁邊重 | 動到 `dependsOn`、`absences`、`toggleOccDone`、逾期判斷或任何視覺改版 |
+| `tools/check-deps.mjs` | 前置作業的「待前置」徽章、不阻擋勾選；「不在」的標記**與逾期並存**；逾期的顏色就是 `--red` 且字重比旁邊重；**純告知的八個「不算進去」** | 動到 `dependsOn`、`absences`、`noticeOnly`／`isActionable`、`toggleOccDone`、逾期判斷或任何視覺改版 |
 | `tools/check-migrate.mjs` | **舊備份檔真的匯得回來**：造一份 v1 的 .json 丟進 `#importFile`，走完整條使用者路徑，再讀 localStorage 看實際存進去的東西；順便驗「比目前新的版本被擋下來，而且不動現有資料」 | 動到 `STORAGE_VERSION`、`migrateSnapshot`、`snapshot()`／`applySnapshot()`。在 CI 的 `smoke` job |
 | `tools/check-ambience.mjs` | 時段（早／午／晚）的 `data-daypart` 與光暈、每日記錄的提示語照日期決定、打勾的彈跳只在被點的那一個上、週一的回顧（含 N=0 不出現）、**遊戲化**：完美一天的 toast 只在勾掉最後一件時、升級的光只在升級那一次（看計算後的 `animationName`）、reduced-motion 關 | 動到 `tick()`、`<head>` 開機腳本、`DAILY_PROMPTS`、`renderLookback()`、`.checkbox` 的 CSS 或〈遊戲化畫面〉 |
 | `tools/check-native-plugin.mjs` | 原生插件的接線，六件事：SceneDelegate → MainViewController → `registerPluginInstance`、storyboard 的 `customClass`、**方法名兩側完全對齊（雙向）**、推播的 AppDelegate 接線與 **`aps-environment` 的值（Debug／Release 各自的環境，並比對 Swift 的 `#if DEBUG`）**、**訂閱 product id 在 Swift 與 Worker 逐字相同**（零相依，在 `check` job） | 動到 `mobile/ios/` 的任何 Swift／storyboard／entitlements，或 `index.html` 的〈原生外殼〉區段；CI 會自動跑 |
@@ -306,8 +306,36 @@ UI 類的改動（版面、行動版、主題）**必須真的用瀏覽器看過
 | 前置作業 `item.dependsOn` | 前置沒完成時，那一列標「⛓ 待前置」；勾下去時跳一句提示 | 不順延日期、不阻擋勾選、不影響逾期 |
 | 「不在」`absences`（kind=away） | 日曆格子右上角 🌴；那天到期的列上多一個 🌴 附註 | 不進 `isHoliday()`、不順延、**不豁免逾期** |
 | 「休假」`absences`（kind=leave） | 整格一層玻璃紙 ＋ 中間的浮水印圖示；列上多一個附註；**那一天的信與推播整批不送** | 同上，**一樣不豁免逾期**；不影響指標卡、連續天數與 ICS |
+| 純告知 `item.noticeOnly` | 列上標「純告知」；過期改標「已過」並降一階字級 | **八個地方全部不算**（見下方專節）：不長勾選框、不逾期、不進四張卡與已完成區、不算遊戲化與範圍列的分母 |
 
 `tools/check-deps.mjs` 把這些「沒發生」變成看得見的斷言，其中最重要的一條是**逾期標記與 🌴 必須同時出現在同一列**。突變驗證過五種改法都會紅。
+
+### 純告知：一個開關，八個「不算進去」
+
+`item.noticeOnly`（布林）。**不做成第四種 `type`**：`type` 已經承載了顏色與分類（work／meeting／assignment），而「這是工作還是會議」與「我要不要做它」是**兩個互相垂直的問題**——一場只是要知道、不必準備的會議，兩邊都要表達得出來。做成開關還有一個免費的好處：跨多天事項（`item.endDate`）自動就有了。
+
+「算進去」在這份程式碼裡有**八個**地方，全部問同一個述詞 `isActionable(occ)`：
+
+| 地方 | 純告知 |
+|---|---|
+| 今日待辦卡 / 本週待辦卡 | 不進去 |
+| 逾期卡與列上的紅字 | **永遠不逾期** |
+| 今日會議卡 | 不進去 |
+| 勾選框（看板、日曆格子、跨多天色條、**共享頁**） | **不長勾選框** |
+| 已完成區 | 永遠不進去 |
+| 「只看未完成」 | **不受影響，一直都在** |
+| 遊戲化（`dayVerdict` / 連續 / XP / 角色） | 不算。那天只有純告知＝`empty` |
+| 範圍列的三顆數字 | 不算分母 |
+
+**不要在八個地方各寫一次 `!o.item.noticeOnly`。** 那正是〈勾選不重建看板〉警告過的「在增量路徑複製一份遲早會走鐘」，而走鐘的症狀是**「畫面看起來是對的，只是數字不對」**——沒有人會發現今天的待辦卡多了一件不用做的事。
+
+**「只看未完成」是唯一的例外方向**：純告知本來就不是待辦，把它藏起來等於把使用者放進去的資訊弄不見。
+
+通知那一側：**行事曆訂閱有，提醒信與推播沒有**（`buildReminderDigest()` 濾掉）。理由與〈休假那幾天閉嘴〉是同一條——行事曆是「我自己去翻」，信與推播是「它跑來找我」。ICS 裡那幾筆**不帶 VALARM**；目前整個 `buildICS()` 一個 VALARM 都沒有，所以不必特別擋，但**日後要加提醒鬧鐘時，純告知那幾筆要跳過**。
+
+**共享頁那一格不能漏。** 擁有者標成「不用做」的東西，被分享者若還勾得動，那一勾會寫回擁有者的雲端資料——那是別人替你決定一件事做完了。
+
+**過期之後留在看板上**，加 `.notice-past`：字級降一階、小標從「純告知」換成「已過」，顏色走 `--notice`／`--text-muted`。**淡化不能只靠把顏色調淡**——〈「畫面上沒有這個元素，略過」是一條永遠不會執行的斷言〉那一節抓到過兩個已經上線很久的案例，修法都是「階層改用字級表達」。`tools/check-contrast.mjs` 因此**主動造一件過期的純告知**再量（示範資料那一件在未來，等它自然出現就是空的斷言）。
 
 ### 為什麼前置作業不自動順延
 
@@ -1510,13 +1538,14 @@ class 命名沿用 `type-<type>`（列）與 `type-badge <type>`（徽章）；�
 9. 分享過來的內容沒有本機快取，離線時看不到也改不了
 10. **前置作業只顯示，不順延也不阻擋**；一個項目最多五個前置。「A 延後 B 自動跟著延後」是刻意不做的（見上方章節）
 11. **「不在」不影響逾期、不影響提醒信、不影響 ICS**，只是日曆與列上的一個標記。使用者的裁決：「不在就是不在，逾期就照樣逾期」。**「休假」的逾期規則完全相同**（紅字一個字都不改），差別只有一個：**那一天的提醒信、植物的信與三種推播整批不送**（見〈休假那幾天閉嘴〉）
-12. 前置作業的狀態不進提醒信與 ICS——那兩者的內容由前端展開後推上去，加進去等於再開一條會分歧的路
-13. **免費版有上限**：大項目與甘特專案各最多 3 個、AI 每天 5 次；Pro（app 內自動續訂訂閱）不限。降級不刪資料，只是不能再新增。在 app 裡註冊仍要附 Apple 的購買證明——一個 Apple ID 一個帳號，那是防濫用不是收費
-14. **前端每次改版，app 要重新打包送審**：`index.html` 內建在 app 裡（自動更新是之後的子專案）。**打包本身已經自動化**——合併進 main、CI 全綠、而且動到 `public/index.html` 或 `mobile/` 就會自己打包並上傳到 TestFlight；要送審仍然要自己去 App Store Connect 按
-15. **網頁上不開放陌生人自己註冊**：註冊只在 app 裡發生；網頁註冊仍走管理者核准，留給例外
-16. **遊戲化的數字從 2026-09-17 起算**：之前的完成沒有時間戳，不算按時；連續天數不防「把日期往後改」
-17. **推播只有 iOS app 有**：網頁版沒有（Web Push 要另一套金鑰與另一條 service worker 路徑，刻意不做）。推播**不取代 email**，兩者各自有開關——token 會因為換手機／刪 app／關權限而安靜失效，信箱是唯一不會這樣消失的管道
-18. **通知不做「稍後提醒」與互動按鈕**：那要 Notification Service Extension，而且要處理「在通知上勾完成」之後的同步衝突。先看有沒有人用
+12. **純告知（`item.noticeOnly`）什麼都不算**：不長勾選框、永遠不逾期，也不進今日／本週／逾期／會議四張卡、已完成區、範圍列的數字與遊戲化。行事曆訂閱看得到，提醒信與推播不通知。「只看未完成」**不影響它**
+13. 前置作業的狀態不進提醒信與 ICS——那兩者的內容由前端展開後推上去，加進去等於再開一條會分歧的路
+14. **免費版有上限**：大項目與甘特專案各最多 3 個、AI 每天 5 次；Pro（app 內自動續訂訂閱）不限。降級不刪資料，只是不能再新增。在 app 裡註冊仍要附 Apple 的購買證明——一個 Apple ID 一個帳號，那是防濫用不是收費
+15. **前端每次改版，app 要重新打包送審**：`index.html` 內建在 app 裡（自動更新是之後的子專案）。**打包本身已經自動化**——合併進 main、CI 全綠、而且動到 `public/index.html` 或 `mobile/` 就會自己打包並上傳到 TestFlight；要送審仍然要自己去 App Store Connect 按
+16. **網頁上不開放陌生人自己註冊**：註冊只在 app 裡發生；網頁註冊仍走管理者核准，留給例外
+17. **遊戲化的數字從 2026-09-17 起算**：之前的完成沒有時間戳，不算按時；連續天數不防「把日期往後改」
+18. **推播只有 iOS app 有**：網頁版沒有（Web Push 要另一套金鑰與另一條 service worker 路徑，刻意不做）。推播**不取代 email**，兩者各自有開關——token 會因為換手機／刪 app／關權限而安靜失效，信箱是唯一不會這樣消失的管道
+19. **通知不做「稍後提醒」與互動按鈕**：那要 Notification Service Extension，而且要處理「在通知上勾完成」之後的同步衝突。先看有沒有人用
 
 ## 尚未做的重構
 

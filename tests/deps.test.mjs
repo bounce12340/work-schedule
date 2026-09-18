@@ -54,7 +54,7 @@ function makeEngine() {
     ${section('occurrence engine')}
     return {
       occDoneOf, latestOccOnOrBefore, depPending, depWouldCycle,
-      isAway, isLeave, absencesOn, isHoliday, adjustForHoliday, ymd, parseYMD,
+      isAway, isLeave, absencesOn, isActionable, isHoliday, adjustForHoliday, ymd, parseYMD,
       setItems(list){ items = list; },
       // 整天不在，與改版前 setAway 的語意一字不差
       setAway(list){ absences = {}; list.forEach(d => { absences[d] = [{ kind:'away', from:null, to:null }]; }); },
@@ -310,4 +310,21 @@ test('非循環的前置不套 400 天下限——它只有一次，五年前那
   E.setItems([a, b]);
   assert.equal(E.latestOccOnOrBefore(a, '2026-03-18').date, '2020-05-04');
   assert.equal(E.depPending(occOf(b, '2026-03-18')).length, 1);
+});
+
+// ---------------------------------------------------------------- 純告知（B）
+
+test('normalizeItems：noticeOnly 一律折算成布林，舊存檔沒有這個欄位＝false', () => {
+  const mk = (id, extra) => ({ id, title: id, type: 'work', date: '2026-09-20', ...extra });
+  const out = N.normalizeItems([
+    mk('a'),                              // 舊存檔：沒有這個欄位
+    mk('b', { noticeOnly: true }),
+    mk('c', { noticeOnly: false }),
+    mk('d', { noticeOnly: 'yes' }),       // 匯入的備份檔可能是任何東西
+    mk('e', { noticeOnly: 0 }),
+  ]);
+  assert.deepEqual(out.map(x => x.noticeOnly), [false, true, false, true, false]);
+  // 三方合併以 stableStringify 比對整個項目：欄位缺席與 false 是兩個不同的字串，
+  // 會讓「兩邊其實一樣」被判成衝突，然後跳一個根本不存在的對話框給使用者
+  assert.ok(out.every(x => 'noticeOnly' in x), '每一列都要有這個欄位，不能只有被設過的才有');
 });

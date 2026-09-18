@@ -98,6 +98,10 @@
        它不是一件要做的事，也不是警示，它只是一個事實。 */
     --away: #4F6070;
     --away-dim: rgba(79,96,112,0.10);
+    /* 純告知：中性灰，刻意不借用三個型別色，也不用紅或琥珀——它說的是
+       「不用你動手」，不是「注意」。對比由 check-contrast 量（兩種主題都要 4.5:1）。 */
+    --notice: #5F5E58;
+    --notice-dim: rgba(95,94,88,0.10);
     /* 休假：刻意選鼠尾草綠而不是暖色。暖色會與 --amber（今天）在低 alpha 下
        糊成一團，而紅系不能碰——那是逾期的專用色，休假被誤讀成警示就違反紅線。
        綠色沒有被任何項目型別或狀態用掉，而且它不像警告。 */
@@ -190,6 +194,8 @@
     --violet-dim: rgba(155,140,245,0.14);
     --away: #9DB0C1;
     --away-dim: rgba(157,176,193,0.14);
+    --notice: #A7A59C;
+    --notice-dim: rgba(167,165,156,0.13);
     --leave: #93C2A4;
     --leave-dim: rgba(147,194,164,0.16);
     --span-teal: rgba(63,191,146,0.24);
@@ -555,6 +561,20 @@
      長得不一樣只會讓人以為它們是不同種類的東西。**兩者都與逾期的紅字並存** */
   .leave-badge{ font-family:var(--mono); font-size:10.5px; padding:2px 7px; border-radius:5px;
                 background:var(--leave-dim); color:var(--leave); white-space:nowrap; }
+  /* 純告知（item.noticeOnly）。用中性的灰而**不是**任何一個型別色，也不是紅或琥珀：
+     它要說的是「這件事不用你動手」，不是「注意」。三個顏色都是有意義的，借用會稀釋掉。 */
+  .notice-badge{ font-family:var(--mono); font-size:10.5px; padding:2px 7px; border-radius:5px;
+                 background:var(--notice-dim); color:var(--notice); white-space:nowrap; cursor:help; }
+  /* 沒有勾選框的那一格仍然要佔位，後面每一欄才不會整排往左跑（.checkbox 的寬度） */
+  .notice-gap{ width:19px; flex-shrink:0; }
+  /* 過了日期就淡下去，但**留在看板上**。淡化靠**字級與「已過」小標**，不是把顏色
+     調到讀不了——〈永遠不會執行的斷言〉那一節抓到過兩個「靠顏色淡化」的案例，
+     修法都是改用字級表達階層。所以 --notice 在兩種主題下都必須過 4.5:1。 */
+  .occ-row.notice-past .occ-title{ font-size:13px; font-weight:500; color:var(--text-muted); }
+  .occ-row.notice-past .occ-date{ color:var(--text-muted); }
+  .cal-item-nocheck{ width:12px; flex-shrink:0; }
+  .check-line{ display:flex; align-items:center; gap:8px; cursor:pointer; font-size:13px; color:var(--text); }
+  .check-line input{ width:auto; margin:0; flex-shrink:0; }
   .sub-list{ flex:1 1 100%; margin:8px 0 0; padding:8px 0 0; border-top:1px solid var(--hairline);
              display:flex; flex-direction:column; gap:5px; }
   .sub-line{ display:flex; align-items:baseline; gap:8px; font-size:13px; cursor:pointer; }
@@ -1596,6 +1616,10 @@
         <button class="sel-assignment" id="btnTypeAssignment" data-i18n>作業</button>
       </div>
     </div>
+    <div class="field">
+      <label class="check-line"><input type="checkbox" id="inputNoticeOnly"><span data-i18n>純告知（只是要知道，不用做）</span></label>
+      <div class="field-hint" data-i18n>不長勾選框、永遠不逾期，也不算進今日／本週／逾期／會議的數字與小植物。行事曆訂閱看得到，提醒信與推播不會通知。</div>
+    </div>
     <div class="field" id="itemMeetingTimeField"><label data-i18n>時間（選填）</label><input type="time" id="inputItemMeetingTime"></div>
     <div class="field"><label data-i18n>連結（選填，例如會議連結或文件）</label><input type="url" id="inputItemLink" placeholder="https://…"></div>
     <div class="field"><label data-i18n>歸屬大項目</label><select id="selectParent"><option value="" data-i18n>獨立項目（不歸屬任何大項目）</option></select></div>
@@ -2565,6 +2589,13 @@
       '標記為不在（{0} 天）':'Mark {0} days as away', '取消不在（{0} 天）':'Clear away on {0} days',
       '只是標記「那天我不在」：不會移動任何日期，也不會讓逾期變成不逾期。':
         'Just a note that you are away: nothing is rescheduled, and nothing overdue stops being overdue.',
+      // —— 純告知（2026-09-18） ——
+      '純告知':'FYI only', '已過':'Past',
+      '純告知（只是要知道，不用做）':'Just an FYI (nothing to do)',
+      '純告知：只是讓你知道，不用打勾，也不算進任何數字。':
+        'FYI only: nothing to tick, and it counts towards none of the numbers.',
+      '不長勾選框、永遠不逾期，也不算進今日／本週／逾期／會議的數字與小植物。行事曆訂閱看得到，提醒信與推播不會通知。':
+        'No checkbox, never overdue, and excluded from the today / this week / overdue / meeting counts and from your plant. It still shows up in the calendar feed, but no reminder email and no push.',
       // —— 不在／休假（2026-09-17） ——
       '不在／休假':'Away / Leave', '休假':'On leave',
       '不在／休假…':'Away / leave…', '不在／休假（已標記）':'Away / leave (marked)',
@@ -3170,6 +3201,8 @@
       subtasks: normalizeSubtasks(it.subtasks),
       subDone: normalizeSubDone(it.subDone, normalizeSubtasks(it.subtasks)),
       dependsOn: normalizeDependsOn(it.dependsOn, it.id, validIds),
+      // 純告知：只是一格佔位，不算進任何數字也不長勾選框（見 isActionable）
+      noticeOnly: !!it.noticeOnly,
       done: !!it.done,
       doneMap: (it.doneMap && typeof it.doneMap==='object') ? it.doneMap : {},
       doneAt: normalizeDoneAt(it.doneAt),
@@ -4416,6 +4449,28 @@
     const [y,q] = occ.occKey.split('-Q'); return y+'年 第'+q+'季';
   }
 
+  /**
+   * 「這一次要不要算進去？」——純告知的項目（`item.noticeOnly`）一律不算。
+   *
+   * 純告知是**一個開關，不是第四種類型**：`type` 已經承載了顏色與分類，而「這是
+   * 工作還是會議」與「我要不要做它」是兩個互相垂直的問題。一場只是要知道、不必
+   * 準備的會議，兩邊都要表達得出來。
+   *
+   * 「算進去」在這份程式碼裡有**八個**地方，全部問這一個述詞，**不要在八個地方各
+   * 寫一次 `!o.item.noticeOnly`**——那正是〈勾選不重建看板〉警告過的「在增量路徑
+   * 複製一份遲早會走鐘」，而走鐘的症狀是「畫面看起來是對的，只是數字不對」：
+   *
+   *   1. 今日待辦卡 2. 本週待辦卡 3. 逾期卡 4. 列上的紅字
+   *   5. 今日會議卡 6. 勾選框與已完成區 7. 遊戲化 8. 範圍列的三顆數字
+   *
+   * 「只看未完成」是唯一的例外方向：純告知**不受它影響、一直都在**（它本來就不是
+   * 待辦，藏起來等於把使用者放進去的資訊弄不見）。
+   *
+   * 通知那一側的分界在別處，但規則是同一條（〈休假那幾天閉嘴〉的那一條）：
+   * 行事曆訂閱**有**（那是我自己去翻的），提醒信與推播**沒有**（那是它跑來找我）。
+   */
+  function isActionable(occ){ return !occ.item.noticeOnly; }
+
   // ================= 遊戲化 =================
   // 設計文件 docs/superpowers/specs/2026-09-16-gamification-design.md。
   //
@@ -4514,6 +4569,7 @@
     const end = parseYMD(todayStr); end.setHours(23,59,59,999);
     const byDay = new Map();
     getAllOccurrences(start, end).forEach(o => {
+      if(!isActionable(o)) return;                 // 純告知不算：那天只有純告知＝沒安排（empty）
       const d = gameDueDate(o);
       if(d < GAME_EPOCH || d > todayStr) return;   // 進行中的跨多天事項還沒到期
       if(!byDay.has(d)) byDay.set(d, []);
@@ -5006,15 +5062,18 @@
     const wStart = startOfWeek(new Date()), wEnd = endOfWeek(new Date());
     const dayOcc = getAllOccurrences(now, todayEnd);
     const weekOcc = getAllOccurrences(wStart, wEnd);
-    renderMetricList('metricDayList', dayOcc.filter(o=>!o.done), tr('今日已全部完成'));
-    renderMetricList('metricWeekList', weekOcc.filter(o=>!o.done), tr('本週已全部完成'));
+    // 純告知不進任何一張卡（見 isActionable）：它不是待辦，算進去會讓「今天還有幾件」
+    // 這個數字失去意義——而數字錯掉是最安靜的那一種壞掉
+    renderMetricList('metricDayList', dayOcc.filter(o=>isActionable(o) && !o.done), tr('今日已全部完成'));
+    renderMetricList('metricWeekList', weekOcc.filter(o=>isActionable(o) && !o.done), tr('本週已全部完成'));
     // 逾期＝過去 90 天內、日期已過且未完成。回看窗口有限是刻意的：全展開的成本
     // 隨項目數與歷史長度成長，而 90 天前還沒勾的項目，實務上已經不是「待辦」。
     const odStart = new Date(now); odStart.setDate(odStart.getDate()-90);
     const odEnd = new Date(now); odEnd.setMilliseconds(-1);   // 昨天 23:59:59.999
     const todayStr = ymd(now);
     const overdue = getAllOccurrences(odStart, odEnd)
-      .filter(o=>!o.done && (o.item.endDate || o.date) < todayStr)   // 進行中的跨多天事項不算逾期
+      // 純告知**永遠不逾期**：沒有人欠它什麼，紅字留給真的遲交的事
+      .filter(o=>isActionable(o) && !o.done && (o.item.endDate || o.date) < todayStr)   // 進行中的跨多天事項不算逾期
       .sort((a,b)=> a.date.localeCompare(b.date));
     const odEl = document.getElementById('metricOverdueList');
     if(!overdue.length){
@@ -5026,7 +5085,7 @@
       ).join('') + (overdue.length>MAXO ? '<div class="metric-list-more">'+escapeHtml(tf('+ 還有 {0} 項', overdue.length-MAXO))+'</div>' : '');
     }
 
-    const todaysMeetings = dayOcc.filter(o=>o.item.type==='meeting').sort((a,b)=>(a.item.meetingTime||'99:99').localeCompare(b.item.meetingTime||'99:99'));
+    const todaysMeetings = dayOcc.filter(o=>isActionable(o) && o.item.type==='meeting').sort((a,b)=>(a.item.meetingTime||'99:99').localeCompare(b.item.meetingTime||'99:99'));
     const listEl = document.getElementById('metricMeetingList');
     listEl.innerHTML = todaysMeetings.length===0 ? '<div class="metric-meeting-empty">'+escapeHtml(tr('今日無會議'))+'</div>' :
       todaysMeetings.map(o=>'<div class="metric-meeting-row"><span class="m-time">'+(o.item.meetingTime||'--:--')+'</span><span>'+escapeHtml(o.item.title)+'</span></div>').join('');
@@ -5174,7 +5233,9 @@
   }
   function renderScopeStrip(){
     document.getElementById('scopeCurrent').innerHTML = scopeDisplay()+' <span class="unit">/ '+modeLabel(mode).toUpperCase()+'</span>';
-    const list = currentOccurrences();
+    // 純告知不算分母（見 isActionable）：「這段時間有 12 項、做完 3 項」裡的 12
+    // 一旦混進不用做的東西，那個比例就不再是進度了
+    const list = currentOccurrences().filter(isActionable);
     const doneCount = list.filter(o=>o.done).length;
     document.getElementById('statPills').innerHTML =
       '<div class="pill">'+escapeHtml(tr('項目'))+' <b>'+list.length+'</b></div>'+
@@ -5204,13 +5265,32 @@
   // ================= shared occurrence row builder =================
   function buildOccRow(occ){
     const it = occ.item;
-    const row = document.createElement('div'); row.className = 'occ-row type-'+it.type;
-    const cb = document.createElement('span'); cb.className='checkbox'+(occ.done?' done':''); cb.textContent=occ.done?'✓':'';
-    row.appendChild(cb);
+    const act = isActionable(occ);
+    // 純告知過了日期就淡下去（.notice-past），但**留在看板上**——它的用途就是「我知道
+    // 這天有這件事」，到了隔天把它藏起來等於把那個資訊弄不見。
+    // 淡化靠**字級與一個「已過」小標**，不是把顏色調到讀不了：〈永遠不會執行的斷言〉
+    // 那一節抓到過兩個「靠顏色淡化」的案例，修法都是改用字級表達階層。
+    const past = !act && (it.endDate || occ.date) < ymd(new Date());
+    const row = document.createElement('div');
+    row.className = 'occ-row type-'+it.type + (act ? '' : ' notice-only') + (past ? ' notice-past' : '');
+    let cb = null;
+    if(act){
+      cb = document.createElement('span'); cb.className='checkbox'+(occ.done?' done':''); cb.textContent=occ.done?'✓':'';
+      row.appendChild(cb);
+    } else {
+      // 佔住勾選框的位置，後面每一欄才不會整排往左跑
+      const sp=document.createElement('span'); sp.className='notice-gap'; sp.setAttribute('aria-hidden','true'); row.appendChild(sp);
+    }
     const badge=document.createElement('span'); badge.className='type-badge '+it.type; badge.textContent=typeLabel(it.type); row.appendChild(badge);
-    const title=document.createElement('span'); title.className='occ-title'+(occ.done?' done':''); title.textContent=it.title; row.appendChild(title);
+    const title=document.createElement('span'); title.className='occ-title'+(act && occ.done?' done':''); title.textContent=it.title; row.appendChild(title);
     // 綁在 title 建好之後：樂觀回饋要同時把標題切成完成樣式
-    cb.onclick=()=> toggleOccDone(occ, cb, title);
+    if(cb) cb.onclick=()=> toggleOccDone(occ, cb, title);
+    if(!act){
+      const nb=document.createElement('span'); nb.className='notice-badge';
+      nb.textContent=past ? tr('已過') : tr('純告知');
+      nb.title=tr('純告知：只是讓你知道，不用打勾，也不算進任何數字。');
+      row.appendChild(nb);
+    }
     const pname = majorProjectName(it.parentId);
     if(pname){ const tag=document.createElement('span'); tag.className='parent-tag'; tag.textContent=pname; row.appendChild(tag); }
     (it.tags || []).forEach(t=>{
@@ -5265,8 +5345,9 @@
     }
     const dateEl=document.createElement('span'); dateEl.className='occ-date';
     dateEl.textContent = it.endDate ? occ.date+' → '+it.endDate : occ.date;
-    // 跨多天事項要整段結束後才算逾期，期間進行中不是
-    if(!occ.done && (it.endDate || occ.date) < ymd(new Date())){ dateEl.classList.add('overdue'); dateEl.title=tr('已逾期'); }
+    // 跨多天事項要整段結束後才算逾期，期間進行中不是。
+    // 純告知**永遠不逾期**——沒有人欠它什麼（見 isActionable）。
+    if(act && !occ.done && (it.endDate || occ.date) < ymd(new Date())){ dateEl.classList.add('overdue'); dateEl.title=tr('已逾期'); }
     row.appendChild(dateEl);
     // 「不在」只是**附註**，加在逾期判斷之後而且完全不碰它：那天你不在，
     // 但事情本來就排在那天，沒做完就是沒做完。
@@ -5360,7 +5441,9 @@
     // 標籤是多對多，所以「符合任一個選取的標籤」就算通過（同維度 OR）。
     // 與類型之間仍然是 AND：選了「管制藥品」再選「作業」= 兩者都要成立。
     if(tagFilter.size && !(occ.item.tags || []).some(t => tagFilter.has(t))) return false;
-    if(hideDone && occ.done) return false;
+    // 「只看未完成」**不影響純告知**：它本來就不是待辦，藏起來等於把使用者
+    // 放進去的資訊弄不見（設計文件 B-2 唯一一條「不受影響」）
+    if(hideDone && isActionable(occ) && occ.done) return false;
     if(searchText){
       const q = searchText.toLowerCase();
       const parent = (majorProjectName(occ.item.parentId) || '').toLowerCase();
@@ -5421,9 +5504,10 @@
     document.getElementById('filterCount').textContent =
       filterActive() ? tf('符合 {0} / {1} 項', list.length, all.length) : '';
 
-    // 上方只展開還沒完成的，已勾選的收到下面的區塊
-    const pending = list.filter(o=>!o.done);
-    const done    = list.filter(o=> o.done);
+    // 上方只展開還沒完成的，已勾選的收到下面的區塊。
+    // **純告知永遠留在上面**：它沒有勾選框，掉進「已完成」只會讓人找不到它。
+    const pending = list.filter(o=> !(isActionable(o) && o.done));
+    const done    = list.filter(o=>    isActionable(o) && o.done);
 
     if(all.length===0){
       board.innerHTML='<div class="empty-state">'+emptyArt()+'這段時間還很空。<span class="empty-line2">想安排什麼，從右上角的「＋ 新增小項目」開始就好。</span></div>';
@@ -5681,7 +5765,7 @@
           bar.title = it.title + '（' + it.date + ' → ' + it.endDate + '）';
           // 勾選只放在**本月第一段**上：整段共用一個完成狀態，四天各放一個
           // 方塊會讓人以為勾的是「那一天」
-          if(dateStr === sp.from){
+          if(dateStr === sp.from && isActionable(sp.occ)){
             const chk=document.createElement('span');
             chk.className='cal-span-check'+(sp.occ.done?' done':'');
             const o = sp.occ;
@@ -5712,12 +5796,16 @@
 
       const MAXW=3;
       tasks.slice(0,MAXW).forEach(o=>{
-        const row=document.createElement('div'); row.className='cal-item-row'+(o.item.type==='assignment'?' assignment':'');
-        const check=document.createElement('span'); check.className='cal-item-check'+(o.done?' done':''); check.textContent=o.done?'✓':'';
-        const text=document.createElement('span'); text.className='cal-item-text'+(o.done?' done':'');
+        const act = isActionable(o);
+        const row=document.createElement('div'); row.className='cal-item-row'+(o.item.type==='assignment'?' assignment':'')+(act?'':' notice-only');
+        const check=document.createElement('span');
+        // 純告知不長勾選框，但仍然佔住那一格的寬度，整欄文字才不會忽左忽右
+        check.className=(act ? 'cal-item-check'+(o.done?' done':'') : 'cal-item-nocheck');
+        check.textContent=(act && o.done)?'✓':'';
+        const text=document.createElement('span'); text.className='cal-item-text'+(act && o.done?' done':'');
         text.textContent=(o.item.meetingTime? o.item.meetingTime+' ' : '')+o.item.title;
         // 日曆格子的重繪成本更高（整張月曆網格重建），樂觀回饋在這裡更有感
-        check.onclick=(e)=>{ e.stopPropagation(); toggleOccDone(o, check, text); };
+        if(act) check.onclick=(e)=>{ e.stopPropagation(); toggleOccDone(o, check, text); };
         row.appendChild(check); row.appendChild(text); dotsWrap.appendChild(row);
       });
       if(tasks.length>MAXW){ const more=document.createElement('div'); more.className='cal-more'; more.textContent=tf('+ 還有 {0} 項', tasks.length-MAXW); dotsWrap.appendChild(more); }
@@ -5733,7 +5821,9 @@
         const kinds=['meeting','work','assignment'].filter(t=>dayOcc.some(o=>o.item.type===t));
         kinds.forEach(t=>{
           const dot=document.createElement('span');
-          dot.className='cal-pip '+t+(dayOcc.filter(o=>o.item.type===t).every(o=>o.done) ? ' done' : '');
+          // 「這一類都做完了」不看純告知——它永遠不會被勾，算進去那顆點就永遠不會變綠
+          const actOfType = dayOcc.filter(o=>o.item.type===t && isActionable(o));
+          dot.className='cal-pip '+t+(actOfType.length && actOfType.every(o=>o.done) ? ' done' : '');
           pips.appendChild(dot);
         });
         // 有未完成的才標數字：全部做完的日子不需要再提醒還剩幾項
@@ -6565,6 +6655,7 @@
     if(existingItem){
       document.getElementById('inputItemTitle').value = existingItem.title;
       modalType = existingItem.type; updateTypeToggle();
+      document.getElementById('inputNoticeOnly').checked = !!existingItem.noticeOnly;
       document.getElementById('inputItemMeetingTime').value = existingItem.meetingTime || '';
       document.getElementById('inputItemLink').value = existingItem.link || '';
       document.getElementById('selectParent').value = existingItem.parentId || '';
@@ -6587,6 +6678,7 @@
     } else {
       document.getElementById('inputItemTitle').value='';
       modalType='work'; updateTypeToggle();
+      document.getElementById('inputNoticeOnly').checked = false;
       document.getElementById('inputItemMeetingTime').value='';
       document.getElementById('inputItemLink').value='';
       document.getElementById('selectParent').value='';
@@ -6660,6 +6752,7 @@
     if(!dateVal){ document.getElementById('inputItemDate').focus(); return; }
     const parentId=document.getElementById('selectParent').value || null;
     const meetingTime=document.getElementById('inputItemMeetingTime').value || null;
+    const noticeOnly=document.getElementById('inputNoticeOnly').checked;
     const endRaw=document.getElementById('inputItemEndDate').value || null;
     const linkRaw=document.getElementById('inputItemLink').value.trim();
     // 只收 http(s)：javascript: 這類 scheme 進了 href 就是 XSS
@@ -6697,7 +6790,7 @@
             it.done=false; it.doneMap={}; it.doneAt={}; it.overrides={}; it.skipped={}; it.subDone={};
           }
           it.title=title; it.type=modalType; it.parentId=parentId;
-          it.meetingTime=meetingTime; it.link=link;
+          it.meetingTime=meetingTime; it.link=link; it.noticeOnly=noticeOnly;
           it.tags=normalizeTags([...modalTags]);
           // 前置作業不以 occKey 為 key，所以**不隨頻率變更重置**——上面清掉的是
           // doneMap/overrides/skipped/subDone 那一組，它不屬於那一組
@@ -6709,7 +6802,7 @@
         }
       } else {
         const newId = uid('item');
-        items.push({ id: newId, title, type: modalType, parentId, meetingTime, link,
+        items.push({ id: newId, title, type: modalType, parentId, meetingTime, link, noticeOnly,
           tags: normalizeTags([...modalTags]),
           dependsOn: normalizeDependsOn(modalDeps, newId, new Set(items.map(x=>x.id))),
           subtasks: normalizeSubtasks(modalSubtasks.filter(x=>x.text.trim())),
@@ -7589,7 +7682,11 @@
     occs.forEach(occ=>{
       const row=document.createElement('div'); row.className='share-occ';
       const cb=document.createElement('span'); cb.className='checkbox'+(occ.done?' done':''); cb.textContent=occ.done?'✓':'';
-      if(sh.permission==='edit'){
+      // 純告知不長勾選框——**別人分享過來的也一樣**。少了這一條的話，擁有者標成
+      // 「不用做」的東西，被分享者還是勾得動，而那一勾會寫回擁有者的雲端資料。
+      if(!isActionable(occ)){
+        cb.className='notice-gap'; cb.textContent='';
+      } else if(sh.permission==='edit'){
         cb.onclick=async ()=>{
           const next=!occ.done;
           setOccurrenceDone(occ, next);
@@ -7750,6 +7847,9 @@
       'TZOFFSETFROM:+0800','TZOFFSETTO:+0800','TZNAME:CST','END:STANDARD','END:VTIMEZONE'
     ];
     getAllOccurrences(start, end).forEach(o=>{
+      // 純告知**有**進行事曆（設計文件 B-3）：行事曆是「我自己去翻」，佔一格正是
+      // 它的用途。它不帶 VALARM——這裡本來就一個 VALARM 都沒有，所以不必特別擋，
+      // 但**日後要加提醒鬧鐘時，純告知那幾筆要跳過**，否則它就變成會來找人的東西了。
       L.push('BEGIN:VEVENT');
       L.push('UID:'+o.item.id+'-'+o.occKey+'@work-schedule');
       L.push('DTSTAMP:'+stamp);
@@ -7823,7 +7923,10 @@
     // 沒開 app 時，之後才到期的項目也已經在伺服器上等著被判定
     const start=new Date(); start.setHours(0,0,0,0); start.setFullYear(start.getFullYear()-1);
     const end=new Date(); end.setHours(23,59,59,999); end.setMonth(end.getMonth()+3);
-    return getAllOccurrences(start, end).map(o=>({
+    // 純告知不進提醒信，也不進推播（設計文件 B-3）：信與推播是**它跑來找我**，
+    // 而純告知本來就沒有要我做什麼。行事曆訂閱是另一回事——那是我自己去翻的，
+    // 所以 buildICS() 照放。這條分界與〈休假那幾天閉嘴〉是同一條。
+    return getAllOccurrences(start, end).filter(isActionable).map(o=>({
       t: o.item.title,
       // 跨多天事項以結束日判定逾期：進行中的區間不該被當成遲交
       d: (o.item.endDate && o.occKey==='single') ? o.item.endDate : o.date,
@@ -8457,6 +8560,13 @@
     const goalsId = uid('item');
     items.push({ id: goalsId, title:'盤點各部門年度目標', type:'work', parentId:mp2, meetingTime:null, date: t.getFullYear()+'-01-05', recurrence:null, done:true, doneMap:{}, overrides:{}, skipped:{} });
     items.find(x=>x.id===quarterlyId).dependsOn = [goalsId];
+    // 純告知：示範一件「只是要知道」的事。**示範資料不示範新功能的話，第一次打開
+    // 的人根本不知道有這些東西**（同前置作業那一項的理由）。
+    const t4=new Date(t); t4.setDate(t.getDate()+2);
+    items.push({ id: uid('item'), title:'總部年度政策宣達（不用準備）', type:'meeting', parentId:null,
+      meetingTime:'16:00', noticeOnly:true, date: ymd(t4), recurrence:null,
+      done:false, doneMap:{}, overrides:{}, skipped:{} });
+
     // 完成的時間戳（遊戲化）：示範資料裡做完的兩件算「按時」
     items.forEach(it=>{ it.doneAt = it.done ? { single: Date.now() } : {}; });
 
