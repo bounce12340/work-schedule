@@ -1014,6 +1014,20 @@
   .field label{ display:block; font-family: var(--mono); font-size:10.5px; letter-spacing:1.5px; color: var(--text-dim); text-transform:uppercase; margin-bottom:6px; }
   .field input, .field select{ width:100%; font-family: var(--sans); font-size:14px; }
   .field input[type=date], .field input[type=time], .field input[type=number]{ font-family: var(--mono); }
+  /* 密碼欄位的眼睛。Helen 登不進去時完全不知道自己打了什麼，連「是不是打錯」都無從判斷。
+     圖示用兩個 inline SVG 疊著、靠 .shown 這個 class 決定顯示哪一個——JS 只切 class 與
+     input.type，不必在 JS 裡拼 SVG 字串。點擊目標 44×44（Apple／Google 的建議）。
+     **切換狀態刻意不記住**：下一次打開回到隱藏才安全，所以開表單時一律 pwEyeReset()。 */
+  .pw-wrap{ position:relative; display:block; }
+  .pw-wrap input{ padding-right:46px !important; }
+  .pw-eye{ position:absolute; right:0; top:50%; transform:translateY(-50%); height:44px; width:44px;
+           display:flex; align-items:center; justify-content:center;
+           background:none; border:0; padding:0; cursor:pointer; color:var(--text-muted); }
+  .pw-eye:hover{ color:var(--text); }
+  .pw-eye svg{ width:19px; height:19px; display:block; }
+  .pw-wrap .pw-eye .eye-off{ display:none; }
+  .pw-wrap.shown .pw-eye .eye-on{ display:none; }
+  .pw-wrap.shown .pw-eye .eye-off{ display:block; }
   .type-toggle{ display:flex; gap:8px; }
   .type-toggle button{ flex:1; font-family: var(--mono); font-size:12px; font-weight:700; padding:10px 4px; border-radius:7px; border:1px solid var(--hairline); background: var(--panel-2); color: var(--text-muted); cursor:pointer; }
   .field-row{ display:flex; gap:10px; }
@@ -1852,7 +1866,7 @@
     </div>
     <div class="field"><label>Email</label><input type="email" id="inputAppAuthEmail" autocomplete="username" inputmode="email" autocapitalize="off" spellcheck="false"></div>
     <div class="field" id="appAuthCodeRow" style="display:none;"><label data-i18n>驗證碼（六位數字）</label><input type="text" id="inputAppAuthCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6"></div>
-    <div class="field" id="appAuthPwRow"><label data-i18n>密碼</label><input type="password" id="inputAppAuthPw" autocomplete="current-password"></div>
+    <div class="field" id="appAuthPwRow"><label data-i18n>密碼</label><span class="pw-wrap"><input type="password" id="inputAppAuthPw" autocomplete="current-password"><button type="button" class="pw-eye" data-i18n-aria aria-label="顯示密碼" aria-pressed="false" tabindex="-1"><svg class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="2.6"/></svg><svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="2.6"/><path d="M4 20 20 4"/></svg></button></span></div>
     <div class="field-hint" id="appAuthPwHint" style="display:none;" data-i18n>密碼至少 10 個字元。建立帳號時會向 App Store 取得購買證明，不需要等管理者核准。</div>
     <div class="msg-inline" id="appAuthMsg"></div>
     <div class="modal-actions">
@@ -1902,7 +1916,7 @@
   <div class="modal" style="max-width:400px;">
     <h3><span class="dot" style="background:var(--red);"></span><span data-i18n>刪除我的帳號</span></h3>
     <div class="field-hint" style="margin-bottom:14px;" data-i18n>這會刪掉你的帳號、雲端上的所有排程、你分享出去與別人分享給你的項目、行事曆訂閱與提醒設定。無法復原。</div>
-    <div class="field"><label data-i18n>輸入密碼以確認</label><input type="password" id="inputDelPw" autocomplete="current-password"></div>
+    <div class="field"><label data-i18n>輸入密碼以確認</label><span class="pw-wrap"><input type="password" id="inputDelPw" autocomplete="current-password"><button type="button" class="pw-eye" data-i18n-aria aria-label="顯示密碼" aria-pressed="false" tabindex="-1"><svg class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="2.6"/></svg><svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="2.6"/><path d="M4 20 20 4"/></svg></button></span></div>
     <div class="msg-inline" id="delMsg"></div>
     <div class="modal-actions">
       <button class="btn-cancel" id="btnCancelDel" data-i18n>取消</button>
@@ -1914,9 +1928,9 @@
 <div class="overlay" id="pwOverlay">
   <div class="modal" style="max-width:400px;">
     <h3><span class="dot"></span>變更密碼</h3>
-    <div class="field"><label data-i18n>目前密碼</label><input type="password" id="inputPwOld" autocomplete="current-password"></div>
-    <div class="field"><label data-i18n>新密碼（至少 10 個字元）</label><input type="password" id="inputPwNew" autocomplete="new-password"></div>
-    <div class="field"><label data-i18n>確認新密碼</label><input type="password" id="inputPwNew2" autocomplete="new-password"></div>
+    <div class="field"><label data-i18n>目前密碼</label><span class="pw-wrap"><input type="password" id="inputPwOld" autocomplete="current-password"><button type="button" class="pw-eye" data-i18n-aria aria-label="顯示密碼" aria-pressed="false" tabindex="-1"><svg class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="2.6"/></svg><svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="2.6"/><path d="M4 20 20 4"/></svg></button></span></div>
+    <div class="field"><label data-i18n>新密碼（至少 10 個字元）</label><span class="pw-wrap"><input type="password" id="inputPwNew" autocomplete="new-password"><button type="button" class="pw-eye" data-i18n-aria aria-label="顯示密碼" aria-pressed="false" tabindex="-1"><svg class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="2.6"/></svg><svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="2.6"/><path d="M4 20 20 4"/></svg></button></span></div>
+    <div class="field"><label data-i18n>確認新密碼</label><span class="pw-wrap"><input type="password" id="inputPwNew2" autocomplete="new-password"><button type="button" class="pw-eye" data-i18n-aria aria-label="顯示密碼" aria-pressed="false" tabindex="-1"><svg class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="2.6"/></svg><svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="2.6"/><path d="M4 20 20 4"/></svg></button></span></div>
     <div class="msg-inline" id="pwMsg"></div>
     <div class="modal-actions">
       <button class="btn-cancel" id="btnCancelPw" data-i18n>取消</button>
@@ -2438,6 +2452,7 @@
       '🌸 關掉櫻花樹的信':'🌸 Turn off the tree’s letters', '🌸 讓櫻花樹寄信給我':'🌸 Let the tree write to me',
       // —— 遊戲化 ——
       '🌸 我的角色':'🌸 My tree', '{0} 天':'{0} days',
+      '顯示密碼':'Show password', '隱藏密碼':'Hide password',
       '新芽':'New shoot', '抽枝':'Branching', '花苞':'In bud', '綻放':'In bloom', '花落':'Petals falling', '新芽（第二輪）':'New shoot, round two',
       '{0} XP，再 {1} 就升級。按時做完一件 +{2}，完美的一天 +{3}，第一次拿到徽章 +{4}。':'{0} XP, {1} more to level up. On-time completion +{2}, a perfect day +{3}, each new badge +{4}.',
       '連續 {0} 天，最長 {1} 天。那一天安排的事全部按時做完才算一天；沒安排的日子不算、也不會斷。':'{0}-day streak, best {1}. A day counts when everything scheduled that day is done on time; days with nothing scheduled neither count nor break it.',
@@ -3889,10 +3904,50 @@
     };
   }
 
+  // ---- 密碼欄位的眼睛 ----
+  //
+  // 存在的理由很具體：使用者登不進去時，如果看不到自己打了什麼，連「是不是打錯」
+  // 都無從判斷——那一次的求助信裡沒有任何可用的線索。
+  //
+  // 兩個判斷不能拿掉：
+  //   1. **切換狀態不記住**（不進 localStorage）。記住的話，下一次在別人旁邊打開
+  //      這個表單，密碼就直接是明碼。開表單時一律 pwEyeReset()。
+  //   2. **按鈕 tabindex="-1"**。Tab 從「目前密碼」應該跳到「新密碼」，不是跳到
+  //      眼睛上；它是滑鼠／觸控的東西，鍵盤使用者有別的辦法。
+  function pwEyeLabel(btn, shown){
+    btn.dataset.i18nAriaSrc = shown ? '隱藏密碼' : '顯示密碼';   // applyStaticI18n 讀的就是這一句
+    btn.setAttribute('aria-label', tr(btn.dataset.i18nAriaSrc));
+    btn.setAttribute('aria-pressed', shown ? 'true' : 'false');
+  }
+  function pwEyeBindAll(){
+    document.querySelectorAll('.pw-wrap .pw-eye').forEach(btn=>{
+      const wrap = btn.parentElement, input = wrap.querySelector('input');
+      if(!input) return;
+      btn.onclick = ()=>{
+        const shown = input.type === 'password';
+        input.type = shown ? 'text' : 'password';
+        wrap.classList.toggle('shown', shown);
+        pwEyeLabel(btn, shown);
+        input.focus();
+      };
+      pwEyeLabel(btn, false);
+    });
+  }
+  /** 開表單時把範圍內的密碼欄位切回隱藏。少了這個，上一次切開的狀態會跨次留著 */
+  function pwEyeReset(root){
+    (root || document).querySelectorAll('.pw-wrap.shown').forEach(wrap=>{
+      wrap.classList.remove('shown');
+      const input = wrap.querySelector('input'); if(input) input.type = 'password';
+      const btn = wrap.querySelector('.pw-eye'); if(btn) pwEyeLabel(btn, false);
+    });
+  }
+  pwEyeBindAll();
+
   const pwOverlay=document.getElementById('pwOverlay');
   function setPwMsg(t,cls){ const el=document.getElementById('pwMsg'); el.textContent=t||''; el.className='msg-inline'+(t?' '+cls:''); }
   document.getElementById('btnChangePw').onclick=()=>{
     ['inputPwOld','inputPwNew','inputPwNew2'].forEach(id=>document.getElementById(id).value='');
+    pwEyeReset(pwOverlay);
     setPwMsg('');
     pwOverlay.classList.add('show');
     setTimeout(()=>document.getElementById('inputPwOld').focus(), 50);
@@ -3933,6 +3988,7 @@
   }
   document.getElementById('btnDeleteAccount').onclick = ()=>{
     document.getElementById('inputDelPw').value = '';
+    pwEyeReset(delOverlay);
     setDelMsg('');
     delOverlay.classList.add('show');
     setTimeout(()=>document.getElementById('inputDelPw').focus(), 50);
@@ -6992,6 +7048,13 @@
     document.querySelectorAll('[data-i18n-title]').forEach(el=>{
       if(el.dataset.i18nTitleSrc === undefined) el.dataset.i18nTitleSrc = el.title;
       el.title = tr(el.dataset.i18nTitleSrc);
+    });
+    // aria-label 這一條與上面三條不同：它的原文**會在執行時被改掉**（眼睛按下去之後從
+    // 「顯示密碼」變成「隱藏密碼」），所以 pwEyeLabel 直接寫 dataset.i18nAriaSrc，
+    // 這裡讀的就是當下那一句。少了這條，切成英文時眼睛的 aria-label 還是中文。
+    document.querySelectorAll('[data-i18n-aria]').forEach(el=>{
+      if(el.dataset.i18nAriaSrc === undefined) el.dataset.i18nAriaSrc = el.getAttribute('aria-label') || '';
+      el.setAttribute('aria-label', tr(el.dataset.i18nAriaSrc));
     });
   }
   // 使用者尚未手動選過時才跟隨系統；選過之後系統再怎麼切都以使用者的決定為準

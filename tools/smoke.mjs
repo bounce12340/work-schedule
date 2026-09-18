@@ -128,7 +128,7 @@ function makeServer(loggedIn, plan = 'pro') {
   // `buildReminderLeaveDays()` 只在 cloudPush 成功後 3 秒才被呼叫到，
   // npm test 與 node --check 都證明不了它有沒有被定義。
   const reminderPuts = [];
-  for (const f of ['index.html', 'login.html', 'admin.html', 'privacy.html', 'terms.html']) {
+  for (const f of ['index.html', 'login.html', 'reset.html', 'admin.html', 'privacy.html', 'terms.html']) {
     assets.set('/' + f, readFileSync(PUBLIC + f, 'utf8'));
   }
   // sw.js 一定要真的供應。擋掉它會讓註冊失敗噴一行 console.error，而把
@@ -328,6 +328,28 @@ async function walk(page, log, plan = 'pro') {
   // 連續斷掉的信（F2）：與逾期提醒各自一顆按鈕
   await need('#btnStreakMail', '櫻花樹的信開關');
 
+  // 密碼欄位的眼睛。驗的是**真的切得動**（input.type 換了），不是「按鈕畫得出來」——
+  // 後者在 onclick 沒接上時照樣是綠的。順便驗那兩個刻意的判斷：
+  //   關掉再開要回到隱藏（狀態不記住）、只切被點的那一個（不是整頁一起變明碼）。
+  await click('#btnChangePw', '打開變更密碼');
+  await need('#pwOverlay.show', '變更密碼對話框');
+  {
+    const eye = page.locator('#pwOverlay .pw-wrap:has(#inputPwNew) .pw-eye');
+    if (!(await eye.count())) throw new Error('「新密碼」旁邊沒有眼睛');
+    const typeOf = id => page.evaluate(i => document.getElementById(i).type, id);
+    if (await typeOf('inputPwNew') !== 'password') throw new Error('密碼欄位一開始就不是隱藏的');
+    await eye.click();
+    if (await typeOf('inputPwNew') !== 'text') throw new Error('按了眼睛之後密碼還是看不到');
+    if (await typeOf('inputPwOld') !== 'password') throw new Error('只該切被點的那一個，旁邊的欄位不該一起變明碼');
+    const aria = await eye.getAttribute('aria-label');
+    if (!aria || /顯示密碼|Show password/.test(aria)) throw new Error(`切開之後 aria-label 沒跟著改：${aria}`);
+    await click('#btnCancelPw', '關掉變更密碼');
+    await click('#btnChangePw', '重新打開變更密碼');
+    if (await typeOf('inputPwNew') !== 'password') throw new Error('關掉再開之後密碼仍是明碼——切換狀態不該被記住');
+    await click('#btnCancelPw', '關掉變更密碼');
+    checked.push('密碼的眼睛(切得動/不記住/不連坐)');
+  }
+
   // 「刪除我的帳號」（Apple 5.1.1(v)）是雲端區塊：單機隱藏、登入顯示，與帳號資訊那一區同步。
   // 顯示時按下去要開得起對話框（不確認，只按取消）。
   const identityShown = await page.locator('#acctIdentity').isVisible();
@@ -503,6 +525,18 @@ async function walkNative(page, log, seen) {
   // 登入：成功後 index.html 會 reload，帶著 Keychain 裡的 token 重新啟動
   await page.fill('#inputAppAuthEmail', ME.email);
   await page.fill('#inputAppAuthPw', 'whatever-password');
+  // app 的登入畫面也有眼睛。它與變更密碼那一組共用同一份 CSS 與同一段 JS，
+  // 但**在不同的容器裡**（#appAuthView 不是 modal），漏掉 wrap 的話這裡就沒有。
+  {
+    const eye = page.locator('#appAuthPwRow .pw-eye');
+    if (!(await eye.count())) throw new Error('app 登入畫面的密碼欄位旁邊沒有眼睛');
+    await eye.click();
+    if (await page.evaluate(() => document.getElementById('inputAppAuthPw').type) !== 'text') {
+      throw new Error('app 登入畫面按了眼睛之後密碼還是看不到');
+    }
+    await eye.click();
+    checked.push('app 登入畫面的眼睛');
+  }
   // 成功後 index.html 會 location.reload()；等新文件裡的登入畫面是收起來的狀態。
   // 不用 waitForNavigation：它對 reload 的時序很挑，失敗時只剩 timeout 看不出原因。
   await page.click('#btnAppAuthSubmit');
@@ -689,6 +723,19 @@ async function walkNative(page, log, seen) {
     for (const word of ['刪除我的帳號', '14', 'IP', 'Privacy Policy']) {
       if (!(await page.locator(`text=${word}`).count())) throw new Error(`頁面上找不到「${word}」`);
     }
+    // 登入頁與重設密碼頁的眼睛。這兩頁是獨立的 HTML（各自一份 <style> 與 <script>），
+    // 所以 index.html 那一份綠了不代表這兩頁也有——要各自走一次。
+    for (const [file, inputId] of [['login.html', 'password'], ['reset.html', 'pw']]) {
+      await page.goto(`http://127.0.0.1:${PORT}/${file}?token=x`, { waitUntil: 'domcontentloaded' });
+      const eye = page.locator(`.pw-wrap:has(#${inputId}) .pw-eye`);
+      if (!(await eye.count())) throw new Error(`${file} 的密碼欄位旁邊沒有眼睛`);
+      const typeOf = () => page.evaluate(i => document.getElementById(i).type, inputId);
+      if (await typeOf() !== 'password') throw new Error(`${file} 的密碼欄位一開始就不是隱藏的`);
+      await eye.click();
+      if (await typeOf() !== 'text') throw new Error(`${file} 按了眼睛之後密碼還是看不到`);
+      if (await eye.getAttribute('aria-label') !== '隱藏密碼') throw new Error(`${file} 的 aria-label 沒跟著改`);
+    }
+
     await page.goto(`http://127.0.0.1:${PORT}/terms.html`, { waitUntil: 'domcontentloaded' });
     const title2 = await page.title();
     if (!/使用條款/.test(title2)) throw new Error(`使用條款的標題不對：${title2}`);

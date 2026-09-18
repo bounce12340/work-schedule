@@ -69,6 +69,18 @@
   .foot{margin-top:22px;text-align:center;font-family:var(--mono);font-size:10.5px;
         color:var(--text-dim);line-height:1.8;}
   .foot a{color:var(--amber);text-decoration:none;}
+  /* 密碼欄位的眼睛。登不進去時看不到自己打了什麼，連「是不是打錯」都無從判斷。
+     兩個 SVG 疊著、靠 .shown 決定顯示哪一個；切換狀態刻意不記住（重新載入回到隱藏）。 */
+  .pw-wrap{position:relative;display:block;}
+  .pw-wrap input{padding-right:46px;}
+  .pw-eye{position:absolute;right:0;top:50%;transform:translateY(-50%);height:44px;width:44px;
+    display:flex;align-items:center;justify-content:center;
+    background:none;border:0;padding:0;cursor:pointer;color:var(--text-muted);}
+  .pw-eye:hover{color:var(--text);}
+  .pw-eye svg{width:19px;height:19px;display:block;}
+  .pw-wrap .eye-off{display:none;}
+  .pw-wrap.shown .eye-on{display:none;}
+  .pw-wrap.shown .eye-off{display:block;}
 </style>
 </head>
 <body>
@@ -80,12 +92,12 @@
   <form id="form" autocomplete="on">
     <div class="field">
       <label for="pw">新密碼</label>
-      <input type="password" id="pw" autocomplete="new-password" required>
+      <span class="pw-wrap"><input type="password" id="pw" autocomplete="new-password" required><button type="button" class="pw-eye" aria-label="顯示密碼" aria-pressed="false" tabindex="-1"><svg class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="2.6"/></svg><svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="2.6"/><path d="M4 20 20 4"/></svg></button></span>
       <div class="hint">至少 10 個字元</div>
     </div>
     <div class="field">
       <label for="pw2">再輸入一次</label>
-      <input type="password" id="pw2" autocomplete="new-password" required>
+      <span class="pw-wrap"><input type="password" id="pw2" autocomplete="new-password" required><button type="button" class="pw-eye" aria-label="顯示密碼" aria-pressed="false" tabindex="-1"><svg class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="2.6"/></svg><svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="2.6"/><path d="M4 20 20 4"/></svg></button></span>
     </div>
     <button class="submit" id="submitBtn" type="submit">設定新密碼</button>
   </form>
@@ -101,6 +113,21 @@
   var pw = document.getElementById('pw');
   var pw2 = document.getElementById('pw2');
   var btn = document.getElementById('submitBtn');
+  // 密碼欄位的眼睛：只切 input.type 與一個 class，狀態不留下來（重新載入回到隱藏）。
+  // tabindex="-1" 是刻意的——Tab 要從一個欄位跳到下一個欄位，不是跳到眼睛上。
+  document.querySelectorAll('.pw-wrap .pw-eye').forEach(function(btn){
+    var wrap = btn.parentElement, input = wrap.querySelector('input');
+    if(!input) return;
+    btn.addEventListener('click', function(){
+      var show = input.type === 'password';
+      input.type = show ? 'text' : 'password';
+      wrap.classList.toggle('shown', show);
+      btn.setAttribute('aria-label', show ? '隱藏密碼' : '顯示密碼');
+      btn.setAttribute('aria-pressed', show ? 'true' : 'false');
+      input.focus();
+    });
+  });
+
   var msg = document.getElementById('msg');
 
   function showMsg(text, kind){ msg.textContent = text; msg.className = 'msg ' + kind; }
