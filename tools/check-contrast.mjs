@@ -55,6 +55,7 @@ const TARGETS = [
   ['.qbtn', '篩選鈕'],
   ['.brand-eyebrow', '招呼語'],
   ['.daylog-label', '每日記錄標題'],
+  ['.notice-badge', '純告知的小標'],
 ];
 
 /**
@@ -84,6 +85,21 @@ const AFTER_CLICKS = [
  */
 const IN_LEAVE_CELL = [
   ['.cal-cell.leave:not(.today) .cal-daynum', '休假格子的日期'],
+];
+
+/**
+ * 純告知（B）帶了一個**新的顏色 token**（`--notice`），而它的兩種狀態要分開量：
+ *
+ *   · `.notice-badge` 在示範資料裡本來就看得到（seed 有一件在兩天後）
+ *   · `.notice-past` **要自己造**——示範那一件在未來，而「畫面上沒有這個元素，
+ *     略過」是一條永遠不會執行的斷言（那一節抓到過兩個已經上線很久的問題）
+ *
+ * 過期的淡化**必須靠字級**，不是把顏色調到讀不了。所以這兩條量的就是「淡下去
+ * 之後仍然讀得到」——量不過就表示淡化的方式選錯了。
+ */
+const NOTICE_PAST = [
+  ['.occ-row.notice-past .occ-title', '過期純告知的標題'],
+  ['.occ-row.notice-past .occ-date', '過期純告知的日期'],
 ];
 
 /**
@@ -219,6 +235,20 @@ for (const [theme, label, fixedTime] of PASSES) {
   await page.locator('#btnAbsAdd').click();
   await page.waitForTimeout(350);
   rows.push(...await page.evaluate(measure, IN_LEAVE_CELL));
+
+  // 造一件**已經過期**的純告知再量。同樣走應用程式自己的寫入路徑（開新增視窗 →
+  // 勾「純告知」→ 填一個過去的日期），不是硬塞 class：硬塞的話，哪天 buildOccRow
+  // 不再加那個 class 了，這裡還是綠的。
+  await page.locator('.nav-item', { hasText: '項目安排' }).click();
+  await page.waitForSelector('#board');
+  await page.locator('#openItemModal').click();
+  await page.waitForTimeout(250);
+  await page.fill('#inputItemTitle', '去年的公告');
+  await page.locator('#inputNoticeOnly').check();
+  await page.fill('#inputItemDate', '2026-01-05');
+  await page.locator('#btnConfirmItem').click();
+  await page.waitForTimeout(400);
+  rows.push(...await page.evaluate(measure, NOTICE_PAST));
 
   // 逼出空狀態：回到項目安排頁，搜尋一個不會命中的字
   await page.locator('.nav-item', { hasText: '項目安排' }).click();

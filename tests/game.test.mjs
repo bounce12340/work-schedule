@@ -43,7 +43,7 @@ function makeEngine() {
     return {
       GAME_EPOCH, GAME_LADDER, GAME_XP,
       dayVerdict, streakFromVerdicts, levelOf, stageOf, challengeOf, perfectWeeksOf, badgesOf, gameStats,
-      gameOnTime, ymd, parseYMD, setOccurrenceDone,
+      gameOnTime, isActionable, ymd, parseYMD, setOccurrenceDone,
       setItems(list){ items = list; }
     };
   `);
@@ -209,4 +209,45 @@ test('setOccurrenceDone 寫時間戳、取消就拿掉', () => {
   assert.ok(Number.isFinite(it.doneAt.single) && it.doneAt.single > 0);
   E.setOccurrenceDone(occ, false);
   assert.equal('single' in it.doneAt, false);
+});
+
+// ---------------------------------------------------------------- 純告知（B）
+//
+// 純告知的項目對遊戲化**完全隱形**：那天只有純告知就等於沒安排（empty），
+// 而 empty「不斷也不加」。這一組守的是兩個方向——
+//
+//   · 少算：純告知被算進去，沒勾它的那天就變成 missed，連續會被一件不用做的事弄斷
+//   · 多算：純告知的那一天被當成 perfect，連續憑空多一天
+//
+// 兩者在畫面上都看不出來：火焰的數字沒有人記得昨天是幾。
+
+test('純告知不算安排：那天只有它＝empty，連續不斷也不加', () => {
+  const notice = single(D(1), null, { noticeOnly: true });
+  // 第 0 天按時做完一件，第 1 天只有一件純告知，第 2 天又按時做完一件
+  E.setItems([single(EPOCH, ms(EPOCH, 9)), notice, single(D(2), ms(D(2), 9))]);
+  const s = E.gameStats(D(2));
+  // empty 是「不斷**也不加**」：兩個 perfect 中間夾一天 empty ⇒ current = 2
+  assert.equal(s.streak.current, 2, '中間那天是 empty，跳過而不是斷掉');
+  assert.equal(s.onTime, 2, '純告知不會被算成一次「按時完成」');
+  assert.equal(s.perfectDays, 2, 'empty 不是 perfect——連續不會憑空多一天');
+
+  // 反向：把同一件事改成不是純告知，那天就變成沒做完的 missed，連續當場斷掉。
+  // 這一條是上面那一條的意義所在——沒有它，「current 就是 2」也可能只是巧合。
+  delete notice.noticeOnly;   // single() 回的是 item 本身，旗標就掛在它上面
+  assert.equal(E.gameStats(D(2)).streak.current, 1, '算進去的話中間那天會 missed');
+});
+
+test('純告知與真的待辦在同一天：只看真的那一件', () => {
+  const day = D(1);
+  E.setItems([single(day, null, { noticeOnly: true }), single(day, ms(day, 9))]);
+  assert.equal(E.gameStats(day).todayVerdict, 'perfect', '真的那件做完了就是 perfect');
+
+  E.setItems([single(day, null, { noticeOnly: true }), single(day, null)]);
+  assert.equal(E.gameStats(day).todayVerdict, 'missed', '真的那件沒做完就是 missed');
+});
+
+test('isActionable 只看 noticeOnly 這一個旗標', () => {
+  assert.equal(E.isActionable({ item: { noticeOnly: true } }), false);
+  assert.equal(E.isActionable({ item: { noticeOnly: false } }), true);
+  assert.equal(E.isActionable({ item: {} }), true, '沒有這個欄位的舊資料一律算數');
 });

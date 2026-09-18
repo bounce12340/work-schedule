@@ -244,6 +244,7 @@ For the full architecture and data model see [`工作排程確認系統_專案�
 | Sync conflicts | Merged item by item against the last synced content; you only choose a side when the same item changed on both |
 | Holidays | Weekends are automatic. Public holidays are bundled only for years that have been officially published (currently 2026 and 2027); other years can be pasted in bulk |
 | Prerequisites | Display only: they never move a date and never block ticking. At most five prerequisites per item |
+| FYI-only items | A `noticeOnly` item is just a placeholder: no checkbox, **never overdue**, and excluded from the four metric cards, the done section, the scope counts and your plant. It still shows up in the calendar feed; no reminder email and no push |
 | "Away" and "Leave" | Only a mark on the calendar and the row: they move no dates and **do not affect overdue** or the calendar subscription. The single difference: **on a leave day no email and no push go out at all**, while the red overdue text on screen stays exactly as it is |
 | Weekend work days | Supported: weekend dates added to the "work days" list count as working days, so recurrences are not pushed past them |
 | Gantt | Bars cannot be dragged; dates are changed through the task table |
