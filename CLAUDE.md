@@ -18,7 +18,7 @@ src/turnstile.js       Turnstile siteverify
 src/plan.js            方案（free / pro）：planOf、上限、「只有變多才擋」
 src/handlers/          auth / state / admin / share / password-reset / appauth 等 API
 src/apppurchase.js     App Store 購買證明（AppTransaction JWS）的離線驗簽
-src/mail.js            AgentMail 寄信（逾期提醒與密碼重設共用）
+src/mail.js            AgentMail 寄信（逾期提醒與密碼重設共用），並把每一封的結果寫進 mail_log
 src/throttle.js        登入失敗節流（email 與 IP 兩個維度）
 migrations/            既有資料庫的欄位變更（schema.sql 的 IF NOT EXISTS 補不了欄位）
 schema.sql             D1 資料表
@@ -632,6 +632,26 @@ grep -nE '(const|let|var)[[:space:]]+(tr|tf|weekName)\b' public/index.html
 - **寫記錄失敗只 `console.warn`。** 記錄寫不進去，不該讓一次成功的備份看起來像失敗。同 `share_activity` / `admin_activity`。
 - `sendOverdueReminders` 的 `skipped` 已拆成 `nothingToSay` / `alreadySent` / `notApproved`，並回傳 `errors[]`。原本三種原因共用一個數字，於是「今天大家都沒事」與「這個帳號被停用了」在統計裡完全一樣——與〈降級可以，沉默不行〉要求區分 `absent` 與 `failed` 是同一件事。
 
+### 寄信記錄（`mail_log`，見 `src/mail.js` 與 `handlers/ops.js`）
+
+`cron_runs` 回答的是「**那一步**有沒有跑成功」，回答不了「**那一封信**有沒有寄出去」——中間差了整整一層。2026-09-09 helen 的信被 403 擋下之後補上的 `errors[]` 讓 cron 那一格終於會變紅，但密碼重設信與 app 的驗證碼**根本不經過 cron**：它們在使用者按下按鈕的那一刻同步寄出，失敗只有一行 `console.error`，而那行字在 Cloudflare 後台。
+
+實際的形狀：helen 忘記密碼，按了「忘記密碼」，畫面照常說「信寄出去了」（那是刻意的，見〈忘記密碼〉的帳號列舉防線），重設連結真的產生了，信被寄信商的退訂名單擋掉。**系統裡沒有任何一個地方看得出這件事**——她只知道「信沒來」，而我們只知道「我們說寄了」。
+
+所以每一封信不管成功失敗都寫一列 `mail_log`，`/admin` 的「寄信記錄（最近 30 天）」依種類分組顯示。
+
+| 決定 | 理由 |
+|---|---|
+| **成功不存 `detail`** | 信的內容是重設連結、驗證碼、某個人的排程摘要。要回答的只是「有沒有寄成功」，沒有任何理由把那些留在資料庫裡。有測試守著（斷言傾印出來的整張表**不含**信的內文） |
+| **失敗要把寄信商的 body 一起記下來** | 同 AgentMail 那條：只記狀態碼的話，「key 無效」與「收件人在退訂名單上」看起來一模一樣，而這兩者要做的事完全不同 |
+| **四種失敗都要記**（secret 沒設、連線層丟例外、非 2xx、以及成功） | 前三種在「使用者沒收到信」這個症狀上長得一模一樣。分不出來就查不下去 |
+| **`kind` 分四種**（`reset`／`verify`／`reminder`／`streak`） | 前兩者是**交易信**（使用者按了按鈕在等），後兩者是**訂閱信**（系統主動送）。退訂名單只該擋得住後者，而 helen 那次是前者被擋掉——不分種類的話這張表看起來只是「有幾封沒寄成功」，看不出那是最嚴重的一種。管理頁因此把這一欄標出來 |
+| **寫記錄失敗只 `console.warn`** | 同 `cron_runs` / `share_activity` / `admin_activity`：記錄寫不進去，不該讓一封已經寄出去的信變成一個錯誤。**也因此 migration 還沒跑時整條寄信的路仍然是通的**，只是每寄一封多一行警告——與欄位型的 migration 不同，這一支漏跑不會 500 |
+| **保留 30 天，寫入時順手清** | 同 `share_activity` 的 90 天。沒有保留上限的日誌表遲早會是資料庫裡最大的一張；而這種記錄的價值只存在於事發後的短期內 |
+| **`sendMail` 的 `kind` 有預設值 `'unknown'`** | 漏傳不會壞掉，只是那一封歸不了類。讓它變成必填的話，日後多一種信就得改簽章，而漏改的症狀是 500 |
+
+**這張表證明不了「信有沒有被讀到」**，它只證明到「寄信商收下了」為止。helen 那一次寄信商是明白回 403 的，所以看得見；如果寄信商回 200 之後才在自己那邊丟掉，這張表仍然會顯示綠色。要再往下就必須接 webhook，那是另一件事。
+
 ### 使用狀況（`/api/admin/usage`）
 
 「做好了但沒有人用」是產品訊號，而它原本只有**直接查 D1** 才知道。系統上線至今 `ics_feed` 與 `shares` 都是 0——那件事應該要在管理頁上看得到，而不是靠有人想起來去查。
@@ -733,7 +753,7 @@ Turnstile 擋得住「一秒鐘一萬次」的機器人，擋不住「一分鐘�
 
 **改版時要做的事**：`mobile/package.json` 的 `version` 往上加（build 號是 GitHub 的 `run_number`，不用管）→ **合併進 main 就會自動打包上傳**（CI 綠、且動到 `public/index.html` 或 `mobile/`）→ App Store Connect 送審。手動觸發與 `ios-v*` tag 仍然留著，兩者都不看路徑條件。
 
-**部署順序**：`migrations/005-app-purchase.sql`、`006-plan.sql`、`007-streak-mail.sql`、`008-push.sql` 與 `009-leave-days.sql` 都要在部署新 Worker **之前**跑（`getSessionUser` 的 SELECT 讀 `plan_source`，欄位不在**每一個**登入請求都會 500；`007`／`008`／`009` 的欄位則是 `/api/reminder` 與 cron 會讀），理由見〈資料庫結構變更〉。006 跑完、Worker 部署完之後，還要到 `/admin` 把既有的兩個帳號設成「Pro（永久）」——漏掉的症狀是他們的第四個專案被擋，當場就會知道。
+**部署順序**：`migrations/005-app-purchase.sql`、`006-plan.sql`、`007-streak-mail.sql`、`008-push.sql`、`009-leave-days.sql` 與 `010-mail-log.sql` 都要在部署新 Worker **之前**跑（`010` 是新增資料表，漏跑只會讓寄信多一行警告，不會 500）（`getSessionUser` 的 SELECT 讀 `plan_source`，欄位不在**每一個**登入請求都會 500；`007`／`008`／`009` 的欄位則是 `/api/reminder` 與 cron 會讀），理由見〈資料庫結構變更〉。006 跑完、Worker 部署完之後，還要到 `/admin` 把既有的兩個帳號設成「Pro（永久）」——漏掉的症狀是他們的第四個專案被擋，當場就會知道。
 
 ### 開發者有 Mac 了（2026-09-17）
 
@@ -1267,10 +1287,12 @@ AI 的批次寫入正是就地修改，第一版因此復原不了，是瀏覽�
 新增欄位因此要在 `migrations/` 下留一支單獨的 SQL，並在**部署之前**跑過：
 
 ```bash
-npx wrangler d1 execute work-schedule-db --remote --file=./migrations/009-leave-days.sql   # 最新的一支；舊的照編號
+npx wrangler d1 execute work-schedule-db --remote --file=./migrations/010-mail-log.sql   # 最新的一支；舊的照編號
 ```
 
 **順序不能反。** 新程式碼 `SELECT r.lead_days`，欄位還沒加就會讓提醒的 cron 與 `/api/reminder` 直接失敗。新增**資料表**沒有這個問題（`db:init` 重跑 `schema.sql` 就會建），只有**欄位**需要 migration。
+
+**`010-mail-log.sql` 是新增資料表，所以它是唯一漏跑也不會壞的一支**：`recordMail` 的寫入包在 try/catch 裡，表不在只會讓每寄一封信多一行 `console.warn`，信照樣寄得出去（那條規則本身的理由見〈寄信記錄〉）。仍然要跑——漏跑的代價是那張表一直是空的，而「空的」與「都沒失敗」在管理頁上長得一模一樣。
 
 SQLite 沒有 `ADD COLUMN IF NOT EXISTS`，重跑會報 `duplicate column name`——那個錯誤是安全的，代表已經加過了。
 

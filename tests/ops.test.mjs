@@ -266,3 +266,118 @@ test('全站總數帶出來——ICS 與分享是 0 這件事要有地方看得�
   assert.equal(totals.ics, 0);
   assert.equal(totals.shares, 0);
 });
+
+// ------------------------------------------------- 寄信記錄（mail_log）
+//
+// 促成它的真實事件與上面那一組是同一次的另一半：Helen 按了「忘記密碼」，
+// 連結**真的產生了**，信卻被寄信商底下的退訂名單擋掉——而 handleForgotPassword
+// 一律回 200（那是對的，回「查無此 email」等於做出一個帳號列舉工具），
+// 寄信失敗只留了一行 console.error。結果是**沒有任何畫面回答得了那封信寄出去沒有**。
+//
+// 這一組要守四件事，而它們分別對應四種會讓這張表變回沒有用的改法。
+
+const mailRows = env => env.DB.prepare('SELECT * FROM mail_log ORDER BY created_at').all().results;
+
+/** 把 fetch 換成一個照劇本回答的假貨。回傳收到的請求，讓測試也能驗「有沒有真的去寄」。 */
+function fakeFetch(replies) {
+  const seen = [];
+  globalThis.fetch = async (url, init) => {
+    seen.push({ url, body: JSON.parse(init.body) });
+    const r = replies.shift();
+    if (r instanceof Error) throw r;
+    return { ok: r.status < 400, status: r.status, text: async () => r.body || '' };
+  };
+  return seen;
+}
+
+test('mail_log：寄成功寫一筆 ok=1，而且**不留信的內容**', async () => {
+  const env = makeEnv();
+  env.AGENTMAIL_API_KEY = 'k'; env.AGENTMAIL_INBOX_ID = 'i@agentmail.to';
+  const real = globalThis.fetch;
+  try {
+    const seen = fakeFetch([{ status: 200 }]);
+    const { sendMail } = await import('../src/mail.js');
+    await sendMail(env, 'helen@x.com', { subject: '重設你的密碼', text: '連結 https://x/reset?token=SECRET', html: '<b>SECRET</b>' }, 'reset');
+    assert.equal(seen.length, 1, '信真的寄出去了');
+
+    const rs = mailRows(env);
+    assert.equal(rs.length, 1);
+    assert.equal(rs[0].kind, 'reset');
+    assert.equal(rs[0].to_email, 'helen@x.com');
+    assert.equal(rs[0].ok, 1);
+    // 成功時 detail 是 NULL。重設連結、驗證碼、某個人的排程摘要都沒有理由
+    // 留在資料庫裡——要回答的只是「有沒有寄成功」。
+    assert.equal(rs[0].detail, null);
+    const dump = JSON.stringify(rs);
+    assert.ok(!dump.includes('SECRET'), '信的內容不該進到記錄裡');
+    assert.ok(!dump.includes('重設你的密碼'), '主旨也不進去');
+  } finally { globalThis.fetch = real; }
+});
+
+test('mail_log：被擋下來要寫 ok=0、留住回應原文，而且 sendMail 仍然要丟例外', async () => {
+  const env = makeEnv();
+  env.AGENTMAIL_API_KEY = 'k'; env.AGENTMAIL_INBOX_ID = 'i@agentmail.to';
+  const real = globalThis.fetch;
+  try {
+    fakeFetch([{ status: 403, body: '{"error":"message_rejected: recipient is suppressed"}' }]);
+    const { sendMail } = await import('../src/mail.js');
+    await assert.rejects(
+      () => sendMail(env, 'helen@x.com', { subject: 's', text: 't' }, 'reset'),
+      /403/,
+      '寄失敗一定要讓呼叫端知道——吞掉的話 last_sent_ymd 那類判斷會以為寄過了');
+
+    const rs = mailRows(env);
+    assert.equal(rs.length, 1);
+    assert.equal(rs[0].ok, 0);
+    // **回應原文是分辨原因的唯一線索。** 只記狀態碼的話，「key 無效」與
+    // 「這個收件人被擋」看起來一模一樣，而兩者的處理方向完全不同。
+    assert.match(rs[0].detail, /message_rejected/);
+  } finally { globalThis.fetch = real; }
+});
+
+test('mail_log：secret 沒設也要記一筆——「沒設定」與「被擋」在症狀上一模一樣', async () => {
+  const env = makeEnv();   // 刻意不設 AGENTMAIL_*
+  const { sendMail } = await import('../src/mail.js');
+  await assert.rejects(() => sendMail(env, 'a@x.com', { subject: 's', text: 't' }, 'verify'), /AGENTMAIL_API_KEY/);
+  const rs = mailRows(env);
+  assert.equal(rs.length, 1);
+  assert.equal(rs[0].ok, 0);
+  assert.equal(rs[0].kind, 'verify');
+  assert.match(rs[0].detail, /AGENTMAIL_API_KEY/);
+});
+
+test('mail_log：寫記錄失敗不能把一封已經寄出去的信變成錯誤', async () => {
+  const env = makeEnv();
+  env.AGENTMAIL_API_KEY = 'k'; env.AGENTMAIL_INBOX_ID = 'i@agentmail.to';
+  const realFetch = globalThis.fetch, realWarn = console.warn;
+  const batch = env.DB.batch.bind(env.DB);
+  try {
+    fakeFetch([{ status: 200 }]);
+    env.DB.batch = async () => { throw new Error('no such table: mail_log'); };
+    console.warn = () => {};
+    const { sendMail } = await import('../src/mail.js');
+    // migration 還沒跑的那一刻就是這個形狀：表不在，但信照樣要寄得出去
+    assert.equal(await sendMail(env, 'a@x.com', { subject: 's', text: 't' }, 'reminder'), true);
+  } finally { globalThis.fetch = realFetch; console.warn = realWarn; env.DB.batch = batch; }
+});
+
+test('listMailLog：分 kind 數，而且失敗要單獨數得出來', async () => {
+  const env = makeEnv();
+  const { listMailLog } = await import('../src/handlers/ops.js');
+  const ins = (kind, to, ok, detail, at) => env.DB.prepare(
+    'INSERT INTO mail_log (id, kind, to_email, ok, detail, created_at) VALUES (?,?,?,?,?,?)'
+  ).bind(kind + at, kind, to, ok, detail, at).run();
+  await ins('reset', 'helen@x.com', 0, 'AgentMail 403: message_rejected', T0 + 3);
+  await ins('reminder', 'josh@x.com', 1, null, T0 + 2);
+  await ins('reminder', 'helen@x.com', 1, null, T0 + 1);
+
+  const d = await listMailLog(env, T0 + 10);
+  assert.equal(d.byKind.reminder.sent, 2);
+  assert.equal(d.byKind.reminder.failed, 0);
+  // 這一行就是那次事故：訂閱信都寄出去了，交易信一封都沒有。
+  // 兩者混在一個總數裡的話，畫面上會顯示「今天寄了 3 封」——完全看不出問題。
+  assert.equal(d.byKind.reset.sent, 0);
+  assert.equal(d.byKind.reset.failed, 1);
+  assert.match(d.byKind.reset.lastError, /message_rejected/);
+  assert.equal(d.mails[0].kind, 'reset', '最新的在最前面');
+});

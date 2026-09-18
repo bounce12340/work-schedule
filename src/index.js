@@ -2,7 +2,7 @@ import { handleRegister, handleLogin, handleLogout, handleMe, handleChangePasswo
 import { handleGetState, handlePutState } from './handlers/state.js';
 import { handleListUsers, handleUpdateUser, handleDeleteUser, handleResetPassword, handleAdminActivity } from './handlers/admin.js';
 import { runBackup, purgeExpired, listBackups } from './handlers/backup.js';
-import { recordCronRun, cronResultErrors, handleCronStatus, handleUsage } from './handlers/ops.js';
+import { recordCronRun, cronResultErrors, handleCronStatus, handleUsage, handleMailLog } from './handlers/ops.js';
 import { handleAiStatus, handleAiAsk, handleAiPlan } from './handlers/ai.js';
 import { handleListShares, handleCreateShare, handleDeleteShare, handleUpdateShared, handleListActivity } from './handlers/share.js';
 import { handleIcsStatus, handleIcsEnable, handleIcsDisable, handleIcsPut, handleIcsFeed } from './handlers/ics.js';
@@ -302,6 +302,9 @@ async function route(request, env, ctx) {
     // 要回答的是「系統在不在跑、有沒有人在用」，不需要看見資料本身。
     if (path === '/api/admin/cron') {
       return request.method === 'GET' ? handleCronStatus(env) : methodNotAllowed();
+    }
+    if (path === '/api/admin/mail-log') {
+      return request.method === 'GET' ? handleMailLog(env) : methodNotAllowed();
     }
     if (path === '/api/admin/usage') {
       return request.method === 'GET' ? handleUsage(env) : methodNotAllowed();
