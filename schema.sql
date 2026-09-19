@@ -369,6 +369,7 @@ CREATE TABLE IF NOT EXISTS mail_log (
   to_email   TEXT NOT NULL,      -- 要回答「他那一封有沒有寄到」就一定要記
   ok         INTEGER NOT NULL,   -- 1 成功、0 失敗
   detail     TEXT,               -- 失敗時是寄信商的回應原文；成功時是 NULL
+  sender     TEXT,               -- 實際用了哪個寄件信箱（見 mail.js 的 pickSender）
   created_at INTEGER NOT NULL
 );
 

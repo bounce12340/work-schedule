@@ -1,0 +1,13 @@
+-- 每一封信實際從哪個信箱寄出去。
+--
+-- 交易信（reset / verify）與訂閱信（reminder / streak）可以設定成走兩個不同的
+-- AgentMail 帳號，理由見 src/mail.js 的 pickSender：擋掉 helen 密碼重設信的
+-- 那份退訂名單是**帳號層級**的，換一個同帳號底下的 inbox 沒有用。
+--
+-- 記信箱位址而不是 'tx' / 'bulk' 這種標籤，是因為要回答的問題正是
+-- 「**到底有沒有真的分家**」——沒設定時會安靜地退回共用那一組，而標籤在
+-- 設定前後都會讀成 'tx'，看起來一模一樣。位址才分得出來。
+--
+-- 這一支是**加欄位**，所以與 010 不同：漏跑會讓 /api/admin/mail-log 的
+-- SELECT 直接失敗。部署新 Worker 之前一定要跑。
+ALTER TABLE mail_log ADD COLUMN sender TEXT;
