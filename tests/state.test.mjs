@@ -687,3 +687,140 @@ test('PUT /api/reminder 收下 ot 與連續天數；POST 的兩個開關互不�
   assert.equal(read().streak_mail, 0);
   assert.equal(read().streak_current, 12, '沒帶 streak 就沿用舊值，不歸零');
 });
+
+// ------------------------------------------------------ 退訂連結（信裡自己的出口）
+//
+// 為什麼要有這一段：2026-09-20 查清楚 helen 的密碼重設信被擋的**根因**——
+// 她在 Gmail 裡按了「取消訂閱」，寄信商把她加進**帳號層級**的退訂名單，
+// 於是連她自己索取的信一起擋掉。
+//
+// 她會去按那顆按鈕，是因為我們的信裡**沒有自己的出口**。所以這一段守的不是
+// 「退訂會不會生效」，而是三件比較安靜、壞掉也看不出來的事：
+//   1. 信裡真的有那個連結（沒有的話，大家繼續去按 Gmail 那顆）
+//   2. 兩種信**不互相連坐**（連坐正是 Gmail 那顆按鈕的錯，我們不能犯同一個）
+//   3. 這個 token **只關不開**，而且改到 0 列要講出來，不能回 ok
+
+// buildStreakEmail 在上面的〈櫻花樹的信〉那一段已經 import 過，這裡不重複
+import { handleUnsubscribe, ensureUnsubToken, unsubUrl } from '../src/handlers/reminder.js';
+
+/** 直接讀那一列，斷言才看得到真正存進去的值 */
+const feedRow = (env, id = 'u1') =>
+  env.DB.prepare('SELECT * FROM reminder_feed WHERE user_id = ?').bind(id).first();
+
+const unsubReq = (token, kind) => new Request('https://x.test/api/unsub', {
+  method: 'POST', body: JSON.stringify({ token, kind })
+});
+
+test('退訂：信裡真的帶著連結，而且兩封信各自帶不同的 kind', async () => {
+  const base = makeEnv(); addUser(base, 'u1', 'a@x.com');
+  const now = Date.parse('2026-07-31T00:00:00Z');
+  base.DB.prepare('INSERT INTO reminder_feed (user_id, enabled, digest, updated_at) VALUES (?,1,?,?)')
+    .bind('u1', JSON.stringify([rem('遲交的', '2026-07-20')]), now).run();
+
+  await withFakeMail(async sent => {
+    await sendOverdueReminders({ ...MAIL_ENV, DB: base.DB }, now);
+    const token = feedRow(base).unsub_token;
+    assert.ok(token && token.length >= 20, '寄信時要產生 token 並存起來');
+    // **純文字版也要有。** 有些人就是在純文字模式讀信，只有 HTML 版有出口
+    // 等於對那些人來說沒有出口。
+    assert.match(sent[0].body.text, new RegExp('/unsub\\?t=' + token + '&k=reminder'));
+    assert.match(sent[0].body.html, new RegExp('k=reminder'));
+    assert.ok(!/k=streak/.test(sent[0].body.html), '逾期提醒信不該帶櫻花樹的 kind');
+  });
+});
+
+test('退訂：只關掉指定的那一種，另一種原樣（Gmail 那顆按鈕犯的就是這個錯）', async () => {
+  const env = makeEnv(); addUser(env, 'u1', 'a@x.com');
+  env.DB.prepare(
+    'INSERT INTO reminder_feed (user_id, enabled, streak_mail, digest, unsub_token, updated_at) VALUES (?,1,1,?,?,?)'
+  ).bind('u1', '[]', 'tok_' + 'x'.repeat(30), 1).run();
+  const token = feedRow(env).unsub_token;
+
+  assert.equal((await unwrap(await handleUnsubscribe(unsubReq(token, 'reminder'), env))).body.ok, true);
+  let row = feedRow(env);
+  assert.equal(row.enabled, 0, '逾期提醒關掉了');
+  assert.equal(row.streak_mail, 1, '**櫻花樹的信一個位元都沒動**——這一條就是整件事的重點');
+
+  // 反方向也要成立：同一個 token 換一個 kind，關的是另一個開關
+  assert.equal((await unwrap(await handleUnsubscribe(unsubReq(token, 'streak'), env))).body.ok, true);
+  assert.equal(feedRow(env).streak_mail, 0);
+});
+
+test('退訂：錯的 token 不生效，而且要說出來（回 ok 等於假綠燈）', async () => {
+  const env = makeEnv(); addUser(env, 'u1', 'a@x.com');
+  env.DB.prepare(
+    'INSERT INTO reminder_feed (user_id, enabled, digest, unsub_token, updated_at) VALUES (?,1,?,?,?)'
+  ).bind('u1', '[]', 'tok_' + 'y'.repeat(30), 1).run();
+
+  const res = await unwrap(await handleUnsubscribe(unsubReq('tok_' + 'z'.repeat(30), 'reminder'), env));
+  assert.equal(res.status, 404, '改到 0 列是錯誤，不是成功');
+  assert.ok(!res.body.ok);
+  assert.equal(feedRow(env).enabled, 1, '別人的設定一個位元都沒動');
+});
+
+test('退訂：kind 是白名單，認不得的一律退回（永不拼進 SQL）', async () => {
+  const env = makeEnv(); addUser(env, 'u1', 'a@x.com');
+  const token = 'tok_' + 'w'.repeat(30);
+  env.DB.prepare(
+    'INSERT INTO reminder_feed (user_id, enabled, digest, unsub_token, updated_at) VALUES (?,1,?,?,?)'
+  ).bind('u1', '[]', token, 1).run();
+
+  for (const bad of ['enabled', 'push_overdue', 'enabled = 0, streak_mail', '', 'REMINDER']) {
+    const res = await unwrap(await handleUnsubscribe(unsubReq(token, bad), env));
+    assert.equal(res.status, 400, `「${bad}」不該被當成合法的 kind`);
+  }
+  assert.equal(feedRow(env).enabled, 1, '一輪下來什麼都沒被改到');
+});
+
+test('退訂：這個 token 只關不開——重複點是冪等，永遠不會把通知打開', async () => {
+  const env = makeEnv(); addUser(env, 'u1', 'a@x.com');
+  const token = 'tok_' + 'v'.repeat(30);
+  env.DB.prepare(
+    'INSERT INTO reminder_feed (user_id, enabled, digest, unsub_token, updated_at) VALUES (?,1,?,?,?)'
+  ).bind('u1', '[]', token, 1).run();
+
+  for (let i = 0; i < 3; i++) {
+    assert.equal((await unwrap(await handleUnsubscribe(unsubReq(token, 'reminder'), env))).body.ok, true);
+    assert.equal(feedRow(env).enabled, 0, '第 ' + (i + 1) + ' 次之後仍然是關的');
+  }
+});
+
+test('退訂：沒有 APP_URL 就不放半個連結（點下去只會看到「連結不完整」）', () => {
+  assert.equal(unsubUrl('', 'tok_abcdefghijklmnopqrstuv', 'reminder'), '');
+  assert.equal(unsubUrl('https://app.test', '', 'reminder'), '');
+  assert.equal(unsubUrl('https://app.test', 'tok_abcdefghijklmnopqrstuv', '亂寫的'), '');
+  assert.equal(unsubUrl('https://app.test/', 'tok_abc', 'streak'),
+    'https://app.test/unsub?t=tok_abc&k=streak', '結尾的斜線不該變成兩條');
+
+  // 沒有連結時信照樣寄得出去，只是少那一行——不能因此爆掉
+  const mail = buildReminderEmail([rem('遲交的', '2026-07-01')], [], '2026-07-31', '', '');
+  assert.ok(!/unsub/.test(mail.text + mail.html));
+  assert.ok(mail.text.length > 0);
+});
+
+test('退訂：ensureUnsubToken 併發時以資料庫裡的那一個為準', async () => {
+  const env = makeEnv(); addUser(env, 'u1', 'a@x.com');
+  env.DB.prepare('INSERT INTO reminder_feed (user_id, enabled, digest, updated_at) VALUES (?,1,?,?)')
+    .bind('u1', '[]', 1).run();
+
+  // 兩條路徑同時要 token。要是輸的那條回傳自己產的值，就會把一個從來不存在於
+  // 資料庫裡的 token 寄出去——使用者點了之後改到 0 列，畫面上是「連結已失效」，
+  // 而他什麼都沒做錯。
+  const [a, b] = await Promise.all([
+    ensureUnsubToken(env, 'u1', null),
+    ensureUnsubToken(env, 'u1', null)
+  ]);
+  assert.equal(a, b, '兩邊拿到同一個');
+  assert.equal(a, feedRow(env).unsub_token, '而且就是資料庫裡的那一個');
+
+  // 已經有了就原樣回，不會每寄一封信就換一個（換了等於舊信裡的連結全部失效）
+  assert.equal(await ensureUnsubToken(env, 'u1', a), a);
+});
+
+test('退訂：櫻花樹的信也帶連結，而且帶的是 streak', async () => {
+  const mail = buildStreakEmail(12, [rem('沒做完的', '2026-07-30')], 'https://app.test',
+    'https://app.test/unsub?t=tok_abc&k=streak');
+  assert.match(mail.text, /k=streak/);
+  assert.match(mail.html, /k=streak/);
+  assert.ok(!/k=reminder/.test(mail.text + mail.html));
+});

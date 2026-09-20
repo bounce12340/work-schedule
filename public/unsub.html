@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light dark">
+<!-- 不讓搜尋引擎收錄：網址裡帶著那個人的退訂 token。同 reset.html。 -->
+<meta name="robots" content="noindex, nofollow">
+<script>
+  // 與 index.html／login.html／reset.html 共用同一個偏好鍵，暗色使用者不會被閃一下。
+  (function(){
+    var pref = null;
+    try{ pref = localStorage.getItem('workSchedule.v1.theme'); }catch(e){}
+    var dark = (pref === 'dark') || (pref !== 'light' &&
+      window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  })();
+</script>
+<title>停止接收 — 工作排程確認系統</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" media="print" onload="this.media='all';this.onload=null"
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700;900&family=Noto+Serif+TC:wght@400;600&display=swap">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700;900&family=Noto+Serif+TC:wght@400;600&display=swap"></noscript>
+<style>
+  /* 與 login.html／reset.html 同一組變數與元件樣式。三頁是同一套東西的不同入口。 */
+  :root{
+    --bg:#F6F4EE; --panel:#FFFFFF; --panel-2:#F1EEE5;
+    --hairline:#E4E0D3; --text:#2A2A26; --text-muted:#71706A; --text-dim:#A2A099;
+    --amber:#C9822E; --amber-dim:rgba(201,130,46,0.12);
+    --teal:#1F8C68; --teal-dim:rgba(31,140,104,0.10);
+    --red:#C74B43; --red-dim:rgba(199,75,67,0.10);
+    --on-accent:#FFFDF9;
+    --mono:'JetBrains Mono',monospace; --sans:'Noto Sans TC','Inter',sans-serif;
+    --serif:'Noto Serif TC','Songti TC','Source Han Serif TC',serif;
+  }
+  :root[data-theme="dark"]{
+    --bg:#1A1917; --panel:#232220; --panel-2:#2B2A27;
+    --hairline:#3A3833;
+    --text:#E8E5DC; --text-muted:#A8A49A; --text-dim:#7A766D;
+    --on-accent:#17160F;
+    --amber:#E3A052; --amber-dim:rgba(227,160,82,0.16);
+    --teal:#3FBF92; --teal-dim:rgba(63,191,146,0.14);
+    --red:#E8756B; --red-dim:rgba(232,117,107,0.14);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;min-height:100vh;background:var(--bg);color:var(--text);font-family:var(--sans);
+       display:flex;align-items:center;justify-content:center;padding:24px;}
+  .card{width:100%;max-width:420px;background:var(--panel);border:1px solid var(--hairline);
+        border-radius:14px;padding:28px 26px;box-shadow:0 1px 3px rgba(0,0,0,.04);}
+  .eyebrow{font-family:var(--mono);font-size:10.5px;letter-spacing:.18em;color:var(--text-dim);
+           text-transform:uppercase;margin-bottom:12px;}
+  h1{margin:0 0 8px;font-size:21px;font-weight:700;letter-spacing:.01em;}
+  .lede{margin:0 0 22px;font-size:13px;line-height:1.7;color:var(--text-muted);}
+  .what{margin:0 0 22px;padding:12px 14px;border-radius:9px;background:var(--panel-2);
+        border:1px solid var(--hairline);font-size:14px;line-height:1.6;}
+  .what b{color:var(--amber);}
+  button.submit{width:100%;margin-top:6px;padding:12px;border:none;border-radius:9px;background:var(--amber);
+                color:var(--on-accent);font-family:var(--sans);font-size:14.5px;font-weight:700;cursor:pointer;}
+  button.submit:disabled{background:var(--text-dim);cursor:not-allowed;}
+  .msg{margin-top:16px;padding:11px 13px;border-radius:8px;font-size:13px;line-height:1.65;display:none;}
+  .msg.err{display:block;background:var(--red-dim);border:1px solid rgba(199,75,67,.3);color:var(--red);}
+  .msg.ok{display:block;background:var(--teal-dim);border:1px solid rgba(31,140,104,.3);color:var(--teal);}
+  .foot{margin-top:22px;text-align:center;font-family:var(--mono);font-size:10.5px;
+        color:var(--text-dim);line-height:1.8;}
+  .foot a{color:var(--amber);text-decoration:none;}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="eyebrow">Schedule Control Board</div>
+  <h1 id="title">停止接收</h1>
+  <p class="lede" id="lede">按下按鈕之後，這一種信就不會再寄給你了。</p>
+
+  <div class="what" id="what" hidden></div>
+
+  <!-- **一定要按過按鈕才生效。** 郵件用戶端與公司的連結掃描器會自己去抓信裡的
+       網址（同〈用過的重設連結保留 7 天〉踩過的那個坑），所以開啟這一頁不做
+       任何事——真正的寫入在 POST /api/unsub，只有這顆按鈕會發。 -->
+  <button class="submit" id="btn" type="button" hidden>確定，不要再寄了</button>
+
+  <div class="msg" id="msg"></div>
+
+  <div class="foot"><a href="/login">回到系統</a></div>
+</div>
+
+<script>
+(function(){
+  var btn = document.getElementById('btn');
+  var msg = document.getElementById('msg');
+  var what = document.getElementById('what');
+
+  // 兩種信**各自獨立**。關掉其中一種不會連帶關掉另一種——那正是這個頁面存在的
+  // 理由：Gmail 的「取消訂閱」是一按就全部不送（連密碼重設信都是），
+  // 我們自己的出口不可以犯同一個錯，所以這裡明白告訴使用者關的是哪一種。
+  var KINDS = {
+    reminder: { name: '逾期與即將到期的提醒信', other: '櫻花樹的信' },
+    streak:   { name: '櫻花樹的信（連續中斷時那一封）', other: '逾期提醒信' }
+  };
+
+  var q = new URLSearchParams(location.search);
+  var token = q.get('t') || '';
+  var kind = q.get('k') || '';
+  var info = KINDS[kind];
+
+  function show(cls, text){ msg.className = 'msg ' + cls; msg.textContent = text; }
+
+  if (!token || !info) {
+    document.getElementById('lede').textContent =
+      '這個連結不完整，可能是複製的時候少了一段。你也可以登入後到「我的帳號」自己關掉通知。';
+    show('err', '連結不完整。');
+    return;
+  }
+
+  what.hidden = false;
+  what.innerHTML = '要停止接收：<b></b>';
+  // textContent 而不是拼字串：kind 來自網址。雖然它已經被上面的白名單擋過，
+  // 這裡不靠那一層——同〈AI 的回覆一律 textContent〉。
+  what.querySelector('b').textContent = info.name;
+
+  document.getElementById('lede').textContent =
+    '按下按鈕之後，這一種信就不會再寄給你了。' + info.other + '不受影響。';
+
+  btn.hidden = false;
+  btn.onclick = async function(){
+    btn.disabled = true;
+    btn.textContent = '處理中…';
+    try {
+      var res = await fetch('/api/unsub', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ token: token, kind: kind })
+      });
+      var data = null;
+      try { data = await res.json(); } catch (e) {}
+      if (res.ok && data && data.ok) {
+        btn.hidden = true;
+        what.hidden = true;
+        document.getElementById('title').textContent = '已經關掉了';
+        document.getElementById('lede').textContent =
+          info.other + '不受影響，還是會照常寄給你。';
+        show('ok', '以後不會再收到「' + info.name + '」。要再打開的話，登入後到「我的帳號」就可以。');
+      } else {
+        btn.disabled = false;
+        btn.textContent = '再試一次';
+        // 伺服器說不行時**照它的原話講**：「連結已失效」與「連結不完整」
+        // 要做的事不一樣，含糊成「發生錯誤」等於把線索丟掉。
+        show('err', (data && data.error) || '關不掉，請稍後再試一次。');
+      }
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = '再試一次';
+      show('err', '連線失敗，請確認網路後再試一次。');
+    }
+  };
+})();
+</script>
+</body>
+</html>

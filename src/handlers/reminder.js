@@ -1,5 +1,6 @@
 import { json } from './auth.js';
 import { sendMail } from '../mail.js';
+import { generateToken } from '../crypto.js';
 
 /**
  * 逾期提醒。
@@ -227,6 +228,89 @@ export async function handleReminderPut(request, env, user) {
   return json({ ok: true, count: digest.length });
 }
 
+/**
+ * 退訂：信裡那個連結按下去會關掉哪一個開關。
+ *
+ * **這是一張白名單，不是一個參數。** 收到的 `kind` 只用來查表，查不到就退回——
+ * 永遠不把使用者送來的字串拼進 SQL 的欄位名裡。
+ *
+ * 兩種信**各自對應自己的開關，不互相連坐**：畫面上就是兩顆按鈕（同 schema.sql
+ * 裡那句「關掉其中一個不該連帶關掉另一個」）。而那正是這整件事的重點——
+ * helen 按下 Gmail 的「取消訂閱」時，她要的只是「這種信別再來」，拿到的卻是
+ * 「你再也收不到任何東西」。我們自己的連結不可以犯同一個錯。
+ */
+export const UNSUB_KINDS = { reminder: 'enabled', streak: 'streak_mail' };
+
+/**
+ * 拿到這個人的退訂 token，沒有就現場產一個。
+ *
+ * **第一次要寄信時才產**，不在 migration 裡回填：回填要對每一列寫一次，而這個
+ * 欄位只有「真的要寄信給他」時才用得到。既有的列就這樣留著 NULL 也不會壞。
+ *
+ * 併發時以**資料庫裡的那一個**為準，不是我剛才產的那一個：`WHERE unsub_token
+ * IS NULL` 讓兩條路徑只有一條寫得進去，輸的那條要是回傳自己產的值，就會把一個
+ * 從來不存在於資料庫裡的 token 寄出去——使用者點了之後 UPDATE 改到 0 列，
+ * 畫面上是「連結已失效」，而他什麼都沒做錯。
+ */
+export async function ensureUnsubToken(env, userId, existing) {
+  if (existing) return existing;
+  const token = generateToken();
+  await env.DB.prepare(
+    'UPDATE reminder_feed SET unsub_token = ? WHERE user_id = ? AND unsub_token IS NULL'
+  ).bind(token, userId).run();
+  const row = await env.DB
+    .prepare('SELECT unsub_token FROM reminder_feed WHERE user_id = ?')
+    .bind(userId).first();
+  return (row && row.unsub_token) || token;
+}
+
+/**
+ * 信裡那一行連結的網址。
+ *
+ * **沒有 APP_URL 或沒有 token 就回空字串**，呼叫端據此整行不放——半個連結
+ * （`/unsub?t=` 後面空空的）比沒有連結更糟：點下去只會看到「這個連結不完整」，
+ * 而使用者會以為是系統壞了，然後回頭去按 Gmail 那顆。
+ */
+export function unsubUrl(appUrl, token, kind) {
+  const base = String(appUrl || '').replace(/\/+$/, '');
+  if (!base || !token || !UNSUB_KINDS[kind]) return '';
+  return `${base}/unsub?t=${encodeURIComponent(token)}&k=${encodeURIComponent(kind)}`;
+}
+
+/**
+ * POST /api/unsub —— **公開端點**，憑證是連結裡的 token 本身。
+ *
+ * 會走到這裡的人定義上就是「不想再收信」的人，要求他先登入等於把他推回
+ * Gmail 那顆按鈕——而那顆按鈕的代價是連密碼重設信都收不到。同〈忘記密碼〉
+ * 那支不加 Turnstile 的理由：這條路是使用者已經不想（或不能）進系統時才走的，
+ * 多一道關卡只是多一個會壞的東西。token 是 256 位元的隨機值，猜不到。
+ *
+ * **只關不開。** 這個 token 打不開任何東西——要再打開一律回系統裡按。
+ * 少了這一條，撿到連結的人就能把別人的提醒**打開**，那是騷擾。
+ *
+ * **改到 0 列要回錯誤，不能回 ok。** 同〈破窗鎚〉的「改到 0 列當成錯誤」：
+ * 回 ok 等於告訴他「關好了」而其實什麼都沒發生，下個月信照來——那是這份
+ * 程式碼最討厭的那種假綠燈，而且會讓他確信「這個連結沒用」再去按 Gmail 的。
+ */
+export async function handleUnsubscribe(request, env) {
+  let body = {};
+  try { body = await request.json(); } catch { return json({ error: '請求格式錯誤' }, 400); }
+  const token = String(body?.token || '');
+  const kind = String(body?.kind || '');
+  const col = UNSUB_KINDS[kind];
+  if (!col || token.length < 20) return json({ error: '這個連結不完整' }, 400);
+
+  // 單句帶條件的 UPDATE，理由同〈樂觀鎖必須是單句 SQL〉：先 SELECT 再 UPDATE
+  // 的空窗沒有必要存在。欄位名來自白名單，不是拼接使用者的輸入。
+  const res = await env.DB.prepare(
+    `UPDATE reminder_feed SET ${col} = 0, updated_at = ? WHERE unsub_token = ?`
+  ).bind(Date.now(), token).run();
+  if (!res.meta.changes) {
+    return json({ error: '這個連結已經失效了。要調整通知，請登入後到「我的帳號」。' }, 404);
+  }
+  return json({ ok: true, kind });
+}
+
 const TYPE_LABEL = { work: '工作項目', meeting: '會議安排', assignment: '作業' };
 
 const esc = s => String(s).replace(/[&<>"']/g,
@@ -244,7 +328,7 @@ function dayDiff(fromYmd, toYmd) {
  * 即將到期是「先看一眼，安排時間」。混在一起會讓真正遲交的東西被淹沒——那正是
  * 原本「今天到期的不算逾期」想避免的事，這裡沿用同一個判斷。
  */
-export function buildReminderEmail(overdue, upcoming, todayYmd, appUrl) {
+export function buildReminderEmail(overdue, upcoming, todayYmd, appUrl, unsub = '') {
   const parts = [];
   const htmlParts = [];
 
@@ -275,13 +359,17 @@ export function buildReminderEmail(overdue, upcoming, todayYmd, appUrl) {
   const text = [
     ...parts,
     appUrl ? `開啟系統：${appUrl}` : '',
-    '', '— 工作排程確認系統'
+    '', '— 工作排程確認系統',
+    // 退訂連結。**純文字版也要有**——有些人就是在純文字模式下讀信，而「只有
+    // HTML 版看得到出口」等於對那些人來說沒有出口。
+    ...(unsub ? ['', `不想再收這種提醒信：${unsub}`] : [])
   ].join('\n');
 
   const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;line-height:1.7;color:#2A2A26">
 ${htmlParts.join('')}
 ${appUrl ? `<p style="margin:18px 0 0"><a href="${esc(appUrl)}" style="color:#C9822E">開啟工作排程確認系統 →</a></p>` : ''}
-<p style="margin:22px 0 0;color:#A2A099;font-size:12px">沒有逾期、也沒有即將到期的項目時，這封信不會寄出。要調整提前天數或停止接收，可在系統內設定。</p>
+<p style="margin:22px 0 0;color:#A2A099;font-size:12px">沒有逾期、也沒有即將到期的項目時，這封信不會寄出。要調整提前天數可在系統內設定。${
+    unsub ? `<br><a href="${esc(unsub)}" style="color:#A2A099">不想再收這種提醒信 →</a>` : ''}</p>
 </div>`;
 
   return { subject: buildSubject(overdue.length, upcoming.length), text, html };
@@ -328,7 +416,8 @@ ${rest > 0 ? `<tr><td colspan="3" style="padding:8px 0;color:#A2A099;font-size:1
 export async function sendOverdueReminders(env, nowMs = Date.now()) {
   const today = taipeiYmd(nowMs);
   const rows = await env.DB.prepare(
-    `SELECT r.user_id, r.digest, r.last_sent_ymd, r.lead_days, r.leave_days, u.email, u.status
+    `SELECT r.user_id, r.digest, r.last_sent_ymd, r.lead_days, r.leave_days,
+            r.unsub_token, u.email, u.status
        FROM reminder_feed r JOIN users u ON u.id = r.user_id
       WHERE r.enabled = 1`
   ).all();
@@ -356,8 +445,12 @@ export async function sendOverdueReminders(env, nowMs = Date.now()) {
     if (!overdue.length && !upcoming.length) { out.nothingToSay++; continue; }
 
     try {
+      // **確定要寄了才產 token**：放在這一行之前的每一個 continue（沒事、
+      // 已經寄過、休假、停用）都代表這次不寄信，那就沒有理由為他寫一次資料庫。
+      const token = await ensureUnsubToken(env, row.user_id, row.unsub_token);
       await sendMail(env, row.email,
-        buildReminderEmail(overdue, upcoming, today, env.APP_URL || ''), 'reminder');
+        buildReminderEmail(overdue, upcoming, today, env.APP_URL || '',
+          unsubUrl(env.APP_URL || '', token, 'reminder')), 'reminder');
       await env.DB.prepare('UPDATE reminder_feed SET last_sent_ymd = ? WHERE user_id = ?')
         .bind(today, row.user_id).run();
       out.sent++;
@@ -431,7 +524,7 @@ function namePhrase(rows) {
  *
  * 罵人的信會被封鎖寄件人，然後逾期提醒也一起收不到；撒嬌的信不會。
  */
-export function buildStreakEmail(days, missed, appUrl) {
+export function buildStreakEmail(days, missed, appUrl, unsub = '') {
   const names = namePhrase(missed);
   const text = [
     `我們一起走了 ${days} 天耶。`,
@@ -443,7 +536,10 @@ export function buildStreakEmail(days, missed, appUrl) {
     '',
     appUrl ? `${appUrl}` : '',
     '',
-    '——你的櫻花樹'
+    '——你的櫻花樹',
+    // 這一行與逾期提醒信的那一行**各自帶不同的 kind**：關掉櫻花樹不會連帶
+    // 關掉逾期提醒，反過來也一樣。
+    ...(unsub ? ['', `不想再收櫻花樹的信：${unsub}`] : [])
   ].join('\n');
 
   const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:15px;line-height:1.9;color:#2A2A26;max-width:520px">
@@ -454,7 +550,8 @@ export function buildStreakEmail(days, missed, appUrl) {
     missed.length > MAX_NAMED ? `，還有 ${missed.length - MAX_NAMED} 件` : ''} 做完，我就會再開花。</p>
 ${appUrl ? `<p style="margin:0 0 22px"><a href="${esc(appUrl)}" style="color:#C9822E">回來看看我 →</a></p>` : ''}
 <p style="margin:0;color:#71706A">——你的櫻花樹</p>
-<p style="margin:22px 0 0;color:#A2A099;font-size:12px">連續中斷的那一天才會收到這封信，一天最多一封。不想收的話，可以在「我的帳號」裡關掉。</p>
+<p style="margin:22px 0 0;color:#A2A099;font-size:12px">連續中斷的那一天才會收到這封信，一天最多一封。${
+    unsub ? `<br><a href="${esc(unsub)}" style="color:#A2A099">不想再收櫻花樹的信 →</a>` : '不想收的話，可以在「我的帳號」裡關掉。'}</p>
 </div>`;
 
   return { subject: '欸……昨天你沒有來', text, html };
@@ -477,7 +574,8 @@ export async function sendStreakBroken(env, nowMs = Date.now()) {
   const today = taipeiYmd(nowMs);
   const yesterday = addDays(today, -1);
   const rows = await env.DB.prepare(
-    `SELECT r.user_id, r.digest, r.streak_current, r.streak_mail_ymd, r.leave_days, u.email, u.status
+    `SELECT r.user_id, r.digest, r.streak_current, r.streak_mail_ymd, r.leave_days,
+            r.unsub_token, u.email, u.status
        FROM reminder_feed r JOIN users u ON u.id = r.user_id
       WHERE r.streak_mail = 1`
   ).all();
@@ -501,7 +599,10 @@ export async function sendStreakBroken(env, nowMs = Date.now()) {
     if (days < MIN_STREAK_FOR_MAIL) { out.tooShort++; continue; }
 
     try {
-      await sendMail(env, row.email, buildStreakEmail(days, day.missed, env.APP_URL || ''), 'streak');
+      const token = await ensureUnsubToken(env, row.user_id, row.unsub_token);
+      await sendMail(env, row.email,
+        buildStreakEmail(days, day.missed, env.APP_URL || '',
+          unsubUrl(env.APP_URL || '', token, 'streak')), 'streak');
       await env.DB.prepare('UPDATE reminder_feed SET streak_mail_ymd = ? WHERE user_id = ?')
         .bind(today, row.user_id).run();
       out.sent++;

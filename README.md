@@ -185,6 +185,7 @@ APP_URL=<optional>
 - The admin page lists the backups (date, size, number of schedules) and has a button to run one right now
 - The admin page also lists **every email the system sent in the last 30 days**, grouped by kind, with the provider's error text on the failures. Password resets and verification codes are marked as transactional — those are the ones a user is actively waiting for
 - Transactional mail can be sent through a **separate provider account** (`AGENTMAIL_TX_API_KEY` + `AGENTMAIL_TX_INBOX_ID`), so a suppression list built from bulk mail cannot also block somebody's password reset. Both unset is fine — it falls back to the shared account, and the admin page says so rather than looking configured
+- **Every subscription email carries its own unsubscribe link**, and each kind unsubscribes only itself — turning off the tree's letters leaves the overdue reminders alone. Without one, the only way out a recipient can see is their mail client's own "unsubscribe" button, which tells the *provider* to block them account-wide — password resets included. That is exactly how one user lost hers
 - When nothing is overdue and nothing is coming due, no email is sent at all — and the same rule applies to push notifications
 
 ### 🔗 Sharing (after deployment)
