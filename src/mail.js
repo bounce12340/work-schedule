@@ -128,6 +128,11 @@ async function recordMail(env, kind, to, ok, detail, sender) {
  *
  * 分辨方法：拿那個值當 Bearer 打 GET /v0/inboxes，回 200 就是 API key，
  * 而回應裡的 inboxes[].inbox_id 才是要填進 AGENTMAIL_INBOX_ID 的值。
+ *
+ * `mail.headers` 可帶任意標頭（規格的 SendMessageRequest.headers，值是字串 map）。
+ * 訂閱信用它帶 `List-Unsubscribe`——**那是這整件事的治本層**：有了它，Gmail 上
+ * 那顆「取消訂閱」會打到我們的端點，而不是去跟寄信商告狀把整個帳號封鎖
+ * （helen 2026-09-09 按下去的就是那一顆）。
  */
 export async function sendMail(env, to, mail, kind = 'unknown') {
   // 交易信與訂閱信可能走不同的憑證，見 pickSender。沒分家時這裡拿到的
@@ -149,7 +154,13 @@ export async function sendMail(env, to, mail, kind = 'unknown') {
       method: 'POST',
       headers: { 'authorization': `Bearer ${key}`, 'content-type': 'application/json' },
       // to 接受單一位址或陣列；其餘欄位規格上都是選填，但沒有內文的信沒有意義
-      body: JSON.stringify({ to, subject: mail.subject, text: mail.text, html: mail.html })
+      // headers 是**選填**：規格允許帶任意標頭，訂閱信靠它帶 List-Unsubscribe。
+      // 沒有要帶的時候整個欄位不放，不要送一個空物件——那是在賭寄信商怎麼處理
+      // 空的 map，而那件事規格沒有講。
+      body: JSON.stringify({
+        to, subject: mail.subject, text: mail.text, html: mail.html,
+        ...(mail.headers && Object.keys(mail.headers).length ? { headers: mail.headers } : {})
+      })
     });
   } catch (e) {
     // 連線層的失敗（DNS、TLS、逾時）也要留下來：它與「被退訂名單擋掉」

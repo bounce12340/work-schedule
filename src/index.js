@@ -6,7 +6,7 @@ import { recordCronRun, cronResultErrors, handleCronStatus, handleUsage, handleM
 import { handleAiStatus, handleAiAsk, handleAiPlan } from './handlers/ai.js';
 import { handleListShares, handleCreateShare, handleDeleteShare, handleUpdateShared, handleListActivity } from './handlers/share.js';
 import { handleIcsStatus, handleIcsEnable, handleIcsDisable, handleIcsPut, handleIcsFeed } from './handlers/ics.js';
-import { handleReminderStatus, handleReminderEnable, handleReminderPut, sendOverdueReminders, sendStreakBroken } from './handlers/reminder.js';
+import { handleReminderStatus, handleReminderEnable, handleReminderPut, handleUnsubscribe, handleUnsubscribeOneClick, sendOverdueReminders, sendStreakBroken } from './handlers/reminder.js';
 import { handleForgotPassword, handleResetPassword as handleSelfResetPassword } from './handlers/password-reset.js';
 import { handleAppCode, handleAppRegister, handleAppLogin, handleDeleteAccount } from './handlers/appauth.js';
 import { handlePlanApple, handleAppleNotification } from './handlers/planapple.js';
@@ -142,6 +142,32 @@ async function route(request, env, ctx) {
   }
   if (path === '/api/auth/reset') {
     return request.method === 'POST' ? handleSelfResetPassword(request, env) : methodNotAllowed();
+  }
+
+  // 退訂：**公開端點**，憑證是信裡那個連結帶的 token。
+  //
+  // 會走到這裡的人定義上就是「不想再收信」的人，要求他先登入等於把他推回
+  // Gmail 的「取消訂閱」——而那顆按鈕是說給寄信商聽的，一按下去他連密碼重設信
+  // 都收不到（helen 2026-09-09 那次的真正成因）。**我們自己的出口一定要比
+  // 那顆按鈕好走**，否則這個端點就白做了。
+  //
+  // GET 刻意不做任何事：`/unsub` 是一頁靜態頁，要按下按鈕才會打這裡。
+  // 郵件用戶端與掃描器會預抓連結（同〈用過的重設連結保留 7 天〉那條踩過的坑），
+  // 讓 GET 就生效等於「信一進收件匣，提醒自己關掉了」。
+  if (path === '/api/unsub') {
+    return request.method === 'POST' ? handleUnsubscribe(request, env) : methodNotAllowed();
+  }
+
+  // 郵件軟體那顆「取消訂閱」打進來的地方（RFC 8058 的一鍵退訂）。
+  //
+  // **這是治本的那一層**：有了 List-Unsubscribe 標頭，Gmail 的按鈕會打到這裡，
+  // 而不是去跟寄信商說「這個人的信我不要了」——後者會讓整個帳號被封鎖，
+  // 連密碼重設信都收不到（helen 2026-09-09 按下去的就是那一顆）。
+  //
+  // **只認 POST。** 掃描器與預抓會發 GET，讓 GET 生效等於「信一進收件匣，
+  // 提醒自己關掉了」。RFC 8058 規定用 POST 正是為了這件事。
+  if (path === '/api/unsub/one-click') {
+    return request.method === 'POST' ? handleUnsubscribeOneClick(url, env) : methodNotAllowed();
   }
 
   // iOS app 的公開端點：驗證碼、以購買證明註冊、登入（回 token 不發 cookie）。

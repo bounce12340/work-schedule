@@ -70,6 +70,18 @@ const AFTER_CLICKS = [
 ];
 
 /**
+ * 帳號頁的取消訂閱區。**新的一塊 UI，而且刻意做得比旁邊醒目**——
+ * 正因為「醒目」是它的重點，讀不讀得清楚就不能靠感覺。
+ *
+ * 它預設不在畫面上（要先切到「我的帳號」），所以不能只靠 TARGETS——
+ * 不量等於這一塊完全沒有被守到（同〈永遠不會執行的斷言〉）。
+ */
+const IN_ACCOUNT = [
+  ['.acct-unsub .acct-sub', '取消訂閱的說明'],
+  ['#btnUnsubAll', '「全部都不要了」按鈕'],
+];
+
+/**
  * 休假格子的日期。它用的是**新的顏色 token**（`--leave`），而且壓在一層玻璃紙上
  * （`.cal-cell.leave::before`）——那層不是任何元素的祖先，`bgOf()` 看不到它，
  * 量到的會是「沒有玻璃紙」的漂亮數字。解法同光暈（見 measure 裡的 leaveWorst）。
@@ -293,6 +305,17 @@ for (const [theme, label, fixedTime] of PASSES) {
   await page.locator('.cal-cell[data-date]').first().click();
   await page.waitForTimeout(300);
   rows.push(...await page.evaluate(measure, AFTER_CLICKS));
+
+  // 切到「我的帳號」量取消訂閱那一區
+  await page.locator('.nav-item', { hasText: '我的帳號' }).click();
+  await page.waitForSelector('#viewAccount.active');
+  await page.waitForTimeout(300);
+  rows.push(...await page.evaluate(measure, IN_ACCOUNT));
+
+  // 量完切回日曆，後面那幾段還要用到日曆的畫面
+  await page.locator('.nav-item', { hasText: '日曆' }).click();
+  await page.waitForSelector('#calGrid .cal-cell[data-date]');
+  await page.waitForTimeout(200);
 
   // 造一格休假出來再量。**不能等它自然出現**：示範資料的休假日落在下個月，
   // 而「畫面上沒有這個元素，略過」是一條永遠不會執行的斷言。

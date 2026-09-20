@@ -128,7 +128,9 @@ function makeServer(loggedIn, plan = 'pro') {
   // `buildReminderLeaveDays()` 只在 cloudPush 成功後 3 秒才被呼叫到，
   // npm test 與 node --check 都證明不了它有沒有被定義。
   const reminderPuts = [];
-  for (const f of ['index.html', 'login.html', 'reset.html', 'admin.html', 'privacy.html', 'terms.html']) {
+  const reminderPosts = [];
+  const unsubPosts = [];
+  for (const f of ['index.html', 'login.html', 'reset.html', 'admin.html', 'privacy.html', 'terms.html', 'unsub.html']) {
     assets.set('/' + f, readFileSync(PUBLIC + f, 'utf8'));
   }
   // sw.js 一定要真的供應。擋掉它會讓註冊失敗噴一行 console.error，而把
@@ -142,6 +144,24 @@ function makeServer(loggedIn, plan = 'pro') {
       res.end(typeof body === 'string' ? body : JSON.stringify(body));
     };
     if (url.pathname.startsWith('/api/')) {
+      // 退訂是**公開端點**，所以它要擋在 loggedIn 那一關之前——真的 Worker 就是
+      // 這樣排的（會走到這條路的人，定義上就是不想／不能登入的那一個）。
+      // 假後端在這裡比真的嚴格一點就會測不到，同〈假的東西不能比真的多給〉。
+      if (url.pathname === '/api/unsub') {
+        if (req.method !== 'POST') return send(405, { error: 'method not allowed' });
+        let raw = '';
+        req.on('data', c => { raw += c; });
+        return req.on('end', () => {
+          let body = null;
+          try { body = JSON.parse(raw); } catch {}
+          unsubPosts.push(body);
+          // token 認不得就回 404，讓「伺服器說不行時照它的原話講」那條測得到
+          if (!body || body.token !== 'tok_smoke_0123456789abcdef') {
+            return send(404, { error: '這個連結已經失效了。' });
+          }
+          send(200, { ok: true, kind: body.kind });
+        });
+      }
       if (!loggedIn) return send(404, { error: 'not found' });
       if (url.pathname === '/api/state') {
         if (req.method === 'PUT') return send(200, { ok: true, updatedAt: 1 });
@@ -175,6 +195,17 @@ function makeServer(loggedIn, plan = 'pro') {
             send(200, { ok: true });
           });
         }
+        // POST 是開關（含「全部都不要了」）。**要把 body 收下來**：只回 ok
+        // 的話，「送出去的那一包有沒有真的五個都關掉」就沒有東西可以驗，
+        // 而那是畫面上看不出來的那一種錯。
+        if (req.method === 'POST') {
+          let raw = '';
+          req.on('data', c => { raw += c; });
+          return req.on('end', () => {
+            try { reminderPosts.push(JSON.parse(raw)); } catch { reminderPosts.push(null); }
+            send(200, { ok: true });
+          });
+        }
         return send(200, { enabled: false, lastSent: null, email: ME.email });
       }
       return send(200, { ok: true });
@@ -182,14 +213,21 @@ function makeServer(loggedIn, plan = 'pro') {
     const path = url.pathname === '/' ? '/index.html' : url.pathname;
     if (path === '/sw.js') return send(200, SW, 'text/javascript');
     if (assets.has(path)) return send(200, assets.get(path), 'text/html');
+    // **不帶副檔名也要通。** 線上 Cloudflare 的靜態資產會把 /unsub 解析成
+    // unsub.html（/reset 就是這樣運作的），而信裡放的正是不帶副檔名的那一種。
+    // 假後端只認 .html 的話，測到的是一條信裡從來不會出現的網址——那種綠燈
+    // 比沒有測試更糟。同〈假的東西不能比真的多給〉，只是方向相反。
+    if (assets.has(path + '.html')) return send(200, assets.get(path + '.html'), 'text/html');
     return send(404, 'not found', 'text/plain');
   });
   server.reminderPuts = reminderPuts;
+  server.reminderPosts = reminderPosts;
+  server.unsubPosts = unsubPosts;
   return server;
 }
 
 /** 走完一輪所有頁面與主要互動 */
-async function walk(page, log, plan = 'pro') {
+async function walk(page, log, plan = 'pro', server = null) {
   const checked = [];
   let step = '（尚未開始）';
   const need = async (sel, what) => {
@@ -328,6 +366,45 @@ async function walk(page, log, plan = 'pro') {
   // 連續斷掉的信（F2）：與逾期提醒各自一顆按鈕
   await need('#btnStreakMail', '櫻花樹的信開關');
 
+  // 取消訂閱那一區。**驗的是「看得見、而且真的按得動」**——只存在於 DOM 裡的
+  // 按鈕沒有人按得到，而找不到出口的人會去按信箱軟體的「取消訂閱」，代價是
+  // 整個帳號被寄信商封鎖（helen 2026-09-09）。
+  if (!(await page.locator('#viewAccount #btnUnsubAll').isVisible())) {
+    throw new Error('「全部都不要了」不在我的帳號頁上（或看不見）');
+  }
+  await click('#btnUnsubAll', '全部都不要了');
+  await page.waitForFunction(() => {
+    const el = document.getElementById('acctUnsubMsg');
+    return el && el.textContent.trim().length > 0;
+  }, null, { timeout: 3000 }).catch(() => {
+    throw new Error('按了「全部都不要了」之後沒有任何回覆——降級可以，沉默不行');
+  });
+  {
+    // 送出去的那一包要**五個開關全部關掉**。少關一個的症狀是「我按了全部關，
+    // 結果還是收得到推播」，而畫面上看不出來。
+    // 沒有假後端可問的輪次（app 那一輪自己起伺服器）就不驗這一條，
+    // 但**不可以靜默跳過**——沒有 server 卻走到這裡代表呼叫端漏傳了。
+    if (!server) throw new Error('walk() 沒有收到 server，「全部都不要了」的 body 驗不到');
+    const body = server.reminderPosts[server.reminderPosts.length - 1];
+    if (!body) throw new Error('「全部都不要了」沒有打到 /api/reminder');
+    for (const k of ['enabled', 'streakMail', 'pushOverdue', 'pushStreak', 'pushToday']) {
+      if (body[k] !== false) throw new Error(`「全部都不要了」沒有關掉 ${k}：${JSON.stringify(body[k])}`);
+    }
+  }
+  checked.push('取消訂閱(看得見/按得動/五個全關)');
+
+  // 信裡那條「通知設定 →」。**要真的走得到底**：切到帳號頁、捲到通知那一區、
+  // 而且標示出來。只切頁籤不捲過去，與沒有這條連結差不多——而「差不多」的
+  // 代價是他回去按 Gmail 那顆。
+  await page.evaluate(() => { location.hash = ''; document.getElementById('navSchedule').click(); });
+  await page.evaluate(() => { location.hash = '#notify'; });
+  await page.waitForFunction(
+    () => document.getElementById('viewAccount').classList.contains('active')
+       && document.getElementById('acctReminder').classList.contains('flash'),
+    null, { timeout: 3000 }
+  ).catch(() => { throw new Error('#notify 沒有把人帶到帳號頁的通知區並標示出來'); });
+  checked.push('信裡的「通知設定 →」(#notify 走得到底)');
+
   // 密碼欄位的眼睛。驗的是**真的切得動**（input.type 換了），不是「按鈕畫得出來」——
   // 後者在 onclick 沒接上時照樣是綠的。順便驗那兩個刻意的判斷：
   //   關掉再開要回到隱藏（狀態不記住）、只切被點的那一個（不是整頁一起變明碼）。
@@ -447,7 +524,7 @@ for (const loggedIn of [false, true]) {
       await page.goto(loggedIn ? `http://127.0.0.1:${PORT}/` : 'file://' + PUBLIC + 'index.html',
         { waitUntil: 'domcontentloaded' });
       if (loggedIn) {
-        await walk(page, console.log, plan);
+        await walk(page, console.log, plan, server);
         await expectLeaveDaysPushed(page, server, console.log);
       } else await expectGate(page, console.log);
     } catch (e) {
@@ -743,6 +820,39 @@ async function walkNative(page, log, seen) {
     for (const word of ['自動續訂', '訂閱', '退款', 'Terms of Use', 'Restore purchases']) {
       if (!(await page.locator(`text=${word}`).count())) throw new Error(`使用條款頁上找不到「${word}」`);
     }
+
+    // 退訂頁。**這一頁是「不要再去按 Gmail 那顆按鈕」的唯一替代品**，所以
+    // 驗的是「真的按得動、而且送出去的是對的那一種」，不是「畫得出按鈕」——
+    // onclick 沒接上時後者照樣是綠的（同〈眼睛〉那條斷言的理由）。
+    const TOK = 'tok_smoke_0123456789abcdef';
+    for (const [kind, other] of [['reminder', '櫻花樹'], ['streak', '逾期提醒']]) {
+      await page.goto(`http://127.0.0.1:${PORT}/unsub?t=${TOK}&k=${kind}`,
+        { waitUntil: 'domcontentloaded' });
+      const btn = page.locator('#btn');
+      if (!(await btn.isVisible())) throw new Error(`unsub（${kind}）沒有出現按鈕`);
+      // **關掉一種之前，要先說清楚另一種不受影響**——Gmail 那顆按鈕沒說，
+      // 而沒說正是使用者以為「我只是想少收一點信」卻整個被封鎖的原因。
+      const lede = await page.locator('#lede').textContent();
+      if (!lede.includes(other)) throw new Error(`unsub（${kind}）沒有說「${other}」不受影響`);
+      await btn.click();
+      await page.locator('.msg.ok').waitFor({ timeout: 3000 });
+      if (await btn.isVisible()) throw new Error(`unsub（${kind}）關掉之後按鈕還在`);
+    }
+    const posts = server.unsubPosts;
+    if (posts.length !== 2) throw new Error(`unsub 應該送出 2 次，實際 ${posts.length} 次`);
+    if (posts[0].kind !== 'reminder' || posts[1].kind !== 'streak') {
+      throw new Error('unsub 送出的 kind 不對：' + JSON.stringify(posts.map(p => p && p.kind)));
+    }
+    if (posts.some(p => p.token !== TOK)) throw new Error('unsub 沒有把網址上的 token 原樣送出去');
+
+    // 連結不完整時**不可以長出按鈕**：按下去只會失敗，而失敗會讓人回頭去按
+    // Gmail 那顆。缺 token 與缺 kind 兩種都要擋。
+    for (const bad of [`/unsub?k=reminder`, `/unsub?t=${TOK}`, `/unsub?t=${TOK}&k=亂寫的`]) {
+      await page.goto(`http://127.0.0.1:${PORT}${bad}`, { waitUntil: 'domcontentloaded' });
+      if (await page.locator('#btn').isVisible()) throw new Error(`${bad} 不該出現按鈕`);
+      if (!(await page.locator('.msg.err').count())) throw new Error(`${bad} 沒有說明哪裡不對`);
+    }
+    if (server.unsubPosts.length !== 2) throw new Error('連結不完整時不該打到伺服器');
   } catch (e) { errors.push(e.message); }
   if (errors.length) { failures.push({ label, errors }); console.log(`   ✗ ${errors.length} 個錯誤`); errors.forEach(e => console.log(`      - ${e}`)); }
   else console.log('   ✓ 零錯誤');

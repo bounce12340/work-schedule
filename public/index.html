@@ -1079,6 +1079,22 @@
   .acct-sub{ font-size:12.5px; line-height:1.7; color:var(--text-muted); margin-bottom:10px; }
   .acct-id-email{ font-family:var(--mono); font-size:15px; margin-bottom:2px; word-break:break-all; }
   .acct-row{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  /* 取消訂閱。**刻意做得比旁邊的開關明顯**：找不到出口的人會去按信箱軟體的
+     「取消訂閱」，而那顆是說給寄信商聽的——一按下去整個帳號被封鎖，連密碼
+     重設信都收不到（helen 2026-09-09）。多幾個人退訂比那個便宜太多。 */
+  .acct-unsub{ margin-top:16px; padding:14px; border-radius:10px;
+               background:var(--panel-2); border:1px solid var(--hairline); }
+  .acct-unsub .acct-sub{ margin-bottom:10px; }
+  /* **深色實心，不是琥珀色。** 琥珀在亮色主題下只有 3.08:1——過得了 WCAG 的
+     大字門檻，但「剛好及格」與「夠明顯」是兩件事，而這一顆的整個重點就是明顯。
+     用 --text／--panel 這一對：兩種主題會自動對調，都在 14:1 左右。
+     順帶與信裡那顆退訂按鈕長得一樣，兩邊是同一件事。 */
+  .unsub-btn{ font-family:var(--sans); font-size:14px; font-weight:700;
+              background:var(--text); color:var(--panel); border:none;
+              border-radius:8px; padding:11px 18px; cursor:pointer; }
+  .unsub-btn:disabled{ background:var(--text-dim); cursor:not-allowed; }
+  /* 從信裡點「通知設定 →」進來時，讓人一眼看到是哪一區 */
+  .acct-sec.flash{ border-color:var(--amber); box-shadow:0 0 0 3px var(--amber-dim); }
   .acct-dev{ display:flex; gap:10px; align-items:baseline; flex-wrap:wrap;
              padding:8px 0; border-bottom:1px solid var(--hairline); font-size:12.5px; }
   .acct-dev:last-child{ border-bottom:none; }
@@ -1523,6 +1539,16 @@
               <button id="btnPushToday" class="ghost-btn" type="button"></button>
             </div>
             <div class="acct-sub" id="acctPushMsg" style="margin-top:8px;"></div>
+          </div>
+
+          <!-- 取消訂閱。信裡的「通知設定 →」就是連到這裡（#notify）。
+               上面每一種都可以單獨關，這一顆是「全部都不要了」的那一個出口。 -->
+          <div class="acct-unsub" id="acctUnsub">
+            <div class="acct-sub" data-i18n>不想收到任何通知了嗎？上面每一種都可以單獨關掉；也可以一次全部關掉。要再打開，隨時回到這一頁。</div>
+            <div class="acct-row">
+              <button id="btnUnsubAll" class="unsub-btn" type="button" data-i18n>全部都不要了</button>
+            </div>
+            <div class="acct-sub" id="acctUnsubMsg" style="margin-top:8px;"></div>
           </div>
         </div>
 
@@ -2719,6 +2745,13 @@
       '），資料僅存在本次畫面中，重新整理將會重置。':') — data lives only in this view and resets on refresh.',
       '※ 這個瀏覽器封鎖了本機儲存，資料只保留在這個分頁，關閉後不會留下。':
         '※ This browser blocks local storage — data lives only in this tab and is lost when you close it.',
+      // —— 取消訂閱（信裡的「通知設定 →」連到的那一區）——
+      '不想收到任何通知了嗎？上面每一種都可以單獨關掉；也可以一次全部關掉。要再打開，隨時回到這一頁。':
+        'Done with notifications? Each kind above can be turned off on its own — or turn them all off at once. To switch any back on, just come back to this page.',
+      '全部都不要了':'Turn everything off',
+      '已經全部關掉了。要再打開，按上面那幾顆就可以。':
+        'All notifications are off. Use the buttons above to switch any back on.',
+      '目前離線，無法變更通知設定。':'You are offline — the notification settings could not be changed.',
       // —— 逾期提醒信 ——
       '🔕 關閉逾期提醒信':'🔕 Turn off overdue emails',
       '📧 開啟逾期提醒信':'📧 Overdue email reminders',
@@ -8244,6 +8277,74 @@
     if(el) el.onclick = ()=> pushToggle(b.key, el);
   }
 
+  const btnUnsubAll = document.getElementById('btnUnsubAll');
+  const acctUnsub = document.getElementById('acctUnsub');
+  const acctUnsubMsg = document.getElementById('acctUnsubMsg');
+
+  /**
+   * 「全部都不要了」。五個開關（兩封信、三種推播）一次關掉。
+   *
+   * **只關不開。** 這一顆沒有反向操作——要再打開就回去按上面那幾顆。一顆會
+   * 在「全關」與「全開」之間切換的按鈕，按錯的代價是「我明明想安靜，卻突然
+   * 全部打開了」，而那正是這個功能要避免的事。
+   *
+   * 已經全部關著的時候按下去是**冪等**的：照樣送一次、照樣說「都關好了」。
+   * 擋下來回「本來就關著」只是讓人懷疑自己有沒有按到。
+   */
+  function syncUnsubAll(){
+    if(!acctUnsub) return;
+    // 單機模式沒有伺服器可以關。整區藏起來，而不是留一顆按不動的按鈕
+    acctUnsub.style.display = cloudEnabled ? '' : 'none';
+  }
+
+  if(btnUnsubAll) btnUnsubAll.onclick = async ()=>{
+    btnUnsubAll.disabled = true;
+    if(acctUnsubMsg) acctUnsubMsg.textContent = '';
+    try{
+      const r = await fetch('/api/reminder', { method:'POST', headers:{'content-type':'application/json'},
+        body: JSON.stringify({ enabled:false, leadDays:reminderLeadDays, streakMail:false,
+                               pushOverdue:false, pushStreak:false, pushToday:false }) });
+      if(r.status===401){ sessionExpired(); return; }
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      reminderEnabled = false;
+      streakMailEnabled = false;
+      pushPrefs.pushOverdue = false; pushPrefs.pushStreak = false; pushPrefs.pushToday = false;
+      syncReminderBtn();
+      if(acctUnsubMsg) acctUnsubMsg.textContent = tr('已經全部關掉了。要再打開，按上面那幾顆就可以。');
+    }catch(e){
+      // 降級可以，沉默不行：關不掉卻不說，使用者會以為關好了，然後下個月
+      // 又收到信——然後去按信箱軟體那顆把整個帳號封掉的按鈕
+      console.error('unsubscribe all failed', e);
+      if(acctUnsubMsg) acctUnsubMsg.textContent = tr('目前離線，無法變更通知設定。');
+    }finally{
+      btnUnsubAll.disabled = false;
+    }
+  };
+
+  /**
+   * 從信裡的「通知設定 →」進來（`#notify`）。
+   *
+   * 信裡那條路要真的走得到底：切到帳號頁、捲到通知那一區、而且**標示出來**。
+   * 只切頁籤不捲過去的話，使用者看到的是一整頁設定，還要自己找——那與沒有
+   * 這條連結差不多，而「差不多」在這件事上的代價是他回去按 Gmail 那顆。
+   *
+   * 用 hash 而不是查詢字串：它不會被送到伺服器，也不會進分享出去的網址。
+   */
+  function acctGotoNotify(){
+    const sec = document.getElementById('acctReminder');
+    if(!sec) return;
+    // 切頁籤走既有的那兩行（navAccount 的 onclick 就是這樣做的）。
+    // 不要另外包一個 setView()——這個檔案裡沒有那個東西。
+    currentView = 'account';
+    renderNav();
+    // 等 renderAccountView 跑完再捲：這一頁是切過去才畫的
+    requestAnimationFrame(()=>{
+      try{ sec.scrollIntoView({ behavior:'smooth', block:'center' }); }catch(e){ sec.scrollIntoView(); }
+      sec.classList.add('flash');
+      setTimeout(()=>sec.classList.remove('flash'), 2600);
+    });
+  }
+
   function syncReminderBtn(){
     if(!btnReminder) return;
     btnReminder.style.display = cloudEnabled ? '' : 'none';
@@ -8253,6 +8354,10 @@
       : tr('開啟後，有逾期項目時會寄信到你的註冊信箱（沒有逾期就不寄）');
 
     syncStreakMailBtn();
+    // 取消訂閱那一區也要跟著（單機模式下沒有伺服器可以關）。**和下面那一行
+    // 一樣要放在 return 之前**——放在後面的話 selReminderLead 不存在時它就
+    // 永遠不會跑，而那是靜默的。
+    syncUnsubAll();
     // 推播的三個按鈕要跟著一起重畫（切語言、切單機模式時）。**放在 return 之前**：
     // 放在後面的話，selReminderLead 不存在時它就永遠不會跑，而那是靜默的。
     syncPushBtns();
@@ -8812,6 +8917,19 @@
   bootSakuraPlay(lastGame && lastGame.stage);   // 開機的櫻花：演到你現在那一階（閘門關著時也演，那台裝置就是第一階）
   if(gatedAtBoot) loginGateShow();
   else setTimeout(showReminderToast, 700);
+
+  // 信裡的「通知設定 →」帶著 #notify 進來。**閘門關著時不處理**——那時整個
+  // 畫面是「請登入」，切到一個看不見的頁籤只會讓 hash 白白消耗掉。
+  //
+  // 也接 hashchange：已經開著 app 的人再點一次信裡的連結，瀏覽器不會重新載入，
+  // 只會改 hash——只在啟動時判斷的話，那一次點擊什麼都不會發生。
+  function acctMaybeGotoNotify(){
+    if(gatedAtBoot) return;
+    if(location.hash !== '#notify') return;
+    acctGotoNotify();
+  }
+  acctMaybeGotoNotify();
+  window.addEventListener('hashchange', acctMaybeGotoNotify);
 
   // 離開前把還在等 debounce 的寫入結一次帳。三個時機涵蓋不同的離開方式，缺一不可：
   //   編輯器 blur      —— 點去別的欄位或按頁籤（最常見，掛在 buildRichEditor 裡）

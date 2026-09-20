@@ -30,7 +30,7 @@ if (!baseRef) {
 const git = (...args) => execFileSync('git', args, { encoding: 'utf8' }).trim();
 
 // 會被 service worker 端出來的前端檔案。sw.js 自己不列——改它本來就是這件事。
-const WATCHED = /^public\/(index|login|reset|admin)\.html$/;
+const WATCHED = /^public\/(index|login|reset|admin|unsub)\.html$/;
 const SW = 'public/sw.js';
 
 let changed;
