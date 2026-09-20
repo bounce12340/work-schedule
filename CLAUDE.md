@@ -124,6 +124,8 @@ node tools/verify-richtext.mjs
 | `smoke` | `smoke.mjs`、`verify-toggle.mjs`、`verify-richtext.mjs`、`check-calendar.mjs`、`check-notes.mjs`、`check-contrast.mjs`、`check-deps.mjs`、`check-ambience.mjs`（要 Chromium） | 每個 PR 與 main |
 | `deploy` | `npx wrangler deploy`，完成後打一次線上 `/` 確認回 302 | 只有 push 到 `main` |
 
+**`deploy` 是自動的，這件事會咬到 migration。** 合併進 main 之後幾分鐘 Worker 就上線，中間沒有人插得了手——所以**要跑的 migration 必須在合併之前就跑完**，不是合併之後。完整理由與踩過的那一次見〈資料庫結構變更〉。
+
 幾個刻意的決定：
 
 - **`smoke` 與 `check` 分開**是為了回饋速度：`check` 幾秒就有結果，`smoke` 要裝 Playwright 與 Chromium（約 150MB）。合在一起的話，一個分號打錯也要等瀏覽器裝完才看得到。
@@ -1330,13 +1332,31 @@ AI 的批次寫入正是就地修改，第一版因此復原不了，是瀏覽�
 
 `schema.sql` 是**完整的 canonical schema**，全部用 `CREATE TABLE IF NOT EXISTS`——所以它對「新資料庫」永遠正確，對「已經存在的資料庫」卻**補不了新欄位**（`IF NOT EXISTS` 只看表在不在，不看欄位）。
 
-新增欄位因此要在 `migrations/` 下留一支單獨的 SQL，並在**部署之前**跑過：
+新增欄位因此要在 `migrations/` 下留一支單獨的 SQL，並在**部署之前**跑過（而「部署之前」現在等於「**合併之前**」，見下方專節）：
 
 ```bash
 npx wrangler d1 execute work-schedule-db --remote --file=./migrations/011-mail-sender.sql   # 最新的一支；舊的照編號
 ```
 
 **順序不能反。** 新程式碼 `SELECT r.lead_days`，欄位還沒加就會讓提醒的 cron 與 `/api/reminder` 直接失敗。新增**資料表**沒有這個問題（`db:init` 重跑 `schema.sql` 就會建），只有**欄位**需要 migration。
+
+#### 「部署之前」＝「**合併之前**」，不是「按下 `npm run deploy` 之前」
+
+上面那句「部署之前」寫於**還要自己按部署**的時代。現在 `main` 的 CI 會**自動部署**（見〈CI 與自動部署〉的 `deploy` job），所以：
+
+**PR 一合併進 main，幾分鐘後 Worker 就上線了，中間沒有任何人可以插手跑 migration。**
+
+2026-09-19 實際踩到：`010` 與 `011` 打算「合併後再跑」，結果 CI 在 01:55 自己部署完成，migration 一支都還沒跑。**沒有人做錯任何一步**——那句規則本身就漏掉了自動部署這件事。
+
+所以正確的順序是：
+
+1. **先跑 migration**（對**遠端** D1，此時線上還是舊的 Worker）
+2. 再合併 PR，讓 CI 去部署
+
+**這個順序對「加欄位」是安全的**：舊的 Worker 不 `SELECT` 那個欄位，多一個沒人讀的欄位不會壞。反過來（先部署）才是危險的那一邊。
+
+- **忘記了怎麼辦**：照樣補跑，然後**驗實際結構**（`pragma_table_info`）與**跑一次那支 SELECT**，不要只看指令沒報錯。踩到的那次就是這樣補回來的，線上沒有壞，只留下一段空窗：那段期間的寄信結果沒有被記錄，而管理頁上「空的」與「都沒失敗」長得一模一樣。
+- **這條也適用於任何「先改 schema 才能跑」的東西**，不限於 `migrations/`：R2 儲存桶要先建（`--dry-run` 不連線，抓不到），secret 要先設。凡是「Worker 一上線就會去讀」的外部狀態，都要趕在合併之前準備好。
 
 **`010-mail-log.sql` 是新增資料表，所以它是唯一漏跑也不會壞的一支**：`recordMail` 的寫入包在 try/catch 裡，表不在只會讓每寄一封信多一行 `console.warn`，信照樣寄得出去（那條規則本身的理由見〈寄信記錄〉）。仍然要跑——漏跑的代價是那張表一直是空的，而「空的」與「都沒失敗」在管理頁上長得一模一樣。
 
