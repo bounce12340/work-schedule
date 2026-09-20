@@ -128,6 +128,7 @@ function makeServer(loggedIn, plan = 'pro') {
   // `buildReminderLeaveDays()` 只在 cloudPush 成功後 3 秒才被呼叫到，
   // npm test 與 node --check 都證明不了它有沒有被定義。
   const reminderPuts = [];
+  const reminderPosts = [];
   const unsubPosts = [];
   for (const f of ['index.html', 'login.html', 'reset.html', 'admin.html', 'privacy.html', 'terms.html', 'unsub.html']) {
     assets.set('/' + f, readFileSync(PUBLIC + f, 'utf8'));
@@ -194,6 +195,17 @@ function makeServer(loggedIn, plan = 'pro') {
             send(200, { ok: true });
           });
         }
+        // POST 是開關（含「全部都不要了」）。**要把 body 收下來**：只回 ok
+        // 的話，「送出去的那一包有沒有真的五個都關掉」就沒有東西可以驗，
+        // 而那是畫面上看不出來的那一種錯。
+        if (req.method === 'POST') {
+          let raw = '';
+          req.on('data', c => { raw += c; });
+          return req.on('end', () => {
+            try { reminderPosts.push(JSON.parse(raw)); } catch { reminderPosts.push(null); }
+            send(200, { ok: true });
+          });
+        }
         return send(200, { enabled: false, lastSent: null, email: ME.email });
       }
       return send(200, { ok: true });
@@ -209,12 +221,13 @@ function makeServer(loggedIn, plan = 'pro') {
     return send(404, 'not found', 'text/plain');
   });
   server.reminderPuts = reminderPuts;
+  server.reminderPosts = reminderPosts;
   server.unsubPosts = unsubPosts;
   return server;
 }
 
 /** 走完一輪所有頁面與主要互動 */
-async function walk(page, log, plan = 'pro') {
+async function walk(page, log, plan = 'pro', server = null) {
   const checked = [];
   let step = '（尚未開始）';
   const need = async (sel, what) => {
@@ -353,6 +366,45 @@ async function walk(page, log, plan = 'pro') {
   // 連續斷掉的信（F2）：與逾期提醒各自一顆按鈕
   await need('#btnStreakMail', '櫻花樹的信開關');
 
+  // 取消訂閱那一區。**驗的是「看得見、而且真的按得動」**——只存在於 DOM 裡的
+  // 按鈕沒有人按得到，而找不到出口的人會去按信箱軟體的「取消訂閱」，代價是
+  // 整個帳號被寄信商封鎖（helen 2026-09-09）。
+  if (!(await page.locator('#viewAccount #btnUnsubAll').isVisible())) {
+    throw new Error('「全部都不要了」不在我的帳號頁上（或看不見）');
+  }
+  await click('#btnUnsubAll', '全部都不要了');
+  await page.waitForFunction(() => {
+    const el = document.getElementById('acctUnsubMsg');
+    return el && el.textContent.trim().length > 0;
+  }, null, { timeout: 3000 }).catch(() => {
+    throw new Error('按了「全部都不要了」之後沒有任何回覆——降級可以，沉默不行');
+  });
+  {
+    // 送出去的那一包要**五個開關全部關掉**。少關一個的症狀是「我按了全部關，
+    // 結果還是收得到推播」，而畫面上看不出來。
+    // 沒有假後端可問的輪次（app 那一輪自己起伺服器）就不驗這一條，
+    // 但**不可以靜默跳過**——沒有 server 卻走到這裡代表呼叫端漏傳了。
+    if (!server) throw new Error('walk() 沒有收到 server，「全部都不要了」的 body 驗不到');
+    const body = server.reminderPosts[server.reminderPosts.length - 1];
+    if (!body) throw new Error('「全部都不要了」沒有打到 /api/reminder');
+    for (const k of ['enabled', 'streakMail', 'pushOverdue', 'pushStreak', 'pushToday']) {
+      if (body[k] !== false) throw new Error(`「全部都不要了」沒有關掉 ${k}：${JSON.stringify(body[k])}`);
+    }
+  }
+  checked.push('取消訂閱(看得見/按得動/五個全關)');
+
+  // 信裡那條「通知設定 →」。**要真的走得到底**：切到帳號頁、捲到通知那一區、
+  // 而且標示出來。只切頁籤不捲過去，與沒有這條連結差不多——而「差不多」的
+  // 代價是他回去按 Gmail 那顆。
+  await page.evaluate(() => { location.hash = ''; document.getElementById('navSchedule').click(); });
+  await page.evaluate(() => { location.hash = '#notify'; });
+  await page.waitForFunction(
+    () => document.getElementById('viewAccount').classList.contains('active')
+       && document.getElementById('acctReminder').classList.contains('flash'),
+    null, { timeout: 3000 }
+  ).catch(() => { throw new Error('#notify 沒有把人帶到帳號頁的通知區並標示出來'); });
+  checked.push('信裡的「通知設定 →」(#notify 走得到底)');
+
   // 密碼欄位的眼睛。驗的是**真的切得動**（input.type 換了），不是「按鈕畫得出來」——
   // 後者在 onclick 沒接上時照樣是綠的。順便驗那兩個刻意的判斷：
   //   關掉再開要回到隱藏（狀態不記住）、只切被點的那一個（不是整頁一起變明碼）。
@@ -472,7 +524,7 @@ for (const loggedIn of [false, true]) {
       await page.goto(loggedIn ? `http://127.0.0.1:${PORT}/` : 'file://' + PUBLIC + 'index.html',
         { waitUntil: 'domcontentloaded' });
       if (loggedIn) {
-        await walk(page, console.log, plan);
+        await walk(page, console.log, plan, server);
         await expectLeaveDaysPushed(page, server, console.log);
       } else await expectGate(page, console.log);
     } catch (e) {

@@ -6,7 +6,7 @@ import { recordCronRun, cronResultErrors, handleCronStatus, handleUsage, handleM
 import { handleAiStatus, handleAiAsk, handleAiPlan } from './handlers/ai.js';
 import { handleListShares, handleCreateShare, handleDeleteShare, handleUpdateShared, handleListActivity } from './handlers/share.js';
 import { handleIcsStatus, handleIcsEnable, handleIcsDisable, handleIcsPut, handleIcsFeed } from './handlers/ics.js';
-import { handleReminderStatus, handleReminderEnable, handleReminderPut, handleUnsubscribe, sendOverdueReminders, sendStreakBroken } from './handlers/reminder.js';
+import { handleReminderStatus, handleReminderEnable, handleReminderPut, handleUnsubscribe, handleUnsubscribeOneClick, sendOverdueReminders, sendStreakBroken } from './handlers/reminder.js';
 import { handleForgotPassword, handleResetPassword as handleSelfResetPassword } from './handlers/password-reset.js';
 import { handleAppCode, handleAppRegister, handleAppLogin, handleDeleteAccount } from './handlers/appauth.js';
 import { handlePlanApple, handleAppleNotification } from './handlers/planapple.js';
@@ -156,6 +156,18 @@ async function route(request, env, ctx) {
   // 讓 GET 就生效等於「信一進收件匣，提醒自己關掉了」。
   if (path === '/api/unsub') {
     return request.method === 'POST' ? handleUnsubscribe(request, env) : methodNotAllowed();
+  }
+
+  // 郵件軟體那顆「取消訂閱」打進來的地方（RFC 8058 的一鍵退訂）。
+  //
+  // **這是治本的那一層**：有了 List-Unsubscribe 標頭，Gmail 的按鈕會打到這裡，
+  // 而不是去跟寄信商說「這個人的信我不要了」——後者會讓整個帳號被封鎖，
+  // 連密碼重設信都收不到（helen 2026-09-09 按下去的就是那一顆）。
+  //
+  // **只認 POST。** 掃描器與預抓會發 GET，讓 GET 生效等於「信一進收件匣，
+  // 提醒自己關掉了」。RFC 8058 規定用 POST 正是為了這件事。
+  if (path === '/api/unsub/one-click') {
+    return request.method === 'POST' ? handleUnsubscribeOneClick(url, env) : methodNotAllowed();
   }
 
   // iOS app 的公開端點：驗證碼、以購買證明註冊、登入（回 token 不發 cookie）。

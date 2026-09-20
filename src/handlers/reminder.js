@@ -271,6 +271,41 @@ export async function ensureUnsubToken(env, userId, existing) {
  * （`/unsub?t=` 後面空空的）比沒有連結更糟：點下去只會看到「這個連結不完整」，
  * 而使用者會以為是系統壞了，然後回頭去按 Gmail 那顆。
  */
+/**
+ * `List-Unsubscribe` 要打的網址（RFC 8058 的一鍵退訂）。
+ *
+ * **這是整件事的治本層。** 有了這個標頭，Gmail／Apple Mail 上那顆「取消訂閱」
+ * 會用 POST 打到**我們**的端點，而不是去跟寄信商說「這個人的信我不要了」——
+ * 而後者正是 helen 2026-09-09 按下去之後發生的事：寄信商把她加進帳號層級的
+ * 退訂名單，連她自己索取的密碼重設信一起擋掉。
+ *
+ * 信裡那個看得見的連結（`unsubUrl`）指的是**給人看的確認頁**；這一個是**給
+ * 郵件軟體用的**，直接生效、沒有頁面。兩者要分開：一鍵退訂的規格要求那個網址
+ * 收到 POST 就當場處理，不能先回一頁要人再按一次。
+ */
+export function unsubOneClickUrl(appUrl, token, kind) {
+  const base = String(appUrl || '').replace(/\/+$/, '');
+  if (!base || !token || !UNSUB_KINDS[kind]) return '';
+  return `${base}/api/unsub/one-click?t=${encodeURIComponent(token)}&k=${encodeURIComponent(kind)}`;
+}
+
+/**
+ * 訂閱信要帶的標頭。**只有訂閱信帶**——交易信（密碼重設、驗證碼）不該有
+ * 退訂這個概念，帶了反而會讓郵件軟體把它當成廣告。
+ *
+ * 兩個標頭要成對出現：少了 `List-Unsubscribe-Post`，收信端會退回舊行為
+ * （把網址當成「開給人點的連結」而不是「可以直接 POST 的端點」），於是
+ * 掃描器的 GET 又變成風險，而一鍵退訂也不會生效。
+ */
+export function unsubHeaders(appUrl, token, kind) {
+  const url = unsubOneClickUrl(appUrl, token, kind);
+  if (!url) return undefined;
+  return {
+    'List-Unsubscribe': `<${url}>`,
+    'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+  };
+}
+
 export function unsubUrl(appUrl, token, kind) {
   const base = String(appUrl || '').replace(/\/+$/, '');
   if (!base || !token || !UNSUB_KINDS[kind]) return '';
@@ -295,10 +330,19 @@ export function unsubUrl(appUrl, token, kind) {
 export async function handleUnsubscribe(request, env) {
   let body = {};
   try { body = await request.json(); } catch { return json({ error: '請求格式錯誤' }, 400); }
-  const token = String(body?.token || '');
-  const kind = String(body?.kind || '');
+  const out = await applyUnsubscribe(env, String(body?.token || ''), String(body?.kind || ''));
+  return out.ok ? json({ ok: true, kind: out.kind }) : json({ error: out.error }, out.status);
+}
+
+/**
+ * 真正寫入的那一支。**兩個入口（我們的頁面、郵件軟體的一鍵退訂）共用它。**
+ *
+ * 複製第二份的症狀是「從信箱軟體退訂沒有用、從我們的頁面退訂有用」——
+ * 兩邊都各自「看起來正常」，而沒有人會發現。同〈TX_KINDS 只寫一份〉。
+ */
+export async function applyUnsubscribe(env, token, kind) {
   const col = UNSUB_KINDS[kind];
-  if (!col || token.length < 20) return json({ error: '這個連結不完整' }, 400);
+  if (!col || token.length < 20) return { ok: false, status: 400, error: '這個連結不完整' };
 
   // 單句帶條件的 UPDATE，理由同〈樂觀鎖必須是單句 SQL〉：先 SELECT 再 UPDATE
   // 的空窗沒有必要存在。欄位名來自白名單，不是拼接使用者的輸入。
@@ -306,9 +350,31 @@ export async function handleUnsubscribe(request, env) {
     `UPDATE reminder_feed SET ${col} = 0, updated_at = ? WHERE unsub_token = ?`
   ).bind(Date.now(), token).run();
   if (!res.meta.changes) {
-    return json({ error: '這個連結已經失效了。要調整通知，請登入後到「我的帳號」。' }, 404);
+    return { ok: false, status: 404,
+      error: '這個連結已經失效了。要調整通知，請登入後到「我的帳號」。' };
   }
-  return json({ ok: true, kind });
+  return { ok: true, status: 200, kind };
+}
+
+/**
+ * POST /api/unsub/one-click?t=…&k=… —— 郵件軟體那顆「取消訂閱」打進來的地方。
+ *
+ * 與 `/api/unsub` 的差別只有介面：參數在查詢字串（標頭裡放得下的只有網址）、
+ * body 是 `List-Unsubscribe=One-Click` 的表單而不是 JSON。**寫入邏輯共用同一支**，
+ * 不複製一份——複製的那一份遲早會與這一支分歧，而分歧的症狀是「從信箱軟體退訂
+ * 沒有用，從我們的頁面退訂有用」，沒有人會發現。
+ *
+ * **只認 POST。** GET 一律不生效（路由那裡就擋掉）：掃描器與預抓會發 GET，
+ * 讓它生效等於「信一進收件匣，提醒自己關掉了」。RFC 8058 用 POST 正是為了這件事。
+ *
+ * **回 200 純文字，不回頁面。** 對面是機器，不是人。
+ */
+export async function handleUnsubscribeOneClick(url, env) {
+  const token = String(url.searchParams.get('t') || '');
+  const kind = String(url.searchParams.get('k') || '');
+  const out = await applyUnsubscribe(env, token, kind);
+  return new Response(out.ok ? 'unsubscribed\n' : out.error + '\n',
+    { status: out.status, headers: { 'content-type': 'text/plain; charset=utf-8' } });
 }
 
 const TYPE_LABEL = { work: '工作項目', meeting: '會議安排', assignment: '作業' };
@@ -362,17 +428,48 @@ export function buildReminderEmail(overdue, upcoming, todayYmd, appUrl, unsub = 
     '', '— 工作排程確認系統',
     // 退訂連結。**純文字版也要有**——有些人就是在純文字模式下讀信，而「只有
     // HTML 版看得到出口」等於對那些人來說沒有出口。
-    ...(unsub ? ['', `不想再收這種提醒信：${unsub}`] : [])
+    //
+    // 兩條路都給：一鍵停掉這一種，或回系統裡自己管全部。**兩個都要寫得清楚**，
+    // 藏起來的出口與沒有出口是同一件事（helen 就是因此去按 Gmail 那顆的）。
+    ...(unsub ? [
+      '',
+      '─────────────',
+      `不想再收這種提醒信？點這裡直接停掉：`,
+      unsub,
+      ...(appUrl ? [`想自己管全部的通知（信與推播）：${appUrl}/#notify`] : [])
+    ] : [])
   ].join('\n');
 
   const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;line-height:1.7;color:#2A2A26">
 ${htmlParts.join('')}
 ${appUrl ? `<p style="margin:18px 0 0"><a href="${esc(appUrl)}" style="color:#C9822E">開啟工作排程確認系統 →</a></p>` : ''}
-<p style="margin:22px 0 0;color:#A2A099;font-size:12px">沒有逾期、也沒有即將到期的項目時，這封信不會寄出。要調整提前天數可在系統內設定。${
-    unsub ? `<br><a href="${esc(unsub)}" style="color:#A2A099">不想再收這種提醒信 →</a>` : ''}</p>
+<p style="margin:22px 0 0;color:#A2A099;font-size:12px">沒有逾期、也沒有即將到期的項目時，這封信不會寄出。</p>
+${unsub ? unsubBlock(unsub, appUrl, '不想再收這種提醒信') : ''}
 </div>`;
 
   return { subject: buildSubject(overdue.length, upcoming.length), text, html };
+}
+
+/**
+ * 信最下面那一塊退訂。**兩封信共用同一份**，因為它要長得一樣——
+ * 使用者記住的是「那個灰底的框」，不是某一封信的排版。
+ *
+ * **按鈕要夠明顯，這是刻意改過的決定。** 第一版是 12px 的灰色文字連結，藏在
+ * 最下面一行——那是在「不要鼓勵退訂」與「要讓人找得到出口」之間選錯了邊。
+ * 找不到出口的代價不是少一個訂閱者，是**那個人去按信箱軟體的「取消訂閱」，
+ * 然後整個帳號被寄信商封鎖，連密碼重設信都收不到**（helen 2026-09-09）。
+ * 多幾個人退訂遠比那個便宜。
+ *
+ * 兩條路都給，而且分工不同：
+ *   - **停掉這一種**（不用登入）——只想少收一種信的人，一下就完成
+ *   - **管全部的通知**（回系統）——想自己調的人，那裡有五個開關
+ */
+function unsubBlock(unsub, appUrl, label) {
+  return `<div style="margin:26px 0 0;padding:16px;border-radius:10px;background:#F1EEE5;border:1px solid #E4E0D3">
+<p style="margin:0 0 12px;font-size:13px;color:#2A2A26">${esc(label)}？</p>
+<a href="${esc(unsub)}" style="display:inline-block;padding:10px 18px;border-radius:8px;background:#2A2A26;color:#FFFDF9;font-size:14px;font-weight:700;text-decoration:none">取消訂閱</a>
+${appUrl ? `<p style="margin:12px 0 0;font-size:12px;color:#71706A">或到系統裡管理全部的通知：<a href="${esc(appUrl)}/#notify" style="color:#C9822E">通知設定 →</a></p>` : ''}
+</div>`;
 }
 
 /** 「今天到期」「明天到期」比「0 天後」「1 天後」好讀太多 */
@@ -448,9 +545,12 @@ export async function sendOverdueReminders(env, nowMs = Date.now()) {
       // **確定要寄了才產 token**：放在這一行之前的每一個 continue（沒事、
       // 已經寄過、休假、停用）都代表這次不寄信，那就沒有理由為他寫一次資料庫。
       const token = await ensureUnsubToken(env, row.user_id, row.unsub_token);
-      await sendMail(env, row.email,
-        buildReminderEmail(overdue, upcoming, today, env.APP_URL || '',
-          unsubUrl(env.APP_URL || '', token, 'reminder')), 'reminder');
+      const mail = buildReminderEmail(overdue, upcoming, today, env.APP_URL || '',
+        unsubUrl(env.APP_URL || '', token, 'reminder'));
+      // List-Unsubscribe：讓郵件軟體那顆「取消訂閱」打到我們，而不是去跟
+      // 寄信商告狀（那會讓整個帳號被封鎖，連密碼重設信都收不到）
+      mail.headers = unsubHeaders(env.APP_URL || '', token, 'reminder');
+      await sendMail(env, row.email, mail, 'reminder');
       await env.DB.prepare('UPDATE reminder_feed SET last_sent_ymd = ? WHERE user_id = ?')
         .bind(today, row.user_id).run();
       out.sent++;
@@ -539,7 +639,13 @@ export function buildStreakEmail(days, missed, appUrl, unsub = '') {
     '——你的櫻花樹',
     // 這一行與逾期提醒信的那一行**各自帶不同的 kind**：關掉櫻花樹不會連帶
     // 關掉逾期提醒，反過來也一樣。
-    ...(unsub ? ['', `不想再收櫻花樹的信：${unsub}`] : [])
+    ...(unsub ? [
+      '',
+      '─────────────',
+      '不想再收櫻花樹的信？點這裡直接停掉：',
+      unsub,
+      ...(appUrl ? [`想自己管全部的通知（信與推播）：${appUrl}/#notify`] : [])
+    ] : [])
   ].join('\n');
 
   const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:15px;line-height:1.9;color:#2A2A26;max-width:520px">
@@ -550,8 +656,8 @@ export function buildStreakEmail(days, missed, appUrl, unsub = '') {
     missed.length > MAX_NAMED ? `，還有 ${missed.length - MAX_NAMED} 件` : ''} 做完，我就會再開花。</p>
 ${appUrl ? `<p style="margin:0 0 22px"><a href="${esc(appUrl)}" style="color:#C9822E">回來看看我 →</a></p>` : ''}
 <p style="margin:0;color:#71706A">——你的櫻花樹</p>
-<p style="margin:22px 0 0;color:#A2A099;font-size:12px">連續中斷的那一天才會收到這封信，一天最多一封。${
-    unsub ? `<br><a href="${esc(unsub)}" style="color:#A2A099">不想再收櫻花樹的信 →</a>` : '不想收的話，可以在「我的帳號」裡關掉。'}</p>
+<p style="margin:22px 0 0;color:#A2A099;font-size:12px">連續中斷的那一天才會收到這封信，一天最多一封。</p>
+${unsub ? unsubBlock(unsub, appUrl, '不想再收櫻花樹的信') : ''}
 </div>`;
 
   return { subject: '欸……昨天你沒有來', text, html };
@@ -600,9 +706,10 @@ export async function sendStreakBroken(env, nowMs = Date.now()) {
 
     try {
       const token = await ensureUnsubToken(env, row.user_id, row.unsub_token);
-      await sendMail(env, row.email,
-        buildStreakEmail(days, day.missed, env.APP_URL || '',
-          unsubUrl(env.APP_URL || '', token, 'streak')), 'streak');
+      const mail = buildStreakEmail(days, day.missed, env.APP_URL || '',
+        unsubUrl(env.APP_URL || '', token, 'streak'));
+      mail.headers = unsubHeaders(env.APP_URL || '', token, 'streak');
+      await sendMail(env, row.email, mail, 'streak');
       await env.DB.prepare('UPDATE reminder_feed SET streak_mail_ymd = ? WHERE user_id = ?')
         .bind(today, row.user_id).run();
       out.sent++;

@@ -824,3 +824,79 @@ test('退訂：櫻花樹的信也帶連結，而且帶的是 streak', async () =
   assert.match(mail.html, /k=streak/);
   assert.ok(!/k=reminder/.test(mail.text + mail.html));
 });
+
+// -------------------------------- List-Unsubscribe：讓 Gmail 那顆按鈕打到我們
+//
+// **這是整件事的治本層。** 前面那一段補的是「信裡有沒有出口」，這一段補的是
+// 「使用者用的那個出口通到哪裡」——helen 按的是 Gmail 的按鈕，而那顆按鈕在
+// 沒有 List-Unsubscribe 標頭時只能去跟寄信商告狀，結果是整個帳號被封鎖。
+
+import { unsubHeaders, unsubOneClickUrl, handleUnsubscribeOneClick } from '../src/handlers/reminder.js';
+
+test('List-Unsubscribe：兩封訂閱信都帶，而且兩個標頭成對出現', async () => {
+  const base = makeEnv(); addUser(base, 'u1', 'a@x.com');
+  const now = Date.parse('2026-07-31T00:00:00Z');
+  base.DB.prepare('INSERT INTO reminder_feed (user_id, enabled, digest, updated_at) VALUES (?,1,?,?)')
+    .bind('u1', JSON.stringify([rem('遲交的', '2026-07-20')]), now).run();
+
+  await withFakeMail(async sent => {
+    await sendOverdueReminders({ ...MAIL_ENV, DB: base.DB }, now);
+    const h = sent[0].body.headers;
+    assert.ok(h, '訂閱信一定要帶 headers');
+    assert.match(h['List-Unsubscribe'], /^<https:\/\/app\.test\/api\/unsub\/one-click\?t=.+&k=reminder>$/,
+      '網址要用角括號包起來，這是規格要求的形狀');
+    // 少了 Post 那一個，收信端會退回舊行為：把網址當成「開給人點的連結」，
+    // 於是一鍵退訂不會生效，掃描器的 GET 又變成風險
+    assert.equal(h['List-Unsubscribe-Post'], 'List-Unsubscribe=One-Click');
+  });
+});
+
+test('List-Unsubscribe：沒有 APP_URL 就整個標頭不帶（不送半個網址出去）', () => {
+  assert.equal(unsubHeaders('', 'tok_abcdefghijklmnopqrstuv', 'reminder'), undefined);
+  assert.equal(unsubHeaders('https://app.test', '', 'reminder'), undefined);
+  assert.equal(unsubHeaders('https://app.test', 'tok_abc', '亂寫的'), undefined);
+  assert.equal(unsubOneClickUrl('https://app.test/', 'tok_abc', 'streak'),
+    'https://app.test/api/unsub/one-click?t=tok_abc&k=streak');
+});
+
+test('一鍵退訂：POST 進來就生效，而且與我們的頁面共用同一支寫入', async () => {
+  const env = makeEnv(); addUser(env, 'u1', 'a@x.com');
+  const token = 'tok_' + 'q'.repeat(30);
+  env.DB.prepare(
+    'INSERT INTO reminder_feed (user_id, enabled, streak_mail, digest, unsub_token, updated_at) VALUES (?,1,1,?,?,?)'
+  ).bind('u1', '[]', token, 1).run();
+
+  const res = await handleUnsubscribeOneClick(
+    new URL(`https://x.test/api/unsub/one-click?t=${token}&k=streak`), env);
+  assert.equal(res.status, 200);
+  const row = feedRow(env);
+  assert.equal(row.streak_mail, 0, '櫻花樹關掉了');
+  assert.equal(row.enabled, 1, '**逾期提醒一個位元都沒動**——一鍵退訂也不可以連坐');
+});
+
+test('一鍵退訂：認不得的 token 回 404，別人的設定不受影響', async () => {
+  const env = makeEnv(); addUser(env, 'u1', 'a@x.com');
+  env.DB.prepare(
+    'INSERT INTO reminder_feed (user_id, enabled, digest, unsub_token, updated_at) VALUES (?,1,?,?,?)'
+  ).bind('u1', '[]', 'tok_' + 'r'.repeat(30), 1).run();
+
+  const res = await handleUnsubscribeOneClick(
+    new URL('https://x.test/api/unsub/one-click?t=tok_' + 's'.repeat(30) + '&k=reminder'), env);
+  assert.equal(res.status, 404);
+  assert.equal(feedRow(env).enabled, 1);
+});
+
+test('信裡的退訂要夠明顯：有看得見的按鈕，也有回系統管全部的那條路', () => {
+  const unsub = 'https://app.test/unsub?t=tok_abc&k=reminder';
+  const mail = buildReminderEmail([rem('遲交的', '2026-07-01')], [], '2026-07-31',
+    'https://app.test', unsub);
+  // 按鈕：第一版是 12px 灰字藏在最下面，而找不到出口的人會去按 Gmail 那顆，
+  // 代價是整個帳號被寄信商封鎖。多幾個人退訂便宜得多。
+  assert.match(mail.html, /取消訂閱/);
+  assert.match(mail.html, /display:inline-block/, '要是一顆看得見的按鈕，不是一行灰字');
+  assert.ok(!/font-size:12px[^>]*>不想再收/.test(mail.html), '不可以退回 12px 的灰字連結');
+  // 第二條路：回系統裡管全部（信與推播共五個開關）
+  assert.match(mail.html, /#notify/);
+  assert.match(mail.text, /#notify/, '純文字版也要有這兩條路');
+  assert.ok(mail.text.includes(unsub));
+});
