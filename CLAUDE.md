@@ -61,6 +61,7 @@ mobile/                iOS app 外殼（Capacitor；自己的 package.json，見
 | `tests/plan-apple.test.mjs` | 訂閱交易與 Apple 通知：只往後、退款往前、永久不被蓋、搬移、去重、驗簽失敗 401 | 直接 import；`fake-apple.mjs` 自己當 Apple 簽 |
 | `tests/push.test.mjs` | 推播：APNs JWT 與快取、410 刪 token、換人登入搬 token、沒事不推、三個開關獨立、失敗不寫 ymd | 直接 import，攔 `fetch` 當假的 APNs |
 | `tests/state.test.mjs`（下半） | 連續斷掉的信：`dayReport`、三個「不該寄」（沒斷、連續 < 2、開關關著）、同一天只寄一次、寄失敗不記錄、兩個開關互不影響 | 直接 import Worker 端模組，攔 `fetch` 當假信箱 |
+| `tests/conflict.test.mjs` | 衝突預覽（〈衝突預覽〉區段，**尚未接上畫面**）：半開區間、沒有結束時間時只比同開始時間（不套預設時長）、只比會議、時區不同不換算只提示、90 天範圍、略過／單次覆寫／假日調整、休假輕量提示、**輸入資料前後逐字相同** | 從 `index.html` 抽〈date helpers〉〈occurrence engine〉〈衝突預覽〉求值；七種突變各自驗過會紅 |
 
 前三者的挑選理由：前兩者近乎純函式、零 DOM 依賴；第三者是**競態**——靠併發碰運氣測不到，但可以把空窗做成確定性的。
 
