@@ -4597,6 +4597,123 @@
    */
   function isActionable(occ){ return !occ.item.noticeOnly; }
 
+  // ================= 衝突預覽 =================
+  // 規格：編輯一場會議時，提示往後 90 天內「時間可能重疊」的其他會議。
+  // 決策紀錄見 PR 說明；這一段目前**只有純函式與測試，還沒接上畫面**。
+  //
+  // 與前置作業、「不在」同一條原則：**只提示，什麼都不做**——不擋儲存、不改期、
+  // 不略過任何一次、不動分享權限、不寫回任何資料。回傳的是一份新物件，
+  // 傳進來的 item／absences 一個欄位都不碰（有測試守著）。
+  //
+  // 判定規則（使用者 2026-09-30 決策）：
+  //   - 只比 type==='meeting'、有 meetingTime、不是純告知的那幾次
+  //   - 雙方都有合法 endTime：半開區間 [start, end)，首尾相接不算
+  //   - 任一方沒有 endTime：只在「同一天、同一個開始時間」時提示（sameStart），
+  //     **不套任何預設時長**——套了就是在替使用者編一個會議長度
+  //   - endTime <= meetingTime 視為沒填（表單那一側要擋，見 meetingEndError）
+  //   - 時區：item.tz，沒填＝Asia/Taipei。第一階段不換算：時區不同的兩場落在
+  //     同一個日期字串時，只提示「時區不同，無法精確比對」（tzMismatch）
+  //   - 分享給我的項目：由呼叫端傳進 sharedItems，結果標 source:'shared'
+  //   - 「不在／休假」：輕量提示（absenceHints），不叫衝突；時段以預設時區解讀
+  //   - 範圍：編輯項目的日期起往後 90 天（含當天），依 occurrence 的最終日期
+  //     （套過略過／單次覆寫／假日調整之後）判斷
+  const CONFLICT_DEFAULT_TZ = 'Asia/Taipei';
+  const CONFLICT_WINDOW_DAYS = 90;
+
+  /** 'HH:MM' → 分鐘；不合法回 null */
+  function conflictMinutes(s){
+    const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(typeof s === 'string' ? s : '');
+    return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+  }
+
+  /** 表單驗證用：結束時間必須晚於開始時間（不支援跨午夜）。合法或沒填回 null */
+  function meetingEndError(start, end){
+    if(end == null || end === '') return null;
+    const e = conflictMinutes(end);
+    if(e === null) return '結束時間格式不正確';
+    const s = conflictMinutes(start);
+    if(s === null) return '有結束時間時必須先填開始時間';
+    if(e <= s) return '結束時間必須晚於開始時間（不支援跨午夜）';
+    return null;
+  }
+
+  /** 一個項目的時段；不是可比對的會議回 null */
+  function conflictSlot(item){
+    if(!item || item.type !== 'meeting' || item.noticeOnly) return null;
+    const start = conflictMinutes(item.meetingTime);
+    if(start === null) return null;
+    const endRaw = conflictMinutes(item.endTime);
+    const end = (endRaw !== null && endRaw > start) ? endRaw : null;
+    const tz = (typeof item.tz === 'string' && item.tz) ? item.tz : CONFLICT_DEFAULT_TZ;
+    return { start, end, tz };
+  }
+
+  /**
+   * @param candidate  正在編輯的項目（尚未存檔的形狀也可以）
+   * @param opts.ownItems     自己的其他項目
+   * @param opts.sharedItems  分享給我的項目（唯讀）
+   * @param opts.absences     { 'YYYY-MM-DD': [{kind, from, to}] }
+   */
+  function findConflictPreview(candidate, opts){
+    const o = opts || {};
+    const windowStart = parseYMD(candidate.date);
+    const windowEnd = new Date(windowStart);
+    windowEnd.setDate(windowEnd.getDate() + CONFLICT_WINDOW_DAYS - 1);
+    windowEnd.setHours(23, 59, 59, 999);
+    const result = { windowStart: ymd(windowStart), windowEnd: ymd(windowEnd),
+                     overlaps: [], sameStart: [], tzMismatch: [], absenceHints: [] };
+    const mine = conflictSlot(candidate);
+    if(!mine) return result;
+
+    const mineOccs = getOccurrencesInRange(candidate, windowStart, windowEnd);
+    const others = [];
+    const collect = (list, source) => (Array.isArray(list) ? list : []).forEach(it => {
+      if(!it || it.id === candidate.id) return;
+      const slot = conflictSlot(it);
+      if(!slot) return;
+      getOccurrencesInRange(it, windowStart, windowEnd)
+        .forEach(occ => others.push({ occ, slot, source }));
+    });
+    collect(o.ownItems, 'own');
+    collect(o.sharedItems, 'shared');
+
+    const abs = (o.absences && typeof o.absences === 'object') ? o.absences : {};
+
+    mineOccs.forEach(mo => {
+      others.forEach(({ occ, slot, source }) => {
+        if(occ.date !== mo.date) return;
+        const rec = { date: mo.date, occKey: mo.occKey, otherId: occ.item.id,
+                      otherTitle: occ.item.title, otherOccKey: occ.occKey, source };
+        if(slot.tz !== mine.tz){ result.tzMismatch.push(Object.assign(rec, { tz: mine.tz, otherTz: slot.tz })); return; }
+        if(mine.end !== null && slot.end !== null){
+          if(mine.start < slot.end && slot.start < mine.end) result.overlaps.push(rec);
+        } else if(mine.start === slot.start){
+          result.sameStart.push(rec);
+        }
+      });
+
+      const list = Array.isArray(abs[mo.date]) ? abs[mo.date] : [];
+      list.forEach(a => {
+        if(!a || (a.kind !== 'away' && a.kind !== 'leave')) return;
+        const from = conflictMinutes(a.from), to = conflictMinutes(a.to);
+        const allDay = from === null && to === null;
+        let hit = allDay;
+        if(!allDay){
+          const aStart = from === null ? 0 : from, aEnd = to === null ? 24 * 60 : to;
+          const mEnd = mine.end === null ? mine.start + 1 : mine.end;   // 沒有結束時間＝只看開始那一刻
+          hit = mine.start < aEnd && aStart < mEnd;
+        }
+        if(hit) result.absenceHints.push({ date: mo.date, occKey: mo.occKey, kind: a.kind,
+          from: a.from || null, to: a.to || null, uncertain: !allDay && mine.tz !== CONFLICT_DEFAULT_TZ });
+      });
+    });
+
+    const byDate = (x, y) => x.date < y.date ? -1 : x.date > y.date ? 1 : 0;
+    result.overlaps.sort(byDate); result.sameStart.sort(byDate);
+    result.tzMismatch.sort(byDate); result.absenceHints.sort(byDate);
+    return result;
+  }
+
   // ================= 遊戲化 =================
   // 設計文件 docs/superpowers/specs/2026-09-16-gamification-design.md。
   //
