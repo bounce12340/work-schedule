@@ -137,11 +137,19 @@ function bindingNames(text) {
 
 function analyze(fileName) {
   const html = readFileSync(new URL(`../public/${fileName}`, import.meta.url), 'utf8');
-  const src = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)]
-    .map(m => m[1]).reduce((a, b) => (b.length > a.length ? b : a));
+  // 取最長的那一段 inline script（index.html 的主 IIFE），**連同它在 HTML 裡的位移**。
+  // 少了位移，報出來的是 script 內的相對行號卻寫成 `index.html:3426`——
+  // 那會把人帶到一行完全無關的程式碼上（實際發生過：主 script 從第 2009 行起，
+  // 差了 2008 行）。同 tools/check-syntax.mjs 的 lineOffset：這支檢查唯一的
+  // 產出就是「去第幾行看」，指錯地方等於只做了一半。
+  const blocks = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];
+  const pick = blocks.reduce((a, b) => (b[1].length > a[1].length ? b : a));
+  const src = pick[1];
+  const bodyStart = pick.index + pick[0].indexOf('>') + 1;
+  const lineOffset = html.slice(0, bodyStart).split('\n').length - 1;
   const DM = depthMap(src);
   const LINES = src.split('\n');
-  const lineOf = idx => src.slice(0, idx).split('\n').length;
+  const lineOf = idx => src.slice(0, idx).split('\n').length + lineOffset;
   const code = i => DM[i] !== -1;
   const TOP = 1;                             // IIFE 內容位於深度 1
 
@@ -184,8 +192,9 @@ function analyze(fileName) {
   const add = (idx, name, how) => {
     if (!fns.has(name)) return;
     const line = lineOf(idx);
+    // LINES 是 script 內的陣列，line 已經加過位移——要減回去才取得到那一行的原文
     hits.push(`  ${fileName}:${line}  ${name}  （${how}）  ← 頂層函式定義在第 ${fns.get(name)} 行\n` +
-              `      ${LINES[line - 1].trim().slice(0, 96)}`);
+              `      ${(LINES[line - 1 - lineOffset] || '').trim().slice(0, 96)}`);
   };
 
   // 變數宣告，含解構
