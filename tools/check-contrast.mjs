@@ -82,6 +82,24 @@ const IN_ACCOUNT = [
 ];
 
 /**
+ * 專案頁的夥伴卡，以及挑夥伴面板裡的說明文字。
+ *
+ * **新的 UI 不量等於沒守到**，而這兩處都要先切頁籤、面板那一個還要再按一下才
+ * 看得到——正是〈「畫面上沒有這個元素，略過」是一條永遠不會執行的斷言〉要防的
+ * 形狀。夥伴卡的底色是不透明的 `--panel-2`（刻意不半透明，否則光暈會透上來，
+ * 而 bgOf 量到的就是那個最差情況）。
+ */
+const IN_GANTT = [
+  ['.pet-card-name', '夥伴卡的階段名稱'],
+  ['.pet-card-sub', '夥伴卡的進度文字'],
+  ['.pet-card-adult', '「成年」那個記號'],
+];
+const IN_PET_PANEL = [
+  ['#petOverlay .scope-note', '挑夥伴面板的說明'],
+  ['#petGrid .pet-pick-cap', '每一格的「幼體 → 成年」'],
+];
+
+/**
  * 休假格子的日期。它用的是**新的顏色 token**（`--leave`），而且壓在一層玻璃紙上
  * （`.cal-cell.leave::before`）——那層不是任何元素的祖先，`bgOf()` 看不到它，
  * 量到的會是「沒有玻璃紙」的漂亮數字。解法同光暈（見 measure 裡的 leaveWorst）。
@@ -311,6 +329,32 @@ for (const [theme, label, fixedTime] of PASSES) {
   await page.waitForSelector('#viewAccount.active');
   await page.waitForTimeout(300);
   rows.push(...await page.evaluate(measure, IN_ACCOUNT));
+
+  // 切到「專案」量夥伴卡。**「成年」那個記號要主動逼出來**：示範資料的待辦沒有
+  // 全部完成，等它自然出現的話那一條永遠印「略過」——與沒有這一條一模一樣，而且
+  // 還會給出「已經量過了」的錯覺。所以走應用程式自己的路徑把每一件待辦勾完
+  // （不是硬塞 class：硬塞的話哪天 petBuildCard 不再加那個記號了，這裡還是綠的）。
+  await page.locator('#navGantt').click();
+  await page.waitForSelector('#viewGantt.active .pet-card');
+  // 一律點「目前還沒勾的第一個」。`.all()` 取回來的 locator 是**懶惰**的：它記的是
+  // 「`:not(.done)` 的第 N 個」，勾掉第一個之後清單就縮短了，nth(1) 當場找不到人
+  // （第一版就是這樣超時的）。
+  const pending = page.locator('#viewGantt .task-done-cb:not(.done)');
+  for (let guard = 0; guard < 40 && await pending.count(); guard++) {
+    await pending.first().click();
+    await page.waitForTimeout(120);
+  }
+  await page.waitForSelector('.pet-card-adult');     // 勾完了才量，否則量到的是半大的那一階
+  await page.waitForTimeout(250);
+  rows.push(...await page.evaluate(measure, IN_GANTT));
+
+  // 開挑夥伴的面板。它是 overlay，量完一定要關掉，否則後面的 nav 點不到
+  await page.locator('.pet-card-pick').first().click();
+  await page.waitForSelector('#petOverlay.show .pet-pick');
+  await page.waitForTimeout(250);
+  rows.push(...await page.evaluate(measure, IN_PET_PANEL));
+  await page.locator('#btnPetCancel').click();
+  await page.waitForTimeout(200);
 
   // 量完切回日曆，後面那幾段還要用到日曆的畫面
   await page.locator('.nav-item', { hasText: '日曆' }).click();

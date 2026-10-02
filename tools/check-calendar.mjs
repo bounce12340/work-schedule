@@ -72,6 +72,13 @@ const SEED = {
 
 const br = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM });
 const page = await br.newPage({ viewport: { width: 1280, height: 1000 }, locale: 'zh-TW' });
+
+// **時鐘要釘死。** 整份假資料是照 2026-09 的週列寫的（9/1 是週二…），而日曆開在
+// 「今天」那個月、下面那段又只會往**後**翻——真實日期一過 2026-09，這支檢查就永遠
+// 翻不回去，所有斷言當場紅。2026-10-01 實際發生過（而且紅的是工具不是產品）。
+// 同 check-ambience.mjs 的開機櫻花那一輪：答案跟日期有關的檢查一律釘時鐘。
+await page.clock.setFixedTime(new Date('2026-09-10T09:00:00'));
+
 await page.addInitScript(seed => {
   try { localStorage.setItem('workSchedule.v1', JSON.stringify(seed)); } catch (e) {}
 }, SEED);
@@ -87,11 +94,14 @@ await page.locator('#reminderClose').click().catch(() => {});
 await page.locator('.nav-item', { hasText: '日曆' }).click();
 await page.waitForSelector('#calGrid .cal-cell[data-date]');
 
-// 日曆預設停在今天所在的月份；把它開到 2026-09
+// 時鐘釘在 2026-09，所以日曆本來就開在那個月；這段只是保險（兩個方向都走得回去）
 await page.evaluate(() => {
   const t = document.getElementById('calTitle');
-  for (let i = 0; i < 40 && !/2026 年 9 月/.test(t.textContent); i++) {
-    document.getElementById('calNext').click();
+  const year = () => +((t.textContent.match(/(\d{4}) 年/) || [])[1] || 0);
+  const month = () => +((t.textContent.match(/年 (\d{1,2}) 月/) || [])[1] || 0);
+  for (let i = 0; i < 60 && !/2026 年 9 月/.test(t.textContent); i++) {
+    const back = year() > 2026 || (year() === 2026 && month() > 9);
+    document.getElementById(back ? 'calPrev' : 'calNext').click();
   }
 });
 await page.waitForTimeout(300);

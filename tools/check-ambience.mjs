@@ -254,7 +254,26 @@ console.log('\n── 開機的櫻花：它是遮罩，不是關卡 ──');
 // 上線日之後連續七天各一件按時做完：7 × 40 = 280，加「第一件」與「連續 7 天」兩個徽章
 // 200 → 480 XP → Lv.3 → 第二階（抽枝）。要的就是「不只一階」，才驗得到成長動畫真的
 // 演到使用者現在那一階，而不是永遠停在第一幀。
-const BOOT_SEED = { ...SEED, items:
+// 五個專案、各自不同的完成度：**刻意比 BOOT_PETS_MAX（4）多一個**，才驗得到
+// 「最多四隻 ＋ 一個 +N」。給四個的話那條斷言永遠是空的（同〈永遠不會執行的斷言〉）。
+// 其中一個刻意不給夥伴：它不該佔位置，而「有沒有濾掉」在只有四隻時看不出來。
+const BOOT_PETS = [
+  { id: 'p1', name: '全做完', notes: '', pet: 'deer',
+    tasks: [{ id: 'x1', name: 'a', start: '2026-09-01', end: '2026-09-02', progress: 100, done: true, todos: [] }] },
+  { id: 'p2', name: '一半', notes: '', pet: 'cat',
+    tasks: [{ id: 'y1', name: 'a', start: '2026-09-01', end: '2026-09-02', progress: 100, done: true, todos: [] },
+            { id: 'y2', name: 'b', start: '2026-09-01', end: '2026-09-02', progress: 0, done: false, todos: [] }] },
+  { id: 'p3', name: '還沒開始', notes: '', pet: 'fir',
+    tasks: [{ id: 'z1', name: 'a', start: '2026-09-01', end: '2026-09-02', progress: 0, done: false, todos: [] }] },
+  { id: 'p4', name: '第四隻', notes: '', pet: 'rabbit',
+    tasks: [{ id: 'w1', name: 'a', start: '2026-09-01', end: '2026-09-02', progress: 0, done: false, todos: [] }] },
+  { id: 'p5', name: '第五隻（要變成 +1）', notes: '', pet: 'turtle',
+    tasks: [{ id: 'v1', name: 'a', start: '2026-09-01', end: '2026-09-02', progress: 0, done: false, todos: [] }] },
+  { id: 'p6', name: '沒有夥伴（不該佔位置）', notes: '', pet: null,
+    tasks: [{ id: 'u1', name: 'a', start: '2026-09-01', end: '2026-09-02', progress: 100, done: true, todos: [] }] },
+];
+
+const BOOT_SEED = { ...SEED, ganttProjects: BOOT_PETS, items:
   ['2026-09-17', '2026-09-18', '2026-09-19', '2026-09-20', '2026-09-21', '2026-09-22', '2026-09-23']
     .map((d, i) => mk({ id: 'b' + i, title: '之前的 ' + d, date: d, done: true, doneAt: { single: at(d, 10) } })),
 };
@@ -274,6 +293,18 @@ async function bootRun(opts = {}) {
     return {
       display: cs.display, visibility: cs.visibility, opacity: Number(cs.opacity),
       pointer: cs.pointerEvents, art: (document.getElementById('bootSakuraArt') || {}).innerHTML || '',
+      // 夥伴那一排：它刻意放在 .boot-sakura **內**，三個不變量因此是繼承而來的。
+      // 量它自己計算後的 pointer-events 才證明得到那件事——量 .boot-sakura 的
+      // 只證明父層對，而子層被某條規則蓋掉時畫面上看不出來
+      pets: [...document.querySelectorAll('#bootPets .boot-pet svg')].length,
+      petsPointer: (()=>{ const p = document.querySelector('#bootPets .boot-pet');
+                          return p ? getComputedStyle(p).pointerEvents : null; })(),
+      petsMore: (document.querySelector('.boot-pet-more') || {}).textContent || '',
+      // display:none 的祖先底下，子元素**仍然在 DOM 裡**、getComputedStyle 也照樣
+      // 回得出繼承來的值。所以「看不看得見」要問的是**有沒有版面盒子**：
+      // 第一版斷言 petsPointer === null，那在問「元素不存在」——而它存在，只是沒有被畫
+      petsBoxed: [...document.querySelectorAll('#bootPets .boot-pet')]
+        .some(p => p.getClientRects().length > 0),
     };
   });
   await pg.goto(`http://localhost:${PORT}/`);
@@ -313,6 +344,28 @@ const bReduced = await bootRun({ reducedMotion: 'reduce' });
 ok('prefers-reduced-motion：它根本不出現（display:none，不是淡出）',
    bReduced.early.display === 'none');
 await bReduced.pg.close();
+
+console.log('\n── 開機畫面上的夥伴：三個不變量是繼承來的 ──');
+// 六個專案、五個有夥伴 → 最多畫四隻，第五隻變成「+1」。
+// 這一段的重點不是「畫得出來」，是**它與櫻花共用同一個遮罩**：另開一個容器
+// 就要把 pointer-events:none、1200ms 的上限、reduced-motion 再寫一次，而漏掉
+// 任何一個的症狀已經記過——一張永遠蓋住整個 app 的紙。
+ok('畫得出夥伴，而且最多四隻', b.early.pets === 4);
+ok('第五隻變成「+1」而不是硬塞進去', b.early.petsMore.trim() === '+1');
+ok('沒選夥伴的專案不佔位置（六個專案、五個有夥伴 → 4 ＋ 1）',
+   b.early.pets + (b.early.petsMore ? 1 : 0) === 5);
+// 這三條各自對應一個繼承而來的不變量。量**夥伴自己**計算後的值，
+// 不是量 .boot-sakura 的——父層對而子層被蓋掉時畫面上看不出來
+ok('夥伴也是 pointer-events:none（繼承自 .boot-sakura，不是自己寫一份）',
+   b.early.petsPointer === 'none');
+ok('1200ms 的上限也管得到夥伴（1500ms 時整排跟著收掉）',
+   b.late.visibility === 'hidden' || b.late.opacity === 0);
+// 問的是「有沒有版面盒子」而不是「元素在不在」：display:none 的祖先底下，
+// 子元素仍然在 DOM 裡，連 getComputedStyle 都照樣回得出繼承來的值
+ok('reduced-motion 時夥伴也沒有被畫出來（整個容器 display:none，連盒子都沒有）',
+   bReduced.early.display === 'none' && bReduced.early.petsBoxed === false);
+ok('（對照：正常情況下夥伴是有盒子的，所以上面那條不是永遠成立）',
+   b.early.petsBoxed === true);
 
 console.log('');
 let bad = 0;

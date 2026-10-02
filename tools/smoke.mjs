@@ -89,7 +89,10 @@ function seed() {
     majorProjects: [{ id: 'mp1', name: '年度大型專案' }, { id: 'mp2', name: '第二個' }, { id: 'mp3', name: '第三個' }],
     items,
     ganttProjects: [{
-      id: 'g1', name: '官網改版專案', notes: '<p>會議紀要：<b>第一次</b>討論</p>',
+      // pet 刻意給一隻：這一輪走的是「從雲端讀回來」那條路，而**正規化剪掉它**
+      // 與「畫皮沒接上」在畫面上都是「那一格空白」。沒有這個欄位的話，
+      // 夥伴那一段只測得到「還沒選」那條分支（兩個任務都沒完成 → baby）
+      id: 'g1', name: '官網改版專案', notes: '<p>會議紀要：<b>第一次</b>討論</p>', pet: 'deer',
       tasks: [
         { id: 't1', name: '需求訪談', start: '2026-06-01', end: '2026-08-20', progress: 50, done: false,
           todos: [{ id: 'd1', text: '訪談業務單位', done: true }, { id: 'd2', text: '整理需求', done: false }] },
@@ -322,6 +325,70 @@ async function walk(page, log, plan = 'pro', server = null) {
     await need('.gantt-bar', '甘特長條');
   }
   await clickIfVisible('.add-todo-btn', '新增代辦項目');
+
+  // ---- 專案的夥伴：卡片、挑夥伴的面板、真的選得下去 ----
+  // 這一段是 CLAUDE.md 第 0 條的具體形狀：petBuildCard / petOpenPanel / petChoose
+  // 都是新的頂層函式，而「函式根本沒被定義」npm test 與 node --check 都抓不到。
+  {
+    step = '專案的夥伴';
+    await need('.pet-card', '夥伴卡');
+    // 示範資料給了一隻鹿，所以卡上要有圖與進度文字——沒選夥伴時那一格是空的，
+    // 只斷言「卡片在」會讓「圖畫不出來」照樣綠
+    await need('.pet-card-art svg', '夥伴的圖');
+    await need('.pet-card-sub', '夥伴的進度文字');
+
+    await click('.pet-card-pick', '打開挑夥伴的面板');
+    await page.waitForTimeout(260);
+    await need('#petOverlay.show', '挑夥伴的面板');
+    const cells = await page.locator('#petGrid .pet-pick').count();
+    if (cells !== 8) throw new Error(`挑夥伴的面板應該有 8 格，實際 ${cells} 格`);
+    // 每一格畫的是**長大後的樣子**：八格都要有圖，缺一個代表那個物種的畫皮沒接上
+    const arts = await page.locator('#petGrid .pet-pick-art svg').count();
+    if (arts !== 8) throw new Error(`八格都要畫得出圖，實際 ${arts} 個`);
+    log(`      挑夥伴的面板：8 格、8 張圖`);
+
+    // 真的選一隻，而且要驗**選完之後卡片跟著變**——只驗「點得下去」的話，
+    // commit() 沒接上也是綠的
+    const before = await page.locator('.pet-card-name').textContent();
+    await page.locator('#petGrid .pet-pick').nth(3).click();   // 第 4 格：小貓
+    await page.waitForTimeout(320);
+    await need('.pet-card-art svg', '換完夥伴的圖');
+    const after = await page.locator('.pet-card-name').textContent();
+    if (before === after) throw new Error(`換了夥伴但卡片沒變（還是「${after}」）——commit() 有接上嗎？`);
+    log(`      換夥伴：${before.trim()} → ${after.trim()}`);
+
+    // 勾完最後一件待辦，夥伴要**當場**長大。
+    // 這一條守的是一個真的踩到的 bug：任務的勾選框只叫 refreshGanttChart()
+    // （表格不能重建，見〈甘特頁的例外〉），所以夥伴卡原本停在舊的階段——
+    // 畫面看起來完全正常，只是「勾完最後一件牠就長大」這件事不會發生，而那正是
+    // 這個功能存在的理由。修法是讓 refreshGanttChart 一起就地換掉夥伴卡。
+    // **不切頁籤、不重新載入**：切走再切回來會走完整重繪，那樣這條就測不到東西了。
+    const stageBefore = await page.locator('.pet-card-name').textContent();
+    for (let guard = 0; guard < 40; guard++) {
+      const pending = page.locator('#viewGantt .task-done-cb:not(.done)');
+      if (!(await pending.count())) break;
+      await pending.first().click();     // 懶惰 locator：每次重新問「還沒勾的第一個」
+      await page.waitForTimeout(110);
+    }
+    await page.waitForTimeout(260);
+    await need('.pet-card-adult', '「成年」的記號');
+    const stageAfter = await page.locator('.pet-card-name').textContent();
+    if (stageBefore === stageAfter) {
+      throw new Error(`待辦全部勾完了，夥伴卡還停在「${stageAfter}」——refreshGanttChart 有換掉夥伴卡嗎？`);
+    }
+    log(`      勾完全部待辦：${stageBefore.trim()} → ${stageAfter.trim()}（就地更新，沒切頁籤）`);
+
+    // 「不要夥伴」要真的清掉
+    await click('.pet-card-pick', '再打開面板');
+    await page.waitForTimeout(240);
+    await click('#petNone', '選「不要夥伴」');
+    await page.waitForTimeout(320);
+    if (await page.locator('.pet-card-art svg').count() !== 0) {
+      throw new Error('選了「不要夥伴」，卡上卻還有圖');
+    }
+    await need('.pet-card', '沒夥伴時卡片仍然在');   // 整張卡消失會讓人以為功能不見了
+    log(`      「不要夥伴」：圖清掉了，卡片還在`);
+  }
 
   // ---- 共享 ----
   await click('#navShared', '切到共享頁');
