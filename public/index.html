@@ -368,6 +368,7 @@
   .clock-block .now-time{ font-size:19px; font-weight:700; color:var(--amber); letter-spacing:1px; }
 
   .metric-strip{ display:grid; grid-template-columns: repeat(4, 1fr); gap:10px; margin-bottom:22px; }
+  .metric-strip.off{ display:none; }
   @media (max-width: 980px){ .metric-strip{ grid-template-columns: repeat(2, 1fr); } }
   .metric-card{ background: var(--panel); border:1px solid transparent; border-radius:18px; padding: 16px 20px; position:relative; overflow:hidden; box-shadow: var(--shadow-soft); }
   .metric-card::before{ content:''; position:absolute; left:0; top:0; bottom:0; width:3px; background: var(--amber); }
@@ -1258,8 +1259,23 @@
     .clock-block .now-time{ font-size:16px; }
     .clock-block .now-date{ font-size:11.5px; }
 
-    .metric-strip{ grid-template-columns: 1fr; gap:8px; margin-bottom:18px; }
-    .metric-card{ padding:12px 14px; }
+    /* 手機：四張卡原本直直疊起來，吃掉整個第一屏（真正的清單在第三屏）。改成橫向
+       滑動的一排，一次一張、下一張露出一角——露出來的那一角就是「還有更多」的提示。
+       左右各伸到螢幕邊緣（負外距＝.app 的邊距），露出來的才會是卡片而不是留白。
+       ⚠️ 逾期卡在這裡**排第一張**：原本排第四，橫向滑動之後會被推到畫面外，那就違反
+       紅線（該緊張的時候要讓人看到）。沒有逾期時它收起來，第一張就是「今日」——
+       有逾期時它最先被看到，沒有時不佔位。桌機的四欄不動（動態收起會讓另外三張卡的
+       寬度跳動）。 */
+    .metric-strip{
+      grid-template-columns:none; grid-auto-flow:column; grid-auto-columns:84%;
+      gap:8px; margin:0 calc(-1 * var(--app-pad-x)) 18px; padding:2px var(--app-pad-x) 6px;
+      overflow-x:auto; scroll-snap-type:x mandatory; scroll-padding:0 var(--app-pad-x);
+      overscroll-behavior-x:contain; scrollbar-width:none;
+    }
+    .metric-strip::-webkit-scrollbar{ display:none; }
+    .metric-card{ padding:12px 14px; scroll-snap-align:start; }
+    .metric-card.overdue{ order:-1; }
+    .metric-card.overdue.empty{ display:none; }
 
     /* 底部固定導覽列 */
     .sidebar{
@@ -5764,8 +5780,13 @@
       .filter(o=>isActionable(o) && !o.done && (o.item.endDate || o.date) < todayStr)   // 進行中的跨多天事項不算逾期
       .sort((a,b)=> a.date.localeCompare(b.date));
     const odEl = document.getElementById('metricOverdueList');
+    // 手機版的四張卡是橫向滑動的一排，逾期卡在那裡排第一張、空的時候收起來
+    // （見 CSS 的 .metric-card.overdue.empty）。桌機不受影響
+    odEl.closest('.metric-card').classList.toggle('empty', !overdue.length);
     if(!overdue.length){
-      odEl.innerHTML = '<div class="metric-list-empty">沒有逾期項目</div>';
+      // 原本是寫死的中文：靜態 markup 有 data-i18n，但這裡的 innerHTML 每次重繪都把它
+      // 蓋回中文——英文版只有第一次載入是英文
+      odEl.innerHTML = '<div class="metric-list-empty">' + escapeHtml(tr('沒有逾期項目')) + '</div>';
     } else {
       const MAXO = 4;
       odEl.innerHTML = overdue.slice(0,MAXO).map(o=>
@@ -8323,6 +8344,12 @@
   }
 
   function renderAll(){
+    // 四張卡講的是「今天／本週要做什麼」，只屬於項目安排與日曆。在「我的帳號」改設定、
+    // 在「共享」看別人的東西時它還在旁邊喊「你今天還有事」，而手機上它會吃掉整個第一屏。
+    // 用 class 不用 [hidden]：.metric-strip 是 display:grid，優先度壓過瀏覽器內建的
+    // [hidden]{display:none}——同 .ai-panel[hidden] 那一條
+    const strip = document.querySelector('.metric-strip');
+    if(strip) strip.classList.toggle('off', !(currentView === 'schedule' || currentView === 'calendar'));
     renderMetrics(); renderReminderList(); renderLookback(); renderGame();
     if(currentView==='calendar') renderCalendar();
     else if(currentView==='gantt') renderGanttView();
