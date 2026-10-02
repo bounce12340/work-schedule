@@ -307,6 +307,29 @@ const SELF_CHECK = async page => {
   console.log(`  ✓ 自我檢查：半透明的祖先有被疊起來（假元素 ${got}:1）`);
 };
 
+/**
+ * 每一個輸入框都要是同一套樣式。全域規則是一份**型別清單**，原本漏了
+ * search／email／password／url，於是搜尋框、變更密碼、分享對象與 app 的登入畫面全部
+ * 掉回瀏覽器預設（2px 凹陷灰框、方角、沒有內距），暗色下還是一塊灰底——對比工具
+ * 看不出來，因為字讀得到，只是長得不像這個 app。
+ * 掃的是**文件裡的每一個 input**（關著的對話框裡的也算，計算後的樣式照樣有），不是
+ * 只掃那四種：日後多一種型別（tel、month…）沒列進清單，這裡就紅。
+ */
+const INPUT_CHECK = async (page, label) => {
+  const bad = await page.evaluate(() => {
+    const ref = getComputedStyle(document.getElementById('inputItemTitle'));
+    const skip = new Set(['checkbox', 'radio', 'file', 'hidden', 'range', 'color', 'button', 'submit']);
+    return [...document.querySelectorAll('input')].filter(el => !skip.has(el.type)).map(el => {
+      const c = getComputedStyle(el);
+      const ok = c.borderTopStyle === ref.borderTopStyle && c.borderTopLeftRadius === ref.borderTopLeftRadius
+        && c.backgroundColor === ref.backgroundColor;
+      return ok ? null : `#${el.id || '(無 id)'}[type=${el.type}]：${c.borderTopWidth} ${c.borderTopStyle}、圓角 ${c.borderTopLeftRadius}`;
+    }).filter(Boolean);
+  });
+  if (bad.length) bad.forEach(b => problems.push(`${label}｜輸入框沒套到共用樣式 ${b}`));
+  else console.log(`  ✓ ${label}：每一個輸入框都套到共用樣式（框線、圓角、底色與 #inputItemTitle 相同）`);
+};
+
 const PASSES = [
   ['light', '亮色', null],
   ['dark', '暗色', null],
@@ -322,6 +345,7 @@ for (const [theme, label, fixedTime] of PASSES) {
   await page.waitForSelector('#board');
   await page.waitForTimeout(800);
   if (label === '亮色') await SELF_CHECK(page);
+  if (!fixedTime) await INPUT_CHECK(page, label);
   await page.locator('#reminderClose').click().catch(() => {});
   await page.waitForTimeout(200);
 

@@ -433,13 +433,27 @@
   .add-chip-btn:hover{ color: var(--amber); border-color: var(--amber); }
 
   .mode-tabs{ display:flex; gap:4px; margin-bottom:16px; background: var(--panel); border:1px solid var(--hairline); border-radius:10px; padding:4px; width: fit-content; }
-  .mode-tab{ font-family: var(--mono); font-size:13px; font-weight:600; letter-spacing:1px; padding: 9px 18px; border-radius:7px; cursor:pointer; color: var(--text-muted); border:none; background:transparent; transition: all .15s ease; }
+  .mode-tab{ font-family: var(--sans); font-size:13.5px; font-weight:600; padding: 9px 18px; border-radius:7px; cursor:pointer; color: var(--text-muted); border:none; background:transparent; transition: all .15s ease; }
   .mode-tab:hover{ color: var(--text); }
   .mode-tab.active{ background: var(--amber); color:var(--on-accent); }
 
   .period-row{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom: 18px; padding: 14px 16px; background: var(--panel); border:1px solid var(--hairline); border-radius:10px; }
+  /* 頁籤與「年份」原本各佔一整排，加上大項目、範圍列、篩選列，清單前面擋了五排、
+     桌機上從 620px 才開始。兩者是同一件事（「看哪一段時間」），併成一排：頁籤在左、
+     選哪一年在右，年份那一格拿掉自己的框——它現在是工具列的一部分，不是另一張卡。
+     窄的時候自然換行成兩排，與原本一樣。
+     **篩選列刻意沒有收起來**：「只看未完成」與標籤篩選藏到一顆鈕後面，就是〈「我的
+     帳號」分頁〉那句「沒有人找得到的功能等於不存在」。 */
+  .view-controls{ display:flex; align-items:center; gap:10px 16px; flex-wrap:wrap; margin-bottom:18px; }
+  .view-controls .mode-tabs{ margin-bottom:0; }
+  .view-controls .period-row{ margin-bottom:0; padding:0; background:transparent; border:none; border-radius:0; flex:1 1 auto; }
   .period-label{ font-family: var(--sans); font-size:12px; font-weight:500; color: var(--text-muted); margin-right:4px; }   /* 理由見 .metric-label */
-  select, input[type=date], input[type=time], input[type=number], input[type=text]{ font-family: var(--mono); background: var(--panel-2); color: var(--text); border:1px solid var(--hairline); border-radius:6px; padding:7px 10px; font-size:13px; outline:none; }
+  /* 型別清單要列全。原本漏了 search／email／password／url，於是搜尋框、變更密碼、刪除帳號、
+     分享對象、項目的「連結」與 **app 的登入畫面**全部掉回瀏覽器預設：2px 凹陷的灰框、
+     方角、沒有內距——暗色下還是一塊灰底。tools/check-contrast.mjs 的自我檢查會逐一
+     比對每一種 input 的框線與圓角，日後多一種型別沒列進來就紅。 */
+  select, input[type=date], input[type=time], input[type=number], input[type=text],
+  input[type=search], input[type=email], input[type=password], input[type=url]{ font-family: var(--mono); background: var(--panel-2); color: var(--text); border:1px solid var(--hairline); border-radius:6px; padding:7px 10px; font-size:13px; outline:none; }
   textarea{ font-family: var(--sans); background: var(--panel-2); color: var(--text); border:1px solid var(--hairline); border-radius:8px; padding:10px 12px; font-size:13.5px; outline:none; resize:vertical; width:100%; line-height:1.6; }
   textarea:focus{ border-color: var(--amber); }
   select, input[type=date], input[type=time]{ cursor:pointer; }
@@ -1313,7 +1327,8 @@
        問題——最難從症狀推回原因的那一種。
        **不要改用 `maximum-scale=1` 擋放大**：那會連使用者自己要放大也一起擋掉。 */
     select, input, textarea, [contenteditable="true"]{ font-size:16px !important; }
-    select, input[type=date], input[type=time], input[type=number], input[type=text], textarea{ padding:9px 10px; }
+    select, input[type=date], input[type=time], input[type=number], input[type=text],
+    input[type=search], input[type=email], input[type=password], input[type=url], textarea{ padding:9px 10px; }
     /* 富文字：同樣 16px 防自動放大；按鈕加大到好按，工具列換行而不是橫向撐開 */
     .rt-edit{ font-size:16px; }
     .rt-bar{ gap:3px; padding:7px 6px; }
@@ -1327,6 +1342,7 @@
     .mode-tabs{ width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch; }
     .mode-tab{ padding:9px 14px; white-space:nowrap; }
     .period-row{ padding:12px; gap:8px; }
+    .view-controls .period-row{ padding:0; }
     .scope-strip{ align-items:stretch; }
     .scope-current{ font-size:17px; }
     .add-project-btn{ width:100%; justify-content:center; padding:13px 18px; }
@@ -1473,8 +1489,10 @@
           <div class="major-section-label" data-i18n>大項目（無需日期，可隨時更名）</div>
           <div class="chip-row" id="majorChips"></div>
         </div>
-        <div class="mode-tabs" id="modeTabs"></div>
-        <div class="period-row" id="periodRow"></div>
+        <div class="view-controls">
+          <div class="mode-tabs" id="modeTabs"></div>
+          <div class="period-row" id="periodRow"></div>
+        </div>
         <div class="scope-strip">
           <div class="scope-current" id="scopeCurrent">—</div>
           <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
