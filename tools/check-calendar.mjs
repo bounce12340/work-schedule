@@ -221,6 +221,55 @@ await ed.press('Backspace');
 await page.waitForTimeout(250);
 ok('刪掉之後記號也跟著不見', await cell('13').locator('.cal-log-mark').count() === 0);
 
+// ---------- 7. 手機版的滑動 bar 不准蓋住任何一格 ----------
+// 第一版的 bar 是 34px 寬、直接疊在畫面右緣，每一個星期六格子的右邊約四成點下去
+// 抓到的是 bar（量過：10/3、10/10…10/31 全中）。畫面看起來完全正常，只是點不到——
+// 與 `.ai-panel[hidden]` 那個看不見的遮罩是同一類，而那一類只有掃 elementFromPoint
+// 看得見。兩種寬度都要掃：手機與平板寬的 .app 邊距不一樣（14px / 20px），預留的欄位
+// 是照邊距算的，只掃一種的話另一種寫錯了照樣綠。
+for (const [w, label] of [[390, '手機'], [720, '平板寬']]) {
+  const mp = await br.newPage({ viewport: { width: w, height: 780 }, locale: 'zh-TW', hasTouch: true, isMobile: true });
+  await mp.clock.setFixedTime(new Date('2026-09-10T09:00:00'));
+  await mp.addInitScript(seed => {
+    try { localStorage.setItem('workSchedule.v1', JSON.stringify(seed)); } catch (e) {}
+  }, SEED);
+  mp.on('pageerror', e => errors.push(`pageerror（${label}）: ` + e.message));
+  await markSignedIn(mp);
+  await mp.goto(`http://localhost:${PORT}/`);
+  await mp.waitForSelector('#board');
+  await mp.locator('#reminderClose').click().catch(() => {});
+  await mp.locator('#navCalendar').click();
+  await mp.waitForSelector('#calGrid .cal-cell[data-date]');
+  await mp.evaluate(() => document.getElementById('calGrid').scrollIntoView({ block: 'center' }));
+  await mp.waitForTimeout(300);
+  const r = await mp.evaluate(() => {
+    const bar = document.getElementById('calScrollbar');
+    const bb = bar.getBoundingClientRect();
+    const hits = [];
+    let probed = 0;
+    // 日曆頁裡所有點得到的東西：每一格、上一月／下一月／回到今天
+    const targets = [...document.querySelectorAll('#calGrid .cal-cell[data-date], #calPrev, #calNext, #calToday')];
+    for (const t of targets) {
+      const b = t.getBoundingClientRect();
+      if (b.bottom < bb.top || b.top > bb.bottom || !b.width) continue;   // 不在 bar 的高度範圍內
+      // 右緣往內 2px：那是最貼近 bar 的位置，也是第一版被蓋住的地方
+      for (const y of [b.top + b.height * 0.3, b.top + b.height * 0.7]) {
+        probed++;
+        const el = document.elementFromPoint(b.right - 2, y);
+        if (el && el.closest('#calScrollbar')) hits.push(t.dataset.date || t.id);
+      }
+    }
+    return { shown: bar.classList.contains('on') && bb.width > 0, probed, hits: [...new Set(hits)] };
+  });
+  // 先證明 bar 真的在畫面上、而且真的有格子落在它的高度範圍內——否則下面那條
+  // 「沒有被蓋住」是永遠成立的空斷言
+  ok(`${label}（${w}px）：滑動 bar 確實出現在日曆頁`, r.shown);
+  ok(`${label}（${w}px）：確實有格子落在 bar 的高度範圍內（掃了 ${r.probed} 個點）`, r.probed >= 20);
+  ok(`${label}（${w}px）：bar 沒有蓋住任何一格或按鈕` + (r.hits.length ? `（被蓋住：${r.hits.join(', ')}）` : ''),
+     r.hits.length === 0);
+  await mp.close();
+}
+
 console.log('');
 let bad = 0;
 for (const [n, c] of checks) if (!c) { bad++; console.log('  ✗ 未通過：' + n); }

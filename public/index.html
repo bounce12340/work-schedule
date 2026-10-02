@@ -292,7 +292,7 @@
   ::-webkit-scrollbar{ width:8px; height:8px; }
   ::-webkit-scrollbar-thumb{ background: var(--scroll-thumb); border-radius:4px; }
   ::-webkit-scrollbar-track{ background: transparent; }
-  .app{ max-width: 1280px; margin: 0 auto; padding: 24px 20px 70px; }
+  .app{ --app-pad-x: 20px; max-width: 1280px; margin: 0 auto; padding: 24px var(--app-pad-x) 70px; }
 
   header.top{ display:flex; align-items:flex-end; justify-content:space-between; padding-bottom: 22px; margin-bottom: 22px; flex-wrap: wrap; gap:16px; }
   /* 這裡原本寫著大寫的 SCHEDULE CONTROL BOARD——「工程控制台」那個聲音的
@@ -984,8 +984,16 @@
      - 預設 display:none，只有手機版的日曆頁才出現 */
   .cal-scrollbar{ display:none; }
   @media (max-width:820px){
+    /* **bar 的觸控範圍不准蓋住任何一格。** 第一版是 34px 寬、直接疊在畫面右緣，
+       結果每一個星期六格子的右邊 20px（約四成）點下去抓到的是 bar——與
+       `.ai-panel[hidden]` 那個看不見的遮罩同一類：畫面看起來正常，只是點不到。
+       所以日曆頁在右邊預留一條欄位，寬度是 bar 減掉 .app 本來就有的邊距
+       （手機 14px、平板寬 20px，兩種寬度 bar 都會出現，不能寫死一個數字）。
+       tools/check-calendar.mjs 的手機輪逐格掃 elementFromPoint 守著。 */
+    :root{ --cal-bar-w: 30px; }
+    #viewCalendar{ padding-right: max(0px, calc(var(--cal-bar-w) - var(--app-pad-x, 14px))); }
     .cal-scrollbar{
-      position:fixed; right:0; z-index:60; width:34px; touch-action:none; cursor:grab;
+      position:fixed; right:0; z-index:60; width:var(--cal-bar-w); touch-action:none; cursor:grab;
       top:calc(22% + env(safe-area-inset-top)); bottom:calc(16% + env(safe-area-inset-bottom));
       display:none; align-items:center; justify-content:center;
     }
@@ -1236,7 +1244,7 @@
         整個頁面，且不會縮回去，是手機上最惱人的一種破版
      3. modal 改成從底部升起的 sheet，小螢幕上置中對話框會被鍵盤擠掉 */
   @media (max-width: 640px){
-    .app{ padding: 16px 14px calc(86px + env(safe-area-inset-bottom)); }
+    .app{ --app-pad-x: 14px; padding: 16px var(--app-pad-x) calc(86px + env(safe-area-inset-bottom)); }
 
     header.top{ align-items:flex-start; gap:12px; padding-bottom:14px; }
     .brand-title{ font-size:19px; letter-spacing:1px; }
