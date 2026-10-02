@@ -53,6 +53,7 @@
     --panel: #FFFDF7;
     --paper: #FDFAF1;   /* 每日記錄專用的紙色，比 panel 再暖一點 */
     --sakura-trunk: #6E5A4A; --sakura-branch: #8A7360; --sakura-leaf: #7FA36B; --sakura-petal: #F0BCCB; --sakura-petal-2: #D98AA6; --sakura-soil: #CDBE9E;   /* 遊戲化的櫻花樹 */
+    --pet-body: #C9A882; --pet-body-2: #A8855F; --pet-ink: #4A3F36; --pet-pale: #EADBC6; --pet-leaf: #6F9A5E; --pet-leaf-2: #517A44;   /* 專案的夥伴 */
     --art-far: #DCE3D0;   /* 空狀態插畫：遠山 */
     --art-near: #C7D3BA;  /* 空狀態插畫：近坡 */
     --panel-2: #F1EEE5;
@@ -153,6 +154,7 @@
     --panel: #232220;
     --paper: #24211C;
     --sakura-trunk: #5C4C40; --sakura-branch: #705E4E; --sakura-leaf: #6E9A5C; --sakura-petal: #C4889B; --sakura-petal-2: #A2687E; --sakura-soil: #4A423A;
+    --pet-body: #A98D6D; --pet-body-2: #8A6F52; --pet-ink: #E2D8CB; --pet-pale: #6B5B48; --pet-leaf: #5E8750; --pet-leaf-2: #456B3A;
     --art-far: #2C332B;
     --art-near: #363E33;
     --panel-2: #2B2A27;
@@ -3302,6 +3304,11 @@
       name: String(gp.name == null ? '' : gp.name),
       // 筆記是 HTML 且會進 innerHTML，來源可能是備份檔或雲端，因此一律過濾
       notes: rtSanitize(gp.notes),
+      // 夥伴的物種。**白名單是正確性不是美觀**：這個值會拿去查畫圖的函式表，
+      // 一個不認得的字串在畫面上的症狀是「那一格空白」，而空白與「還沒選」
+      // 長得一模一樣。舊存檔沒有這個欄位 → null，不必升 STORAGE_VERSION
+      //（判準是「舊存檔在新程式碼底下讀起來會不會錯」，見設計文件第六節）。
+      pet: petSpecies(gp.pet) ? gp.pet : null,
       tasks: (Array.isArray(gp.tasks) ? gp.tasks : [])
         .filter(t => t && t.id && isYmd(t.start) && isYmd(t.end))
         .map(t => {
@@ -4839,6 +4846,100 @@
       todayVerdict: verdicts[verdicts.length - 1].verdict };
   }
 
+  // ================= 專案的夥伴 =================
+  // 設計文件 docs/superpowers/specs/2026-10-02-project-pet-and-mobile-scrollbar.md。
+  //
+  // 每個甘特專案可以選一隻夥伴，隨著專案完成度從幼體長到成年。
+  // **只存物種（`gp.pet`，一個字串），第幾階一律算出來**——與 occurrence 引擎
+  // 和遊戲化同一條原則，而三個理由在這裡逐條成立：
+  //   1. 不存帳本就不必合併帳本（兩台裝置各自勾任務，threeWayMerge 只合任務）
+  //   2. 刪掉一個已完成的任務，完成度會降——**動物就該退回去**。存起來的階段
+  //      不會退，然後畫面與資料說的是兩件事
+  //   3. 存檔格式不必升版（純新增欄位，normalizeGanttProjects 補 null 就好）
+  //
+  // 免費得到的一件事：被分享者勾完擁有者的任務，擁有者的動物會跟著長大——
+  // 因為階段是算出來的，這條**不必寫任何程式碼**。
+  // 反過來，`pet` 本身被分享者改不到（mergeSharedEdit 的甘特分支回
+  // `{ ...current, tasks }`，pet 來自擁有者那一側）。有測試守著。
+  //
+  // 這一段零 DOM，tests/pet.test.mjs 從這裡抽出來求值。畫皮在〈夥伴的畫皮〉。
+
+  /**
+   * 八種夥伴。`id` 是識別字，不是給人看的名字——**畫皮換了它也不會改**
+   * （同 GAME_STAGES 的六個 key）。`plant` 決定給人看的階段名稱走哪一組：
+   * 動物是「幼體 → 成年」，植物是「幼苗 → 大樹」，兩者的語彙不通用。
+   */
+  const PET_SPECIES = [
+    { id:'deer',   baby:'小鹿',   adult:'公鹿',   plant:false },
+    { id:'bird',   baby:'小鳥',   adult:'老鷹',   plant:false },
+    { id:'rabbit', baby:'小兔',   adult:'成兔',   plant:false },
+    { id:'cat',    baby:'小貓',   adult:'大貓',   plant:false },
+    { id:'fox',    baby:'小狐狸', adult:'狐狸',   plant:false },
+    { id:'turtle', baby:'小龜',   adult:'大龜',   plant:false },
+    { id:'fir',    baby:'小苗',   adult:'高冷杉', plant:true  },
+    { id:'pine',   baby:'小苗',   adult:'松樹',   plant:true  },
+  ];
+  const PET_IDS = PET_SPECIES.map(s => s.id);
+
+  /**
+   * 五階之外再加一個 adult，共六階。門檻是**完成度的百分比下界**，
+   * 但 `adult` 刻意不靠數字判定——見 petStageOf。
+   */
+  const PET_STAGES = [[0,'baby'],[1,'small'],[25,'half'],[50,'big'],[75,'almost']];
+
+  /** 這隻夥伴存在嗎？不認得的字串一律回 null（白名單，不是黑名單） */
+  function petSpecies(id){ return PET_SPECIES.find(s => s.id === id) || null; }
+
+  /**
+   * 完成度＝**已完成任務數 ÷ 總任務數**（使用者 2026-10-02 的裁決）。
+   * 沒有任務回 0 而不是 NaN：一個還沒排任務的專案就是「還沒開始」，
+   * 而 NaN 會讓後面每一個比較都變成 false，動物永遠停在幼體且沒有人知道為什麼。
+   */
+  function petCompletion(gp){
+    const tasks = (gp && Array.isArray(gp.tasks)) ? gp.tasks : [];
+    if(!tasks.length) return 0;
+    return Math.round(tasks.filter(t => t && t.done).length / tasks.length * 100);
+  }
+
+  /** 每一個任務都做完了嗎？沒有任務不算完成——那是「還沒開始」不是「做完了」 */
+  function petAllDone(gp){
+    const tasks = (gp && Array.isArray(gp.tasks)) ? gp.tasks : [];
+    return tasks.length > 0 && tasks.every(t => t && t.done);
+  }
+
+  /**
+   * 第幾階。**`adult` 問的是「每一個任務都 done 了嗎」，不是比 >= 100**：
+   * 四捨五入之後 199/200 也會印成 100%，而那一刻的差距正是這個功能要表達的
+   * 東西——99% 不是成年。兩者分開判斷，數字只決定中間那幾階。
+   */
+  function petStageOf(gp){
+    if(petAllDone(gp)) return 'adult';
+    const pct = petCompletion(gp);
+    let st = 'baby';
+    PET_STAGES.forEach(([min, name]) => { if(pct >= min) st = name; });
+    return st;
+  }
+
+  /** 第幾階的序數（0 起算），畫皮用它決定畫幾個零件 */
+  function petStageIndex(stage){
+    const order = PET_STAGES.map(([, name]) => name).concat('adult');
+    const i = order.indexOf(stage);
+    return i < 0 ? 0 : i;
+  }
+
+  /**
+   * 開機畫面要演哪幾隻。**按完成度由高到低**：開機那一秒鐘要說的是
+   * 「哪一個快好了」。沒選夥伴的專案不佔位置（空位要靠補償對齊，而這裡
+   * 沒有對齊的需求）。回傳全部，由呼叫端決定畫幾隻與「+N」。
+   */
+  function petRoster(projects){
+    return (Array.isArray(projects) ? projects : [])
+      .filter(gp => gp && petSpecies(gp.pet))
+      .map(gp => ({ id: gp.id, name: gp.name, pet: gp.pet,
+                    pct: petCompletion(gp), stage: petStageOf(gp) }))
+      .sort((a, b) => (b.pct - a.pct) || a.name.localeCompare(b.name));
+  }
+
   // ================= scope range =================
   function currentRange(){
     if(mode==='year') return [ new Date(selYear,0,1), new Date(selYear,11,31,23,59,59) ];
@@ -5230,6 +5331,191 @@
     }
     // 群組的 class 必須與 CSS 的 .game-avatar .sakura 逐字相同，否則「垂下」會安靜地失效
     return '<svg viewBox="0 0 120 112" aria-hidden="true">' + halo + soil + '<g class="sakura">' + body + '</g></svg>';
+  }
+
+  // ================= 夥伴的畫皮 =================
+  // 引擎在〈專案的夥伴〉區段（純函式）；這裡只負責畫。
+  //
+  // 一個物種一個函式，**階段決定畫幾個零件**——照 sakuraArt() 的寫法，
+  // 不是 8 × 6 = 48 張圖。每一隻都遵守同一條：**幼體與成年看得出來是
+  // 同一隻長大了**，不是換了另一種動物（同〈第 5 階回到第 0 階的樣子〉）。
+  // 所以骨架固定，長大只做兩件事：**整體變大**，以及**成年才長出那個特徵**
+  // （鹿角、鷹的翅膀、蓬尾巴……）。多畫一個零件來湊差別是錯的。
+  //
+  // 顏色全部走 CSS 變數（`--pet-*`，兩種主題各一組），零外部圖檔——
+  // 「單檔、零依賴」是專案前提，<img src> 會讓離線開啟破圖。
+  // viewBox 一律 0 0 64 64：開機畫面那一排與專案頁那一列都是小尺寸。
+
+  /** 兩顆眼睛，位置由呼叫端給（成年也不變大——眼睛變大會變成另一種生物） */
+  function petEyes(x1, x2, y){
+    return '<circle cx="'+x1+'" cy="'+y+'" r="1.7" fill="var(--pet-ink)"/>'
+         + '<circle cx="'+x2+'" cy="'+y+'" r="1.7" fill="var(--pet-ink)"/>';
+  }
+  /** 四條腿。`len` 隨階段變長：那是「長大」最省事也最像的訊號 */
+  function petLegs(xs, y, len, w){
+    return xs.map(x => '<path d="M'+x+' '+y+' V'+(y + len).toFixed(1)
+      + '" stroke="var(--pet-body-2)" stroke-width="'+w+'" stroke-linecap="round"/>').join('');
+  }
+
+  function petArtDeer(k){
+    const g = k / 5;                                  // 0（幼體）→ 1（成年）
+    const by = 40 - g * 4, br = 11 + g * 4;           // 身體往上、變大
+    const hy = by - 11 - g * 5;
+    // 鹿角**只有成年才有**，那是這一隻的全部重點
+    const antler = k === 5
+      ? '<path d="M27 '+(hy-7)+' L24 '+(hy-16)+' M24 '+(hy-16)+' L19 '+(hy-13)+' M24 '+(hy-16)+' L26 '+(hy-22)+'" stroke="var(--pet-ink)" stroke-width="1.8" stroke-linecap="round" fill="none"/>'
+      + '<path d="M37 '+(hy-7)+' L40 '+(hy-16)+' M40 '+(hy-16)+' L45 '+(hy-13)+' M40 '+(hy-16)+' L38 '+(hy-22)+'" stroke="var(--pet-ink)" stroke-width="1.8" stroke-linecap="round" fill="none"/>'
+      : '<path d="M28 '+(hy-6)+' L26 '+(hy-11-g*3)+' M36 '+(hy-6)+' L38 '+(hy-11-g*3)+'" stroke="var(--pet-body-2)" stroke-width="1.6" stroke-linecap="round" fill="none"/>';
+    return antler
+      + '<ellipse cx="32" cy="'+by+'" rx="'+br.toFixed(1)+'" ry="'+(br*0.72).toFixed(1)+'" fill="var(--pet-body)"/>'
+      + petLegs([26, 31, 36, 40], by + br * 0.6, 7 + g * 7, 2.2 + g * 0.8)
+      + '<circle cx="32" cy="'+hy+'" r="'+(6.5 + g * 2).toFixed(1)+'" fill="var(--pet-body)"/>'
+      + petEyes(29.5, 34.5, hy - 1)
+      + '<ellipse cx="32" cy="'+(hy + 3.5)+'" rx="2" ry="1.4" fill="var(--pet-ink)"/>'
+      + (k >= 2 ? '<circle cx="'+(32 + br * 0.9).toFixed(1)+'" cy="'+(by - 2)+'" r="2.6" fill="var(--pet-pale)"/>' : '');
+  }
+
+  function petArtBird(k){
+    const g = k / 5;
+    const r = 10 + g * 4;
+    // 老鷹：翅膀張開、喙變成尖鉤。幼鳥是圓的、翅膀收著
+    const wings = k === 5
+      ? '<path d="M22 34 Q6 24 10 40 Q16 38 22 38 Z" fill="var(--pet-body-2)"/>'
+      + '<path d="M42 34 Q58 24 54 40 Q48 38 42 38 Z" fill="var(--pet-body-2)"/>'
+      : '<ellipse cx="'+(32 - r * 0.7).toFixed(1)+'" cy="36" rx="'+(3 + g * 3).toFixed(1)+'" ry="'+(5 + g * 2).toFixed(1)+'" fill="var(--pet-body-2)"/>';
+    const beak = k === 5
+      ? '<path d="M32 30 L39 32 Q36 37 32 35 Z" fill="var(--pet-ink)"/>'          // 尖鉤
+      : '<path d="M32 30 L'+(36 + g * 2).toFixed(1)+' 32 L32 34 Z" fill="var(--pet-ink)"/>';
+    return wings
+      + '<ellipse cx="32" cy="36" rx="'+r.toFixed(1)+'" ry="'+(r * 0.92).toFixed(1)+'" fill="var(--pet-body)"/>'
+      + petLegs([30, 35], 36 + r * 0.85, 4 + g * 4, 1.8)
+      + '<circle cx="32" cy="'+(30 - g * 4).toFixed(1)+'" r="'+(6 + g * 1.5).toFixed(1)+'" fill="var(--pet-body)"/>'
+      + petEyes(29.5, 34.5, 29 - g * 4)
+      + beak;
+  }
+
+  function petArtRabbit(k){
+    const g = k / 5;
+    const by = 42 - g * 3, br = 10 + g * 4;
+    const hy = by - 10 - g * 4;
+    const ear = 9 + g * 11;                           // 耳朵拉長是這一隻的特徵
+    return '<path d="M28 '+(hy-4)+' Q26 '+(hy-4-ear)+' 29 '+(hy-4-ear)+' Q31 '+(hy-4-ear)+' 30 '+(hy-4)+' Z" fill="var(--pet-body)"/>'
+      + '<path d="M34 '+(hy-4)+' Q36 '+(hy-4-ear)+' 39 '+(hy-4-ear)+' Q41 '+(hy-4-ear)+' 36 '+(hy-4)+' Z" fill="var(--pet-body)"/>'
+      + '<ellipse cx="32" cy="'+by+'" rx="'+br.toFixed(1)+'" ry="'+(br*0.86).toFixed(1)+'" fill="var(--pet-body)"/>'
+      + '<circle cx="'+(32 + br * 0.95).toFixed(1)+'" cy="'+(by + 2)+'" r="'+(3 + g * 1.5).toFixed(1)+'" fill="var(--pet-pale)"/>'
+      + '<circle cx="32" cy="'+hy+'" r="'+(6.5 + g * 2).toFixed(1)+'" fill="var(--pet-body)"/>'
+      + petEyes(29.5, 34.5, hy - 1)
+      + '<ellipse cx="32" cy="'+(hy + 3)+'" rx="1.6" ry="1.2" fill="var(--pet-ink)"/>';
+  }
+
+  function petArtCat(k){
+    const g = k / 5;
+    // 小貓趴著（扁橢圓），成年坐挺起來——同一隻貓換了姿勢，不是換了一隻
+    const sit = k === 5;
+    const by = sit ? 38 : 44, rx = sit ? 11 : 14 - g * 1, ry = sit ? 14 : 7 + g * 2;
+    const hy = by - ry - 5 - g * 2;
+    const tail = sit
+      ? '<path d="M43 46 Q54 44 52 26" stroke="var(--pet-body-2)" stroke-width="3.2" stroke-linecap="round" fill="none"/>'
+      : '<path d="M'+(32 + rx).toFixed(1)+' 45 Q'+(42 + g * 6).toFixed(1)+' 44 '+(44 + g * 8).toFixed(1)+' '+(38 - g * 4).toFixed(1)+'" stroke="var(--pet-body-2)" stroke-width="'+(2.4 + g).toFixed(1)+'" stroke-linecap="round" fill="none"/>';
+    return tail
+      + '<ellipse cx="32" cy="'+by+'" rx="'+rx.toFixed(1)+'" ry="'+ry.toFixed(1)+'" fill="var(--pet-body)"/>'
+      + '<path d="M27 '+(hy-4)+' L26 '+(hy-10)+' L31 '+(hy-6)+' Z" fill="var(--pet-body)"/>'
+      + '<path d="M37 '+(hy-4)+' L38 '+(hy-10)+' L33 '+(hy-6)+' Z" fill="var(--pet-body)"/>'
+      + '<circle cx="32" cy="'+hy+'" r="'+(6.5 + g * 1.8).toFixed(1)+'" fill="var(--pet-body)"/>'
+      + petEyes(29.5, 34.5, hy - 1)
+      + '<path d="M29 '+(hy+3.5)+' Q32 '+(hy+5.5)+' 35 '+(hy+3.5)+'" stroke="var(--pet-ink)" stroke-width="1.2" fill="none" stroke-linecap="round"/>';
+  }
+
+  function petArtFox(k){
+    const g = k / 5;
+    const by = 42 - g * 2, br = 10 + g * 3.5;
+    const hy = by - 9 - g * 4;
+    // 尾巴變蓬：幼狐一條細的，成年是一大叢（半徑跟著階段長）。
+    // **不可以叫 `tr`**——那會遮蔽翻譯函式 tr()，而這個 bug class 在這份程式碼裡
+    // 已經發生三次（見〈多語系〉；第三次就是寫這一行的時候，shadow 測試當場紅）
+    const tailR = 4 + g * 7;
+    return '<ellipse cx="'+(32 + br + tailR * 0.5).toFixed(1)+'" cy="'+(by - 2)+'" rx="'+tailR.toFixed(1)+'" ry="'+(tailR * 0.8).toFixed(1)+'" fill="var(--pet-body-2)"/>'
+      + (k >= 3 ? '<circle cx="'+(32 + br + tailR).toFixed(1)+'" cy="'+(by - 4)+'" r="'+(tailR * 0.45).toFixed(1)+'" fill="var(--pet-pale)"/>' : '')
+      + '<ellipse cx="32" cy="'+by+'" rx="'+br.toFixed(1)+'" ry="'+(br*0.68).toFixed(1)+'" fill="var(--pet-body)"/>'
+      + petLegs([27, 32, 37], by + br * 0.55, 5 + g * 4, 2 + g * 0.6)
+      + '<path d="M26 '+(hy-3)+' L24 '+(hy-11)+' L31 '+(hy-6)+' Z" fill="var(--pet-body)"/>'
+      + '<path d="M38 '+(hy-3)+' L40 '+(hy-11)+' L33 '+(hy-6)+' Z" fill="var(--pet-body)"/>'
+      + '<circle cx="32" cy="'+hy+'" r="'+(6 + g * 2).toFixed(1)+'" fill="var(--pet-body)"/>'
+      + petEyes(29.5, 34.5, hy - 1)
+      + '<path d="M32 '+(hy+2)+' L'+(32 - 1.5)+' '+(hy+6)+' L'+(32 + 1.5)+' '+(hy+6)+' Z" fill="var(--pet-ink)"/>';
+  }
+
+  function petArtTurtle(k){
+    const g = k / 5;
+    const sr = 12 + g * 6;
+    // 龜殼的紋路**隨階段長完整**：一格、三格、六格——這一隻的成長看的是殼
+    const cells = [[32,36],[24,40],[40,40],[28,30],[36,30],[32,44]];
+    const n = Math.min(cells.length, Math.round(1 + k));
+    const pattern = cells.slice(0, n).map(([x, y]) =>
+      '<circle cx="'+x+'" cy="'+y+'" r="3" fill="none" stroke="var(--pet-body-2)" stroke-width="1.3"/>').join('');
+    return '<ellipse cx="32" cy="44" rx="'+(sr + 5).toFixed(1)+'" ry="'+(sr * 0.42).toFixed(1)+'" fill="var(--pet-pale)"/>'
+      + petLegs([22, 42], 46, 4 + g * 2, 2.6)
+      + '<path d="M'+(32 - sr).toFixed(1)+' 44 A'+sr.toFixed(1)+' '+(sr * 0.86).toFixed(1)+' 0 0 1 '+(32 + sr).toFixed(1)+' 44 Z" fill="var(--pet-body)"/>'
+      + pattern
+      + '<circle cx="'+(32 + sr + 3).toFixed(1)+'" cy="'+(41 - g * 2).toFixed(1)+'" r="'+(4 + g * 1.5).toFixed(1)+'" fill="var(--pet-body-2)"/>'
+      + petEyes(32 + sr + 2, 32 + sr + 5.5, 40 - g * 2);
+  }
+
+  /** 兩種植物**共用同一棵小苗**：差別在長成什麼（尖塔 vs 傘形），而幼苗本來就一樣 */
+  function petArtTree(k, kind){
+    const g = k / 5;
+    const soil = '<ellipse cx="32" cy="56" rx="'+(12 + g * 6).toFixed(1)+'" ry="4" fill="var(--sakura-soil)"/>';
+    if(k === 0){
+      return soil
+        + '<path d="M32 56 V46" stroke="var(--sakura-trunk)" stroke-width="2.4" stroke-linecap="round" fill="none"/>'
+        + '<ellipse cx="26" cy="45" rx="5" ry="2.6" fill="var(--pet-leaf)" transform="rotate(-30 26 45)"/>'
+        + '<ellipse cx="38" cy="44" rx="5" ry="2.6" fill="var(--pet-leaf)" transform="rotate(30 38 44)"/>';
+    }
+    const h = 14 + g * 26;                            // 樹高隨階段長
+    const top = 56 - h;
+    const trunk = '<path d="M32 56 V'+(top + h * 0.25).toFixed(1)
+      + '" stroke="var(--sakura-trunk)" stroke-width="'+(2.6 + g * 3).toFixed(1)+'" stroke-linecap="round" fill="none"/>';
+    if(kind === 'fir'){
+      // 冷杉：三層尖塔，往上收——成年是最高最尖的那一種
+      const tiers = [0.0, 0.32, 0.62].map((f, i) => {
+        const y = top + h * f, w = (7 + g * 9) * (0.55 + f * 0.75);
+        return '<path d="M32 '+y.toFixed(1)+' L'+(32 - w).toFixed(1)+' '+(y + h * 0.3).toFixed(1)
+          + ' L'+(32 + w).toFixed(1)+' '+(y + h * 0.3).toFixed(1)
+          + ' Z" fill="var(--pet-leaf'+(i % 2 ? '-2' : '')+')"/>';
+      }).join('');
+      return soil + trunk + tiers;
+    }
+    // 松樹：往兩側展開的傘形，與冷杉剛好相反的輪廓
+    const w = 10 + g * 14;
+    return soil + trunk
+      + '<ellipse cx="32" cy="'+(top + h * 0.18).toFixed(1)+'" rx="'+w.toFixed(1)+'" ry="'+(h * 0.16).toFixed(1)+'" fill="var(--pet-leaf)"/>'
+      + '<ellipse cx="32" cy="'+(top + h * 0.34).toFixed(1)+'" rx="'+(w * 0.78).toFixed(1)+'" ry="'+(h * 0.13).toFixed(1)+'" fill="var(--pet-leaf-2)"/>'
+      + (k >= 3 ? '<ellipse cx="32" cy="'+(top + h * 0.5).toFixed(1)+'" rx="'+(w * 0.52).toFixed(1)+'" ry="'+(h * 0.1).toFixed(1)+'" fill="var(--pet-leaf)"/>' : '');
+  }
+
+  /**
+   * 一隻夥伴的 SVG。`stage` 由引擎算出來（petStageOf），這裡只翻成序數再畫。
+   * 不認得的物種回空字串而不是丟例外：畫不出來最多是那一格空白，
+   * 不該讓整個專案頁炸掉（同〈降級可以，沉默不行〉——但 console 要出聲）。
+   */
+  function petArt(speciesId, stage){
+    const k = petStageIndex(stage);
+    const draw = { deer:petArtDeer, bird:petArtBird, rabbit:petArtRabbit, cat:petArtCat,
+                   fox:petArtFox, turtle:petArtTurtle,
+                   fir:(n)=>petArtTree(n,'fir'), pine:(n)=>petArtTree(n,'pine') }[speciesId];
+    if(!draw){ console.error('petArt: 不認得的夥伴', speciesId); return ''; }
+    return '<svg viewBox="0 0 64 64" aria-hidden="true"><g class="pet">' + draw(k) + '</g></svg>';
+  }
+
+  /** 給人看的階段名稱。動物與植物兩套語彙，中間四階共用 */
+  function petStageLabel(speciesId, stage){
+    const sp = petSpecies(speciesId); if(!sp) return '';
+    if(stage === 'baby') return sp.baby;
+    if(stage === 'adult') return sp.adult;
+    return { small: sp.plant ? '長出葉子' : '剛長大一點',
+             half:  sp.plant ? '小樹' : '半大',
+             big:   sp.plant ? '長高了' : '接近成年',
+             almost:sp.plant ? '就快成林' : '就快成年' }[stage] || sp.baby;
   }
 
   const BADGE_LABEL = { first:'第一件', ten:'十件', fifty:'五十件', hundred:'一百件', streak7:'連續 7 天', streak14:'連續 14 天', streak30:'連續 30 天', perfectWeek:'完美的一週' };
@@ -7314,7 +7600,11 @@
     document.getElementById('ganttOverlay').classList.remove('show');
     commit(()=>{
       if(editingGanttId){ const gp=ganttProjects.find(g=>g.id===editingGanttId); if(gp) gp.name=name; }
-      else{ const gp={ id: uid('gp'), name, tasks: [], notes:'' }; ganttProjects.push(gp); selectedGanttProjectId = gp.id; }
+      // pet 明寫 null 而不是省略：形狀要與 normalizeGanttProjects 讀回來的一樣，
+      // 否則「剛建立」是 undefined、「載入後」是 null，兩者在 stableStringify 下
+      // 不同——三方合併會把「沒改過」判成「兩邊都改過」。預設不給夥伴：挑一隻
+      // 本來就是這個功能的重點
+      else{ const gp={ id: uid('gp'), name, tasks: [], notes:'', pet:null }; ganttProjects.push(gp); selectedGanttProjectId = gp.id; }
     });
   };
 
@@ -8938,7 +9228,10 @@
     absences[ymd(a1)] = [{ kind:'away', from:null, to:null }];
     absences[ymd(a2)] = [{ kind:'leave', from:'13:00', to:'18:00', icon:'🏖️' }];
 
-    const gp = { id: uid('gp'), name:'官網改版專案', tasks: [], notes:'' };
+    // 夥伴給一隻：`tools/` 的瀏覽器腳本要有東西可量（開機畫面那一排、
+    // 專案頁那一列），而「示範資料剛好沒有這個功能」就是〈永遠不會執行的
+    // 斷言〉那一節的形狀。三個任務裡一個 done → 33%，落在 half 那一階
+    const gp = { id: uid('gp'), name:'官網改版專案', tasks: [], notes:'', pet:'deer' };
     ganttProjects.push(gp); selectedGanttProjectId = gp.id;
     const s1=new Date(t); const e1=new Date(t); e1.setDate(e1.getDate()+10);
     const s2=new Date(e1); const e2=new Date(e1); e2.setDate(e2.getDate()+14);
