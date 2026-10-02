@@ -404,10 +404,11 @@
   .layout{ display:flex; gap:20px; align-items:flex-start; }
   .sidebar{ width: 176px; flex-shrink:0; display:flex; flex-direction:column; gap:6px; position: sticky; top: 20px; }
   .nav-item{ display:flex; align-items:center; gap:10px; padding: 13px 14px; border-radius:10px; background: var(--panel); border:1px solid var(--hairline); cursor:pointer; color: var(--text-muted); font-weight:700; font-size:14px; transition: all .15s ease; }
-  .nav-item .nav-dot{ width:7px; height:7px; border-radius:50%; background: var(--hairline); flex-shrink:0; }
   .nav-item:hover{ color: var(--text); border-color:var(--hairline-strong); }
   .nav-item.active{ background: var(--amber-dim); border-color: var(--amber); color: var(--amber-ink); }
-  .nav-item.active .nav-dot{ background: var(--amber); }
+  /* 原本每一顆前面有一個圓點，灰的、選中時變琥珀——但選中那一顆本來就有琥珀底色與框，
+     圓點只是把同一件事再講一次，其餘四顆的灰點什麼資訊都沒帶。拿掉。未讀數另有
+     .nav-badge，與它無關。 */
   .nav-item{ position:relative; }
   .nav-badge{ position:absolute; top:6px; right:8px; background:var(--red); color:var(--on-accent); font-family:var(--mono); font-size:10px; font-weight:700; border-radius:9px; min-width:17px; height:17px; padding:0 4px; display:flex; align-items:center; justify-content:center; }
 
@@ -995,7 +996,8 @@
   /* 成年只多一個小記號。不改顏色、不加動畫——真正在說「100% 了」的是下面那行數字 */
   .pet-card-adult{ font-family:var(--mono); font-size:10px; letter-spacing:.08em; padding:2px 6px; border-radius:5px;
                    background:var(--teal-dim); color:var(--teal-ink); }
-  .pet-card-bar{ height:5px; border-radius:3px; background:var(--hairline); margin:7px 0 5px; overflow:hidden; }
+  /* 限寬：放任它撐滿整張卡的話，870px 的軌道放 33% 看起來像一條縫，不像「做了三分之一」 */
+  .pet-card-bar{ height:5px; max-width:260px; border-radius:3px; background:var(--hairline); margin:7px 0 5px; overflow:hidden; }
   .pet-card-bar span{ display:block; height:100%; background:var(--teal); border-radius:3px; }
   .pet-card-sub{ font-family:var(--mono); font-size:11.5px; color:var(--text-muted); }
   .pet-card-pick{ flex:0 0 auto; }
@@ -1080,7 +1082,8 @@
   .task-row{ display:flex; align-items:center; gap:8px; background: var(--panel); border:1px solid var(--hairline); border-radius:10px; padding:10px 12px; flex-wrap:wrap; }
   .task-row input[type=text]{ flex:1; min-width:130px; font-family: var(--sans); }
   .task-row input[type=date]{ width:132px; }
-  .task-row .progress-num{ width:56px; text-align:center; }
+  /* 56px 扣掉內距只剩 36px，「100」加上數字框的上下箭頭要 ~38px，最後一個字被切成「10(」 */
+  .task-row .progress-num{ width:68px; text-align:center; }
   .task-row .progress-suffix{ font-family:var(--mono); font-size:11px; color:var(--text-dim); }
   .task-row .task-done-cb{ width:19px; height:19px; border-radius:5px; border:1.5px solid var(--checkbox-border); display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:12px; color:transparent; flex-shrink:0; }
   .task-row .task-done-cb.done{ background: var(--teal); border-color: var(--teal); color:var(--on-accent); }
@@ -1310,9 +1313,11 @@
       background: var(--panel); border-top:1px solid var(--hairline);
       box-shadow: 0 -2px 12px rgba(0,0,0,0.06);
     }
-    .nav-item{ flex-direction:column; gap:4px; padding:8px 2px; font-size:11.5px; border:none; background:transparent; border-radius:8px; }
+    /* min-height 不能拿掉：原本是圓點＋間距撐著 ~41px 的高度，圓點拿掉之後縮成 31px，
+       掉到可點範圍的門檻以下（check-mobile 抓到的）——而這是手機上最常按的一排。
+       高度由這一行負責，不再靠裝飾元素順便撐 */
+    .nav-item{ flex-direction:column; justify-content:center; gap:4px; min-height:44px; padding:8px 2px; font-size:11.5px; border:none; background:transparent; border-radius:8px; }
     .nav-item.active{ background: var(--amber-dim); }
-    .nav-item .nav-dot{ width:6px; height:6px; }
 
     /* 表單控制項：16px 以避免 iOS 聚焦時自動放大。
        **這條必須 !important，而且必須涵蓋所有可聚焦的控制項。**
@@ -1337,7 +1342,7 @@
     .rt-pop{ flex-wrap:wrap; max-width:calc(100vw - 60px); }
     .rt-swatch{ width:26px; height:26px; }
     .field input, .field select{ font-size:16px; }
-    .task-row .progress-num{ width:64px; }
+    .task-row .progress-num{ width:76px; }
 
     .mode-tabs{ width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch; }
     .mode-tab{ padding:9px 14px; white-space:nowrap; }
@@ -1474,11 +1479,11 @@
 
   <div class="layout">
     <div class="sidebar">
-      <div class="nav-item active" id="navSchedule"><span class="nav-dot"></span><span data-i18n>項目安排</span></div>
-      <div class="nav-item" id="navCalendar"><span class="nav-dot"></span><span data-i18n>日曆</span></div>
-      <div class="nav-item" id="navGantt"><span class="nav-dot"></span><span data-i18n>專案</span></div>
-      <div class="nav-item" id="navShared"><span class="nav-dot"></span><span data-i18n>共享</span></div>
-      <div class="nav-item" id="navAccount"><span class="nav-dot"></span><span data-i18n>我的帳號</span></div>
+      <div class="nav-item active" id="navSchedule"><span data-i18n>項目安排</span></div>
+      <div class="nav-item" id="navCalendar"><span data-i18n>日曆</span></div>
+      <div class="nav-item" id="navGantt"><span data-i18n>專案</span></div>
+      <div class="nav-item" id="navShared"><span data-i18n>共享</span></div>
+      <div class="nav-item" id="navAccount"><span data-i18n>我的帳號</span></div>
     </div>
 
     <div class="main-panel">
