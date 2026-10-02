@@ -51,11 +51,19 @@ const TARGETS = [
   ['.occ-date', '日期'],
   ['.metric-list-row', '指標卡的列'],
   ['.nav-item', '頁籤'],
-  ['.chip-name', '大項目名稱'],
+  // 原本寫的是 `.chip-name`——那個 class 從來不存在（名字是 .chip 底下第一個沒有 class
+  // 的 span），所以這一條每次都印「略過」，等於沒有
+  ['#majorChips .chip > span:first-child', '大項目名稱'],
+  ['#majorChips .chip .cnt', '大項目的項數'],
   ['.qbtn', '篩選鈕'],
   ['.brand-eyebrow', '招呼語'],
   ['.daylog-label', '每日記錄標題'],
   ['.notice-badge', '純告知的小標'],
+  // 六種小標原本全是「等寬＋字距 2px＋--text-dim」，2.57:1，而這份清單一個都沒有——
+  // 那正是它們一直沒被發現的原因。其中四張卡的小標包括「逾期未完成」那一張
+  ['.metric-label', '四張卡的小標'],
+  ['.major-section-label', '「大項目」那一區的小標'],
+  ['.period-label', '「年份」小標'],
 ];
 
 /**
@@ -93,6 +101,8 @@ const IN_GANTT = [
   ['.pet-card-name', '夥伴卡的階段名稱'],
   ['.pet-card-sub', '夥伴卡的進度文字'],
   ['.pet-card-adult', '「成年」那個記號'],
+  ['.gantt-toolbar-label', '「時間刻度」小標'],
+  ['.task-field-label', '任務列的「開始／結束／進度」'],
 ];
 const IN_PET_PANEL = [
   ['#petOverlay .scope-note', '挑夥伴面板的說明'],
@@ -382,6 +392,8 @@ for (const [theme, label, fixedTime] of PASSES) {
   await page.waitForSelector('#board');
   await page.locator('#openItemModal').click();
   await page.waitForTimeout(250);
+  // 對話框的欄位名（`.field label`）：所有對話框共用同一條規則，量這一個就涵蓋全部
+  rows.push(...await page.evaluate(measure, [['#itemOverlay .field label', '對話框的欄位名']]));
   await page.fill('#inputItemTitle', '去年的公告');
   await page.locator('#inputNoticeOnly').check();
   await page.fill('#inputItemDate', '2026-01-05');
