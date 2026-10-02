@@ -91,6 +91,10 @@
     --amber-ink: #8A5716;   /* 淺底上的琥珀字。--amber 只有 2.84:1，讀不了 */
     --teal: #1F8C68;
     --teal-dim: rgba(31,140,104,0.10);
+    /* 淺底上的青。`--teal` 當底色很好看，當淺底上的字只有 3.22:1（check-contrast
+       的「成年」那一條量出來的）。同 --amber-ink：加一個新 token，**不要去動
+       `--teal` 本身**——那是「工作」型別的顏色，改了每一處都要重驗 */
+    --teal-ink: #176B4F;
     --red: #C74B43;
     --red-dim: rgba(199,75,67,0.10);
     --violet: #6C5CE0;
@@ -190,6 +194,7 @@
     --amber-ink: var(--amber);   /* 暗色是深底淺字，原色就夠 */
     --teal: #3FBF92;
     --teal-dim: rgba(63,191,146,0.14);
+    --teal-ink: #3FBF92;   /* 暗色本來就夠（4.83:1），不另外調 */
     --red: #E8756B;
     --red-dim: rgba(232,117,107,0.14);
     --violet: #9B8CF5;
@@ -334,6 +339,15 @@
   .boot-sakura-art svg{ width:100%; height:100%; display:block; overflow:visible; }
   @keyframes boot-sakura-grow{ from{ transform:scale(.72); opacity:0; } to{ transform:scale(1); opacity:1; } }
   @keyframes boot-sakura-out{ 0%, 76%{ opacity:1; } 100%{ opacity:0; visibility:hidden; } }
+  /* 專案的夥伴排在櫻花下面。**刻意放在同一個 .boot-sakura 容器內**：
+     pointer-events:none、1200ms 的上限、下面那條 reduced-motion 的 display:none
+     因此全部免費繼承。另開一個容器就要把三個不變量再寫一次，而漏掉任何一個的
+     症狀已經記過——一張永遠蓋住整個 app 的紙。 */
+  .boot-pets{ position:absolute; left:0; right:0; bottom:16%; display:flex; justify-content:center;
+              align-items:flex-end; gap:12px; padding:0 16px; }
+  .boot-pet{ width:46px; height:46px; animation: boot-sakura-grow 760ms ease-out both; }
+  .boot-pet svg{ width:100%; height:100%; display:block; overflow:visible; }
+  .boot-pet-more{ font-family:var(--mono); font-size:12px; color:var(--text-muted); padding-bottom:12px; }
   /* 純氛圍、沒有任何資訊在裡面，是最該被關掉的那一種動畫（同光暈、同升級的光） */
   @media (prefers-reduced-motion: reduce){ .boot-sakura{ display:none; } }
   .game-card{ display:flex; gap:18px; align-items:flex-start; }
@@ -944,6 +958,56 @@
   /* ---- Gantt / 專案 ---- */
   .gantt-empty{ padding: 60px 20px; text-align:center; color: var(--text-dim); border: 1px dashed var(--dash); border-radius:12px; font-family: var(--mono); font-size:13px; line-height:1.9; background:var(--panel); }
   .gantt-project-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; flex-wrap:wrap; gap:10px; }
+
+  /* 專案的夥伴。底色走不透明的 --panel-2：半透明會讓光暈透上來，
+     而 check-contrast 量到的就是那個最差情況（見〈對比工具原本看不到光暈〉）。 */
+  .pet-card{ display:flex; align-items:center; gap:14px; padding:12px 14px; margin-bottom:16px;
+             background:var(--panel-2); border:1px solid var(--hairline); border-radius:12px; flex-wrap:wrap; }
+  .pet-card-art{ width:56px; height:56px; flex:0 0 auto; }
+  .pet-card-art svg{ width:100%; height:100%; display:block; overflow:visible; }
+  .pet-card-info{ flex:1 1 180px; min-width:0; }
+  .pet-card-name{ font-family:var(--serif); font-size:15px; color:var(--text); display:flex; align-items:center; gap:7px; }
+  /* 成年只多一個小記號。不改顏色、不加動畫——真正在說「100% 了」的是下面那行數字 */
+  .pet-card-adult{ font-family:var(--mono); font-size:10px; letter-spacing:.08em; padding:2px 6px; border-radius:5px;
+                   background:var(--teal-dim); color:var(--teal-ink); }
+  .pet-card-bar{ height:5px; border-radius:3px; background:var(--hairline); margin:7px 0 5px; overflow:hidden; }
+  .pet-card-bar span{ display:block; height:100%; background:var(--teal); border-radius:3px; }
+  .pet-card-sub{ font-family:var(--mono); font-size:11.5px; color:var(--text-muted); }
+  .pet-card-pick{ flex:0 0 auto; }
+
+  /* 手機版日曆的滑動 bar。
+     - **貼右邊**：左邊是 iOS 的返回手勢（從左緣往右滑），放那裡會打架
+     - 顏色走 --panel／--text：亮色下 bar 就是白的，暗色下自動變深。寫死白色在
+       暗色主題是一道燈，而 check-contrast 兩種主題都量（使用者說「可以自動用對比色」）
+     - 補 env(safe-area-inset-*)：它是固定元素，不補的話真機上下緣被動態島與
+       home indicator 蓋住（AI 面板實際踩過這個坑）
+     - 預設 display:none，只有手機版的日曆頁才出現 */
+  .cal-scrollbar{ display:none; }
+  @media (max-width:820px){
+    .cal-scrollbar{
+      position:fixed; right:0; z-index:60; width:34px; touch-action:none; cursor:grab;
+      top:calc(22% + env(safe-area-inset-top)); bottom:calc(16% + env(safe-area-inset-bottom));
+      display:none; align-items:center; justify-content:center;
+    }
+    .cal-scrollbar.on{ display:flex; }
+    .cal-scrollbar span{
+      display:block; width:6px; height:100%; border-radius:4px;
+      background:var(--text); opacity:.18; transition:opacity .16s, width .16s;
+    }
+    /* 按下時變不透明（使用者指定）。--panel 當底、--text 當 bar：兩種主題自動對調 */
+    .cal-scrollbar.grab span{ opacity:1; width:10px; background:var(--panel);
+      box-shadow:0 0 0 1.5px var(--text), 0 2px 8px rgba(0,0,0,.18); }
+  }
+
+  .pet-grid{ display:grid; grid-template-columns:repeat(4, 1fr); gap:8px; margin:4px 0 6px; }
+  .pet-pick{ display:flex; flex-direction:column; align-items:center; gap:4px; padding:8px 4px; cursor:pointer;
+             background:var(--panel); border:1px solid var(--hairline); border-radius:10px; font-family:var(--sans); }
+  .pet-pick.on{ border-color:var(--amber); background:var(--amber-dim); }
+  .pet-pick-art{ width:46px; height:46px; display:block; }
+  .pet-pick-art svg{ width:100%; height:100%; display:block; overflow:visible; }
+  .pet-pick-cap{ font-size:10.5px; color:var(--text-muted); text-align:center; line-height:1.3; }
+  #petNone.on{ border-color:var(--amber); color:var(--amber-ink); }
+  @media (max-width:640px){ .pet-grid{ grid-template-columns:repeat(3, 1fr); } }
   .gantt-project-title{ font-size:19px; font-weight:800; }
   /* 甘特圖：固定的標籤欄 + 可水平捲動的時間軸。
      兩欄各自獨立、靠固定列高（--gantt-row-h）對齊，不用 sticky——sticky 在有
@@ -1056,7 +1120,7 @@
   .btn-confirm:hover{ filter:brightness(1.05); }
   .btn-clear{ background: transparent; border:1px dashed var(--hairline); color: var(--text-dim); }
   .btn-clear:hover{ color: var(--red); border-color: var(--red); }
-  .scope-note{ font-family: var(--mono); font-size:11px; color: var(--text-dim); background: var(--panel-2); border:1px solid var(--hairline); border-radius:7px; padding:9px 11px; margin-bottom:16px; }
+  .scope-note{ font-family: var(--mono); font-size:11px; color: var(--text-muted); background: var(--panel-2); border:1px solid var(--hairline); border-radius:7px; padding:9px 11px; margin-bottom:16px; }
   .scope-note b{ color: var(--amber); }
   .recur-warn{ font-family: var(--mono); font-size:11px; color: var(--red); background: var(--red-dim); border:1px solid rgba(199,75,67,0.32); border-radius:7px; padding:9px 11px; margin-bottom:14px; line-height:1.75; }
   .holiday-list-box{ display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
@@ -1853,6 +1917,18 @@
   </div>
 </div>
 
+<div class="overlay" id="petOverlay">
+  <div class="modal" style="max-width:460px;">
+    <h3><span class="dot"></span><span data-i18n>挑一隻夥伴</span></h3>
+    <div class="scope-note" data-i18n>每一格畫的是牠長大後的樣子。待辦全部完成那一刻，牠才真的成年。</div>
+    <div class="pet-grid" id="petGrid"></div>
+    <div class="modal-actions">
+      <button class="btn-cancel" id="petNone" data-i18n>不要夥伴</button>
+      <button class="btn-cancel" id="btnPetCancel" data-i18n>取消</button>
+    </div>
+  </div>
+</div>
+
 <div class="overlay" id="occOverlay">
   <div class="modal" style="max-width:380px;">
     <h3><span class="dot"></span>調整本次日期</h3>
@@ -2004,7 +2080,11 @@
 
 <!-- 開機的櫻花。預設就是看得見的（第一次繪製它就在），由 CSS 自己淡掉——理由寫在
      .boot-sakura 那一段。裡面是空的：inline script 在同一次解析裡就會把樹畫進去。 -->
-<div class="boot-sakura" id="bootSakura" aria-hidden="true"><div class="boot-sakura-art" id="bootSakuraArt"></div></div>
+<!-- 手機版日曆的滑動 bar。只在日曆頁顯示（JS 切 .on），而「只有 bar 本身吃點擊」
+     靠的是它窄＋父層沒有遮罩——不做成看不見的全屏覆蓋（.ai-panel[hidden] 那個 bug）。 -->
+<div class="cal-scrollbar" id="calScrollbar" aria-hidden="true"><span></span></div>
+
+<div class="boot-sakura" id="bootSakura" aria-hidden="true"><div class="boot-sakura-art" id="bootSakuraArt"></div><div class="boot-pets" id="bootPets"></div></div>
 
 <script>
 (function(){
@@ -4976,6 +5056,7 @@
       document.getElementById(navId).classList.toggle('active', currentView===name);
       document.getElementById(viewId).classList.toggle('active', currentView===name);
     });
+    calScrollbarSync();   // 滑動 bar 只在日曆頁出現
     renderAll();
   }
 
@@ -5570,6 +5651,37 @@
     box.innerHTML = sakuraArt(order[0], false);
     for(let i = 1; i <= upto; i++){
       setTimeout(() => { box.innerHTML = sakuraArt(order[i], false); }, 760 / (upto + 1) * i);
+    }
+  }
+
+  /** 開機畫面上最多排幾隻夥伴。放不下第五隻；Pro 不限專案數，不設上限會變成動物園 */
+  const BOOT_PETS_MAX = 4;
+
+  /**
+   * 開機時櫻花下面那一排夥伴。畫的是**各自現在那一階**（不是長大後的樣子）——
+   * 這一排要回答的是「我的專案現在長到哪裡」。
+   *
+   * 與櫻花不同，這裡**不演成長動畫**：四隻各自長一次會變成一團亂動的東西，
+   * 而這一排的資訊是「誰比較大」，靜態就說得完。
+   *
+   * 整排在 .boot-pets 裡，而它在 .boot-sakura 內——三個不變量繼承而來，
+   * 這裡一行都不必寫（見那一段的 CSS 註解）。
+   */
+  function bootPetsPlay(projects){
+    const box = document.getElementById('bootPets'); if(!box) return;
+    const roster = petRoster(projects);
+    box.innerHTML = '';
+    if(!roster.length) return;          // 沒有夥伴就整排不出現，不留空位
+    roster.slice(0, BOOT_PETS_MAX).forEach(r => {
+      const d = document.createElement('div');
+      d.className = 'boot-pet' + (r.stage === 'adult' ? ' adult' : '');
+      d.innerHTML = petArt(r.pet, r.stage);
+      box.appendChild(d);
+    });
+    if(roster.length > BOOT_PETS_MAX){
+      const more = document.createElement('div'); more.className = 'boot-pet-more';
+      more.textContent = '+' + (roster.length - BOOT_PETS_MAX);
+      box.appendChild(more);
     }
   }
 
@@ -6470,22 +6582,118 @@
     // 放開手可能發生在日曆外面（拖出格線再放開），所以監聽整個 document
     document.addEventListener('mouseup', finish);
 
-    // 觸控：touchmove 的 target 一直是起始元素，必須用座標反查目前指到哪一格
+    /**
+     * 觸控：**手指放下的那一刻什麼都不選。**
+     *
+     * 原本是 touchstart 就 `startAt(d)`，於是想捲動的人只要把手指放在日曆上，
+     * 那一天就已經被選起來了——而「把手指放上去」與「我要選這一天」在程式裡
+     * 是同一件事。手指再稍微飄過格子邊界就變成選一整段區間。
+     * 使用者回報的「手機版日期的框選很容易誤觸」就是這個。
+     *
+     * 改成**從第一個明顯的移動方向判斷意圖**，而且只判斷一次：
+     *   先橫向 → 選區間（之後要往下拉幾週都可以）
+     *   先直向 → 捲動，這一次的觸控一天都不選
+     *   不動   → 放開手才選那一天
+     *
+     * ⚠️ 代價（使用者 2026-10-02 同意）：**「從某一天直接往下拉」選區間會變成
+     * 捲動**，要先稍微橫一下。直向拉正是最常誤觸的那一個動作，而滑動 bar 本身
+     * 就是為直向捲動存在。日後有人覺得「往下拉應該要能選」而改回去時，要知道
+     * 那會把誤觸一起帶回來。
+     *
+     * 桌機的滑鼠路徑**一個字都沒動**：滑鼠不用按著不動來捲頁面。
+     */
+    const TOUCH_INTENT_PX = 8;          // 超過這個距離才判定意圖；更小會被手指的抖動觸發
+    let tStartX = 0, tStartY = 0, tCand = null, tIntent = null;   // intent: null | 'select' | 'scroll'
+
     grid.addEventListener('touchstart', e=>{
+      tCand = null; tIntent = null;
       if(e.target.closest('.cal-item-check, .cal-span-check')) return;
       const d = dateOfEvent(e.target);
-      if(d) startAt(d);
-    }, { passive:true });
-    grid.addEventListener('touchmove', e=>{
-      if(!dragging) return;
+      if(!d) return;
       const t = e.touches[0];
+      tStartX = t.clientX; tStartY = t.clientY;
+      tCand = d;                        // 只記下候選，**不選、不畫**
+    }, { passive:true });
+
+    grid.addEventListener('touchmove', e=>{
+      if(!tCand || tIntent === 'scroll') return;   // 判成捲動就整個鎖死到 touchend
+      const t = e.touches[0];
+      const dx = Math.abs(t.clientX - tStartX), dy = Math.abs(t.clientY - tStartY);
+      if(tIntent === null){
+        if(Math.max(dx, dy) < TOUCH_INTENT_PX) return;             // 還看不出來，先讓它捲
+        // 意圖只決定一次。不鎖的話橫向開始、往下拉到第三週時方向變成直向，
+        // 選取會在使用者正在拉的時候被取消
+        tIntent = dx > dy ? 'select' : 'scroll';
+        if(tIntent === 'scroll'){ tCand = null; return; }
+        startAt(tCand);                                            // 現在才真的開始選
+      }
       const el = document.elementFromPoint(t.clientX, t.clientY);
       const d = dateOfEvent(el);
-      // 只有真的跨到別格才擋掉捲動，否則單指上下滑會被卡住
       if(d && d !== calSelectedEnd){ e.preventDefault(); extendTo(d); }
     }, { passive:false });
-    grid.addEventListener('touchend', finish);
-    grid.addEventListener('touchcancel', finish);
+
+    grid.addEventListener('touchend', ()=>{
+      // 完全沒移動過（intent 還是 null）＝點一下選那一天，**放開手才選**
+      if(tCand && tIntent === null){ startAt(tCand); }
+      tCand = null; tIntent = null;
+      finish();
+    });
+    grid.addEventListener('touchcancel', ()=>{ tCand = null; tIntent = null; finish(); });
+  }
+
+  /**
+   * 手機版日曆的滑動 bar。
+   *
+   * 它解的問題與上面那段修法**互補**：修根因讓「碰到日期」不再出事，這條 bar 給
+   * 一條**根本不會碰到日期**的路。少了 bar，想捲動的人仍然只能把手指放在日曆上。
+   *
+   * 幾個不能拿掉的判斷：
+   * - **拖它用 `scrollTo` 的絕對位置，不是 `scrollBy` 累加。** 累加會因為每次
+   *   touchmove 的間距不均而漂移，拖到底時位置與手指對不上。
+   * - **只在日曆頁顯示**（`calScrollbarSync` 跟著 currentView 走）。別的頁沒有
+   *   「誤觸日期」這個問題，多一個固定元素只是多一個會擋到東西的東西。
+   * - **`touch-action:none`** 在 CSS 裡：少了它，瀏覽器會把這個手勢同時當成頁面
+   *   捲動，於是捲兩倍。
+   * - 跟著旗標走的畫面收斂在一個函式裡（同 `setCloudEnabled()` 的理由）：
+   *   `renderNav()` 一處呼叫，下一個人加第二個條件時不必再記得第三個呼叫點。
+   */
+  {
+    const bar = document.getElementById('calScrollbar');
+    let barActive = false, grabY = 0, grabTop = 0;
+
+    const maxScroll = ()=> Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+    /** bar 的可拖行程換算成頁面的捲動量：拖到底就是捲到底 */
+    const travel = ()=> Math.max(1, bar.getBoundingClientRect().height);
+
+    const begin = y => {
+      barActive = true; grabY = y; grabTop = window.scrollY;
+      bar.classList.add('grab');
+    };
+    const moveTo = y => {
+      if(!barActive) return;
+      const ratio = (y - grabY) / travel();
+      window.scrollTo(0, Math.max(0, Math.min(maxScroll(), grabTop + ratio * maxScroll())));
+    };
+    const end = ()=>{ if(!barActive) return; barActive = false; bar.classList.remove('grab'); };
+
+    bar.addEventListener('touchstart', e=>{ begin(e.touches[0].clientY); }, { passive:true });
+    bar.addEventListener('touchmove', e=>{
+      if(!barActive) return;
+      e.preventDefault();               // 不擋的話頁面會跟著自己捲，等於捲兩倍
+      moveTo(e.touches[0].clientY);
+    }, { passive:false });
+    bar.addEventListener('touchend', end);
+    bar.addEventListener('touchcancel', end);
+    // 滑鼠也能用（桌機把視窗縮窄時 bar 會出現，不給它行為反而奇怪）
+    bar.addEventListener('mousedown', e=>{ e.preventDefault(); begin(e.clientY); });
+    document.addEventListener('mousemove', e=>{ if(barActive) moveTo(e.clientY); });
+    document.addEventListener('mouseup', end);
+  }
+
+  /** bar 只在日曆頁出現。單獨一個函式：跟著旗標走的畫面要收斂在一個地方 */
+  function calScrollbarSync(){
+    const bar = document.getElementById('calScrollbar'); if(!bar) return;
+    bar.classList.toggle('on', currentView === 'calendar');
   }
 
   /**
@@ -7634,9 +7842,119 @@
     head.appendChild(addTaskBtn);
     area.appendChild(head);
 
+    area.appendChild(petBuildCard(gp));
     area.appendChild(buildGanttChart(gp));
     area.appendChild(buildTaskTable(gp));
     area.appendChild(buildProjectNotes(gp));
+  }
+
+  /**
+   * 專案頁上那一張夥伴卡。
+   *
+   * 新增的前端函式**一律加 `pet` 前綴**：這一段一次加了好幾個頂層函式，而遮蔽
+   * 事故在這份程式碼裡發生過三次（最後一次就是寫這個功能的畫皮時，見〈多語系〉）。
+   *
+   * 沒選夥伴時**仍然顯示這張卡**，只是變成一句邀請——整張卡消失會讓使用者
+   * 不知道有這個功能（同〈沒有人找得到的功能等於不存在〉）。
+   */
+  function petBuildCard(gp){
+    const box = document.createElement('div'); box.className = 'pet-card';
+    box.dataset.gpId = gp.id;      // 就地更新時要找得回它（見 refreshGanttChart）
+    const sp = petSpecies(gp.pet);
+    const pct = petCompletion(gp);
+    const stage = petStageOf(gp);
+
+    const art = document.createElement('div');
+    art.className = 'pet-card-art' + (stage === 'adult' ? ' adult' : '');
+    art.innerHTML = sp ? petArt(gp.pet, stage) : '';
+    box.appendChild(art);
+
+    const info = document.createElement('div'); info.className = 'pet-card-info';
+    if(sp){
+      const name = document.createElement('div'); name.className = 'pet-card-name';
+      name.textContent = petStageLabel(gp.pet, stage);
+      // 成年只多一個記號，不改顏色也不加動畫：那一刻的重點是「100% 了」，
+      // 而真正在說這件事的是下面那一行數字
+      if(stage === 'adult'){
+        const crown = document.createElement('span'); crown.className = 'pet-card-adult';
+        crown.textContent = tr('成年');
+        name.appendChild(crown);
+      }
+      const bar = document.createElement('div'); bar.className = 'pet-card-bar';
+      const fill = document.createElement('span'); fill.style.width = pct + '%';
+      bar.appendChild(fill);
+      const sub = document.createElement('div'); sub.className = 'pet-card-sub';
+      const doneCnt = (gp.tasks || []).filter(t => t && t.done).length;
+      sub.textContent = tf('{0}／{1} 項待辦完成（{2}%）', doneCnt, (gp.tasks || []).length, pct);
+      info.appendChild(name); info.appendChild(bar); info.appendChild(sub);
+    }else{
+      const name = document.createElement('div'); name.className = 'pet-card-name';
+      name.textContent = tr('還沒有夥伴');
+      const sub = document.createElement('div'); sub.className = 'pet-card-sub';
+      sub.textContent = tr('挑一隻陪你把這個專案做完，待辦全部完成時牠就長大了。');
+      info.appendChild(name); info.appendChild(sub);
+    }
+    box.appendChild(info);
+
+    const pick = document.createElement('button'); pick.className = 'qbtn pet-card-pick';
+    pick.textContent = sp ? tr('換夥伴') : tr('挑一隻夥伴');
+    pick.onclick = ()=> petOpenPanel(gp.id);
+    box.appendChild(pick);
+    return box;
+  }
+
+  /** 正在替哪一個專案挑夥伴（面板開啟時固定下來，之後的重繪不影響它） */
+  let petPanelGpId = null;
+
+  document.getElementById('btnPetCancel').onclick = petClosePanel;
+  document.getElementById('petNone').onclick = ()=> petChoose(null);
+  document.getElementById('petOverlay').addEventListener('click', e=>{
+    if(e.target === document.getElementById('petOverlay')) petClosePanel();
+  });
+
+  /**
+   * 挑夥伴的面板。照「不在」那個面板的形狀：**固定清單、不自由輸入**。
+   * 自由輸入要處理貼進一整段文字、輸入法中途的組字，以及「這是不是一個 emoji」
+   * 這個沒有好答案的問題。
+   *
+   * 每一格畫的是**那隻夥伴長大後的樣子**（adult），不是牠現在那一階——
+   * 使用者在選的是「我要養出什麼」，給他看幼體等於讓八格長得差不多。
+   */
+  function petOpenPanel(gpId){
+    petPanelGpId = gpId;
+    const gp = ganttProjects.find(g => g.id === gpId);
+    if(!gp) return;
+    const grid = document.getElementById('petGrid');
+    grid.innerHTML = '';
+    PET_SPECIES.forEach(sp => {
+      const cell = document.createElement('button');
+      cell.className = 'pet-pick' + (gp.pet === sp.id ? ' on' : '');
+      cell.innerHTML = '<span class="pet-pick-art">' + petArt(sp.id, 'adult') + '</span>';
+      const cap = document.createElement('span'); cap.className = 'pet-pick-cap';
+      cap.textContent = sp.baby + ' → ' + sp.adult;
+      cell.appendChild(cap);
+      cell.onclick = ()=> petChoose(sp.id);
+      grid.appendChild(cell);
+    });
+    const none = document.getElementById('petNone');
+    none.classList.toggle('on', !gp.pet);
+    document.getElementById('petOverlay').classList.add('show');
+  }
+
+  function petClosePanel(){
+    document.getElementById('petOverlay').classList.remove('show');
+    petPanelGpId = null;
+  }
+
+  /** 選一隻（或選「不要」）。走 commit()：那是唯一的寫入入口 */
+  function petChoose(speciesId){
+    const gpId = petPanelGpId;
+    const gp = ganttProjects.find(g => g.id === gpId);
+    if(!gp){ petClosePanel(); return; }
+    // 白名單：null 代表不要夥伴，其餘一律要認得（同 normalizeGanttProjects）
+    const next = speciesId && petSpecies(speciesId) ? speciesId : null;
+    petClosePanel();
+    commit(()=>{ gp.pet = next; });
   }
 
   function buildProjectNotes(gp){
@@ -7667,6 +7985,27 @@
   function refreshGanttChart(gp){
     const old = document.getElementById('ganttChartWrap');
     if(old) old.replaceWith(buildGanttChart(gp));
+    petRefreshCard(gp);
+  }
+
+  /**
+   * 夥伴卡跟著勾選就地更新。
+   *
+   * **為什麼掛在 refreshGanttChart 裡面，而不是在每個勾選框各叫一次**：改動任務資料
+   * 的地方有九處（勾完成、勾子代辦、改開始／結束日、共享頁的那幾顆），九處**全部**
+   * 已經會叫 refreshGanttChart。在那九處各補一行的話，漏掉的那一處症狀是
+   * 「勾完最後一件，動物沒有長大」——而那正是這個功能存在的理由。同 `setCloudEnabled`
+   * 把「跟著旗標走的畫面」收斂到一個地方的理由。
+   *
+   * **不能改成整頁 renderGanttView()**：那會重建表格，正在輸入的 input 當場被銷毀
+   * （見〈甘特頁的例外：表格不重建〉）。所以這裡與圖表一樣只換掉自己那一塊。
+   *
+   * 共享頁沒有夥伴卡，找不到就什麼都不做。
+   */
+  function petRefreshCard(gp){
+    if(!gp) return;
+    const old = document.querySelector('.pet-card[data-gp-id="' + String(gp.id).replace(/"/g, '\\"') + '"]');
+    if(old) old.replaceWith(petBuildCard(gp));
   }
 
   /**
@@ -9325,6 +9664,9 @@
   if(!loadedFromStorage && !gatedAtBoot) persist();   // 首次開啟即建立存檔，之後重整才接得回來
   applyLang();                        // 內含 renderAll()：語言要在第一次繪製前就套好
   bootSakuraPlay(lastGame && lastGame.stage);   // 開機的櫻花：演到你現在那一階（閘門關著時也演，那台裝置就是第一階）
+  bootPetsPlay(ganttProjects);                  // 櫻花下面那一排：各自現在那一階，沒有夥伴就整排不出現
+  // 開機時也要同步一次：renderNav() 只在切頁籤時跑，而第一次進來沒有人切過頁籤
+  calScrollbarSync();
   if(gatedAtBoot) loginGateShow();
   else setTimeout(showReminderToast, 700);
 

@@ -266,6 +266,14 @@ function mergeSharedEdit(kind, current, incoming) {
   return { ...current, tasks };
 }
 
+/**
+ * 只給測試用。`mergeSharedEdit` 是白名單的唯一實作，而「被分享者改不到的欄位」
+ * 不是靠權限判斷擋住，是**路徑本身走不到**——那種保護沒有東西守著的話，
+ * 哪天有人「順手」把一個欄位加進那個展開式就不會有任何東西變紅
+ *（同 listSessions 的 `WHERE user_id = ?`）。
+ */
+export const __testMergeSharedEdit = mergeSharedEdit;
+
 function sanitizeDoneMap(m) {
   const out = {};
   if (!m || typeof m !== 'object') return out;
