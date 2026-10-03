@@ -175,7 +175,7 @@ Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.Comm
 | `tools/verify-richtext.mjs` | 富文字過濾器的整條管線（含 DOM 走訪）擋得住 16 種攻擊向量 | 動到富文字 |
 | `tools/check-calendar.mjs` | 日曆的色條軌道對齊、跨月與週界的收邊、每日記錄的 ✎ 記號。**時鐘釘在 2026-09**——假資料是照那個月的週列寫的，而日曆開在「今天」那個月，不釘的話真實日期一過就永遠翻不回去（2026-10-01 實際紅過，紅的是工具不是產品）。**手機輪（390／720px）**：滑動 bar 不准蓋住任何一格或按鈕 | 動到 `renderCalendar()` 或日曆的 CSS |
 | `tools/check-notes.mjs` | 每日記錄／專案筆記的格式（醒目提示、顏色、字級）與內容在離開後仍在 | 動到富文字、`persistSoon()` 或任何 debounce 寫入 |
-| `tools/check-contrast.mjs` | 正文級文字在**兩種主題**下都達到 WCAG 對比（4.5:1／大字 3:1）。夥伴卡與挑夥伴面板也量，而且**主動把待辦勾完**逼出「成年」那個記號——等它自然出現就是〈永遠不會執行的斷言〉。六種小標、大項目的項數、對話框的欄位名；`INPUT_CHECK` 掃每一個輸入框是否套到共用樣式 | 動到任何顏色變數或文字顏色 |
+| `tools/check-contrast.mjs` | 正文級文字在**兩種主題**下都達到 WCAG 對比（4.5:1／大字 3:1）。夥伴卡與挑夥伴面板也量，而且**主動把待辦勾完**逼出「成年」那個記號——等它自然出現就是〈永遠不會執行的斷言〉。六種小標、大項目的項數、對話框的欄位名；`INPUT_CHECK` 掃每一個輸入框是否套到共用樣式；`TOKEN_CHECK` 直接量 `--text-dim` 本身（過 4.5:1 而且仍比 `--text-muted` 淡） | 動到任何顏色變數或文字顏色 |
 | `tools/check-deps.mjs` | 前置作業的「待前置」徽章、不阻擋勾選；「不在」的標記**與逾期並存**；逾期的顏色就是 `--red` 且字重比旁邊重；**純告知的八個「不算進去」**；**手機輪**：四張卡是橫向一排、逾期排第一且整張在畫面內、沒有逾期時收起來 | 動到 `dependsOn`、`absences`、`noticeOnly`／`isActionable`、`toggleOccDone`、逾期判斷或任何視覺改版 |
 | `tools/check-migrate.mjs` | **舊備份檔真的匯得回來**：造一份 v1 的 .json 丟進 `#importFile`，走完整條使用者路徑，再讀 localStorage 看實際存進去的東西；順便驗「比目前新的版本被擋下來，而且不動現有資料」 | 動到 `STORAGE_VERSION`、`migrateSnapshot`、`snapshot()`／`applySnapshot()`。在 CI 的 `smoke` job |
 | `tools/check-ambience.mjs` | 時段（早／午／晚）的 `data-daypart` 與光暈、每日記錄的提示語照日期決定、打勾的彈跳只在被點的那一個上、週一的回顧（含 N=0 不出現）、**遊戲化**：完美一天的 toast 只在勾掉最後一件時、升級的光只在升級那一次（看計算後的 `animationName`）、櫻花樹的畫皮（群組 class 與 CSS 對得上、垂下還在）、**開機的櫻花**（1200ms 的上限**在 JavaScript 關掉時**照樣成立、演到使用者現在那一階、reduced-motion 完全不出現）、**開機畫面的夥伴**（三個不變量都是從 `.boot-sakura` 繼承來的、最多四隻＋「+N」、reduced-motion 時連盒子都沒有）、reduced-motion 關 | 動到 `tick()`、`<head>` 開機腳本、`DAILY_PROMPTS`、`renderLookback()`、`.checkbox` 的 CSS、〈遊戲化畫面〉或 `.boot-sakura`、`.boot-pets` |
@@ -1848,7 +1848,7 @@ DOM 建構有兩種寫法，請依情境沿用：
 
 同一次修掉一條**既有的空斷言**：`check-contrast` 原本量 `.chip-name`，那個 class 從來不存在，每次都印「略過」。改成真正對得到的 `#majorChips .chip > span:first-child` 之後，旁邊的「1 項」（`.chip .cnt`）當場量出 2.57:1——那條空斷言藏起來的就是它。
 
-**還沒處理的**：另外還有 40 處用 `--text-dim` 當字色（已完成的項目、提示文字、footer、時間戳、日曆的星期列…）。最省事的修法是直接把 `--text-dim` 調深，但那會一次改到 40 個地方，連「已完成」與「待辦」的明暗差距都會縮小——**那是設計決定，不是順手修**，所以先寫在這裡。
+**另外 40 處用 `--text-dim` 當字色**（已完成的項目、提示文字、footer、時間戳、日曆的星期列…），2026-10-03 使用者裁決**直接調深 token**：亮色 `#A2A099` → `#6B6A63`、暗色 `#7A766D` → `#9A968C`，在 `--panel`／`--panel-2`／`--bg` 上都過 4.5:1，**而且仍比 `--text-muted` 淡一階**——「已完成比待辦淡」的層次留著（已完成的項目另外還有刪除線）。`check-contrast.mjs` 的 `TOKEN_CHECK` 守兩個方向：太淡（低於 4.5:1）會紅，深到不再比 `--text-muted` 淡也會紅。40 處逐一造出來不實際，所以量 token 本身，再挑三個真的用到它的地方（footer、日曆星期列、對話框提示文字）量實際畫面。
 
 ### 輸入框的型別清單要列全
 
