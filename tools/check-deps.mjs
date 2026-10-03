@@ -472,6 +472,17 @@ async function phoneStrip(seed) {
   await mp.waitForSelector('#board');
   await mp.locator('#reminderClose').click().catch(() => {});
   await mp.waitForTimeout(300);
+  // 手機沒有「移過去」這個動作：桌機才把編輯／刪除收起來，手機要一直看得到。
+  // 先確認這個模擬環境真的是「沒有滑鼠」——否則下面那一條是空的。
+  // 只在有項目的那一輪量（沒有逾期那一輪的 items 是空的，看板上沒有按鈕可量）
+  if (seed.items.length) {
+  const touch = await mp.evaluate(() => {
+    const b = document.querySelector('#board .occ-row .icon-btn');
+    return { fine: matchMedia('(hover:hover) and (pointer:fine)').matches, op: b ? getComputedStyle(b).opacity : null };
+  });
+  ok('手機模擬環境沒有滑鼠（下一條才不是空的）', !touch.fine);
+  ok('手機上編輯／刪除一直看得到（opacity ' + touch.op + '）', touch.op === '1');
+  }
   const r = await mp.evaluate(() => {
     const strip = document.querySelector('.metric-strip');
     const shown = [...strip.querySelectorAll('.metric-card')].filter(c => c.getClientRects().length)

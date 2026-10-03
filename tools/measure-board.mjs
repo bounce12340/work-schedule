@@ -83,7 +83,7 @@ for (const n of [64, 150, 300]) {
       .observe({ entryTypes: ['longtask'] });
   });
 
-  const rows = await page.locator('#board > *').count();
+  const rows = await page.locator('#board .occ-row').count();
 
   // ① 切換 mode 頁籤（年 → 季 → 年）
   const measure = async fn => {

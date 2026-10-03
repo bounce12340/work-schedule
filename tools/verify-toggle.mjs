@@ -29,13 +29,16 @@ import { markSignedIn } from './lib/signed-in.mjs';
 const INDEX = readFileSync(fileURLToPath(new URL('../public/index.html', import.meta.url)), 'utf8');
 const PORT = Number(process.env.PORT || 8964);
 
+// 日期刻意只有五天：第一天有兩件（i0 與 i5），其餘每天一件。這樣「一天一張紙」
+// 的兩個方向都測得到——勾掉第一天的第一件時那張紙要**留著**，勾掉只有一件的
+// 那幾天時紙要**收走**。
 function seed(n) {
   const types = ['work', 'meeting', 'assignment'];
   const items = [];
   for (let i = 0; i < n; i++) {
     items.push({
       id: 'i' + i, title: '項目' + i, type: types[i % 3], parentId: null,
-      meetingTime: null, link: null, date: '2026-08-' + String(1 + (i % 20)).padStart(2, '0'),
+      meetingTime: null, link: null, date: '2026-08-' + String(1 + (i % 5)).padStart(2, '0'),
       endDate: null, recurrence: null, done: false, doneMap: {}, overrides: {}, skipped: {}
     });
   }
@@ -54,6 +57,9 @@ const SIGNATURE = `(()=>{
     + (r.querySelector('.checkbox').classList.contains('done') ? '#done' : ''));
   return JSON.stringify({
     board: rows(board),
+    // 一天一張紙：增量路徑勾掉某一天的最後一件時要連紙一起收走，否則會留下一張
+    // 只有頁首的空紙——列的清單完全一樣，只有這一欄看得出差別。
+    sheets: [...board.querySelectorAll('.day-sheet')].map(s => s.dataset.date + ':' + s.querySelectorAll('.occ-row').length),
     boardEmpty: (board.querySelector('.empty-state') || {}).textContent || null,
     done: rows(doneBoard),
     doneCount: g('doneCount').textContent,

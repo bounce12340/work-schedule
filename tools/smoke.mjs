@@ -76,7 +76,10 @@ function seed() {
       date: `2026-0${1 + (i % 9)}-1${i % 9}`,
       endDate: i % 7 === 0 ? `2026-0${1 + (i % 9)}-2${i % 8}` : null,
       recurrence: recs[i % recs.length],
-      done: i % 6 === 0, doneMap: {}, overrides: {}, skipped: {}
+      done: i % 6 === 0, doneMap: {}, overrides: {}, skipped: {},
+      // 每週那一種帶兩個步驟：看板上一定有好幾列「收著的步驟清單」，
+      // 「收著的不准佔版面」那條斷言才不會是空的
+      ...(i % recs.length === 1 ? { subtasks: [{ id: 's1', text: '準備' }, { id: 's2', text: '收尾' }] } : {})
     });
   }
   return {
@@ -275,6 +278,59 @@ async function walk(page, log, plan = 'pro', server = null) {
   await expectStrip(true, '項目安排');
   await page.waitForTimeout(250);
   await need('#viewSchedule.active', '項目安排頁');
+  // 一天一張紙：每一列都要在某一張紙裡，而且沒有只剩頁首的空紙。
+  step = '看板：一天一張紙';
+  const sheets = await page.evaluate(() => ({
+    rows: document.querySelectorAll('#board .occ-row').length,
+    inSheet: document.querySelectorAll('#board .day-sheet > .occ-row').length,
+    empty: [...document.querySelectorAll('#board .day-sheet')].filter(x => !x.querySelector('.occ-row')).length
+  }));
+  if (!sheets.rows) throw new Error('看板上一列都沒有——下面兩條斷言會變成空的');
+  if (sheets.inSheet !== sheets.rows) throw new Error(`${sheets.rows - sheets.inSheet} 列沒有放進任何一張紙`);
+  if (sheets.empty) throw new Error(`${sheets.empty} 張紙只有頁首、沒有任何一列`);
+  // 收著的步驟清單不准佔版面。.sub-list 是 display:flex，壓過瀏覽器內建的
+  // [hidden]{display:none}——少了 .sub-list[hidden] 那一行，每個有步驟的項目底下
+  // 都多一條分隔線和一段空白。看 getClientRects 不看 class：要防的就是「屬性對、CSS 沒接上」。
+  step = '收著的步驟清單';
+  const subs = await page.evaluate(() => {
+    const l = [...document.querySelectorAll('#board .sub-list[hidden]')];
+    return { n: l.length, shown: l.filter(x => x.getClientRects().length).length };
+  });
+  if (!subs.n) throw new Error('示範資料裡找不到收著的步驟清單——這條斷言變成空的了');
+  if (subs.shown) throw new Error(`${subs.shown} 個收著的步驟清單仍然佔著版面（[hidden] 被 display 蓋掉）`);
+  // ---- 療癒系那一批（2026-10-03）的三件事，各自量計算後的樣式，不看 class ----
+  // C：時鐘只到分鐘。秒數每秒跳一次，像有人在旁邊催
+  step = 'header 時鐘只到分鐘';
+  const clockText = ((await page.locator('#nowTime').textContent()) || '').trim();
+  if (!/^\d{2}:\d{2}$/.test(clockText)) throw new Error(`時鐘應該是「時:分」，實際是「${clockText}」`);
+  // B：側欄沒有盒子，「我在這頁」只有選中那一顆的苔綠圓點是展開的
+  step = '側欄：我在這頁';
+  await page.mouse.move(2, 2);   // 移開滑鼠：滑過去的那一顆本來就會有一層淡底
+  await page.waitForTimeout(250);
+  const navs = await page.evaluate(() => [...document.querySelectorAll('.sidebar .nav-item')].map(n => {
+    const cs = getComputedStyle(n), dot = getComputedStyle(n, '::before');
+    return { id: n.id, active: n.classList.contains('active'), bg: cs.backgroundColor, bw: cs.borderTopWidth, dot: dot.transform };
+  }));
+  const shown = m => m === 'none' || m === 'matrix(1, 0, 0, 1, 0, 0)';
+  for (const n of navs) {
+    if (n.bg !== 'rgba(0, 0, 0, 0)' || n.bw !== '0px') throw new Error(`側欄 #${n.id} 還有盒子（底 ${n.bg}、框 ${n.bw}）`);
+    if (n.active !== shown(n.dot)) throw new Error(`側欄 #${n.id}：${n.active ? '選中卻沒有圓點' : '沒選中卻有圓點'}（${n.dot}）`);
+  }
+  if (navs.filter(n => n.active).length !== 1) throw new Error('側欄應該剛好有一顆是選中的');
+  // D：有滑鼠時編輯／刪除平常收起來；滑過那一行、或用 Tab 走進那一行時出現。
+  // 三個狀態都量——只量「收起來」的話，整個藏起來（連滑過去都不出現）也是綠的
+  step = '編輯／刪除：平常收起來';
+  const actRow = page.locator('#board .occ-row').first();
+  const actOp = async () => { await page.waitForTimeout(250); return actRow.locator('.icon-btn').last().evaluate(b => getComputedStyle(b).opacity); };
+  if (await actOp() !== '0') throw new Error('沒有滑過去，編輯／刪除卻一直顯示');
+  step = '編輯／刪除：滑過去出現';
+  await actRow.hover();
+  if (await actOp() !== '1') throw new Error('滑鼠移到那一行，編輯／刪除沒有出現');
+  step = '編輯／刪除：鍵盤走到也出現';
+  await page.mouse.move(2, 2);
+  await actRow.locator('.icon-btn').last().focus();
+  if (await actOp() !== '1') throw new Error('用 Tab 走到刪除鍵時它仍然是透明的——鍵盤使用者看不到自己要按什麼');
+  await page.evaluate(() => document.activeElement && document.activeElement.blur());
   const tabs = await page.locator('#modeTabs .mode-tab').all();
   if (!tabs.length) throw new Error('找不到檢視範圍頁籤');
   for (const tab of tabs) {
