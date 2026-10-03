@@ -25,8 +25,8 @@
 <style>
   /* 與 login.html／reset.html 同一組變數與元件樣式。三頁是同一套東西的不同入口。 */
   :root{
-    --bg:#F6F4EE; --panel:#FFFFFF; --panel-2:#F1EEE5;
-    --hairline:#E4E0D3; --text:#2A2A26; --text-muted:#71706A; --text-dim:#A2A099;
+    --bg:#F4F3EC; --panel:#FFFEF8; --panel-2:#EFEEE6;
+    --hairline:#E4E3D8; --text:#2A2A26; --text-muted:#5F5E58; --text-dim:#6B6A63;
     --amber:#C9822E; --amber-dim:rgba(201,130,46,0.12);
     --teal:#1F8C68; --teal-dim:rgba(31,140,104,0.10);
     --red:#C74B43; --red-dim:rgba(199,75,67,0.10);
@@ -35,9 +35,9 @@
     --serif:'Noto Serif TC','Songti TC','Source Han Serif TC',serif;
   }
   :root[data-theme="dark"]{
-    --bg:#1A1917; --panel:#232220; --panel-2:#2B2A27;
-    --hairline:#3A3833;
-    --text:#E8E5DC; --text-muted:#A8A49A; --text-dim:#7A766D;
+    --bg:#191A17; --panel:#222320; --panel-2:#2A2B27;
+    --hairline:#383A34;
+    --text:#E8E5DC; --text-muted:#A8A49A; --text-dim:#9A968C;
     --on-accent:#17160F;
     --amber:#E3A052; --amber-dim:rgba(227,160,82,0.16);
     --teal:#3FBF92; --teal-dim:rgba(63,191,146,0.14);
@@ -57,7 +57,9 @@
   .what b{color:var(--amber);}
   button.submit{width:100%;margin-top:6px;padding:12px;border:none;border-radius:9px;background:var(--amber);
                 color:var(--on-accent);font-family:var(--sans);font-size:14.5px;font-weight:700;cursor:pointer;}
-  button.submit:disabled{background:var(--text-dim);cursor:not-allowed;}
+  /* 停用中：淡底＋淡字。原本是 --text-dim 當底色，那個 token 為了字的 4.5:1 調深之後
+     會變成一塊深灰，看起來反而像按得下去 */
+  button.submit:disabled{background:var(--panel-2);color:var(--text-muted);cursor:not-allowed;box-shadow:none;}
   .msg{margin-top:16px;padding:11px 13px;border-radius:8px;font-size:13px;line-height:1.65;display:none;}
   .msg.err{display:block;background:var(--red-dim);border:1px solid rgba(199,75,67,.3);color:var(--red);}
   .msg.ok{display:block;background:var(--teal-dim);border:1px solid rgba(31,140,104,.3);color:var(--teal);}
