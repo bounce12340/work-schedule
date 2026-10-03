@@ -236,7 +236,12 @@ const measure = sels => {
   // 半透明的祖先（例如 `.nav-item.active` 的 --amber-dim）都疊在它**上面**。
   // 第一版把它當成疊在合成後的背景之上，算出來的顏色順序是反的——alpha 不可交換，
   // 那個數字看起來像個對比值，其實不對應畫面上任何一個位置。
+  // 2026-10-03 起底圖不畫光暈了（回到 #25 之前的方格底）。所以先問 body::before
+  // 真的有沒有畫漸層：沒有就不算——拿一團畫面上不存在的光暈去量，是假紅燈。
+  // 哪天光暈回來，這一條自己就會重新生效。
+  const haloDrawn = /radial-gradient/.test(getComputedStyle(document.body, '::before').backgroundImage || '');
   const haloWorst = (fg, el) => {
+    if (!haloDrawn) return Infinity;
     const bodyBg = parse(getComputedStyle(document.body).backgroundColor).slice(0, 3);
     let worst = Infinity;
     for (const n of ['--halo-a', '--halo-b', '--halo-c']) {
