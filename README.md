@@ -142,7 +142,7 @@ APP_URL=<optional>
 - Today's outstanding items pop up when the page opens; the bell button carries an unread count
 - **Light / dark** appearance is switched on the "My account" page and follows the system setting by default
 - **Two voices**: where a person is speaking (greeting, empty states, daily notes) the interface uses a serif face; where the machine reports numbers (dates, counts, **overdue**) it uses monospace. Overdue therefore stands out **more**, not less. The mood may be soft; the warning may not
-- The backdrop is off-white with a faint grid and white cards (since 2026-10-03; the earlier halos and paper grain made everything look too yellow and were removed)
+- The backdrop is off-white with a faint grid, cards stay a soft paper white (since 2026-10-03; the earlier halos and paper grain made everything look too yellow and were removed)
 - The daily-note prompt changes every day; ticking a box gives a small pop; **on Mondays a single line says "Last week you finished N things"**, and it only counts what got done
 - On phones the navigation is pinned to the bottom of the screen, and forms and dialogs are tuned for touch
 

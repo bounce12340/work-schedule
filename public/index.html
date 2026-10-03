@@ -50,14 +50,14 @@
   :root{
     color-scheme: light;
     --bg: #F6F4EE;
-    --panel: #FFFFFF;
+    --panel: #FFFDF7;
     --paper: #FDFAF1;   /* 每日記錄專用的紙色，比 panel 再暖一點 */
     --sakura-trunk: #6E5A4A; --sakura-branch: #8A7360; --sakura-leaf: #7FA36B; --sakura-petal: #F0BCCB; --sakura-petal-2: #D98AA6; --sakura-soil: #CDBE9E;   /* 遊戲化的櫻花樹 */
     --pet-body: #C9A882; --pet-body-2: #A8855F; --pet-ink: #4A3F36; --pet-pale: #EADBC6; --pet-leaf: #6F9A5E; --pet-leaf-2: #517A44;   /* 專案的夥伴 */
     --art-far: #DCE3D0;   /* 空狀態插畫：遠山 */
     --art-near: #C7D3BA;  /* 空狀態插畫：近坡 */
     --panel-2: #F1EEE5;
-    --hairline: #E4E0D3;
+    --hairline: #E8E3D6;
     --hairline-soft: #ECE8DD;
     --hairline-strong: #CDC8B8;
     --dash: #D2CDBB;
@@ -219,9 +219,9 @@
   html,body{height:100%;}
   body{
     background: var(--bg); color: var(--text); font-family: var(--sans); -webkit-font-smoothing: antialiased;
-    /* 底下一層淡淡的方格，像筆記本的格線。2026-10-03 使用者裁決回到「紙與光」(#25)
-       之前的樣子：白色卡片、米白底、方格，**不畫光暈也不畫紙紋**——那兩層
-       合起來讓整個畫面偏土黃。--halo-* 仍然留著：櫻花樹升級的光與空狀態插畫的
+    /* 底下一層淡淡的方格，像筆記本的格線。2026-10-03 使用者裁決：底圖回到
+       「紙與光」(#25) 之前的米白方格，**不畫光暈也不畫紙紋**——那兩層合起來
+       讓整個畫面偏土黃；卡片則維持淺白的紙色（--panel #FFFDF7）。--halo-* 仍然留著：櫻花樹升級的光與空狀態插畫的
        太陽還在用它，時段（data-daypart）也仍然會換它的顏色。 */
     background-image: linear-gradient(var(--grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
     background-size: 32px 32px;
