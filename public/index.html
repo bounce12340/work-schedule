@@ -50,25 +50,23 @@
   :root{
     color-scheme: light;
     --bg: #F6F4EE;
-    --panel: #FFFDF7;
+    --panel: #FFFFFF;
     --paper: #FDFAF1;   /* 每日記錄專用的紙色，比 panel 再暖一點 */
     --sakura-trunk: #6E5A4A; --sakura-branch: #8A7360; --sakura-leaf: #7FA36B; --sakura-petal: #F0BCCB; --sakura-petal-2: #D98AA6; --sakura-soil: #CDBE9E;   /* 遊戲化的櫻花樹 */
     --pet-body: #C9A882; --pet-body-2: #A8855F; --pet-ink: #4A3F36; --pet-pale: #EADBC6; --pet-leaf: #6F9A5E; --pet-leaf-2: #517A44;   /* 專案的夥伴 */
     --art-far: #DCE3D0;   /* 空狀態插畫：遠山 */
     --art-near: #C7D3BA;  /* 空狀態插畫：近坡 */
     --panel-2: #F1EEE5;
-    --hairline: #E8E3D6;
+    --hairline: #E4E0D3;
     --hairline-soft: #ECE8DD;
     --hairline-strong: #CDC8B8;
     --dash: #D2CDBB;
     --scroll-thumb: #D8D4C6;
     --grid-line: rgba(0,0,0,0.025);
-    /* 療癒系氛圍層。三團光暈疊出「遠處的森林與光」，不是照片也不是插畫——
-       單檔零依賴是這個專案的前提，外部圖檔會讓雙擊開啟失效。 */
+    /* 三個暖色：櫻花樹升級的光、空狀態插畫的太陽。底圖不再畫光暈（見 body）。 */
     --halo-a: rgba(118,152,106,0.52);   /* 苔綠，左上 */
     --halo-b: rgba(206,168,102,0.44);   /* 暖沙，右上 */
     --halo-c: rgba(132,160,134,0.42);   /* 遠山，下方 */
-    --grain-alpha: 0.030;
     --text: #2A2A26;
     --text-strong: #20201C;
     --text-muted: #5F5E58;
@@ -179,12 +177,9 @@
     --dash: #4A4740;
     --scroll-thumb: #45423B;
     --grid-line: rgba(255,255,255,0.022);
-    /* 暗色是「夜裡的森林」，不是把亮色調暗：光暈更冷、更收斂，
-       紙紋要更淡，否則在深色底上會變成看得見的雜訊。 */
     --halo-a: rgba(84,124,94,0.48);
     --halo-b: rgba(126,102,62,0.38);
     --halo-c: rgba(66,98,86,0.46);
-    --grain-alpha: 0.022;
     --text: #E8E5DC;
     --text-strong: #F4F1E8;
     --text-muted: #A8A49A;
@@ -224,28 +219,18 @@
   html,body{height:100%;}
   body{
     background: var(--bg); color: var(--text); font-family: var(--sans); -webkit-font-smoothing: antialiased;
+    /* 底下一層淡淡的方格，像筆記本的格線。2026-10-03 使用者裁決回到「紙與光」(#25)
+       之前的樣子：白色卡片、米白底、方格，**不畫光暈也不畫紙紋**——那兩層
+       合起來讓整個畫面偏土黃。--halo-* 仍然留著：櫻花樹升級的光與空狀態插畫的
+       太陽還在用它，時段（data-daypart）也仍然會換它的顏色。 */
+    background-image: linear-gradient(var(--grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+    background-size: 32px 32px;
   }
-  /**
-   * 氛圍層。三團光暈 ＋ 一層紙紋，鋪在所有內容底下。
-   *
-   * **用 position:fixed 的偽元素，不用 `background-attachment: fixed`。**
-   * 後者在 iOS Safari 上支援得很差（實際行為接近 scroll，而且會逼出重繪）。
-   * 固定的偽元素則是合成一次就好，捲動時完全不重畫。
-   *
-   * z-index:-1 讓它待在所有內容後面。`.sidebar`(50)、`.ai-panel`(60) 等固定元素
-   * 都在它上面，不會被蓋住。
-   *
-   * **內容面板刻意維持不透明**（`--panel` 是實色）。療癒感來自四周的留白與光暈，
-   * 不是來自「讓字浮在圖上」——那會讓對比掉下去，而這個工具的看板一頁有上千列。
-   */
-  /* ---- 天空跟著時間變色 ----
-     招呼語已經知道現在是一天裡的什麼時候；讓底圖也知道。早上是苔綠與暖沙，
-     下午偏金，傍晚之後偏玫瑰與靛——像天黑前的那一小段。
-
-     兩種主題各自一組，共六個組合。選擇器寫成 :root[data-theme][data-daypart]
-     (0,3,0)，才壓得過 :root[data-theme="dark"] (0,2,0)，而且亮暗互不干擾。
-     內容面板都是不透明的，這裡只動底圖，任何文字對比都不受影響——
-     check-contrast 仍然會在傍晚時段量一次，因為 header 的字是直接坐在光暈上的。 */
+  /* ---- 時段的顏色 ----
+     --halo-* 跟著時段（早／午／晚）換色。底圖已經不畫光暈了（見上面 body），
+     它現在只染櫻花樹升級時的那圈光與空狀態插畫的太陽。
+     選擇器寫成 :root[data-theme][data-daypart] (0,3,0)，才壓得過
+     :root[data-theme="dark"] (0,2,0)，而且亮暗互不干擾。 */
   :root[data-theme="light"][data-daypart="afternoon"]{
     --halo-a: rgba(160,158,96,0.46);
     --halo-b: rgba(222,176,96,0.50);
@@ -267,39 +252,6 @@
     --halo-c: rgba(60,70,120,0.48);
   }
 
-  /* 光暈會非常慢地飄。兩分鐘走完一趟、位移只有 1.5%——不是要讓人看見它在動，
-     是要讓底圖不像一張貼死的圖片。
-
-     三個實作決定：
-     - **只動 transform，不動 background-position。** 後者每一格都要重畫整層
-       漸層；transform 是合成層的事，GPU 處理，捲動與重繪都不受影響。
-     - **inset 往外多 10%**，位移才不會在邊緣露出底色。
-     - **prefers-reduced-motion 一律停掉。** 這是純氛圍，沒有任何資訊在裡面，
-       是最該被關掉的那一種動畫。 */
-  @keyframes halo-drift{
-    from{ transform: translate3d(-1.5%, -1%, 0); }
-    to  { transform: translate3d(1.5%, 1%, 0); }
-  }
-  body::before{
-    content:''; position:fixed; inset:-10%; z-index:-1; pointer-events:none;
-    background-color: var(--bg);
-    background-image:
-      radial-gradient(1100px 620px at 12% -8%, var(--halo-a), transparent 62%),
-      radial-gradient(900px 520px at 92% -4%, var(--halo-b), transparent 58%),
-      radial-gradient(1200px 760px at 50% 108%, var(--halo-c), transparent 64%);
-    animation: halo-drift 120s ease-in-out infinite alternate;
-  }
-  @media (prefers-reduced-motion: reduce){
-    body::before{ animation:none; transform:none; }
-  }
-  /* 紙紋另外一層：feTurbulence 產生的細顆粒，讓大面積漸層不會看起來像塑膠。
-     inline SVG data URI，不是外部檔案——單檔開啟仍然有效。 */
-  body::after{
-    content:''; position:fixed; inset:0; z-index:-1; pointer-events:none;
-    opacity: var(--grain-alpha);
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
-    background-size: 160px 160px;
-  }
   ::-webkit-scrollbar{ width:8px; height:8px; }
   ::-webkit-scrollbar-thumb{ background: var(--scroll-thumb); border-radius:4px; }
   ::-webkit-scrollbar-track{ background: transparent; }
