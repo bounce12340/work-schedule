@@ -72,7 +72,12 @@
     --text: #2A2A26;
     --text-strong: #20201C;
     --text-muted: #5F5E58;
-    --text-dim: #A2A099;
+    /* 原本 #A2A099：在 --panel 上 2.57:1、--panel-2 上 2.26:1，用在 40 處字色上（已完成的項目、
+       提示文字、時間戳、日曆的星期列、footer…）全部低於 4.5:1。調深到在三種底色（panel／
+       panel-2／bg）上都過 4.5:1，**而且仍比 --text-muted 淡一階**——「已完成比待辦淡」的
+       層次留著（已完成的項目另外還有刪除線，靠的本來就不只是顏色）。暗色那一組同理。
+       改這個值之前跑 tools/check-contrast.mjs：它直接量 token 本身在 panel／panel-2 上的對比 */
+    --text-dim: #6B6A63;
     --on-accent: #FFFDF9;
     --checkbox-border: #C9C4B4;
     --overlay-bg: rgba(40,36,26,0.32);
@@ -177,7 +182,7 @@
     --text: #E8E5DC;
     --text-strong: #F4F1E8;
     --text-muted: #A8A49A;
-    --text-dim: #7A766D;
+    --text-dim: #9A968C;   /* 原本 #7A766D（3.51:1），理由見亮色那一組 */
     --on-accent: #17160F;
     --checkbox-border: #55524A;
     --overlay-bg: rgba(0,0,0,0.55);

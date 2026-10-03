@@ -64,6 +64,8 @@ const TARGETS = [
   ['.metric-label', '四張卡的小標'],
   ['.major-section-label', '「大項目」那一區的小標'],
   ['.period-label', '「年份」小標'],
+  // --text-dim 的代表（它用在 40 處字色上，逐一造出來不實際；token 本身另外由 TOKEN_CHECK 量）
+  ['footer.storage-note', 'footer 的說明（--text-dim）'],
 ];
 
 /**
@@ -75,6 +77,7 @@ const TARGETS = [
  */
 const AFTER_CLICKS = [
   ['#btnToggleAway', '「不在」按鈕'],
+  ['.cal-weekday', '日曆的星期列（--text-dim）'],
 ];
 
 /**
@@ -315,6 +318,32 @@ const SELF_CHECK = async page => {
  * 掃的是**文件裡的每一個 input**（關著的對話框裡的也算，計算後的樣式照樣有），不是
  * 只掃那四種：日後多一種型別（tel、month…）沒列進清單，這裡就紅。
  */
+/**
+ * --text-dim 這個 token 本身。它用在 40 處字色上（已完成的項目、提示、時間戳、星期列、
+ * footer…），原本 2.57:1／2.26:1——全部不及格，而清單上一個都沒量到。逐一把 40 處造出來
+ * 不實際，所以直接量 token 在它會壓上去的兩種底色（--panel、--panel-2）上的對比；並且守住
+ * 另一個方向：它必須**仍比 --text-muted 淡**，否則「已完成比待辦淡」的層次就沒了。
+ */
+const TOKEN_CHECK = async (page, label) => {
+  const r = await page.evaluate(() => {
+    const cs = getComputedStyle(document.documentElement);
+    const v = n => cs.getPropertyValue(n).trim();
+    const lum = h => { const n = parseInt(h.slice(1), 16);
+      return [16, 8, 0].map(s => { const c = ((n >> s) & 255) / 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); })
+        .reduce((a, c, i) => a + c * [0.2126, 0.7152, 0.0722][i], 0); };
+    const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+    const dim = v('--text-dim'), muted = v('--text-muted');
+    return { dim, onPanel: ratio(dim, v('--panel')), onPanel2: ratio(dim, v('--panel-2')),
+             mutedOnPanel2: ratio(muted, v('--panel-2')) };
+  });
+  const f = x => x.toFixed(2);
+  if (r.onPanel < 4.5) problems.push(`${label}｜--text-dim（${r.dim}）在 --panel 上 ${f(r.onPanel)}:1，低於 4.5:1`);
+  if (r.onPanel2 < 4.5) problems.push(`${label}｜--text-dim（${r.dim}）在 --panel-2 上 ${f(r.onPanel2)}:1，低於 4.5:1`);
+  if (r.onPanel2 >= r.mutedOnPanel2) problems.push(`${label}｜--text-dim 不再比 --text-muted 淡（${f(r.onPanel2)} ≥ ${f(r.mutedOnPanel2)}）——「已完成比待辦淡」的層次沒了`);
+  if (r.onPanel >= 4.5 && r.onPanel2 >= 4.5 && r.onPanel2 < r.mutedOnPanel2)
+    console.log(`  ✓ ${label}：--text-dim ${r.dim} 在 panel ${f(r.onPanel)}:1、panel-2 ${f(r.onPanel2)}:1，仍比 --text-muted 淡`);
+};
+
 const INPUT_CHECK = async (page, label) => {
   const bad = await page.evaluate(() => {
     const ref = getComputedStyle(document.getElementById('inputItemTitle'));
@@ -346,6 +375,7 @@ for (const [theme, label, fixedTime] of PASSES) {
   await page.waitForTimeout(800);
   if (label === '亮色') await SELF_CHECK(page);
   if (!fixedTime) await INPUT_CHECK(page, label);
+  if (!fixedTime) await TOKEN_CHECK(page, label);
   await page.locator('#reminderClose').click().catch(() => {});
   await page.waitForTimeout(200);
 
@@ -417,7 +447,10 @@ for (const [theme, label, fixedTime] of PASSES) {
   await page.locator('#openItemModal').click();
   await page.waitForTimeout(250);
   // 對話框的欄位名（`.field label`）：所有對話框共用同一條規則，量這一個就涵蓋全部
-  rows.push(...await page.evaluate(measure, [['#itemOverlay .field label', '對話框的欄位名']]));
+  rows.push(...await page.evaluate(measure, [
+    ['#itemOverlay .field label', '對話框的欄位名'],
+    ['#itemOverlay .field-hint', '對話框的提示文字（--text-dim，壓在 --panel-2 上）'],
+  ]));
   await page.fill('#inputItemTitle', '去年的公告');
   await page.locator('#inputNoticeOnly').check();
   await page.fill('#inputItemDate', '2026-01-05');
