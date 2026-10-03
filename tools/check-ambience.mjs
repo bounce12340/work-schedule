@@ -250,7 +250,7 @@ ok('上週一件都沒做完時不出現——那會是一根刺，不是回顧'
    await monEmpty.evaluate(() => document.getElementById('brandLookback').hidden) === true);
 await monEmpty.close();
 
-console.log('\n── 開機的櫻花：它是遮罩，不是關卡 ──');
+console.log('\n── 開機的載入畫面：3 秒、點一下可跳過、上限由 CSS 保證 ──');
 // 上線日之後連續七天各一件按時做完：7 × 40 = 280，加「第一件」與「連續 7 天」兩個徽章
 // 200 → 480 XP → Lv.3 → 第二階（抽枝）。要的就是「不只一階」，才驗得到成長動畫真的
 // 演到使用者現在那一階，而不是永遠停在第一幀。
@@ -283,7 +283,7 @@ async function bootRun(opts = {}) {
     pg.on('pageerror', e => errors.push('pageerror: ' + e.message));
     await pg.clock.setFixedTime(new Date('2026-09-24T10:00:00'));   // 等級要算得出來，就不能靠執行當天是幾號
     await pg.addInitScript(s => { try { localStorage.setItem('workSchedule.v1', JSON.stringify(s)); localStorage.setItem('workSchedule.v1.lang', 'zh'); } catch (e) {} }, BOOT_SEED);
-    await markSignedIn(pg);
+    await markSignedIn(pg, undefined, { boot: true });   // 這一輪要的正是載入畫面本身
   }
   // 量的是**計算後**的樣式：看得見 = 還沒被 CSS 的動畫收掉
   const shot = () => pg.evaluate(() => {
@@ -297,8 +297,13 @@ async function bootRun(opts = {}) {
       // 量它自己計算後的 pointer-events 才證明得到那件事——量 .boot-sakura 的
       // 只證明父層對，而子層被某條規則蓋掉時畫面上看不出來
       pets: [...document.querySelectorAll('#bootPets .boot-pet svg')].length,
-      petsPointer: (()=>{ const p = document.querySelector('#bootPets .boot-pet');
-                          return p ? getComputedStyle(p).pointerEvents : null; })(),
+      petsWalk: [...document.querySelectorAll('#bootPets .boot-pet')].map(p => getComputedStyle(p).animationName),
+      // 對岸的走在樹後面、前岸的走在樹前面：比的是**計算後**的 z-index
+      treeZ: (()=>{ const t = document.getElementById('bootSakuraArt'); return t ? Number(getComputedStyle(t).zIndex) : null; })(),
+      petsZ: [...document.querySelectorAll('#bootPets .boot-pet')].map(p => Number(getComputedStyle(p).zIndex)),
+      // 進度條：量填滿的寬度佔軌道的比例
+      progress: (()=>{ const f = document.querySelector('.boot-progress > span'); const t = document.querySelector('.boot-progress');
+                       return f && t ? f.getBoundingClientRect().width / t.getBoundingClientRect().width : null; })(),
       petsMore: (document.querySelector('.boot-pet-more') || {}).textContent || '',
       // display:none 的祖先底下，子元素**仍然在 DOM 裡**、getComputedStyle 也照樣
       // 回得出繼承來的值。所以「看不看得見」要問的是**有沒有版面盒子**：
@@ -309,9 +314,9 @@ async function bootRun(opts = {}) {
   });
   await pg.goto(`http://localhost:${PORT}/`);
   const early = await shot();
-  await pg.waitForTimeout(820);
+  await pg.waitForTimeout(1500);          // Lv.3 → 第二階在 2200 / 2 = 1100ms 長出來
   const grown = await shot();
-  await pg.waitForTimeout(700);           // 累計 ~1520ms，過了 1200ms 的上限
+  await pg.waitForTimeout(2500);          // 累計 ~4000ms，過了 3400ms 的上限
   const late = await shot();
   return { pg, early, grown, late, shot };
 }
@@ -319,12 +324,16 @@ async function bootRun(opts = {}) {
 const b = await bootRun();
 ok('第一次繪製就看得見（不必等任何東西，它蓋在已經畫好的畫面上）',
    b.early.opacity > 0.9 && b.early.visibility === 'visible');
-ok('它是遮罩不是關卡：pointer-events 是 none', b.early.pointer === 'none');
+// 3 秒、整片不透明的時候還讓點擊穿過去，等於讓人按到看不見的按鈕——所以它吃點擊，
+// 而且點一下就收掉（下面那一輪）
+ok('它吃點擊（不讓人按到底下看不見的按鈕）：pointer-events 不是 none', b.early.pointer !== 'none');
 ok('開場畫的是第一階（新芽：只有芽與葉，沒有枝）',
    /var\(--sakura-trunk\)/.test(b.early.art) && !/var\(--sakura-branch\)/.test(b.early.art));
 ok('成長動畫演到使用者現在那一階（Lv.3 → 抽枝，長出枝了）', /var\(--sakura-branch\)/.test(b.grown.art));
-ok('1200ms 的上限到了就走（1500ms 時已經收掉）',
+ok('3400ms 的上限到了就走（4000ms 時已經收掉）',
    b.late.visibility === 'hidden' || b.late.opacity === 0);
+ok('進度條：開場幾乎是空的，跑到一半時在中間（是在跑，不是一張畫好的圖）',
+   b.early.progress !== null && b.early.progress < 0.25 && b.grown.progress > 0.3 && b.grown.progress < 0.98);
 // 「只在開機出現一次」：切頁籤不會讓它再冒出來
 await b.pg.locator('.nav-btn').nth(1).click().catch(() => {});
 await b.pg.waitForTimeout(150);
@@ -335,10 +344,25 @@ await b.pg.close();
 // **上限本身**：它是 CSS 的，不是 JS 的。JS 整個不跑時它照樣要自己走——
 // 交給 JS 的計時器的話，JS 一摔倒就留下一張永遠蓋住整個 app 的紙。
 const bNoJs = await bootRun({ javaScriptEnabled: false });
-ok('上限不靠 JS：JavaScript 整個關掉，1500ms 時它一樣已經收掉',
+ok('上限不靠 JS：JavaScript 整個關掉，4000ms 時它一樣已經收掉',
    bNoJs.late.visibility === 'hidden' || bNoJs.late.opacity === 0);
 ok('（而且那一輪的 JS 真的沒跑：樹沒有被畫進去）', bNoJs.late.art === '');
 await bNoJs.pg.close();
+
+// 點一下就跳過：吃點擊就一定要有出口。量的是點完 600ms 之後（遠早於 3400ms 的上限）
+{
+  const sk = await bootRun();
+  // bootRun 已經跑完整段了；重新載入一次，這一次在 300ms 時點一下
+  await sk.pg.reload();
+  await sk.pg.waitForTimeout(300);
+  const before = await sk.shot();
+  await sk.pg.mouse.click(640, 500);
+  await sk.pg.waitForTimeout(600);
+  const after = await sk.shot();
+  ok('點一下就收掉（900ms 時已經不見，不必等到 3400ms）',
+     before.opacity > 0.9 && (after.visibility === 'hidden' || after.opacity === 0));
+  await sk.pg.close();
+}
 
 const bReduced = await bootRun({ reducedMotion: 'reduce' });
 ok('prefers-reduced-motion：它根本不出現（display:none，不是淡出）',
@@ -348,7 +372,7 @@ await bReduced.pg.close();
 console.log('\n── 開機畫面上的夥伴：三個不變量是繼承來的 ──');
 // 六個專案、五個有夥伴 → 最多畫四隻，第五隻變成「+1」。
 // 這一段的重點不是「畫得出來」，是**它與櫻花共用同一個遮罩**：另開一個容器
-// 就要把 pointer-events:none、1200ms 的上限、reduced-motion 再寫一次，而漏掉
+// 就要把 3400ms 的上限、reduced-motion 再寫一次，而漏掉
 // 任何一個的症狀已經記過——一張永遠蓋住整個 app 的紙。
 ok('畫得出夥伴，而且最多四隻', b.early.pets === 4);
 ok('第五隻變成「+1」而不是硬塞進去', b.early.petsMore.trim() === '+1');
@@ -356,9 +380,11 @@ ok('沒選夥伴的專案不佔位置（六個專案、五個有夥伴 → 4 ＋
    b.early.pets + (b.early.petsMore ? 1 : 0) === 5);
 // 這三條各自對應一個繼承而來的不變量。量**夥伴自己**計算後的值，
 // 不是量 .boot-sakura 的——父層對而子層被蓋掉時畫面上看不出來
-ok('夥伴也是 pointer-events:none（繼承自 .boot-sakura，不是自己寫一份）',
-   b.early.petsPointer === 'none');
-ok('1200ms 的上限也管得到夥伴（1500ms 時整排跟著收掉）',
+ok('夥伴在湖邊走來走去（每一隻計算後的動畫都是 boot-walk）',
+   b.early.petsWalk.length === 4 && b.early.petsWalk.every(n => /boot-walk/.test(n)));
+ok('對岸的走在樹後面、前岸的走在樹前面（z-index 有高有低，而且夾著樹）',
+   b.early.treeZ !== null && b.early.petsZ.some(z => z < b.early.treeZ) && b.early.petsZ.some(z => z > b.early.treeZ));
+ok('3400ms 的上限也管得到夥伴（4000ms 時整排跟著收掉）',
    b.late.visibility === 'hidden' || b.late.opacity === 0);
 // 問的是「有沒有版面盒子」而不是「元素在不在」：display:none 的祖先底下，
 // 子元素仍然在 DOM 裡，連 getComputedStyle 都照樣回得出繼承來的值

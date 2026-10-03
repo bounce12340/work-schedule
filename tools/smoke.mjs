@@ -35,6 +35,7 @@
 import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { skipBootScene } from './lib/signed-in.mjs';
 
 const PUBLIC = fileURLToPath(new URL('../public/', import.meta.url));
 const PORT = Number(process.env.PORT || 8963);
@@ -1230,6 +1231,9 @@ async function walkNative(page, log, seen) {
       // 資料、版本也對得上 → 直接 cloudPush() 就 return，中間沒有任何重繪。
       await page.waitForFunction(() => /雲端同步啟用中/.test(document.getElementById('storageNoteText')?.innerText || ''), null, { timeout: 15000 })
         .catch(() => { throw new Error('探針 9：第一次載入就沒有同步成功，這支測試的前提不成立'); });
+      // 載入畫面（3 秒、會吃點擊）要拿掉：點擊會被它擋到 3 秒後才送出，那時同步早就
+      // 完成了，這支探針要的「同步還沒回來就切過去」就重現不了
+      await skipBootScene(page);
       await page.reload({ waitUntil: 'domcontentloaded' });
       await page.waitForSelector('#navAccount', { timeout: 10000 });
       await page.click('#navAccount');
