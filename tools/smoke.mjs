@@ -240,6 +240,20 @@ async function walk(page, log, plan = 'pro', server = null) {
     checked.push(`${what}(${n})`);
   };
   /**
+   * 四張卡只屬於「項目安排」與「日曆」。問的是**有沒有盒子**（getClientRects），
+   * 不是 class：要防的錯法正是「class 切對了、CSS 卻沒接上」——.metric-strip 是
+   * display:grid，改用 [hidden] 的話優先度輸給它，class 對、畫面上照樣在。
+   */
+  const expectStrip = async (shown, where) => {
+    step = `四張卡在「${where}」${shown ? '要出現' : '不該出現'}`;
+    const has = await page.evaluate(() => {
+      const el = document.querySelector('.metric-strip');
+      return !!el && el.getClientRects().length > 0;
+    });
+    if (has !== shown) throw new Error(`四張卡在「${where}」${shown ? '不見了' : '還在'}`);
+    checked.push(`四張卡${shown ? '在' : '不在'}${where}`);
+  };
+  /**
    * 一律先確認看得見再點。用 count() 判斷會踩到隱藏容器裡的按鈕——
    * `#doneSection` 預設 display:none，裡面的 #doneHead 仍然數得到，
    * 點下去就是 30 秒 timeout（我自己第一版就這樣壞的）。
@@ -258,6 +272,7 @@ async function walk(page, log, plan = 'pro', server = null) {
 
   // ---- 項目安排：四種檢視範圍都要展開一次 ----
   await click('#navSchedule', '切到項目安排頁');
+  await expectStrip(true, '項目安排');
   await page.waitForTimeout(250);
   await need('#viewSchedule.active', '項目安排頁');
   const tabs = await page.locator('#modeTabs .mode-tab').all();
@@ -291,6 +306,7 @@ async function walk(page, log, plan = 'pro', server = null) {
 
   // ---- 日曆：點一天、拖一段區間 ----
   await click('#navCalendar', '切到日曆頁');
+  await expectStrip(true, '日曆');
   await page.waitForTimeout(300);
   await need('#calGrid', '日曆格線');
   await need('.cal-cell:not(.blank)', '日曆格子');
@@ -312,6 +328,7 @@ async function walk(page, log, plan = 'pro', server = null) {
 
   // ---- 專案：圖表、任務表、子代辦、時間刻度 ----
   await click('#navGantt', '切到專案頁');
+  await expectStrip(false, '專案');
   await page.waitForTimeout(400);
   await need('#viewGantt.active', '專案頁');
   await need('.gantt-wrap', '甘特圖');
@@ -392,6 +409,7 @@ async function walk(page, log, plan = 'pro', server = null) {
 
   // ---- 共享 ----
   await click('#navShared', '切到共享頁');
+  await expectStrip(false, '共享');
   await page.waitForTimeout(400);
   await need('#viewShared.active', '共享頁');
   await need('#sharedIncoming', '別人分享給我');
@@ -416,6 +434,7 @@ async function walk(page, log, plan = 'pro', server = null) {
   await click('#navAccount', '切到我的帳號頁');
   await page.waitForTimeout(400);
   await need('#viewAccount.active', '我的帳號頁');
+  await expectStrip(false, '我的帳號');
   await need('#acctEmail', '帳號資訊');
 
   // 搬過來的控制項要真的還在。少一個就代表某段程式碼從此找不到它。

@@ -456,6 +456,53 @@ ok('也沒有「歸檔」——它已經依賴我，選了就繞成環', !opts.i
 ok('不相干的項目仍然選得到', opts.includes('沒有前置也不在的事'));
 await page.locator('#btnCancelItem').click();
 
+// ── 手機版的四張卡：逾期排第一張，沒有逾期就收起來 ──
+// 手機上四張卡改成橫向滑動的一排（原本直直疊起來，吃掉整個第一屏）。逾期原本排第四，
+// 照原順序的話它會被推到畫面外——畫面看起來完全正常，只是最該緊張的那一張要滑三次
+// 才看得到。所以這一條是紅線，不是排版：有逾期時它必須是第一張、整張在畫面內、
+// 日期仍是 --red；沒有逾期時收起來，第一張是「今日」。
+console.log('\n── 手機版的四張卡：逾期排第一張 ──');
+async function phoneStrip(seed) {
+  const mp = await br.newPage({ viewport: { width: 390, height: 780 }, locale: 'zh-TW', hasTouch: true, isMobile: true });
+  await mp.clock.setFixedTime(new Date(TODAY + 'T09:00:00'));
+  await mp.addInitScript(s => { try { localStorage.setItem('workSchedule.v1', JSON.stringify(s)); } catch (e) {} }, seed);
+  mp.on('pageerror', e => errors.push('pageerror（手機）: ' + e.message));
+  await markSignedIn(mp);
+  await mp.goto(`http://localhost:${PORT}/`);
+  await mp.waitForSelector('#board');
+  await mp.locator('#reminderClose').click().catch(() => {});
+  await mp.waitForTimeout(300);
+  const r = await mp.evaluate(() => {
+    const strip = document.querySelector('.metric-strip');
+    const shown = [...strip.querySelectorAll('.metric-card')].filter(c => c.getClientRects().length)
+      .sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
+    const od = strip.querySelector('.metric-card.overdue');
+    const ob = od.getBoundingClientRect();
+    const d = od.querySelector('.od-date');
+    const red = getComputedStyle(document.documentElement).getPropertyValue('--red').trim().toLowerCase();
+    const hex = c => '#' + (c.match(/\d+/g) || []).slice(0, 3).map(n => Number(n).toString(16).padStart(2, '0')).join('');
+    return {
+      first: shown[0] ? [...shown[0].classList].filter(c => c !== 'metric-card').join(' ') : '',
+      odShown: od.getClientRects().length > 0,
+      odInView: ob.left >= 0 && ob.right <= innerWidth,
+      odRed: d ? hex(getComputedStyle(d).color) === red : null,
+      // 橫向滑動是真的（不是四張直直疊著）：卡片之間是左右排，不是上下排
+      horizontal: shown.length >= 2 && Math.abs(shown[0].getBoundingClientRect().top - shown[1].getBoundingClientRect().top) < 2,
+    };
+  });
+  await mp.close();
+  return r;
+}
+const withOd = await phoneStrip(SEED);
+ok('手機：四張卡是橫向的一排（不是直直疊起來吃掉第一屏）', withOd.horizontal);
+ok('手機、有逾期：逾期卡出現', withOd.odShown);
+ok(`手機、有逾期：逾期卡排第一張（第一張是「${withOd.first}」）`, withOd.first === 'overdue');
+ok('手機、有逾期：逾期卡整張在畫面內，不用滑才看得到', withOd.odInView);
+ok('手機、有逾期：逾期日期仍是 --red（紅線不動）', withOd.odRed === true);
+const noOd = await phoneStrip({ ...SEED, items: [] });
+ok('手機、沒有逾期：逾期卡收起來（不佔第一張的位置）', !noOd.odShown);
+ok(`手機、沒有逾期：第一張是「今日」（實際是「${noOd.first}」）`, noOd.first === 'day');
+
 console.log('');
 let bad = 0;
 for (const [n, c] of checks) if (!c) { bad++; console.log('  ✗ 未通過：' + n); }

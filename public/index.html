@@ -292,7 +292,7 @@
   ::-webkit-scrollbar{ width:8px; height:8px; }
   ::-webkit-scrollbar-thumb{ background: var(--scroll-thumb); border-radius:4px; }
   ::-webkit-scrollbar-track{ background: transparent; }
-  .app{ max-width: 1280px; margin: 0 auto; padding: 24px 20px 70px; }
+  .app{ --app-pad-x: 20px; max-width: 1280px; margin: 0 auto; padding: 24px var(--app-pad-x) 70px; }
 
   header.top{ display:flex; align-items:flex-end; justify-content:space-between; padding-bottom: 22px; margin-bottom: 22px; flex-wrap: wrap; gap:16px; }
   /* 這裡原本寫著大寫的 SCHEDULE CONTROL BOARD——「工程控制台」那個聲音的
@@ -368,6 +368,7 @@
   .clock-block .now-time{ font-size:19px; font-weight:700; color:var(--amber); letter-spacing:1px; }
 
   .metric-strip{ display:grid; grid-template-columns: repeat(4, 1fr); gap:10px; margin-bottom:22px; }
+  .metric-strip.off{ display:none; }
   @media (max-width: 980px){ .metric-strip{ grid-template-columns: repeat(2, 1fr); } }
   .metric-card{ background: var(--panel); border:1px solid transparent; border-radius:18px; padding: 16px 20px; position:relative; overflow:hidden; box-shadow: var(--shadow-soft); }
   .metric-card::before{ content:''; position:absolute; left:0; top:0; bottom:0; width:3px; background: var(--amber); }
@@ -378,7 +379,14 @@
   .occ-date.overdue{ color: var(--red); font-weight:700; }
   .item-link{ font-family:var(--mono); font-size:11px; color:var(--violet); text-decoration:none; background:var(--violet-dim); padding:3px 8px; border-radius:5px; white-space:nowrap; }
   .item-link:hover{ text-decoration:underline; }
-  .metric-label{ font-family: var(--mono); font-size:10.5px; letter-spacing:2px; color: var(--text-dim); text-transform:uppercase; margin-bottom:6px; }
+  /* 小標（卡片名、區段名、欄位名）原本一律是「等寬＋字距 2px＋大寫＋--text-dim」：
+     9.5～10.5px 的灰字，對比只有 2.57:1（亮）／3.51:1（暗），六種小標全部低於 4.5:1，
+     而 check-contrast 一個都沒量到。那個寫法也是〈這個介面有兩種聲音〉退休掉的
+     「工程控制台」聲音——header 的 SCHEDULE CONTROL BOARD 換成招呼語時，這些小標
+     被漏掉了。等寬字只屬於「機器在報數」（日期、數量、徽章），小標不是數字。
+     改成 --sans、不拉字距、--text-muted（6.39:1），階層靠字級表達，不靠把顏色淡到
+     讀不了（同〈「畫面上沒有這個元素，略過」〉那一節的修法）。 */
+  .metric-label{ font-family: var(--sans); font-size:12px; font-weight:500; letter-spacing:.02em; color: var(--text-muted); margin-bottom:6px; }
   .metric-value{ font-family: var(--mono); font-size:28px; font-weight:700; color: var(--text); line-height:1; }
   .metric-value .unit{ font-size:13px; color: var(--text-muted); font-weight:500; margin-left:6px; }
   /* 高度必須是「行高 + gap」的整數倍，否則最後一列會被切成一半——看起來像
@@ -396,10 +404,11 @@
   .layout{ display:flex; gap:20px; align-items:flex-start; }
   .sidebar{ width: 176px; flex-shrink:0; display:flex; flex-direction:column; gap:6px; position: sticky; top: 20px; }
   .nav-item{ display:flex; align-items:center; gap:10px; padding: 13px 14px; border-radius:10px; background: var(--panel); border:1px solid var(--hairline); cursor:pointer; color: var(--text-muted); font-weight:700; font-size:14px; transition: all .15s ease; }
-  .nav-item .nav-dot{ width:7px; height:7px; border-radius:50%; background: var(--hairline); flex-shrink:0; }
   .nav-item:hover{ color: var(--text); border-color:var(--hairline-strong); }
   .nav-item.active{ background: var(--amber-dim); border-color: var(--amber); color: var(--amber-ink); }
-  .nav-item.active .nav-dot{ background: var(--amber); }
+  /* 原本每一顆前面有一個圓點，灰的、選中時變琥珀——但選中那一顆本來就有琥珀底色與框，
+     圓點只是把同一件事再講一次，其餘四顆的灰點什麼資訊都沒帶。拿掉。未讀數另有
+     .nav-badge，與它無關。 */
   .nav-item{ position:relative; }
   .nav-badge{ position:absolute; top:6px; right:8px; background:var(--red); color:var(--on-accent); font-family:var(--mono); font-size:10px; font-weight:700; border-radius:9px; min-width:17px; height:17px; padding:0 4px; display:flex; align-items:center; justify-content:center; }
 
@@ -408,12 +417,15 @@
   .view.active{ display:block; }
 
   .major-section{ margin-bottom:20px; }
-  .major-section-label{ font-family: var(--mono); font-size:10.5px; letter-spacing:2px; color: var(--text-dim); text-transform:uppercase; margin-bottom:8px; }
+  .major-section-label{ font-family: var(--sans); font-size:12px; font-weight:500; letter-spacing:.02em; color: var(--text-muted); margin-bottom:8px; }   /* 理由見 .metric-label */
   .chip-row{ display:flex; flex-wrap:wrap; gap:8px; }
   .chip{ display:flex; align-items:center; gap:8px; background: var(--panel); border:1px solid var(--hairline); border-radius:20px; padding:7px 8px 7px 14px; font-size:13px; font-weight:600; cursor:pointer; }
   .chip.selectable:hover{ border-color:var(--hairline-strong); }
   .chip.active{ border-color: var(--amber); background: var(--amber-dim); }
-  .chip .cnt{ font-family:var(--mono); font-size:10.5px; color: var(--text-dim); }
+  /* 數字留在等寬字（它是在報數），但顏色從 --text-dim（2.57:1）改成 --text-muted。
+     它一直沒被量到：check-contrast 原本寫的選擇器 `.chip-name` 根本不存在，那一條
+     每次都印「略過」，連帶這個鄰居也沒人看 */
+  .chip .cnt{ font-family:var(--mono); font-size:10.5px; color: var(--text-muted); }
   .chip button{ background:transparent; border:none; cursor:pointer; color: var(--text-dim); font-size:12px; width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center; }
   .chip button:hover{ background: var(--hairline-soft); color: var(--text); }
   .chip button.chip-del:hover{ color: var(--red); background: var(--red-dim); }
@@ -422,13 +434,27 @@
   .add-chip-btn:hover{ color: var(--amber); border-color: var(--amber); }
 
   .mode-tabs{ display:flex; gap:4px; margin-bottom:16px; background: var(--panel); border:1px solid var(--hairline); border-radius:10px; padding:4px; width: fit-content; }
-  .mode-tab{ font-family: var(--mono); font-size:13px; font-weight:600; letter-spacing:1px; padding: 9px 18px; border-radius:7px; cursor:pointer; color: var(--text-muted); border:none; background:transparent; transition: all .15s ease; }
+  .mode-tab{ font-family: var(--sans); font-size:13.5px; font-weight:600; padding: 9px 18px; border-radius:7px; cursor:pointer; color: var(--text-muted); border:none; background:transparent; transition: all .15s ease; }
   .mode-tab:hover{ color: var(--text); }
   .mode-tab.active{ background: var(--amber); color:var(--on-accent); }
 
   .period-row{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom: 18px; padding: 14px 16px; background: var(--panel); border:1px solid var(--hairline); border-radius:10px; }
-  .period-label{ font-family: var(--mono); font-size:10px; letter-spacing:2px; color: var(--text-dim); text-transform:uppercase; margin-right:4px; }
-  select, input[type=date], input[type=time], input[type=number], input[type=text]{ font-family: var(--mono); background: var(--panel-2); color: var(--text); border:1px solid var(--hairline); border-radius:6px; padding:7px 10px; font-size:13px; outline:none; }
+  /* 頁籤與「年份」原本各佔一整排，加上大項目、範圍列、篩選列，清單前面擋了五排、
+     桌機上從 620px 才開始。兩者是同一件事（「看哪一段時間」），併成一排：頁籤在左、
+     選哪一年在右，年份那一格拿掉自己的框——它現在是工具列的一部分，不是另一張卡。
+     窄的時候自然換行成兩排，與原本一樣。
+     **篩選列刻意沒有收起來**：「只看未完成」與標籤篩選藏到一顆鈕後面，就是〈「我的
+     帳號」分頁〉那句「沒有人找得到的功能等於不存在」。 */
+  .view-controls{ display:flex; align-items:center; gap:10px 16px; flex-wrap:wrap; margin-bottom:18px; }
+  .view-controls .mode-tabs{ margin-bottom:0; }
+  .view-controls .period-row{ margin-bottom:0; padding:0; background:transparent; border:none; border-radius:0; flex:1 1 auto; }
+  .period-label{ font-family: var(--sans); font-size:12px; font-weight:500; color: var(--text-muted); margin-right:4px; }   /* 理由見 .metric-label */
+  /* 型別清單要列全。原本漏了 search／email／password／url，於是搜尋框、變更密碼、刪除帳號、
+     分享對象、項目的「連結」與 **app 的登入畫面**全部掉回瀏覽器預設：2px 凹陷的灰框、
+     方角、沒有內距——暗色下還是一塊灰底。tools/check-contrast.mjs 的自我檢查會逐一
+     比對每一種 input 的框線與圓角，日後多一種型別沒列進來就紅。 */
+  select, input[type=date], input[type=time], input[type=number], input[type=text],
+  input[type=search], input[type=email], input[type=password], input[type=url]{ font-family: var(--mono); background: var(--panel-2); color: var(--text); border:1px solid var(--hairline); border-radius:6px; padding:7px 10px; font-size:13px; outline:none; }
   textarea{ font-family: var(--sans); background: var(--panel-2); color: var(--text); border:1px solid var(--hairline); border-radius:8px; padding:10px 12px; font-size:13.5px; outline:none; resize:vertical; width:100%; line-height:1.6; }
   textarea:focus{ border-color: var(--amber); }
   select, input[type=date], input[type=time]{ cursor:pointer; }
@@ -970,7 +996,8 @@
   /* 成年只多一個小記號。不改顏色、不加動畫——真正在說「100% 了」的是下面那行數字 */
   .pet-card-adult{ font-family:var(--mono); font-size:10px; letter-spacing:.08em; padding:2px 6px; border-radius:5px;
                    background:var(--teal-dim); color:var(--teal-ink); }
-  .pet-card-bar{ height:5px; border-radius:3px; background:var(--hairline); margin:7px 0 5px; overflow:hidden; }
+  /* 限寬：放任它撐滿整張卡的話，870px 的軌道放 33% 看起來像一條縫，不像「做了三分之一」 */
+  .pet-card-bar{ height:5px; max-width:260px; border-radius:3px; background:var(--hairline); margin:7px 0 5px; overflow:hidden; }
   .pet-card-bar span{ display:block; height:100%; background:var(--teal); border-radius:3px; }
   .pet-card-sub{ font-family:var(--mono); font-size:11.5px; color:var(--text-muted); }
   .pet-card-pick{ flex:0 0 auto; }
@@ -984,8 +1011,16 @@
      - 預設 display:none，只有手機版的日曆頁才出現 */
   .cal-scrollbar{ display:none; }
   @media (max-width:820px){
+    /* **bar 的觸控範圍不准蓋住任何一格。** 第一版是 34px 寬、直接疊在畫面右緣，
+       結果每一個星期六格子的右邊 20px（約四成）點下去抓到的是 bar——與
+       `.ai-panel[hidden]` 那個看不見的遮罩同一類：畫面看起來正常，只是點不到。
+       所以日曆頁在右邊預留一條欄位，寬度是 bar 減掉 .app 本來就有的邊距
+       （手機 14px、平板寬 20px，兩種寬度 bar 都會出現，不能寫死一個數字）。
+       tools/check-calendar.mjs 的手機輪逐格掃 elementFromPoint 守著。 */
+    :root{ --cal-bar-w: 30px; }
+    #viewCalendar{ padding-right: max(0px, calc(var(--cal-bar-w) - var(--app-pad-x, 14px))); }
     .cal-scrollbar{
-      position:fixed; right:0; z-index:60; width:34px; touch-action:none; cursor:grab;
+      position:fixed; right:0; z-index:60; width:var(--cal-bar-w); touch-action:none; cursor:grab;
       top:calc(22% + env(safe-area-inset-top)); bottom:calc(16% + env(safe-area-inset-bottom));
       display:none; align-items:center; justify-content:center;
     }
@@ -1018,7 +1053,7 @@
                border-radius:12px; padding:14px 16px 10px; margin-bottom:20px;
                max-width:100%; contain: inline-size; }
   .gantt-toolbar{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-bottom:12px; }
-  .gantt-toolbar-label{ font-family:var(--mono); font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color:var(--text-dim); margin-right:2px; }
+  .gantt-toolbar-label{ font-family:var(--sans); font-size:12px; font-weight:500; color:var(--text-muted); margin-right:2px; }   /* 理由見 .metric-label */
   .gantt-range{ margin-left:auto; font-family:var(--mono); font-size:10.5px; color:var(--text-dim); }
   .gantt-cols{ display:flex; align-items:flex-start; }
   .gantt-labels{ flex-shrink:0; width:170px; padding-right:10px; }
@@ -1047,11 +1082,12 @@
   .task-row{ display:flex; align-items:center; gap:8px; background: var(--panel); border:1px solid var(--hairline); border-radius:10px; padding:10px 12px; flex-wrap:wrap; }
   .task-row input[type=text]{ flex:1; min-width:130px; font-family: var(--sans); }
   .task-row input[type=date]{ width:132px; }
-  .task-row .progress-num{ width:56px; text-align:center; }
+  /* 56px 扣掉內距只剩 36px，「100」加上數字框的上下箭頭要 ~38px，最後一個字被切成「10(」 */
+  .task-row .progress-num{ width:68px; text-align:center; }
   .task-row .progress-suffix{ font-family:var(--mono); font-size:11px; color:var(--text-dim); }
   .task-row .task-done-cb{ width:19px; height:19px; border-radius:5px; border:1.5px solid var(--checkbox-border); display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:12px; color:transparent; flex-shrink:0; }
   .task-row .task-done-cb.done{ background: var(--teal); border-color: var(--teal); color:var(--on-accent); }
-  .task-field-label{ font-family:var(--mono); font-size:9.5px; color:var(--text-dim); text-transform:uppercase; letter-spacing:1px; margin-right:2px; }
+  .task-field-label{ font-family:var(--sans); font-size:11.5px; color:var(--text-muted); margin-right:2px; }   /* 理由見 .metric-label */
 
   .gantt-picker{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
   .gantt-picker select{ font-family: var(--sans); font-size:14px; font-weight:600; min-width:220px; max-width:100%; padding:9px 12px; }
@@ -1077,7 +1113,7 @@
   .modal h3{ font-size:17px; margin-bottom:18px; display:flex; align-items:center; gap:8px;}
   .modal h3 .dot{ width:8px; height:8px; border-radius:50%; background:var(--amber); }
   .field{ margin-bottom:14px; }
-  .field label{ display:block; font-family: var(--mono); font-size:10.5px; letter-spacing:1.5px; color: var(--text-dim); text-transform:uppercase; margin-bottom:6px; }
+  .field label{ display:block; font-family: var(--sans); font-size:12.5px; font-weight:500; color: var(--text-muted); margin-bottom:6px; }   /* 理由見 .metric-label */
   .field input, .field select{ width:100%; font-family: var(--sans); font-size:14px; }
   .field input[type=date], .field input[type=time], .field input[type=number]{ font-family: var(--mono); }
   /* 密碼欄位的眼睛。Helen 登不進去時完全不知道自己打了什麼，連「是不是打錯」都無從判斷。
@@ -1236,7 +1272,7 @@
         整個頁面，且不會縮回去，是手機上最惱人的一種破版
      3. modal 改成從底部升起的 sheet，小螢幕上置中對話框會被鍵盤擠掉 */
   @media (max-width: 640px){
-    .app{ padding: 16px 14px calc(86px + env(safe-area-inset-bottom)); }
+    .app{ --app-pad-x: 14px; padding: 16px var(--app-pad-x) calc(86px + env(safe-area-inset-bottom)); }
 
     header.top{ align-items:flex-start; gap:12px; padding-bottom:14px; }
     .brand-title{ font-size:19px; letter-spacing:1px; }
@@ -1250,8 +1286,23 @@
     .clock-block .now-time{ font-size:16px; }
     .clock-block .now-date{ font-size:11.5px; }
 
-    .metric-strip{ grid-template-columns: 1fr; gap:8px; margin-bottom:18px; }
-    .metric-card{ padding:12px 14px; }
+    /* 手機：四張卡原本直直疊起來，吃掉整個第一屏（真正的清單在第三屏）。改成橫向
+       滑動的一排，一次一張、下一張露出一角——露出來的那一角就是「還有更多」的提示。
+       左右各伸到螢幕邊緣（負外距＝.app 的邊距），露出來的才會是卡片而不是留白。
+       ⚠️ 逾期卡在這裡**排第一張**：原本排第四，橫向滑動之後會被推到畫面外，那就違反
+       紅線（該緊張的時候要讓人看到）。沒有逾期時它收起來，第一張就是「今日」——
+       有逾期時它最先被看到，沒有時不佔位。桌機的四欄不動（動態收起會讓另外三張卡的
+       寬度跳動）。 */
+    .metric-strip{
+      grid-template-columns:none; grid-auto-flow:column; grid-auto-columns:84%;
+      gap:8px; margin:0 calc(-1 * var(--app-pad-x)) 18px; padding:2px var(--app-pad-x) 6px;
+      overflow-x:auto; scroll-snap-type:x mandatory; scroll-padding:0 var(--app-pad-x);
+      overscroll-behavior-x:contain; scrollbar-width:none;
+    }
+    .metric-strip::-webkit-scrollbar{ display:none; }
+    .metric-card{ padding:12px 14px; scroll-snap-align:start; }
+    .metric-card.overdue{ order:-1; }
+    .metric-card.overdue.empty{ display:none; }
 
     /* 底部固定導覽列 */
     .sidebar{
@@ -1262,9 +1313,11 @@
       background: var(--panel); border-top:1px solid var(--hairline);
       box-shadow: 0 -2px 12px rgba(0,0,0,0.06);
     }
-    .nav-item{ flex-direction:column; gap:4px; padding:8px 2px; font-size:11.5px; border:none; background:transparent; border-radius:8px; }
+    /* min-height 不能拿掉：原本是圓點＋間距撐著 ~41px 的高度，圓點拿掉之後縮成 31px，
+       掉到可點範圍的門檻以下（check-mobile 抓到的）——而這是手機上最常按的一排。
+       高度由這一行負責，不再靠裝飾元素順便撐 */
+    .nav-item{ flex-direction:column; justify-content:center; gap:4px; min-height:44px; padding:8px 2px; font-size:11.5px; border:none; background:transparent; border-radius:8px; }
     .nav-item.active{ background: var(--amber-dim); }
-    .nav-item .nav-dot{ width:6px; height:6px; }
 
     /* 表單控制項：16px 以避免 iOS 聚焦時自動放大。
        **這條必須 !important，而且必須涵蓋所有可聚焦的控制項。**
@@ -1279,7 +1332,8 @@
        問題——最難從症狀推回原因的那一種。
        **不要改用 `maximum-scale=1` 擋放大**：那會連使用者自己要放大也一起擋掉。 */
     select, input, textarea, [contenteditable="true"]{ font-size:16px !important; }
-    select, input[type=date], input[type=time], input[type=number], input[type=text], textarea{ padding:9px 10px; }
+    select, input[type=date], input[type=time], input[type=number], input[type=text],
+    input[type=search], input[type=email], input[type=password], input[type=url], textarea{ padding:9px 10px; }
     /* 富文字：同樣 16px 防自動放大；按鈕加大到好按，工具列換行而不是橫向撐開 */
     .rt-edit{ font-size:16px; }
     .rt-bar{ gap:3px; padding:7px 6px; }
@@ -1288,11 +1342,12 @@
     .rt-pop{ flex-wrap:wrap; max-width:calc(100vw - 60px); }
     .rt-swatch{ width:26px; height:26px; }
     .field input, .field select{ font-size:16px; }
-    .task-row .progress-num{ width:64px; }
+    .task-row .progress-num{ width:76px; }
 
     .mode-tabs{ width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch; }
     .mode-tab{ padding:9px 14px; white-space:nowrap; }
     .period-row{ padding:12px; gap:8px; }
+    .view-controls .period-row{ padding:0; }
     .scope-strip{ align-items:stretch; }
     .scope-current{ font-size:17px; }
     .add-project-btn{ width:100%; justify-content:center; padding:13px 18px; }
@@ -1424,11 +1479,11 @@
 
   <div class="layout">
     <div class="sidebar">
-      <div class="nav-item active" id="navSchedule"><span class="nav-dot"></span><span data-i18n>項目安排</span></div>
-      <div class="nav-item" id="navCalendar"><span class="nav-dot"></span><span data-i18n>日曆</span></div>
-      <div class="nav-item" id="navGantt"><span class="nav-dot"></span><span data-i18n>專案</span></div>
-      <div class="nav-item" id="navShared"><span class="nav-dot"></span><span data-i18n>共享</span></div>
-      <div class="nav-item" id="navAccount"><span class="nav-dot"></span><span data-i18n>我的帳號</span></div>
+      <div class="nav-item active" id="navSchedule"><span data-i18n>項目安排</span></div>
+      <div class="nav-item" id="navCalendar"><span data-i18n>日曆</span></div>
+      <div class="nav-item" id="navGantt"><span data-i18n>專案</span></div>
+      <div class="nav-item" id="navShared"><span data-i18n>共享</span></div>
+      <div class="nav-item" id="navAccount"><span data-i18n>我的帳號</span></div>
     </div>
 
     <div class="main-panel">
@@ -1439,8 +1494,10 @@
           <div class="major-section-label" data-i18n>大項目（無需日期，可隨時更名）</div>
           <div class="chip-row" id="majorChips"></div>
         </div>
-        <div class="mode-tabs" id="modeTabs"></div>
-        <div class="period-row" id="periodRow"></div>
+        <div class="view-controls">
+          <div class="mode-tabs" id="modeTabs"></div>
+          <div class="period-row" id="periodRow"></div>
+        </div>
         <div class="scope-strip">
           <div class="scope-current" id="scopeCurrent">—</div>
           <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
@@ -5756,8 +5813,13 @@
       .filter(o=>isActionable(o) && !o.done && (o.item.endDate || o.date) < todayStr)   // 進行中的跨多天事項不算逾期
       .sort((a,b)=> a.date.localeCompare(b.date));
     const odEl = document.getElementById('metricOverdueList');
+    // 手機版的四張卡是橫向滑動的一排，逾期卡在那裡排第一張、空的時候收起來
+    // （見 CSS 的 .metric-card.overdue.empty）。桌機不受影響
+    odEl.closest('.metric-card').classList.toggle('empty', !overdue.length);
     if(!overdue.length){
-      odEl.innerHTML = '<div class="metric-list-empty">沒有逾期項目</div>';
+      // 原本是寫死的中文：靜態 markup 有 data-i18n，但這裡的 innerHTML 每次重繪都把它
+      // 蓋回中文——英文版只有第一次載入是英文
+      odEl.innerHTML = '<div class="metric-list-empty">' + escapeHtml(tr('沒有逾期項目')) + '</div>';
     } else {
       const MAXO = 4;
       odEl.innerHTML = overdue.slice(0,MAXO).map(o=>
@@ -8315,6 +8377,12 @@
   }
 
   function renderAll(){
+    // 四張卡講的是「今天／本週要做什麼」，只屬於項目安排與日曆。在「我的帳號」改設定、
+    // 在「共享」看別人的東西時它還在旁邊喊「你今天還有事」，而手機上它會吃掉整個第一屏。
+    // 用 class 不用 [hidden]：.metric-strip 是 display:grid，優先度壓過瀏覽器內建的
+    // [hidden]{display:none}——同 .ai-panel[hidden] 那一條
+    const strip = document.querySelector('.metric-strip');
+    if(strip) strip.classList.toggle('off', !(currentView === 'schedule' || currentView === 'calendar'));
     renderMetrics(); renderReminderList(); renderLookback(); renderGame();
     if(currentView==='calendar') renderCalendar();
     else if(currentView==='gantt') renderGanttView();

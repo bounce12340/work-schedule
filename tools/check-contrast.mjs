@@ -51,11 +51,19 @@ const TARGETS = [
   ['.occ-date', '日期'],
   ['.metric-list-row', '指標卡的列'],
   ['.nav-item', '頁籤'],
-  ['.chip-name', '大項目名稱'],
+  // 原本寫的是 `.chip-name`——那個 class 從來不存在（名字是 .chip 底下第一個沒有 class
+  // 的 span），所以這一條每次都印「略過」，等於沒有
+  ['#majorChips .chip > span:first-child', '大項目名稱'],
+  ['#majorChips .chip .cnt', '大項目的項數'],
   ['.qbtn', '篩選鈕'],
   ['.brand-eyebrow', '招呼語'],
   ['.daylog-label', '每日記錄標題'],
   ['.notice-badge', '純告知的小標'],
+  // 六種小標原本全是「等寬＋字距 2px＋--text-dim」，2.57:1，而這份清單一個都沒有——
+  // 那正是它們一直沒被發現的原因。其中四張卡的小標包括「逾期未完成」那一張
+  ['.metric-label', '四張卡的小標'],
+  ['.major-section-label', '「大項目」那一區的小標'],
+  ['.period-label', '「年份」小標'],
 ];
 
 /**
@@ -93,6 +101,8 @@ const IN_GANTT = [
   ['.pet-card-name', '夥伴卡的階段名稱'],
   ['.pet-card-sub', '夥伴卡的進度文字'],
   ['.pet-card-adult', '「成年」那個記號'],
+  ['.gantt-toolbar-label', '「時間刻度」小標'],
+  ['.task-field-label', '任務列的「開始／結束／進度」'],
 ];
 const IN_PET_PANEL = [
   ['#petOverlay .scope-note', '挑夥伴面板的說明'],
@@ -297,6 +307,29 @@ const SELF_CHECK = async page => {
   console.log(`  ✓ 自我檢查：半透明的祖先有被疊起來（假元素 ${got}:1）`);
 };
 
+/**
+ * 每一個輸入框都要是同一套樣式。全域規則是一份**型別清單**，原本漏了
+ * search／email／password／url，於是搜尋框、變更密碼、分享對象與 app 的登入畫面全部
+ * 掉回瀏覽器預設（2px 凹陷灰框、方角、沒有內距），暗色下還是一塊灰底——對比工具
+ * 看不出來，因為字讀得到，只是長得不像這個 app。
+ * 掃的是**文件裡的每一個 input**（關著的對話框裡的也算，計算後的樣式照樣有），不是
+ * 只掃那四種：日後多一種型別（tel、month…）沒列進清單，這裡就紅。
+ */
+const INPUT_CHECK = async (page, label) => {
+  const bad = await page.evaluate(() => {
+    const ref = getComputedStyle(document.getElementById('inputItemTitle'));
+    const skip = new Set(['checkbox', 'radio', 'file', 'hidden', 'range', 'color', 'button', 'submit']);
+    return [...document.querySelectorAll('input')].filter(el => !skip.has(el.type)).map(el => {
+      const c = getComputedStyle(el);
+      const ok = c.borderTopStyle === ref.borderTopStyle && c.borderTopLeftRadius === ref.borderTopLeftRadius
+        && c.backgroundColor === ref.backgroundColor;
+      return ok ? null : `#${el.id || '(無 id)'}[type=${el.type}]：${c.borderTopWidth} ${c.borderTopStyle}、圓角 ${c.borderTopLeftRadius}`;
+    }).filter(Boolean);
+  });
+  if (bad.length) bad.forEach(b => problems.push(`${label}｜輸入框沒套到共用樣式 ${b}`));
+  else console.log(`  ✓ ${label}：每一個輸入框都套到共用樣式（框線、圓角、底色與 #inputItemTitle 相同）`);
+};
+
 const PASSES = [
   ['light', '亮色', null],
   ['dark', '暗色', null],
@@ -312,6 +345,7 @@ for (const [theme, label, fixedTime] of PASSES) {
   await page.waitForSelector('#board');
   await page.waitForTimeout(800);
   if (label === '亮色') await SELF_CHECK(page);
+  if (!fixedTime) await INPUT_CHECK(page, label);
   await page.locator('#reminderClose').click().catch(() => {});
   await page.waitForTimeout(200);
 
@@ -382,6 +416,8 @@ for (const [theme, label, fixedTime] of PASSES) {
   await page.waitForSelector('#board');
   await page.locator('#openItemModal').click();
   await page.waitForTimeout(250);
+  // 對話框的欄位名（`.field label`）：所有對話框共用同一條規則，量這一個就涵蓋全部
+  rows.push(...await page.evaluate(measure, [['#itemOverlay .field label', '對話框的欄位名']]));
   await page.fill('#inputItemTitle', '去年的公告');
   await page.locator('#inputNoticeOnly').check();
   await page.fill('#inputItemDate', '2026-01-05');
