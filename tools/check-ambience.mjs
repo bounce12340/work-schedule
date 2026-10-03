@@ -260,10 +260,11 @@ console.log('\n── 開機的載入畫面：3 秒、點一下可跳過、上�
 const BOOT_PETS = [
   { id: 'p1', name: '全做完', notes: '', pet: 'deer',
     tasks: [{ id: 'x1', name: 'a', start: '2026-09-01', end: '2026-09-02', progress: 100, done: true, todos: [] }] },
-  { id: 'p2', name: '一半', notes: '', pet: 'cat',
+  // 冷杉放在「一半」：排序靠完成度，它才一定排得進前四隻——「樹不走路」那一條要有樹可以量
+  { id: 'p2', name: '一半', notes: '', pet: 'fir',
     tasks: [{ id: 'y1', name: 'a', start: '2026-09-01', end: '2026-09-02', progress: 100, done: true, todos: [] },
             { id: 'y2', name: 'b', start: '2026-09-01', end: '2026-09-02', progress: 0, done: false, todos: [] }] },
-  { id: 'p3', name: '還沒開始', notes: '', pet: 'fir',
+  { id: 'p3', name: '還沒開始', notes: '', pet: 'cat',
     tasks: [{ id: 'z1', name: 'a', start: '2026-09-01', end: '2026-09-02', progress: 0, done: false, todos: [] }] },
   { id: 'p4', name: '第四隻', notes: '', pet: 'rabbit',
     tasks: [{ id: 'w1', name: 'a', start: '2026-09-01', end: '2026-09-02', progress: 0, done: false, todos: [] }] },
@@ -297,7 +298,16 @@ async function bootRun(opts = {}) {
       // 量它自己計算後的 pointer-events 才證明得到那件事——量 .boot-sakura 的
       // 只證明父層對，而子層被某條規則蓋掉時畫面上看不出來
       pets: [...document.querySelectorAll('#bootPets .boot-pet svg')].length,
-      petsWalk: [...document.querySelectorAll('#bootPets .boot-pet')].map(p => getComputedStyle(p).animationName),
+      // 每一隻：走不走（計算後的動畫）、是不是側身（有沒有會擺的腳）、腳有沒有在擺、套了羊毛氈沒有
+      petsInfo: [...document.querySelectorAll('#bootPets .boot-pet')].map(p => {
+        const leg = p.querySelector('.leg');
+        const g = p.querySelector('svg > g');
+        return { walk: getComputedStyle(p).animationName, still: p.classList.contains('still'),
+                 legs: p.querySelectorAll('.leg').length, legAnim: leg ? getComputedStyle(leg).animationName : null,
+                 felt: g ? getComputedStyle(g).filter : null };
+      }),
+      // 濾鏡的定義**不能**在載入畫面裡面：載入畫面收掉（display:none）之後，專案頁的夥伴還要用它
+      feltDef: (()=>{ const f = document.getElementById('petFelt'); return f ? !f.closest('#bootSakura') : null; })(),
       // 對岸的走在樹後面、前岸的走在樹前面：比的是**計算後**的 z-index
       treeZ: (()=>{ const t = document.getElementById('bootSakuraArt'); return t ? Number(getComputedStyle(t).zIndex) : null; })(),
       petsZ: [...document.querySelectorAll('#bootPets .boot-pet')].map(p => Number(getComputedStyle(p).zIndex)),
@@ -380,8 +390,14 @@ ok('沒選夥伴的專案不佔位置（六個專案、五個有夥伴 → 4 ＋
    b.early.pets + (b.early.petsMore ? 1 : 0) === 5);
 // 這三條各自對應一個繼承而來的不變量。量**夥伴自己**計算後的值，
 // 不是量 .boot-sakura 的——父層對而子層被蓋掉時畫面上看不出來
-ok('夥伴在湖邊走來走去（每一隻計算後的動畫都是 boot-walk）',
-   b.early.petsWalk.length === 4 && b.early.petsWalk.every(n => /boot-walk/.test(n)));
+// 四隻裡有一棵冷杉（p3）：動物走、樹不走，兩邊都要有，這兩條才不是空的
+const animals = b.early.petsInfo.filter(p => !p.still), plants = b.early.petsInfo.filter(p => p.still);
+ok('動物在湖邊走來走去（計算後的動畫是 boot-walk），而且是側身、腳在擺（pet-leg）',
+   animals.length === 3 && animals.every(p => /boot-walk/.test(p.walk) && p.legs >= 2 && /pet-leg/.test(p.legAnim)));
+ok('樹不走路：站在原地（沒有 boot-walk），也沒有腳',
+   plants.length === 1 && plants.every(p => !/boot-walk/.test(p.walk) && p.legs === 0));
+ok('每一隻都套了羊毛氈（計算後的 filter 指到 #petFelt），而且濾鏡定義不在載入畫面裡',
+   b.early.petsInfo.every(p => /petFelt/.test(p.felt || '')) && b.early.feltDef === true);
 ok('對岸的走在樹後面、前岸的走在樹前面（z-index 有高有低，而且夾著樹）',
    b.early.treeZ !== null && b.early.petsZ.some(z => z < b.early.treeZ) && b.early.petsZ.some(z => z > b.early.treeZ));
 ok('3400ms 的上限也管得到夥伴（4000ms 時整排跟著收掉）',
