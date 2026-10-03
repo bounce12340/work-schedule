@@ -76,7 +76,10 @@ function seed() {
       date: `2026-0${1 + (i % 9)}-1${i % 9}`,
       endDate: i % 7 === 0 ? `2026-0${1 + (i % 9)}-2${i % 8}` : null,
       recurrence: recs[i % recs.length],
-      done: i % 6 === 0, doneMap: {}, overrides: {}, skipped: {}
+      done: i % 6 === 0, doneMap: {}, overrides: {}, skipped: {},
+      // 每週那一種帶兩個步驟：看板上一定有好幾列「收著的步驟清單」，
+      // 「收著的不准佔版面」那條斷言才不會是空的
+      ...(i % recs.length === 1 ? { subtasks: [{ id: 's1', text: '準備' }, { id: 's2', text: '收尾' }] } : {})
     });
   }
   return {
@@ -275,6 +278,26 @@ async function walk(page, log, plan = 'pro', server = null) {
   await expectStrip(true, '項目安排');
   await page.waitForTimeout(250);
   await need('#viewSchedule.active', '項目安排頁');
+  // 一天一張紙：每一列都要在某一張紙裡，而且沒有只剩頁首的空紙。
+  step = '看板：一天一張紙';
+  const sheets = await page.evaluate(() => ({
+    rows: document.querySelectorAll('#board .occ-row').length,
+    inSheet: document.querySelectorAll('#board .day-sheet > .occ-row').length,
+    empty: [...document.querySelectorAll('#board .day-sheet')].filter(x => !x.querySelector('.occ-row')).length
+  }));
+  if (!sheets.rows) throw new Error('看板上一列都沒有——下面兩條斷言會變成空的');
+  if (sheets.inSheet !== sheets.rows) throw new Error(`${sheets.rows - sheets.inSheet} 列沒有放進任何一張紙`);
+  if (sheets.empty) throw new Error(`${sheets.empty} 張紙只有頁首、沒有任何一列`);
+  // 收著的步驟清單不准佔版面。.sub-list 是 display:flex，壓過瀏覽器內建的
+  // [hidden]{display:none}——少了 .sub-list[hidden] 那一行，每個有步驟的項目底下
+  // 都多一條分隔線和一段空白。看 getClientRects 不看 class：要防的就是「屬性對、CSS 沒接上」。
+  step = '收著的步驟清單';
+  const subs = await page.evaluate(() => {
+    const l = [...document.querySelectorAll('#board .sub-list[hidden]')];
+    return { n: l.length, shown: l.filter(x => x.getClientRects().length).length };
+  });
+  if (!subs.n) throw new Error('示範資料裡找不到收著的步驟清單——這條斷言變成空的了');
+  if (subs.shown) throw new Error(`${subs.shown} 個收著的步驟清單仍然佔著版面（[hidden] 被 display 蓋掉）`);
   const tabs = await page.locator('#modeTabs .mode-tab').all();
   if (!tabs.length) throw new Error('找不到檢視範圍頁籤');
   for (const tab of tabs) {

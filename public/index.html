@@ -485,7 +485,14 @@
   .add-project-btn:hover{ filter: brightness(1.06); }
   .add-project-btn:active{ transform: translateY(1px); box-shadow:none; }
 
-  .board{ display:flex; flex-direction:column; gap:10px; }
+  .board{ display:flex; flex-direction:column; gap:14px; }
+  /* 一天一張紙（見 buildDaySheets）。陰影與圓角從每一列搬到紙上：原本上千列各自
+     一張卡，現在一天只有一張，畫面上的「盒子」少了一個數量級。 */
+  .day-sheet{ background:var(--panel); border-radius:16px; box-shadow:var(--shadow-soft); padding:2px 0 4px; }
+  .day-head{ display:flex; align-items:baseline; gap:10px; padding:13px 18px 5px; }
+  .day-label{ font-family:var(--serif); font-size:14.5px; font-weight:600; color:var(--text); }
+  /* 「今天」是這一頁唯一的燈。--amber 當淺底上的字只有 2.84:1，所以字用 --amber-ink */
+  .day-today{ font-size:12px; font-weight:700; color:var(--amber-ink); background:var(--amber-dim); padding:1px 9px; border-radius:999px; }
   /* 空白時刻是這個介面**最像在跟人講話**的地方，卻一直用等寬字在講。
      換成宋體，行高再放鬆一點——這一段沒有任何資訊密度要守。 */
   .empty-state{ padding: 56px 24px; text-align:center; color: var(--text-muted); border: 1px dashed var(--dash); border-radius:22px; font-family: var(--serif); font-size:15px; line-height:2.1; background:var(--panel); }
@@ -499,7 +506,10 @@
      階層改用**字級**表達（15px vs 13px），不要靠把顏色淡到讀不了。 */
   .empty-state .empty-line2{ display:block; margin-top:10px; font-family:var(--serif); font-size:13px; color:var(--text-muted); }
 
-  .occ-row{ background: var(--panel); border:1px solid transparent; border-radius:16px; padding: 13px 17px; display:flex; align-items:center; gap:12px; flex-wrap:wrap; box-shadow: var(--shadow-soft); }
+  .occ-row{ background:transparent; border-top:1px solid var(--hairline-soft); margin:0 18px; padding: 11px 0; display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+  /* 分隔線用外距內縮、不碰紙的兩邊：碰到邊就變成表格的格線，內縮才像紙上的橫線。
+     紙上的第一行緊接著頁首，不畫線。 */
+  .day-head + .occ-row{ border-top-color:transparent; }
   /* 看板列數在預設的年度檢視下輕易破千（64 個項目就有 1461 列），而實測顯示
      成本的 95% 不在 JS，是瀏覽器對那幾千列重跑樣式計算與版面配置。
 
@@ -647,6 +657,10 @@
   .check-line input{ width:auto; margin:0; flex-shrink:0; }
   .sub-list{ flex:1 1 100%; margin:8px 0 0; padding:8px 0 0; border-top:1px solid var(--hairline);
              display:flex; flex-direction:column; gap:5px; }
+  /* 同 .ai-panel[hidden]：display:flex 壓過瀏覽器內建的 [hidden]{display:none}。
+     少了這一行，**收著**的步驟清單仍然畫出一條分隔線和一段空白——每一個有步驟
+     的項目底下都多一截，看起來像兩列之間的格線（一天一張紙之後才看出來）。 */
+  .sub-list[hidden]{ display:none; }
   .sub-line{ display:flex; align-items:baseline; gap:8px; font-size:13px; cursor:pointer; }
   .sub-text.done{ text-decoration:line-through; color:var(--text-dim); }
   .tag-edit{ display:flex; flex-wrap:wrap; gap:5px; margin-bottom:6px; }
@@ -667,9 +681,6 @@
             border:1px dashed var(--hairline); background:transparent; color:var(--text-muted); cursor:pointer; }
   .sub-add:hover{ color:var(--amber); border-color:var(--amber); }
   .field-hint{ font-size:11px; color:var(--text-dim); margin-top:6px; line-height:1.6; }
-  .occ-row.type-work{ border-left:3px solid var(--teal); }
-  .occ-row.type-meeting{ border-left:3px solid var(--violet); }
-  .occ-row.type-assignment{ border-left:3px solid var(--amber); }
   .checkbox{ width:19px; height:19px; border-radius:5px; border:1.5px solid var(--checkbox-border); display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; font-size:12px; color:transparent; transition: all .15s ease; }
   .checkbox.done{ background: var(--teal); border-color: var(--teal); color:var(--on-accent); }
   /* 勾選是整個 app 按最多次的動作。彈一下——只在**被點的那一個**上（.pop 由
@@ -684,10 +695,14 @@
   .occ-row.type-assignment .checkbox.done{ background: var(--amber); border-color: var(--amber); }
   .occ-title{ font-size:14px; font-weight:600; }
   .occ-title.done{ color: var(--text-dim); text-decoration: line-through; font-weight:500; }
-  .type-badge{ font-family: var(--mono); font-size:10px; letter-spacing:1.5px; padding:3px 8px; border-radius:5px; text-transform:uppercase; font-weight:700; flex-shrink:0; }
-  .type-badge.work{ background: var(--teal-dim); color: var(--teal); }
-  .type-badge.meeting{ background: var(--violet-dim); color: var(--violet); }
-  .type-badge.assignment{ background: var(--amber-dim); color: var(--amber); }
+  /* 類型＝一個小圓點＋一個字，跟日曆上的圓點同一種語言。原本是等寬大寫的彩色徽章，
+     再加上列左邊一條 3px 的彩色線——同一件事講了兩次，而且都在喊。
+     顏色只留在圓點上；字保留，是因為只靠顏色分辨類型對色弱的人不成立。 */
+  .type-badge{ font-family: var(--sans); font-size:12px; font-weight:500; color:var(--text-muted); display:inline-flex; align-items:center; gap:6px; flex-shrink:0; }
+  .type-badge::before{ content:''; width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+  .type-badge.work::before{ background: var(--teal); }
+  .type-badge.meeting::before{ background: var(--violet); }
+  .type-badge.assignment::before{ background: var(--amber); }
   .parent-tag{ font-family: var(--mono); font-size:11px; color: var(--text-muted); background: var(--panel-2); border:1px solid var(--hairline); padding:2px 8px; border-radius:10px; }
   .recur-badge{ font-family: var(--mono); font-size:11px; color: var(--amber); background: var(--amber-dim); padding:2px 8px; border-radius:6px; white-space:nowrap; }
   .occ-date{ font-family: var(--mono); font-size:12px; color: var(--text-muted); white-space:nowrap; }
@@ -1358,7 +1373,8 @@
     .add-project-btn{ width:100%; justify-content:center; padding:13px 18px; }
 
     /* 列：標題獨佔一行，避免徽章與日期把它擠成一個字一行 */
-    .occ-row{ padding:12px 13px; gap:9px; }
+    .occ-row{ margin:0 14px; padding:12px 0; gap:9px; }
+    .day-head{ padding:12px 14px 4px; }
     .occ-title{ flex:1 1 100%; order:-1; font-size:15px; }
     .occ-spacer{ display:none; }
     .occ-actions{ margin-left:auto; }
@@ -2739,7 +2755,7 @@
       '專案名稱':'Project name', '＋ 新增專案':'+ New project',
       '＋ 新增待辦事項':'+ New task', '＋ 新增代辦項目':'+ New subtask',
       '專案筆記':'Project notes', '開始':'Start', '結束':'End', '進度':'Progress',
-      '時間刻度':'Zoom', '週':'Week', '月':'Month', '季':'Quarter', '年':'Year',
+      '今天':'Today', '時間刻度':'Zoom', '週':'Week', '月':'Month', '季':'Quarter', '年':'Year',
       '跳到今天':'Jump to today', '{0}月':'{0}',
       '＋ 新增代辦項目（新增後進度改由完成比例自動計算）':'+ Add subtask (progress then follows the checklist)',
       '今日項目已全部完成，太棒了！':'Everything for today is done. Nice work!',
@@ -4652,7 +4668,12 @@
     const doneSection=document.getElementById('doneSection');
     const doneCount=document.getElementById('doneCount');
     if(!board || !doneSection || !doneCount || !board.contains(row)) return false;
+    // 那一天的最後一件被勾掉時，那張紙也要一起收走——完整重繪不會為一個空的
+    // 日子畫一張只有頁首的紙，增量路徑留著它就是兩條路結果不同（verify-toggle 的簽章
+    // 因此把每張紙的日期與列數也算進去）。
+    const sheet = row.closest('.day-sheet');
     row.remove();
+    if(sheet && !sheet.querySelector('.occ-row')) sheet.remove();
     if(!board.querySelector('.occ-row')) return false;   // 一項不剩，交給完整重繪換成完成畫面
     doneCount.textContent = String((parseInt(doneCount.textContent, 10) || 0) + 1);
     doneSection.style.display='block';
@@ -6242,6 +6263,52 @@
   // 重整回到預設（收合），使用者才不會下次打開時對著一份看不懂的清單。
   let showDoneSection = false;
 
+  /**
+   * 一天一張紙：同一天的事寫在同一張紙上，一行一件。
+   *
+   * 原本每一列都是自己的一張卡（圓角、陰影、左邊一條彩色的線），上千張卡疊在
+   * 一起就是「控制台」的樣子；日記是**一張紙上一行一行的字**。
+   *
+   * **只分組、不重排**：`currentOccurrences()` 已經照日期與時間排好，這裡只把
+   * 連續同一天的那幾列包進同一張紙。順序一動，`verify-toggle` 比對的就不是同一份
+   * 清單了。列本身（`buildOccRow`）一個欄位都沒改——逾期的紅字還在每一列的
+   * `.occ-date` 上，跟原本一模一樣。
+   *
+   * 紙的頁首是「人在說話」（宋體）：它回答的是「這是哪一天」，像日記的日期欄；
+   * 列上的 `.occ-date` 仍然是機器在報數（等寬），逾期的警報掛在那裡，所以頁首
+   * 寫了日期也不能把列上的日期拿掉。
+   */
+  function daySheetLabel(dateStr){
+    const d = parseYMD(dateStr);
+    if(LANG==='en'){
+      const mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
+      return weekdayLabel(dateStr)+', '+mon+' '+d.getDate();
+    }
+    return (d.getMonth()+1)+' 月 '+d.getDate()+' 日　'+weekdayLabel(dateStr);
+  }
+  function buildDaySheet(dateStr){
+    const sheet=document.createElement('section');
+    sheet.className='day-sheet'; sheet.dataset.date=dateStr;
+    const head=document.createElement('div'); head.className='day-head';
+    const lab=document.createElement('span'); lab.className='day-label'; lab.textContent=daySheetLabel(dateStr);
+    head.appendChild(lab);
+    if(dateStr===ymd(new Date())){
+      sheet.classList.add('today');
+      const t=document.createElement('span'); t.className='day-today'; t.textContent=tr('今天');
+      head.appendChild(t);
+    }
+    sheet.appendChild(head);
+    return sheet;
+  }
+  function buildDaySheets(list){
+    const frag=document.createDocumentFragment();
+    let sheet=null, cur=null;
+    list.forEach(occ=>{
+      if(occ.date!==cur){ cur=occ.date; sheet=buildDaySheet(cur); frag.appendChild(sheet); }
+      sheet.appendChild(buildOccRow(occ));
+    });
+    return frag;
+  }
   function renderBoard(){
     const board=document.getElementById('board'); board.innerHTML='';
     const doneSection=document.getElementById('doneSection');
@@ -6272,9 +6339,7 @@
       board.innerHTML='<div class="empty-state">'+emptyArt()+'這段時間的 <span>'+done.length+'</span> 項，都做完了。<span class="empty-line2">辛苦了，今天可以到這裡。</span></div>';
     } else {
       // 逐列 append 進活的 DOM 在項目多時成本明顯，先組在 fragment 裡再一次插入
-      const frag=document.createDocumentFragment();
-      pending.forEach(occ=> frag.appendChild(buildOccRow(occ)) );
-      board.appendChild(frag);
+      board.appendChild(buildDaySheets(pending));
     }
 
     // 「只看未完成」開著時不顯示這一區：使用者已經明確說了不想看到它們
@@ -6287,9 +6352,7 @@
     document.getElementById('doneCaret').textContent = showDoneSection ? '▾' : '▸';
     doneBoard.style.display = showDoneSection ? '' : 'none';
     if(showDoneSection){
-      const frag=document.createDocumentFragment();
-      done.forEach(occ=> frag.appendChild(buildOccRow(occ)) );
-      doneBoard.appendChild(frag);
+      doneBoard.appendChild(buildDaySheets(done));
     }
   }
   document.getElementById('doneHead').onclick = ()=>{
