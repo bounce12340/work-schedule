@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
-<meta name="theme-color" content="#F4F3EC" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#191A17" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#F6F4EE" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1A1917" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="工作排程">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -49,24 +49,18 @@
      覆寫這一個區塊完成，不必逐條改元件。 */
   :root{
     color-scheme: light;
-    /* 「早晨的苔庭」（2026-10-03）：底色從米黃往灰綠偏一點點——原本的 #F6F4EE
-       是現在很多產生出來的頁面都會用的那種暖米白。只動底與線，**字色一個都沒動**
-       （--text-dim 才剛為了 4.5:1 調過），所以對比只會跟著底色微動，check-contrast 量過 */
-    --bg: #F4F3EC;   /* 和紙 */
-    --panel: #FFFEF8;   /* 紙面 */
+    --bg: #F6F4EE;
+    --panel: #FFFDF7;
     --paper: #FDFAF1;   /* 每日記錄專用的紙色，比 panel 再暖一點 */
     --sakura-trunk: #6E5A4A; --sakura-branch: #8A7360; --sakura-leaf: #7FA36B; --sakura-petal: #F0BCCB; --sakura-petal-2: #D98AA6; --sakura-soil: #CDBE9E;   /* 遊戲化的櫻花樹 */
     --pet-body: #C9A882; --pet-body-2: #A8855F; --pet-ink: #4A3F36; --pet-pale: #EADBC6; --pet-leaf: #6F9A5E; --pet-leaf-2: #517A44;   /* 專案的夥伴 */
     --art-far: #DCE3D0;   /* 空狀態插畫：遠山 */
     --art-near: #C7D3BA;  /* 空狀態插畫：近坡 */
-    --panel-2: #EFEEE6;
-    --hairline: #E4E3D8;
-    --hairline-soft: #EAE9DF;
-    --hairline-strong: #CBCABB;
-    --dash: #D0CFBF;
-    /* 苔：「我在這頁」的那一顆圓點。不是字，所以不必過 4.5:1；它旁邊的字另外加粗、
-       換成 --text-strong，位置本身就看得出來，圓點只是讓它安靜地亮一下 */
-    --moss: #5E7F5A;
+    --panel-2: #F1EEE5;
+    --hairline: #E8E3D6;
+    --hairline-soft: #ECE8DD;
+    --hairline-strong: #CDC8B8;
+    --dash: #D2CDBB;
     --scroll-thumb: #D8D4C6;
     --grid-line: rgba(0,0,0,0.025);
     /* 療癒系氛圍層。三團光暈疊出「遠處的森林與光」，不是照片也不是插畫——
@@ -171,19 +165,18 @@
      --on-accent 反轉成深色，因為亮色強調底上的白字讀不出來。 */
   :root[data-theme="dark"]{
     color-scheme: dark;
-    --bg: #191A17;
-    --panel: #222320;
+    --bg: #1A1917;
+    --panel: #232220;
     --paper: #24211C;
     --sakura-trunk: #5C4C40; --sakura-branch: #705E4E; --sakura-leaf: #6E9A5C; --sakura-petal: #C4889B; --sakura-petal-2: #A2687E; --sakura-soil: #4A423A;
     --pet-body: #A98D6D; --pet-body-2: #8A6F52; --pet-ink: #E2D8CB; --pet-pale: #6B5B48; --pet-leaf: #5E8750; --pet-leaf-2: #456B3A;
     --art-far: #2C332B;
     --art-near: #363E33;
-    --panel-2: #2A2B27;
-    --hairline: #383A34;
-    --hairline-soft: #30322C;
-    --hairline-strong: #474A42;
-    --dash: #474A42;
-    --moss: #8DB088;
+    --panel-2: #2B2A27;
+    --hairline: #3A3833;
+    --hairline-soft: #322F2B;
+    --hairline-strong: #4A4740;
+    --dash: #4A4740;
     --scroll-thumb: #45423B;
     --grid-line: rgba(255,255,255,0.022);
     /* 暗色是「夜裡的森林」，不是把亮色調暗：光暈更冷、更收斂，
@@ -423,9 +416,9 @@
   .sidebar{ width: 176px; flex-shrink:0; display:flex; flex-direction:column; gap:6px; position: sticky; top: 20px; }
   /* 側欄是「去哪裡」，不是「東西本身」。原本五顆都是與內容卡片同樣的盒子（同樣的
      底色、邊框、圓角），看不出哪個是路、哪個是東西。現在拿掉盒子，只剩字；
-     「我在這頁」＝一顆苔綠的小圓點＋字變深變粗。滑鼠移過去才有一層很淡的底。 */
+     「我在這頁」＝一顆琥珀色的小圓點＋字變深變粗（琥珀是 #64 之前「選中」就在用的顏色）。滑鼠移過去才有一層很淡的底。 */
   .nav-item{ display:flex; align-items:center; gap:10px; padding: 11px 14px; border-radius:var(--r-s); background: transparent; border:none; cursor:pointer; color: var(--text-muted); font-weight:500; font-size:14px; transition: background-color .15s ease, color .15s ease; }
-  .nav-item::before{ content:''; flex-shrink:0; width:7px; height:7px; border-radius:50%; background:var(--moss); transform:scale(0); transition: transform .2s ease; }
+  .nav-item::before{ content:''; flex-shrink:0; width:7px; height:7px; border-radius:50%; background:var(--amber); transform:scale(0); transition: transform .2s ease; }
   .nav-item:hover{ color: var(--text); background: var(--panel-2); }
   .nav-item.active{ color: var(--text-strong); font-weight:700; }
   .nav-item.active::before{ transform:scale(1); }
