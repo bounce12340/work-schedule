@@ -42,8 +42,8 @@
      media="print" 讓瀏覽器以非阻擋的低優先度下載，onload 再切回 all 套用。
      這個 onload 只碰 this，不需要存取 IIFE 內的任何東西。 -->
 <link rel="stylesheet" media="print" onload="this.media='all';this.onload=null"
-      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700;900&family=Noto+Serif+TC:wght@400;600&display=swap">
-<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700;900&family=Noto+Serif+TC:wght@400;600&display=swap"></noscript>
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;600;700;900&family=Noto+Serif+TC:wght@400;600&display=swap">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;600;700;900&family=Noto+Serif+TC:wght@400;600&display=swap"></noscript>
 <style>
   /* 顏色的唯一來源。元件樣式一律只引用變數，不寫死色碼——暗色版才可能只靠
      覆寫這一個區塊完成，不必逐條改元件。 */
@@ -97,6 +97,10 @@
     --amber: #C9822E;
     --amber-dim: rgba(201,130,46,0.12);
     --amber-ink: #8A5716;   /* 淺底上的琥珀字。--amber 只有 2.84:1，讀不了 */
+    /* 實心琥珀底（主要按鈕、作用中的頁籤）。--on-accent 壓在 --amber 上只有 3.08:1，
+       而那幾顆都是 12～14px 的字。同 --amber-ink：另開一個 token，**不動 --amber 本身**
+       ——圓點、色條、今天的框線仍然是原本那個亮的琥珀。#9C6218 配 --on-accent 是 4.95:1 */
+    --amber-solid: #9C6218;
     --teal: #1F8C68;
     --teal-dim: rgba(31,140,104,0.10);
     /* 淺底上的青。`--teal` 當底色很好看，當淺底上的字只有 3.22:1（check-contrast
@@ -105,8 +109,15 @@
     --teal-ink: #176B4F;
     --red: #C74B43;
     --red-dim: rgba(199,75,67,0.10);
+    /* 同一個 bug class 的第六、第七次：--red 壓在 --red-dim 上 4.00:1、--violet 壓在
+       --violet-dim 上 4.27:1（都是 11～12.5px 的字）。修法與 --amber-ink／--teal-ink 一字不差：
+       淺色**底上的字**用 ink，原色留給底色、框線與圓點。
+       **逾期的紅字（.occ-date.overdue）不換**——它坐在 --panel 上（4.57:1），而且
+       check-deps 斷言它就是 --red（紅線）。 */
+    --red-ink: #A33A33;      /* 在 --red-dim 上 5.63:1 */
     --violet: #6C5CE0;
     --violet-dim: rgba(108,92,224,0.10);
+    --violet-ink: #5646C8;   /* 在 --violet-dim 上 5.84:1 */
     /* 「不在」的顏色。刻意**不是**三種項目類型的任何一色，也不是紅色——
        它不是一件要做的事，也不是警示，它只是一個事實。 */
     --away: #4F6070;
@@ -207,13 +218,16 @@
     --amber: #E3A052;
     --amber-dim: rgba(227,160,82,0.16);
     --amber-ink: var(--amber);   /* 暗色是深底淺字，原色就夠 */
+    --amber-solid: var(--amber); /* 暗色的 --on-accent 是深色字，壓在原色上 8.13:1，不另外調 */
     --teal: #3FBF92;
     --teal-dim: rgba(63,191,146,0.14);
     --teal-ink: #3FBF92;   /* 暗色本來就夠（4.83:1），不另外調 */
     --red: #E8756B;
     --red-dim: rgba(232,117,107,0.14);
+    --red-ink: var(--red);       /* 暗色同 --amber-ink：原色 */
     --violet: #9B8CF5;
     --violet-dim: rgba(155,140,245,0.14);
+    --violet-ink: var(--violet);
     --away: #9DB0C1;
     --away-dim: rgba(157,176,193,0.14);
     --notice: #A7A59C;
@@ -366,7 +380,7 @@
   @media (max-width: 640px){ .game-card{ flex-direction:column; align-items:center; text-align:center; } .badge-wall, .challenge-track{ justify-content:center; } }
   .clock-block{ font-family: var(--mono); text-align:right; }
   .clock-block .now-date{ font-size:13px; color:var(--text-muted); }
-  .clock-block .now-time{ font-size:19px; font-weight:700; color:var(--amber); letter-spacing:1px; }
+  .clock-block .now-time{ font-size:19px; font-weight:700; color:var(--amber-ink); letter-spacing:1px; }
 
   .metric-strip{ display:grid; grid-template-columns: repeat(4, 1fr); gap:10px; margin-bottom:22px; }
   .metric-strip.off{ display:none; }
@@ -378,7 +392,7 @@
   .metric-card.overdue::before{ background: var(--red); }
   .metric-list-row .od-date{ font-family: var(--mono); font-size:11px; color: var(--red); flex-shrink:0; }
   .occ-date.overdue{ color: var(--red); font-weight:700; }
-  .item-link{ font-family:var(--mono); font-size:11px; color:var(--violet); text-decoration:none; background:var(--violet-dim); padding:3px 8px; border-radius:var(--r-s); white-space:nowrap; }
+  .item-link{ font-family:var(--mono); font-size:11px; color:var(--violet-ink); text-decoration:none; background:var(--violet-dim); padding:3px 8px; border-radius:var(--r-s); white-space:nowrap; }
   .item-link:hover{ text-decoration:underline; }
   /* 小標（卡片名、區段名、欄位名）原本一律是「等寬＋字距 2px＋大寫＋--text-dim」：
      9.5～10.5px 的灰字，對比只有 2.57:1（亮）／3.51:1（暗），六種小標全部低於 4.5:1，
@@ -436,15 +450,15 @@
   .chip .cnt{ font-family:var(--mono); font-size:10.5px; color: var(--text-muted); }
   .chip button{ background:transparent; border:none; cursor:pointer; color: var(--text-dim); font-size:12px; width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center; }
   .chip button:hover{ background: var(--hairline-soft); color: var(--text); }
-  .chip button.chip-del:hover{ color: var(--red); background: var(--red-dim); }
+  .chip button.chip-del:hover{ color: var(--red-ink); background: var(--red-dim); }
   .chip input{ font-family: var(--sans); font-size:13px; border:1px solid var(--amber); border-radius:var(--r-s); padding:3px 6px; width:110px; outline:none; }
   .add-chip-btn{ display:flex; align-items:center; gap:6px; background: var(--panel-2); border:1px dashed var(--dash); border-radius:999px; padding:8px 16px; font-size:13px; font-weight:600; color: var(--text-muted); cursor:pointer; }
-  .add-chip-btn:hover{ color: var(--amber); border-color: var(--amber); }
+  .add-chip-btn:hover{ color: var(--amber-ink); border-color: var(--amber); }
 
   .mode-tabs{ display:flex; gap:4px; margin-bottom:16px; background: var(--panel); border:1px solid var(--hairline); border-radius:var(--r-m); padding:4px; width: fit-content; }
   .mode-tab{ font-family: var(--sans); font-size:13.5px; font-weight:600; padding: 9px 18px; border-radius:var(--r-s); cursor:pointer; color: var(--text-muted); border:none; background:transparent; transition: all .15s ease; }
   .mode-tab:hover{ color: var(--text); }
-  .mode-tab.active{ background: var(--amber); color:var(--on-accent); }
+  .mode-tab.active{ background: var(--amber-solid); color:var(--on-accent); }
 
   .period-row{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom: 18px; padding: 14px 16px; background: var(--panel); border:1px solid var(--hairline); border-radius:var(--r-m); }
   /* 頁籤與「年份」原本各佔一整排，加上大項目、範圍列、篩選列，清單前面擋了五排、
@@ -468,9 +482,9 @@
   select, input[type=date], input[type=time]{ cursor:pointer; }
   select:focus, input:focus, button:focus-visible{ outline: 2px solid var(--amber); outline-offset:1px; }
   .qbtn, .mbtn{ font-family: var(--mono); font-size:12.5px; font-weight:600; padding:7px 12px; border-radius:var(--r-s); border:1px solid var(--hairline); background: var(--panel-2); color: var(--text-muted); cursor:pointer; }
-  .qbtn.active, .mbtn.active{ background: var(--amber-dim); border-color: var(--amber); color: var(--amber); }
+  .qbtn.active, .mbtn.active{ background: var(--amber-dim); border-color: var(--amber); color: var(--amber-ink); }
   .add-year-btn{ font-family: var(--mono); font-size:12px; color: var(--text-dim); background:transparent; border:1px dashed var(--dash); border-radius:var(--r-s); padding:7px 10px; cursor:pointer; }
-  .add-year-btn:hover{ color: var(--amber); border-color: var(--amber); }
+  .add-year-btn:hover{ color: var(--amber-ink); border-color: var(--amber); }
   .month-grid{ display:flex; gap:6px; flex-wrap:wrap; }
 
   .scope-strip{ display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; flex-wrap:wrap; gap:12px; }
@@ -479,12 +493,12 @@
   .stat-pills{ display:flex; gap:8px; flex-wrap:wrap; }
   .pill{ font-family: var(--mono); font-size:12px; padding:6px 12px; border-radius:999px; border:1px solid var(--hairline); color:var(--text-muted); display:flex; align-items:center; gap:6px; background:var(--panel); }
   .pill b{ color:var(--text); font-size:13px; }
-  .pill.done b{ color: var(--teal); }
-  .pill.pending b{ color: var(--amber); }
+  .pill.done b{ color: var(--teal-ink); }
+  .pill.pending b{ color: var(--amber-ink); }
 
   /* 主要動作做成藥丸。方角在密集的列表裡是對的（邊界清楚），但這幾顆是
      「開始做一件事」的入口，不是資料——圓下去之後整頁的硬邊少了一截。 */
-  .add-project-btn{ font-family: var(--sans); font-weight:700; font-size:14px; background: var(--amber); color:var(--on-accent); border:none; border-radius:999px; padding:11px 20px; cursor:pointer; display:flex; align-items:center; gap:8px; box-shadow: var(--shadow-btn); }
+  .add-project-btn{ font-family: var(--sans); font-weight:700; font-size:14px; background: var(--amber-solid); color:var(--on-accent); border:none; border-radius:999px; padding:11px 20px; cursor:pointer; display:flex; align-items:center; gap:8px; box-shadow: var(--shadow-btn); }
   .add-project-btn:hover{ filter: brightness(1.06); }
   .add-project-btn:active{ transform: translateY(1px); box-shadow:none; }
 
@@ -503,6 +517,12 @@
      （作用中的頁籤、篩選鈕）。這裡當時沒被抓到，因為空狀態預設不在畫面上。 */
   .empty-state span{ color: var(--amber-ink); }
   .empty-art{ width:216px; height:auto; display:block; margin:0 auto 16px; }
+  /* 空狀態裡**真的按得下去**的那一顆（甘特頁：還沒有專案）。原本只有一句「點選上方
+     ＋ 新增專案」——叫人去找另一顆按鈕，不如直接給他。字體要寫回 --sans：按鈕不是人在說話 */
+  .empty-state .empty-cta{ width:fit-content; margin:18px auto 0; font-family:var(--sans); line-height:1.4; }
+  /* 區段標題底下「這裡目前沒有東西」的一行。共享頁原本會疊三個虛線框（別人分享的／
+     我分享的／變更記錄），三個都沒有動作可按——框是留給「整頁是空的」那一種的。 */
+  .empty-note{ font-family:var(--serif); font-size:13px; line-height:1.8; color:var(--text-muted); padding:2px 2px 4px; }
   /* 原本是 --text-dim：亮色 2.57:1、暗色 3.51:1，兩邊都遠低於 4.5:1——
      **已經上線很久**，而且一直躲在 check-contrast 那句「畫面上沒有這個元素，
      略過」後面（示範資料一定有項目，空狀態永遠不會出現）。
@@ -546,7 +566,7 @@
   .ai-title{ font-weight:600; font-size:14px; flex:1; }
   .ai-close{ border:none; background:none; cursor:pointer; color:var(--text-muted); font-size:15px; }
   .ai-btns{ display:flex; flex-direction:column; gap:6px; }
-  .ai-send.alt{ background:transparent; color:var(--amber); }
+  .ai-send.alt{ background:transparent; color:var(--amber-ink); }
   /* 提案卡片。每一項都是一個勾選框——**沒有勾就不會被寫進去**，
      這是整個寫入功能的安全前提，不是裝飾。 */
   .ai-plan{ border:1px solid var(--amber); border-radius:var(--r-m); padding:10px 12px;
@@ -569,7 +589,7 @@
   .ai-plan-foot select{ font-size:11.5px; padding:4px 6px; border:1px solid var(--hairline);
                         border-radius:var(--r-s); background:var(--panel); color:var(--text); }
   .ai-apply{ font-family:var(--mono); font-size:11.5px; padding:5px 12px; border-radius:var(--r-s);
-             cursor:pointer; border:1px solid var(--teal); background:var(--teal);
+             cursor:pointer; border:1px solid var(--teal-ink); background:var(--teal-ink);
              color:var(--on-accent); margin-left:auto; }
   .ai-apply:disabled{ opacity:.45; cursor:default; }
   .ai-note{ font-size:11.5px; line-height:1.7; color:var(--text-dim); padding:10px 16px;
@@ -585,7 +605,7 @@
                      border:1px solid var(--hairline); border-radius:var(--r-s);
                      background:var(--panel-2); color:var(--text); }
   .ai-send{ font-family:var(--mono); font-size:12px; padding:0 14px; border-radius:var(--r-s); cursor:pointer;
-            border:1px solid var(--amber); background:var(--amber); color:var(--on-accent); }
+            border:1px solid var(--amber-solid); background:var(--amber-solid); color:var(--on-accent); }
   .ai-send:disabled{ opacity:.5; cursor:default; }
   .ai-usage{ font-family:var(--mono); font-size:10.5px; color:var(--text-dim);
              padding:0 16px 12px; }
@@ -627,13 +647,13 @@
   .tag-chip{ font-family:var(--mono); font-size:10.5px; padding:2px 7px; border-radius:var(--r-s);
              background:var(--panel-2); color:var(--text-muted); border:1px solid var(--hairline);
              cursor:pointer; white-space:nowrap; }
-  .tag-chip:hover{ color:var(--amber); border-color:var(--amber); }
+  .tag-chip:hover{ color:var(--amber-ink); border-color:var(--amber); }
   .qbtn.tag{ font-family:var(--mono); }
   .filter-sep{ width:1px; align-self:stretch; background:var(--hairline); margin:0 4px; }
   .sub-badge{ font-family:var(--mono); font-size:10.5px; padding:2px 7px; border-radius:var(--r-s);
               background:var(--panel-2); color:var(--text-muted); border:1px solid var(--hairline);
               cursor:pointer; white-space:nowrap; }
-  .sub-badge.all{ color:var(--teal); border-color:var(--teal); }
+  .sub-badge.all{ color:var(--teal-ink); border-color:var(--teal); }
   /* 前置作業未完成。用琥珀（介面主色＝「注意一下」）而不是紅色：紅色是逾期
      的顏色，而前置沒做完**不是**逾期，混用會讓真正遲交的東西被稀釋。 */
   .dep-badge{ font-family:var(--mono); font-size:10.5px; padding:2px 7px; border-radius:var(--r-s);
@@ -674,7 +694,7 @@
   .tag-suggest button{ font-family:var(--mono); font-size:10.5px; padding:2px 7px; border-radius:var(--r-s);
                        background:transparent; color:var(--text-dim); border:1px dashed var(--hairline);
                        cursor:pointer; }
-  .tag-suggest button:hover{ color:var(--amber); border-color:var(--amber); }
+  .tag-suggest button:hover{ color:var(--amber-ink); border-color:var(--amber); }
   .sub-row{ display:flex; gap:6px; align-items:center; margin-bottom:6px; }
   .sub-row input{ flex:1; }
   .sub-row button{ border:1px solid var(--hairline); background:var(--panel); color:var(--text-muted);
@@ -682,7 +702,7 @@
   .sub-row button:hover{ color:var(--red); border-color:var(--red); }
   .sub-add{ font-family:var(--mono); font-size:11.5px; padding:6px 10px; border-radius:var(--r-s);
             border:1px dashed var(--hairline); background:transparent; color:var(--text-muted); cursor:pointer; }
-  .sub-add:hover{ color:var(--amber); border-color:var(--amber); }
+  .sub-add:hover{ color:var(--amber-ink); border-color:var(--amber); }
   .field-hint{ font-size:11px; color:var(--text-dim); margin-top:6px; line-height:1.6; }
   .checkbox{ width:19px; height:19px; border-radius:6px; border:1.5px solid var(--checkbox-border); display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; font-size:12px; color:transparent; transition: all .15s ease; }
   .checkbox.done{ background: var(--teal); border-color: var(--teal); color:var(--on-accent); }
@@ -707,19 +727,19 @@
   .type-badge.meeting::before{ background: var(--violet); }
   .type-badge.assignment::before{ background: var(--amber); }
   .parent-tag{ font-family: var(--mono); font-size:11px; color: var(--text-muted); background: var(--panel-2); border:1px solid var(--hairline); padding:2px 8px; border-radius:999px; }
-  .recur-badge{ font-family: var(--mono); font-size:11px; color: var(--amber); background: var(--amber-dim); padding:2px 8px; border-radius:var(--r-s); white-space:nowrap; }
+  .recur-badge{ font-family: var(--mono); font-size:11px; color: var(--amber-ink); background: var(--amber-dim); padding:2px 8px; border-radius:var(--r-s); white-space:nowrap; }
   .occ-date{ font-family: var(--mono); font-size:12px; color: var(--text-muted); white-space:nowrap; }
   /* 時間對三種類型都適用，顏色跟著該列的類型走，才不會讓工作項目掛一個會議色的徽章 */
-  .meeting-time{ font-family: var(--mono); font-size:11.5px; color: var(--violet); background: var(--violet-dim); padding:3px 8px; border-radius:var(--r-s); flex-shrink:0; }
-  .occ-row.type-work .meeting-time{ color: var(--teal); background: var(--teal-dim); }
-  .occ-row.type-assignment .meeting-time{ color: var(--amber); background: var(--amber-dim); }
+  .meeting-time{ font-family: var(--mono); font-size:11.5px; color: var(--violet-ink); background: var(--violet-dim); padding:3px 8px; border-radius:var(--r-s); flex-shrink:0; }
+  .occ-row.type-work .meeting-time{ color: var(--teal-ink); background: var(--teal-dim); }
+  .occ-row.type-assignment .meeting-time{ color: var(--amber-ink); background: var(--amber-dim); }
   .metric-list-row .m-time{ font-family: var(--mono); font-size:11.5px; color: var(--text-muted); flex-shrink:0; }
   .occ-spacer{ flex:1; }
   .occ-actions{ display:flex; align-items:center; gap:4px; }
   .icon-btn{ background:transparent; border:none; cursor:pointer; color: var(--text-dim); font-size:13px; padding:5px 7px; border-radius:var(--r-s); }
   .icon-btn:hover{ background: var(--panel-2); color: var(--text); }
-  .icon-btn.danger:hover{ color: var(--red); background: var(--red-dim); }
-  .icon-btn.skip:hover{ color: var(--amber); background: var(--amber-dim); }
+  .icon-btn.danger:hover{ color: var(--red-ink); background: var(--red-dim); }
+  .icon-btn.skip:hover{ color: var(--amber-ink); background: var(--amber-dim); }
   /* 平常只是「看」，編輯／刪除／分享／略過卻一直掛在每一行上吵。**有滑鼠的裝置**
      才收起來：滑鼠移到那一行、或用 Tab 走到那一行裡的按鈕（:focus-within）時出現。
      手機沒有「移過去」這個動作，所以照舊一直顯示（媒體查詢只認 hover:hover 且
@@ -742,7 +762,7 @@
   .cal-title{ font-family: var(--mono); font-size:20px; font-weight:700; }
   .cal-nav{ display:flex; gap:8px; align-items:center; }
   .cal-nav button{ font-family: var(--mono); font-size:13px; font-weight:700; background: var(--panel); border:1px solid var(--hairline); color: var(--text-muted); border-radius:var(--r-s); padding:8px 12px; cursor:pointer; }
-  .cal-nav button:hover{ color: var(--amber); border-color: var(--amber); }
+  .cal-nav button:hover{ color: var(--amber-ink); border-color: var(--amber); }
   .cal-legend{ display:flex; gap:14px; font-family: var(--mono); font-size:11.5px; color: var(--text-muted); }
   .cal-legend span{ display:flex; align-items:center; gap:6px; }
   .legend-dot{ width:8px; height:8px; border-radius:50%; }
@@ -772,19 +792,19 @@
   .cal-pip.work{ background: var(--teal); }
   .cal-pip.assignment{ background: var(--amber); }
   .cal-pip.done{ opacity:.3; }
-  .cal-pip-n{ font-family: var(--mono); font-size:9px; color: var(--text-dim); line-height:1; }
+  .cal-pip-n{ font-family: var(--mono); font-size:11px; color: var(--text-dim); line-height:1; }
   .cal-meeting-row{ display:flex; align-items:baseline; gap:5px; min-width:0; }
-  .cal-meeting-time{ font-family: var(--mono); font-size:10px; color: var(--violet); flex-shrink:0; }
-  .cal-meeting-subject{ font-family: var(--sans); font-size:10.5px; color: var(--violet); line-height:1.3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; font-weight:600; }
+  .cal-meeting-time{ font-family: var(--mono); font-size:11px; color: var(--violet); flex-shrink:0; }
+  .cal-meeting-subject{ font-family: var(--sans); font-size:11px; color: var(--violet); line-height:1.3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; font-weight:600; }
   .cal-item-row{ display:flex; align-items:center; gap:5px; min-width:0; }
   .cal-item-check{ width:12px; height:12px; border-radius:3.5px; border:1.3px solid var(--teal); flex-shrink:0; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:8px; color:transparent; transition: all .12s ease; }
   .cal-item-row.assignment .cal-item-check{ border-color: var(--amber); }
   .cal-item-check.done{ background: var(--teal); color:var(--on-accent); }
   .cal-item-row.assignment .cal-item-check.done{ background: var(--amber); }
-  .cal-item-text{ font-family: var(--sans); font-size:10.5px; color: var(--teal); line-height:1.3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+  .cal-item-text{ font-family: var(--sans); font-size:11px; color: var(--teal); line-height:1.3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
   .cal-item-row.assignment .cal-item-text{ color: var(--amber); }
   .cal-item-text.done{ color: var(--text-dim); text-decoration: line-through; }
-  .cal-more{ font-family: var(--mono); font-size:9.5px; color: var(--text-dim); padding-left:2px; }
+  .cal-more{ font-family: var(--mono); font-size:11px; color: var(--text-dim); padding-left:2px; }
 
   /* ---- 跨多天事項的色條 ----
      它們不再以「每天各一列文字」呈現，而是一條貫穿整段日期的橫帶。
@@ -797,7 +817,7 @@
   .cal-spans{ display:flex; flex-direction:column; gap:2px; align-self:stretch; }
   .cal-span{ height:15px; display:flex; align-items:center; gap:4px;
              margin-left:-12px; margin-right:-12px; padding:0 5px;
-             font-family: var(--sans); font-size:10px; font-weight:600; line-height:1;
+             font-family: var(--sans); font-size:11px; font-weight:600; line-height:1;
              white-space:nowrap; overflow:hidden; }
   .cal-span.gap{ background:none; }
   .cal-span.wk-start{ margin-left:-9px; }
@@ -828,7 +848,7 @@
      排版會把日期數字推歪。 */
   .cal-cell{ position:relative; }
   .cal-log-mark{ position:absolute; top:5px; right:6px; font-size:9.5px; line-height:1;
-                 color: var(--amber); opacity:.85; }
+                 color: var(--amber-ink); opacity:.85; }
 
   /* ---- 「不在」的格子 ----
      用斜線紋而不是換底色：底色已經被「今天」與「已選取」用掉兩層了，再加一層
@@ -876,7 +896,7 @@
   .abs-row .abs-when{ font-family:var(--mono); font-size:12px; color:var(--text-muted); margin-left:auto; }
   .abs-row .abs-del{ background:none; border:none; color:var(--text-dim); cursor:pointer;
                      font-size:14px; line-height:1; padding:4px; border-radius:var(--r-s); }
-  .abs-row .abs-del:hover{ color:var(--red); background:var(--red-dim); }
+  .abs-row .abs-del:hover{ color:var(--red-ink); background:var(--red-dim); }
   .abs-kinds{ display:flex; gap:8px; }
   /* 這兩顆是可聚焦控制項：手機上不能小於 16px，也不能小於 44px 的點擊目標
      （見〈iOS 會因為小字級的輸入框把整頁放大〉與 check-mobile 的點擊目標那條） */
@@ -926,7 +946,7 @@
                        color:var(--text-muted); cursor:pointer; }
   .daylog-skip button:hover{ color:var(--teal); border-color:var(--teal); }
   .daylog-rest{ font-family:var(--serif); font-size:14.5px; color:var(--text-muted); line-height:2.1; padding:18px 4px 6px; }
-  .daylog-saved{ color: var(--teal); font-size:11px; letter-spacing:0; text-transform:none; opacity:0; transition: opacity .3s ease; }
+  .daylog-saved{ color: var(--teal-ink); font-size:11px; letter-spacing:0; text-transform:none; opacity:0; transition: opacity .3s ease; }
   .daylog-saved.show{ opacity:1; }
 
   /* 富文字欄位。所有顏色一律走 :root 變數，暗色版才不必再寫一份。 */
@@ -940,8 +960,8 @@
            background:transparent; color: var(--text-muted); cursor:pointer; font-size:13px; line-height:1;
            display:inline-flex; align-items:center; justify-content:center; font-family: var(--sans); }
   .rt-btn:hover{ background: var(--panel-2); color: var(--text); }
-  .rt-btn.active{ background: var(--amber-dim); border-color: var(--amber); color: var(--amber); }
-  .rt-btn.rt-b{ font-weight:800; } .rt-btn.rt-i{ font-style:italic; }
+  .rt-btn.active{ background: var(--amber-dim); border-color: var(--amber); color: var(--amber-ink); }
+  .rt-btn.rt-b{ font-weight:900; } .rt-btn.rt-i{ font-style:italic; }
   .rt-btn.rt-u{ text-decoration:underline; } .rt-btn.rt-s{ text-decoration:line-through; }
   .rt-btn.rt-fg{ font-weight:700; border-bottom:2px solid var(--violet); border-radius:6px 6px 2px 2px; }
   .rt-sep{ width:1px; height:18px; background: var(--hairline); margin:0 5px; flex-shrink:0; }
@@ -953,7 +973,7 @@
   .rt-swatch:hover{ outline:2px solid var(--amber); outline-offset:1px; }
   .rt-sizebtn{ padding:3px 9px; border-radius:var(--r-s); border:1px solid var(--hairline);
                background: var(--panel-2); color: var(--text); cursor:pointer; font-size:12px; }
-  .rt-sizebtn:hover{ border-color: var(--amber); color: var(--amber); }
+  .rt-sizebtn:hover{ border-color: var(--amber); color: var(--amber-ink); }
 
   .rt-edit{ min-height:96px; max-height:340px; overflow-y:auto; padding:10px 12px;
             font-family: var(--sans); font-size:13.5px; line-height:1.7; color: var(--text); outline:none; }
@@ -975,17 +995,17 @@
 
   .rt-toggle{ margin-top:8px; background:none; border:none; padding:0; cursor:pointer;
               font-family: var(--mono); font-size:11px; color: var(--text-dim); }
-  .rt-toggle:hover{ color: var(--amber); }
+  .rt-toggle:hover{ color: var(--amber-ink); }
 
   .account-box{ display:flex; align-items:center; gap:9px; }
   .account-email{ font-family: var(--mono); font-size:11px; color: var(--text-muted); max-width:190px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .account-btn{ font-family: var(--mono); font-size:11px; padding:6px 10px; border-radius:var(--r-s); cursor:pointer; border:1px solid var(--hairline); background: var(--panel); color: var(--text-muted); }
-  .account-btn:hover{ border-color: var(--amber); color: var(--amber); }
+  .account-btn:hover{ border-color: var(--amber); color: var(--amber-ink); }
   .icon-square{ background: var(--panel); border:1px solid var(--hairline); border-radius:var(--r-s); width:42px; height:42px; flex-shrink:0; cursor:pointer; color: var(--text-muted); font-size:17px; display:flex; align-items:center; justify-content:center; }
-  .icon-square:hover{ border-color: var(--amber); color: var(--amber); }
-  footer.storage-note{ margin-top:32px; text-align:center; font-family: var(--mono); font-size:11px; color: var(--text-dim); line-height:1.8; }
-  footer.storage-note .storage-state{ color: var(--teal); }
-  footer.storage-note .storage-state.off{ color: var(--amber); }
+  .icon-square:hover{ border-color: var(--amber); color: var(--amber-ink); }
+  footer.storage-note{ max-width:40em; margin:32px auto 0; text-align:center; font-family: var(--mono); font-size:11px; color: var(--text-dim); line-height:1.8; }
+  footer.storage-note .storage-state{ color: var(--teal-ink); }
+  footer.storage-note .storage-state.off{ color: var(--amber-ink); }
   footer.storage-note .storage-state.err{ color: var(--red); }
   footer.storage-note #cloudNoteText:empty{ display:none; }
   /* 簽名刻意比周圍的頁尾說明大且粗：它是署名，不是註腳。顏色用 --text 而非
@@ -1021,7 +1041,6 @@
   .reminder-row-text b{ color: var(--text-muted); font-weight:600; }
 
   /* ---- Gantt / 專案 ---- */
-  .gantt-empty{ padding: 60px 20px; text-align:center; color: var(--text-dim); border: 1px dashed var(--dash); border-radius:var(--r-m); font-family: var(--mono); font-size:13px; line-height:1.9; background:var(--panel); }
   .gantt-project-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; flex-wrap:wrap; gap:10px; }
 
   /* 專案的夥伴。底色走不透明的 --panel-2：半透明會讓光暈透上來，
@@ -1082,7 +1101,7 @@
   .pet-pick-cap{ font-size:10.5px; color:var(--text-muted); text-align:center; line-height:1.3; }
   #petNone.on{ border-color:var(--amber); color:var(--amber-ink); }
   @media (max-width:640px){ .pet-grid{ grid-template-columns:repeat(3, 1fr); } }
-  .gantt-project-title{ font-size:19px; font-weight:800; }
+  .gantt-project-title{ font-size:19px; font-weight:900; }
   /* 甘特圖：固定的標籤欄 + 可水平捲動的時間軸。
      兩欄各自獨立、靠固定列高（--gantt-row-h）對齊，不用 sticky——sticky 在有
      overflow 的祖先裡各家行為不一，這樣結果比較可預期。
@@ -1115,6 +1134,9 @@
   .gantt-bar.overdue{ background: var(--red); }
   .gantt-bar-fill{ position:absolute; left:0; top:0; bottom:0; background: rgba(255,255,255,0.38); }
   .gantt-bar-label{ position:absolute; left:6px; top:0; font-size:10px; line-height:18px; color:var(--on-accent); font-family: var(--sans); font-weight:700; white-space:nowrap; text-shadow: 0 1px 1px rgba(0,0,0,0.15); }
+  /* 放不進實心那一段的標籤搬到長條外面（見 buildGanttChart）：軌道上的 --text，不再是壓在
+     白色覆蓋層上的淺字（2.46:1）。top 與 .gantt-bar 相同，兩者才會在同一條水平線上 */
+  .gantt-bar-label.out{ top:2px; color:var(--text); text-shadow:none; }
   .gantt-today-line{ position:absolute; top:-4px; bottom:-4px; width:1.5px; background: var(--amber); }
 
   .task-table{ display:flex; flex-direction:column; gap:8px; }
@@ -1141,9 +1163,9 @@
   .todo-row input[type=text]{ flex:1; min-width:0; font-family: var(--sans); font-size:13px; background: var(--panel); }
   .todo-row input[type=text].done{ color: var(--text-dim); text-decoration: line-through; }
   .add-todo-btn{ align-self:flex-start; font-family: var(--mono); font-size:11.5px; color: var(--text-muted); background:transparent; border:1px dashed var(--dash); border-radius:var(--r-s); padding:7px 11px; cursor:pointer; }
-  .add-todo-btn:hover{ color: var(--amber); border-color: var(--amber); }
+  .add-todo-btn:hover{ color: var(--amber-ink); border-color: var(--amber); }
   .todo-progress{ font-family: var(--mono); font-size:12.5px; color: var(--text-muted); white-space:nowrap; }
-  .todo-progress b{ color: var(--teal); font-size:13.5px; }
+  .todo-progress b{ color: var(--teal-ink); font-size:13.5px; }
 
   /* ---- Modal ---- */
   .overlay{ position:fixed; inset:0; background: var(--overlay-bg); backdrop-filter: blur(2px); display:none; align-items:center; justify-content:center; z-index:70; padding:20px; }
@@ -1183,28 +1205,28 @@
   /* 閘門的診斷行：只在「看起來像 app 卻沒認出自己」時才填內容（見 loginGateShow） */
   .gate-diag{ margin-top:12px; font-family: var(--mono); font-size:11.5px; color: var(--text-muted); word-break:break-all; line-height:1.6; }
   .app-auth-tabs{ margin-bottom:14px; }
-  .app-auth-tabs button.active{ background: var(--amber); color: var(--on-accent); border-color: var(--amber); }
+  .app-auth-tabs button.active{ background: var(--amber-solid); color: var(--on-accent); border-color: var(--amber-solid); }
   .acct-danger{ border-color: var(--red-dim); }
   .ghost-btn.danger-btn{ color: var(--red); border-color: var(--red); }
-  .ghost-btn.danger-btn:hover{ background: var(--red-dim); color: var(--red); border-color: var(--red); }
+  .ghost-btn.danger-btn:hover{ background: var(--red-dim); color: var(--red-ink); border-color: var(--red); }
   .btn-confirm.btn-danger{ background: var(--red); border-color: var(--red); }
   .modal-actions button{ flex:1; padding:11px; border-radius:999px; font-family: var(--sans); font-weight:700; font-size:14px; cursor:pointer; }
   .btn-cancel{ background: transparent; border:1px solid var(--hairline); color: var(--text-muted); }
   .btn-cancel:hover{ border-color:var(--hairline-strong); }
-  .btn-confirm{ background: var(--amber); border:none; color:var(--on-accent); }
+  .btn-confirm{ background: var(--amber-solid); border:none; color:var(--on-accent); }
   .btn-confirm:hover{ filter:brightness(1.05); }
   .btn-clear{ background: transparent; border:1px dashed var(--hairline); color: var(--text-dim); }
   .btn-clear:hover{ color: var(--red); border-color: var(--red); }
   .scope-note{ font-family: var(--mono); font-size:11px; color: var(--text-muted); background: var(--panel-2); border:1px solid var(--hairline); border-radius:var(--r-s); padding:9px 11px; margin-bottom:16px; }
-  .scope-note b{ color: var(--amber); }
-  .recur-warn{ font-family: var(--mono); font-size:11px; color: var(--red); background: var(--red-dim); border:1px solid rgba(199,75,67,0.32); border-radius:var(--r-s); padding:9px 11px; margin-bottom:14px; line-height:1.75; }
+  .scope-note b{ color: var(--amber-ink); }
+  .recur-warn{ font-family: var(--mono); font-size:11px; color: var(--red-ink); background: var(--red-dim); border:1px solid rgba(199,75,67,0.32); border-radius:var(--r-s); padding:9px 11px; margin-bottom:14px; line-height:1.75; }
   .holiday-list-box{ display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
   .holiday-chip{ font-family: var(--mono); font-size:11px; background: var(--panel-2); border:1px solid var(--hairline); border-radius:var(--r-s); padding:3px 6px; display:flex; align-items:center; gap:5px; color:var(--text-muted); }
   .holiday-chip button{ background:none; border:none; cursor:pointer; color:var(--text-dim); font-size:11px; }
   .holiday-chip button:hover{ color:var(--red); }
   .weekday-row{ display:flex; gap:6px; flex-wrap:wrap; }
   .weekday-row button{ font-family:var(--mono); font-size:13px; font-weight:700; width:40px; height:36px; border-radius:var(--r-s); border:1px solid var(--hairline); background:var(--panel-2); color:var(--text-muted); cursor:pointer; }
-  .weekday-row button.active{ background:var(--amber-dim); border-color:var(--amber); color:var(--amber); }
+  .weekday-row button.active{ background:var(--amber-dim); border-color:var(--amber); color:var(--amber-ink); }
 
   .filter-bar{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:14px; }
   .filter-bar input[type=search]{ flex:1; min-width:170px; font-family: var(--sans); font-size:13.5px; }
@@ -1214,10 +1236,14 @@
   .filter-types{ display:flex; gap:6px; flex-wrap:wrap; }
   .filter-count{ font-family: var(--mono); font-size:11.5px; color: var(--text-dim); margin-left:auto; }
   /* ===== 我的帳號 ===== */
+  /* 這一頁原本跟著主欄撐到一千多 px，而每一區只有一兩顆小按鈕、一段 12.5px 的說明
+     （一行將近 80 個全形字）。設定頁不需要填滿畫面：整頁收在 680px，說明文字再收到
+     38em（一行大約 38 個全形字）。 */
+  #viewAccount{ max-width:680px; }
   .acct-sec{ background:var(--panel); border:1px solid var(--hairline); border-radius:var(--r-m);
              padding:16px 18px; margin-bottom:14px; }
   .acct-h{ font-size:14px; font-weight:700; margin-bottom:6px; }
-  .acct-sub{ font-size:12.5px; line-height:1.7; color:var(--text-muted); margin-bottom:10px; }
+  .acct-sub{ font-size:12.5px; line-height:1.7; color:var(--text-muted); margin-bottom:10px; max-width:38em; }
   .acct-id-email{ font-family:var(--mono); font-size:15px; margin-bottom:2px; word-break:break-all; }
   .acct-row{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
   /* 取消訂閱。**刻意做得比旁邊的開關明顯**：找不到出口的人會去按信箱軟體的
@@ -1241,10 +1267,10 @@
   .acct-dev:last-child{ border-bottom:none; }
   .acct-dev-name{ font-weight:600; }
   .acct-dev-when{ font-family:var(--mono); font-size:11px; color:var(--text-dim); }
-  .acct-dev-this{ font-family:var(--mono); font-size:10.5px; color:var(--teal);
+  .acct-dev-this{ font-family:var(--mono); font-size:10.5px; color:var(--teal-ink);
                   border:1px solid var(--teal); border-radius:4px; padding:0 5px; }
   .ghost-btn{ font-family: var(--mono); font-size:11px; color: var(--text-dim); background:transparent; border:1px dashed var(--dash); border-radius:var(--r-s); padding:7px 12px; cursor:pointer; }
-  .ghost-btn:hover{ color: var(--amber); border-color: var(--amber); }
+  .ghost-btn:hover{ color: var(--amber-ink); border-color: var(--amber); }
   .builtin-holiday{ margin-top:8px; display:flex; flex-direction:column; gap:6px; }
   .builtin-holiday .source-note{ font-family:var(--mono); font-size:10.5px; color:var(--text-dim); line-height:1.6; }
   .builtin-holiday button:disabled{ opacity:.55; cursor:default; }
@@ -1259,14 +1285,14 @@
   .activity-row:first-child{ border-top:none; }
   .activity-time{ font-family:var(--mono); font-size:11px; color:var(--text-dim); flex-shrink:0; }
   .activity-actor{ font-family:var(--mono); font-size:11.5px; color:var(--text-muted); }
-  .activity-actor.me{ color:var(--amber); }
+  .activity-actor.me{ color:var(--amber-ink); }
   .activity-name{ font-weight:600; }
-  .activity-action{ font-family:var(--mono); font-size:11.5px; color:var(--teal); }
+  .activity-action{ font-family:var(--mono); font-size:11.5px; color:var(--teal-ink); }
 
   /* ---- 分享 ---- */
   .shared-toolbar{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
   .shared-hint{ font-family:var(--mono); font-size:11.5px; color:var(--text-dim); }
-  .shared-hint.ok{ color:var(--teal); }
+  .shared-hint.ok{ color:var(--teal-ink); }
   .shared-hint.err{ color:var(--red); }
   .share-card{ background:var(--panel); border:1px solid var(--hairline); border-radius:var(--r-m); padding:14px 16px; margin-bottom:12px; box-shadow: var(--shadow-xs); }
   .share-card.readonly{ border-left:3px solid var(--text-dim); }
@@ -1276,7 +1302,7 @@
   .share-owner{ font-family:var(--mono); font-size:11px; color:var(--text-muted); background:var(--panel-2); border:1px solid var(--hairline); padding:2px 8px; border-radius:var(--r-s); }
   .perm-badge{ font-family:var(--mono); font-size:10px; letter-spacing:1.5px; padding:3px 8px; border-radius:var(--r-s); font-weight:700; }
   .perm-badge.view{ background:var(--panel-2); color:var(--text-muted); border:1px solid var(--hairline); }
-  .perm-badge.edit{ background:var(--teal-dim); color:var(--teal); }
+  .perm-badge.edit{ background:var(--teal-dim); color:var(--teal-ink); }
   .share-gone{ font-family:var(--mono); font-size:12px; color:var(--text-dim); }
   .share-occ{ display:flex; align-items:center; gap:10px; padding:7px 0; border-top:1px dashed var(--hairline-soft); flex-wrap:wrap; }
   .share-occ:first-child{ border-top:none; }
@@ -1285,8 +1311,8 @@
   .share-existing-row .who{ flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .share-perm-hint{ font-family:var(--mono); font-size:11px; color:var(--text-dim); margin-top:7px; line-height:1.7; }
   .msg-inline{ display:none; font-size:12.5px; line-height:1.6; padding:9px 11px; border-radius:var(--r-s); margin-bottom:4px; }
-  .msg-inline.err{ display:block; background:var(--red-dim); border:1px solid var(--red); color:var(--red); }
-  .msg-inline.ok{ display:block; background:var(--teal-dim); border:1px solid var(--teal); color:var(--teal); }
+  .msg-inline.err{ display:block; background:var(--red-dim); border:1px solid var(--red); color:var(--red-ink); }
+  .msg-inline.ok{ display:block; background:var(--teal-dim); border:1px solid var(--teal); color:var(--teal-ink); }
 
   @media (prefers-reduced-motion: reduce){ *{ transition: none !important; } }
 
@@ -1436,10 +1462,10 @@
     .cal-span-text, .cal-span-check{ display:none; }
     .cal-log-mark{ top:2px; right:3px; font-size:8.5px; }
     .cal-cell.selected{ box-shadow: inset 0 0 0 2px var(--amber); }
-    .cal-weekday{ padding:4px 0; font-size:10px; }
+    .cal-weekday{ padding:4px 0; font-size:11px; }
     .cal-nav{ width:100%; }
     .cal-nav button{ flex:1; padding:10px 8px; }
-    .cal-legend{ gap:10px; font-size:10.5px; }
+    .cal-legend{ gap:10px; font-size:11px; }
     /* 展開的當日內容是手機上真正在讀的東西，給它明確的區塊感 */
     .cal-detail{ margin-top:4px; }
 
@@ -1981,7 +2007,7 @@
 <div class="overlay" id="absenceOverlay">
   <div class="modal" style="max-width:420px;">
     <h3><span class="dot"></span><span data-i18n>不在／休假</span></h3>
-    <div class="scope-note"><span data-i18n>日期</span>：<b id="absModalDays" style="color:var(--amber);">—</b></div>
+    <div class="scope-note"><span data-i18n>日期</span>：<b id="absModalDays">—</b></div>
 
     <div id="absExisting" class="abs-list"></div>
 
@@ -2031,7 +2057,7 @@
 <div class="overlay" id="occOverlay">
   <div class="modal" style="max-width:380px;">
     <h3><span class="dot"></span>調整本次日期</h3>
-    <div class="scope-note">項目：<b id="occModalItemName" style="color:var(--amber);">—</b>　週期：<b id="occModalPeriod">—</b></div>
+    <div class="scope-note">項目：<b id="occModalItemName">—</b>　週期：<b id="occModalPeriod">—</b></div>
     <div class="field"><label data-i18n>本次日期</label><input type="date" id="inputOccDate"></div>
     <div class="modal-actions">
       <button class="btn-clear" id="btnClearOcc" data-i18n>清除覆寫（恢復預設）</button>
@@ -2875,6 +2901,11 @@
       '分享這個大項目（含底下所有項目）':'Share this group (including all its items)',
       '這個大項目底下目前沒有任何項目。':'This group has no items yet.',
       '已逾期':'Overdue', '複製':'Copy', '已複製':'Copied',
+      '進行中':'In progress', '尚未開始':'Not started',
+      '還沒有專案。':'No projects yet.',
+      '建立一個專案，就能在這裡排甘特圖與待辦事項。':'Create a project to plan its timeline and to-dos here.',
+      '還沒有任何共享項目的變更記錄':'No changes to shared items yet',
+      '還沒有分享任何項目出去 — 在項目或專案上按 🔗 即可分享':'You haven’t shared anything yet — press 🔗 on an item or project to share it',
       '早安':'Good morning', '午安':'Good afternoon', '晚安':'Good evening',
       '上週你做完了 {0} 件事。':'Last week you finished {0} things.',
       '今天想把心裡的話，慢慢寫下來。':'Take your time — write down whatever\u2019s on your mind.',
@@ -6412,7 +6443,13 @@
     dateEl.textContent = it.endDate ? occ.date+' → '+it.endDate : occ.date;
     // 跨多天事項要整段結束後才算逾期，期間進行中不是。
     // 純告知**永遠不逾期**——沒有人欠它什麼（見 isActionable）。
-    if(act && !occ.done && (it.endDate || occ.date) < ymd(new Date())){ dateEl.classList.add('overdue'); dateEl.title=tr('已逾期'); }
+    if(act && !occ.done && (it.endDate || occ.date) < ymd(new Date())){
+      dateEl.classList.add('overdue'); dateEl.title=tr('已逾期');
+      // 逾期原本只有「紅色＋粗體」，字面上與旁邊沒逾期的日期一模一樣，那句「已逾期」
+      // 藏在 tooltip 裡——色弱、反光或灰階下就只剩粗細。把它寫出來，仍然是等寬字
+      // （機器在報數）、仍然是 --red：紅線沒有變柔，只是多了一個不靠顏色的說法
+      dateEl.textContent = tr('已逾期')+' · '+dateEl.textContent;
+    }
     row.appendChild(dateEl);
     // 「不在」只是**附註**，加在逾期判斷之後而且完全不碰它：那天你不在，
     // 但事情本來就排在那天，沒做完就是沒做完。
@@ -8253,7 +8290,14 @@
     const area = document.getElementById('ganttDetailArea');
     area.innerHTML='';
     if(ganttProjects.length===0){
-      area.innerHTML = '<div class="gantt-empty">尚未建立任何專案 — 點選上方 <span style="color:var(--amber);">「＋ 新增專案」</span> 開始規劃甘特圖與待辦事項</div>';
+      // 空狀態：插畫、一句這裡放什麼、一顆真的按得下去的按鈕。走的是上面那顆
+      // 「＋ 新增專案」同一條路（含方案上限的檢查），不另外開一條
+      area.innerHTML = '<div class="empty-state">'+emptyArt()+escapeHtml(tr('還沒有專案。'))
+        +'<span class="empty-line2">'+escapeHtml(tr('建立一個專案，就能在這裡排甘特圖與待辦事項。'))+'</span></div>';
+      const emptyAdd=document.createElement('button'); emptyAdd.type='button';
+      emptyAdd.className='add-project-btn empty-cta'; emptyAdd.textContent=tr('＋ 新增專案');
+      emptyAdd.onclick=()=>{ if(planAllowsAdd('ganttProjects')) openGanttModal(null); };
+      area.firstChild.appendChild(emptyAdd);
       return;
     }
     let gp = ganttProjects.find(g=>g.id===selectedGanttProjectId);
@@ -8552,19 +8596,36 @@
       const ts=parseYMD(t.start), te=parseYMD(t.end);
       const left = xOf(ts);
       const width = Math.max(4, ((te-ts+DAY)/DAY) * zoom.pxPerDay);
-      const barEl=document.createElement('div'); barEl.className='gantt-bar'+(t.done?' done':(te<now && !t.done ? ' overdue':''));
+      const ganttOverdue = !t.done && te<now;
+      const barEl=document.createElement('div'); barEl.className='gantt-bar'+(t.done?' done':(ganttOverdue ? ' overdue':''));
       barEl.style.left=left+'px'; barEl.style.width=width+'px';
-      barEl.title = t.name+'　'+t.start+' → '+t.end+'　'+(t.progress||0)+'%';
+      // 已完成／已逾期／進行中原本只靠長條的顏色（青／紅／紫）分辨。狀態寫成字：
+      // tooltip 一律帶，長條上的標籤只在「已完成」「已逾期」這兩種帶（進行中是預設，不必每條都喊）
+      const ganttState = t.done ? tr('已完成') : (ganttOverdue ? tr('已逾期') : (ts>now ? tr('尚未開始') : tr('進行中')));
+      barEl.title = t.name+'　'+t.start+' → '+t.end+'　'+(t.progress||0)+'%　'+ganttState;
       const fill=document.createElement('div'); fill.className='gantt-bar-fill';
       const pg = Math.max(0,Math.min(100,t.progress||0));
       fill.style.width=(100-pg)+'%'; fill.style.left=pg+'%';
       barEl.appendChild(fill);
-      // 壓縮的刻度下長條可能只有幾像素寬，硬塞百分比文字只會溢出成雜訊
-      if(width >= 34){
-        const barLabel=document.createElement('div'); barLabel.className='gantt-bar-label'; barLabel.textContent=pg+'%';
+      // 標籤只有在「已完成的那一段實心色」放得下時才留在長條裡。放不下（進度 0%、
+      // 長條太窄）就會壓在那層 38% 的白色上——淺字配淺底只有 2.46:1——所以改放到長條
+      // **外面**，用 --text 寫在軌道上。寬度是估的（等寬數字約 6.5px、全形字約 10.5px）：
+      // 這裡還沒進 DOM，量不到；估寬一點只會讓標籤早一步搬出去，不會壓到白底
+      const barLabel=document.createElement('div'); barLabel.className='gantt-bar-label';
+      barLabel.textContent = pg+'%'+((t.done || ganttOverdue) ? ' '+ganttState : '');
+      let labelW = 12;
+      for(const ch of barLabel.textContent) labelW += ch.charCodeAt(0) > 0x2E7F ? 10.5 : 6.5;
+      if(width * pg / 100 >= labelW){
         barEl.appendChild(barLabel);
+        track.appendChild(barEl);
+      } else {
+        barLabel.classList.add('out');
+        // 預設放長條右邊；右邊放不下（貼著時間軸尾端）就放左邊，免得把捲動區撐寬
+        if(left + width + 6 + labelW <= innerW) barLabel.style.left = (left + width + 6)+'px';
+        else { barLabel.style.left='auto'; barLabel.style.right = (innerW - left + 6)+'px'; }
+        track.appendChild(barEl);
+        track.appendChild(barLabel);
       }
-      track.appendChild(barEl);
       if(todayX !== null){
         const tl=document.createElement('div'); tl.className='gantt-today-line'; tl.style.left=todayX+'px'; track.appendChild(tl);
       }
@@ -8805,7 +8866,7 @@
     box.innerHTML='';
     if(!cloudEnabled) return;
     if(!activity.length){
-      box.innerHTML='<div class="empty-state">還沒有任何共享項目的變更記錄</div>';
+      box.innerHTML='<div class="empty-note">'+escapeHtml(tr('還沒有任何共享項目的變更記錄'))+'</div>';
       return;
     }
     const list=document.createElement('div'); list.className='activity-list';
@@ -8951,13 +9012,13 @@
       return;
     }
     if(!shares.incoming.length){
-      inc.innerHTML='<div class="empty-state">目前沒有人分享項目給你</div>';
+      inc.innerHTML='<div class="empty-note">'+escapeHtml(tr('目前沒有人分享項目給你'))+'</div>';
     } else {
       shares.incoming.forEach(sh=> inc.appendChild(buildIncomingCard(sh)));
     }
     renderActivity();
     if(!shares.outgoing.length){
-      out.innerHTML='<div class="empty-state">還沒有分享任何項目出去 — 在項目或專案上按 <span>🔗</span> 即可分享</div>';
+      out.innerHTML='<div class="empty-note">'+escapeHtml(tr('還沒有分享任何項目出去 — 在項目或專案上按 🔗 即可分享'))+'</div>';
     } else {
       shares.outgoing.forEach(s=>{
         const card=document.createElement('div'); card.className='share-card';
