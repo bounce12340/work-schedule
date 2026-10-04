@@ -23,13 +23,16 @@
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700;900&family=Noto+Serif+TC:wght@400;600&display=swap"></noscript>
 <style>
   :root{
-    --bg:#F6F4EE; --panel:#FFFFFF; --panel-2:#F1EEE5;
+    /* 與 index.html 的 :root 對齊（2026-10-05）。這一頁原本停在舊值：--text-dim #A2A099 在白底上
+       2.62:1、--panel-2 上 2.26:1（index.html 2026-10-03 已調深，這裡沒跟到）。
+       *-ink 是**淺色底上的字**用的深色版，理由同 index.html：原色當字只有 2.7～4.3:1 */
+    --bg:#F6F4EE; --panel:#FFFDF7; --panel-2:#F1EEE5;
     --hairline:#E4E0D3; --hairline-soft:#ECE8DD;
-    --text:#2A2A26; --text-muted:#71706A; --text-dim:#A2A099;
-    --amber:#C9822E; --amber-dim:rgba(201,130,46,0.12);
-    --teal:#1F8C68; --teal-dim:rgba(31,140,104,0.10);
-    --red:#C74B43; --red-dim:rgba(199,75,67,0.10);
-    --violet:#6C5CE0; --violet-dim:rgba(108,92,224,0.10);
+    --text:#2A2A26; --text-muted:#5F5E58; --text-dim:#6B6A63;
+    --amber:#C9822E; --amber-dim:rgba(201,130,46,0.12); --amber-ink:#8A5716;
+    --teal:#1F8C68; --teal-dim:rgba(31,140,104,0.10); --teal-ink:#176B4F;
+    --red:#C74B43; --red-dim:rgba(199,75,67,0.10); --red-ink:#A33A33;
+    --violet:#6C5CE0; --violet-dim:rgba(108,92,224,0.10); --violet-ink:#5646C8;
     --on-accent:#FFFDF9;
     --mono:'JetBrains Mono',monospace; --sans:'Noto Sans TC','Inter',sans-serif;
     --serif:'Noto Serif TC','Songti TC','Source Han Serif TC',serif;
@@ -40,12 +43,12 @@
     color-scheme:dark;
     --bg:#1A1917; --panel:#232220; --panel-2:#2B2A27;
     --hairline:#3A3833; --hairline-soft:#322F2B;
-    --text:#E8E5DC; --text-muted:#A8A49A; --text-dim:#7A766D;
+    --text:#E8E5DC; --text-muted:#A8A49A; --text-dim:#9A968C;
     --on-accent:#17160F;
-    --amber:#E3A052; --amber-dim:rgba(227,160,82,0.16);
-    --teal:#3FBF92; --teal-dim:rgba(63,191,146,0.14);
-    --red:#E8756B; --red-dim:rgba(232,117,107,0.14);
-    --violet:#9B8CF5; --violet-dim:rgba(155,140,245,0.14);
+    --amber:#E3A052; --amber-dim:rgba(227,160,82,0.16); --amber-ink:var(--amber);
+    --teal:#3FBF92; --teal-dim:rgba(63,191,146,0.14); --teal-ink:var(--teal);
+    --red:#E8756B; --red-dim:rgba(232,117,107,0.14); --red-ink:var(--red);
+    --violet:#9B8CF5; --violet-dim:rgba(155,140,245,0.14); --violet-ink:var(--violet);
   }
   *{box-sizing:border-box;}
   body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);padding:28px 20px;}
@@ -60,7 +63,7 @@
   .actions{display:flex;gap:10px;align-items:center;}
   .btn{font-family:var(--mono);font-size:12px;padding:8px 13px;border-radius:8px;cursor:pointer;
        border:1px solid var(--hairline);background:var(--panel);color:var(--text-muted);}
-  .btn:hover{border-color:var(--amber);color:var(--amber);}
+  .btn:hover{border-color:var(--amber);color:var(--amber-ink);}
   .whoami{font-family:var(--mono);font-size:11px;color:var(--text-dim);}
   .note{font-family:var(--mono);font-size:11px;color:var(--text-dim);background:var(--panel-2);
         border:1px solid var(--hairline);border-radius:8px;padding:10px 12px;margin-bottom:18px;line-height:1.8;}
@@ -71,20 +74,20 @@
   .row.pending{border-color:rgba(201,130,46,.45);background:#FFFDF8;}
   .email{font-weight:500;font-size:14px;flex:1;min-width:190px;word-break:break-all;}
   .badge{font-family:var(--mono);font-size:10.5px;padding:3px 8px;border-radius:5px;letter-spacing:.04em;}
-  .badge.admin{background:var(--violet-dim);color:var(--violet);}
+  .badge.admin{background:var(--violet-dim);color:var(--violet-ink);}
   .badge.user{background:var(--panel-2);color:var(--text-muted);}
-  .badge.approved{background:var(--teal-dim);color:var(--teal);}
-  .badge.pending{background:var(--amber-dim);color:var(--amber);}
-  .badge.rejected,.badge.suspended{background:var(--red-dim);color:var(--red);}
-  .badge.pro{background:var(--amber-dim);color:var(--amber);}
+  .badge.approved{background:var(--teal-dim);color:var(--teal-ink);}
+  .badge.pending{background:var(--amber-dim);color:var(--amber-ink);}
+  .badge.rejected,.badge.suspended{background:var(--red-dim);color:var(--red-ink);}
+  .badge.pro{background:var(--amber-dim);color:var(--amber-ink);}
   .badge.free{background:var(--panel-2);color:var(--text-muted);}
-  .badge.pinned{background:var(--panel-2);color:var(--text-muted);border:1px solid var(--line);}
+  .badge.pinned{background:var(--panel-2);color:var(--text-muted);border:1px solid var(--hairline);}
   .when{font-family:var(--mono);font-size:10.5px;color:var(--text-dim);}
   .ops{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto;}
   .op{font-family:var(--mono);font-size:11px;padding:6px 10px;border-radius:6px;cursor:pointer;
       border:1px solid var(--hairline);background:transparent;color:var(--text-muted);}
   .op:hover{background:var(--panel-2);color:var(--text);}
-  .op.approve:hover{color:var(--teal);border-color:var(--teal);}
+  .op.approve:hover{color:var(--teal-ink);border-color:var(--teal);}
   .op.danger:hover{color:var(--red);border-color:var(--red);}
   .locked{font-family:var(--mono);font-size:10.5px;color:var(--text-dim);}
   .bk-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:0 0 10px;}
@@ -93,8 +96,8 @@
   .bk-row:last-child{border-bottom:none;}
   .bk-key{font-family:var(--mono);font-size:11.5px;white-space:nowrap;}
   .bk-meta{color:var(--text-muted);font-size:11.5px;}
-  .bk-fresh{color:var(--teal);font-weight:600;}
-  .bk-stale{color:var(--amber);font-weight:600;}
+  .bk-fresh{color:var(--teal-ink);font-weight:600;}
+  .bk-stale{color:var(--amber-ink);font-weight:600;}
   .log{margin-top:26px;}
   .log h2{font-size:13px;font-family:var(--mono);letter-spacing:.06em;color:var(--text-muted);
           margin:0 0 10px;font-weight:600;}
@@ -112,8 +115,8 @@
            font-size:12.5px;align-items:baseline;flex-wrap:wrap;}
   .ops-row:last-child{border-bottom:none;}
   .ops-name{font-weight:600;min-width:96px;}
-  .ops-ok{color:var(--teal);font-weight:600;}
-  .ops-warn{color:var(--amber);font-weight:600;}
+  .ops-ok{color:var(--teal-ink);font-weight:600;}
+  .ops-warn{color:var(--amber-ink);font-weight:600;}
   .ops-bad{color:var(--red);font-weight:600;}
   .ops-meta{color:var(--text-muted);font-size:11.5px;}
   .ops-err{font-family:var(--mono);font-size:11px;color:var(--red);width:100%;
@@ -126,8 +129,8 @@
   /* 窄螢幕放不下就讓表格自己捲，不要把整頁撐寬 */
   .ops-scroll{overflow-x:auto;}
   .msg{margin-bottom:16px;padding:11px 13px;border-radius:8px;font-size:13px;display:none;}
-  .msg.err{display:block;background:var(--red-dim);border:1px solid rgba(199,75,67,.3);color:var(--red);}
-  .msg.ok{display:block;background:var(--teal-dim);border:1px solid rgba(31,140,104,.3);color:var(--teal);}
+  .msg.err{display:block;background:var(--red-dim);border:1px solid rgba(199,75,67,.3);color:var(--red-ink);}
+  .msg.ok{display:block;background:var(--teal-dim);border:1px solid rgba(31,140,104,.3);color:var(--teal-ink);}
 </style>
 </head>
 <body>

@@ -25,11 +25,16 @@
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700;900&family=Noto+Serif+TC:wght@400;600&display=swap"></noscript>
 <style>
   :root{
-    --bg:#F6F4EE; --panel:#FFFFFF; --panel-2:#F1EEE5;
-    --hairline:#E4E0D3; --text:#2A2A26; --text-muted:#71706A; --text-dim:#A2A099;
-    --amber:#C9822E; --amber-dim:rgba(201,130,46,0.12);
-    --teal:#1F8C68; --teal-dim:rgba(31,140,104,0.10);
-    --red:#C74B43; --red-dim:rgba(199,75,67,0.10);
+    /* 與 index.html 的 :root 對齊（2026-10-05）。這一頁原本停在舊值：--text-dim #A2A099 在白底上
+       2.62:1、--panel-2 上 2.26:1（index.html 2026-10-03 已調深，這裡沒跟到）。
+       *-ink 是**淺色底上的字**用的深色版，理由同 index.html：原色當字只有 2.7～4.3:1 */
+    --bg:#F6F4EE; --panel:#FFFDF7; --panel-2:#F1EEE5;
+    --hairline:#E4E0D3; --text:#2A2A26; --text-muted:#5F5E58; --text-dim:#6B6A63;
+    --amber:#C9822E; --amber-dim:rgba(201,130,46,0.12); --amber-ink:#8A5716;
+    /* 實心琥珀底（送出鍵）：--on-accent 壓在 --amber 上只有 3.08:1，這個是 4.95:1 */
+    --amber-solid:#9C6218;
+    --teal:#1F8C68; --teal-dim:rgba(31,140,104,0.10); --teal-ink:#176B4F;
+    --red:#C74B43; --red-dim:rgba(199,75,67,0.10); --red-ink:#A33A33;
     --on-accent:#FFFDF9;
     --mono:'JetBrains Mono',monospace; --sans:'Noto Sans TC','Inter',sans-serif;
     --serif:'Noto Serif TC','Songti TC','Source Han Serif TC',serif;
@@ -40,11 +45,11 @@
     color-scheme:dark;
     --bg:#1A1917; --panel:#232220; --panel-2:#2B2A27;
     --hairline:#3A3833; --hairline-soft:#322F2B;
-    --text:#E8E5DC; --text-muted:#A8A49A; --text-dim:#7A766D;
+    --text:#E8E5DC; --text-muted:#A8A49A; --text-dim:#9A968C;
     --on-accent:#17160F;
-    --amber:#E3A052; --amber-dim:rgba(227,160,82,0.16);
-    --teal:#3FBF92; --teal-dim:rgba(63,191,146,0.14);
-    --red:#E8756B; --red-dim:rgba(232,117,107,0.14);
+    --amber:#E3A052; --amber-dim:rgba(227,160,82,0.16); --amber-ink:var(--amber); --amber-solid:var(--amber);
+    --teal:#3FBF92; --teal-dim:rgba(63,191,146,0.14); --teal-ink:var(--teal);
+    --red:#E8756B; --red-dim:rgba(232,117,107,0.14); --red-ink:var(--red);
     --violet:#9B8CF5; --violet-dim:rgba(155,140,245,0.14);
   }
   *{box-sizing:border-box;}
@@ -58,7 +63,7 @@
   .tabs{display:flex;gap:6px;background:var(--panel-2);border-radius:10px;padding:4px;margin-bottom:22px;}
   .tab{flex:1;padding:9px 0;border:none;background:transparent;border-radius:7px;cursor:pointer;
        font-family:var(--mono);font-size:12.5px;color:var(--text-muted);}
-  .tab.active{background:var(--panel);color:var(--amber);font-weight:600;
+  .tab.active{background:var(--panel);color:var(--amber-ink);font-weight:600;
               box-shadow:0 0 0 1px var(--hairline) inset;}
   .field{margin-bottom:15px;}
   label{display:block;font-family:var(--mono);font-size:11px;letter-spacing:.06em;
@@ -70,14 +75,14 @@
   .forgot{margin-top:7px;text-align:right;}
   .forgot button{background:none;border:none;padding:0;cursor:pointer;font-family:var(--mono);
                  font-size:10.5px;color:var(--text-muted);text-decoration:underline;}
-  .forgot button:hover{color:var(--amber);}
+  .forgot button:hover{color:var(--amber-ink);}
   #tsBox{margin:18px 0 14px;min-height:65px;display:flex;justify-content:center;}
-  button.submit{width:100%;padding:12px;border:none;border-radius:9px;background:var(--amber);
+  button.submit{width:100%;padding:12px;border:none;border-radius:9px;background:var(--amber-solid);
                 color:var(--on-accent);font-family:var(--sans);font-size:14.5px;font-weight:700;cursor:pointer;}
   button.submit:disabled{background:var(--text-dim);cursor:not-allowed;}
   .msg{margin-top:16px;padding:11px 13px;border-radius:8px;font-size:13px;line-height:1.65;display:none;}
-  .msg.err{display:block;background:var(--red-dim);border:1px solid rgba(199,75,67,.3);color:var(--red);}
-  .msg.ok{display:block;background:var(--teal-dim);border:1px solid rgba(31,140,104,.3);color:var(--teal);}
+  .msg.err{display:block;background:var(--red-dim);border:1px solid rgba(199,75,67,.3);color:var(--red-ink);}
+  .msg.ok{display:block;background:var(--teal-dim);border:1px solid rgba(31,140,104,.3);color:var(--teal-ink);}
   .foot{margin-top:22px;text-align:center;font-family:var(--mono);font-size:10.5px;
         color:var(--text-dim);line-height:1.8;}
   .foot .signature{display:inline-block;margin-top:8px;padding-top:8px;border-top:1px solid var(--hairline);
