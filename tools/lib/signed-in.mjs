@@ -9,7 +9,7 @@
  * 不要在 index.html 裡加任何「測試模式」的開關來繞閘門：產品程式碼不該知道測試的存在。
  * 一定要在 page.goto 之前呼叫（addInitScript 只對之後的導覽生效）。
  */
-export async function markSignedIn(page, owner = 'demo@example.test') {
+export async function markSignedIn(page, owner = 'demo@example.test', { boot = false } = {}) {
   await page.addInitScript(o => {
     try {
       if (!localStorage.getItem('workSchedule.v1.cloudMeta')) {
@@ -17,4 +17,27 @@ export async function markSignedIn(page, owner = 'demo@example.test') {
       }
     } catch (e) { /* 記憶體模式下略過 */ }
   }, owner);
+  if (!boot) await skipBootScene(page);
+}
+
+/**
+ * 把開機的載入畫面拿掉（2026-10-03 起它是 3 秒、會吃點擊的一層，見 index.html 的
+ * .boot-sakura）。這些工具要驗的是底下的 app，每一次載入都等 3 秒只是在燒時間，
+ * 而 elementFromPoint 這類量法會直接量到那一層。
+ *
+ * **從外面注入樣式，不在 index.html 加任何測試開關**——同上面那條「產品程式碼不該知道
+ * 測試的存在」。載入畫面本身由 check-ambience.mjs 負責（它呼叫時帶 `{ boot: true }`），
+ * smoke.mjs 不經過這支 helper，所以它走的是真的載入畫面。
+ */
+export async function skipBootScene(page) {
+  await page.addInitScript(() => {
+    const add = () => {
+      const st = document.createElement('style');
+      st.textContent = '#bootSakura{display:none!important}';
+      (document.head || document.documentElement).appendChild(st);
+    };
+    if (document.documentElement) add();
+    else new MutationObserver((m, ob) => { if (document.documentElement) { add(); ob.disconnect(); } })
+      .observe(document, { childList: true });
+  });
 }

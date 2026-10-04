@@ -52,10 +52,15 @@
     --bg: #F6F4EE;
     --panel: #FFFDF7;
     --paper: #FDFAF1;   /* 每日記錄專用的紙色，比 panel 再暖一點 */
-    --sakura-trunk: #6E5A4A; --sakura-branch: #8A7360; --sakura-leaf: #7FA36B; --sakura-petal: #F0BCCB; --sakura-petal-2: #D98AA6; --sakura-soil: #CDBE9E;   /* 遊戲化的櫻花樹 */
+    --sakura-trunk: #6E5A4A; --sakura-branch: #8A7360; --sakura-leaf: #7FA36B; --sakura-petal: #F0A6C0; --sakura-petal-2: #D4709A; --sakura-petal-3: #FBD6E3; --sakura-leaf-2: #5E8A4E; --sakura-leaf-3: #A9C98E; --sakura-soil: #CDBE9E;   /* 遊戲化的櫻花樹 */
     --pet-body: #C9A882; --pet-body-2: #A8855F; --pet-ink: #4A3F36; --pet-pale: #EADBC6; --pet-leaf: #6F9A5E; --pet-leaf-2: #517A44;   /* 專案的夥伴 */
     --art-far: #DCE3D0;   /* 空狀態插畫：遠山 */
     --art-near: #C7D3BA;  /* 空狀態插畫：近坡 */
+    /* 開機的載入畫面：藍色的山、湖、前景的草叢 */
+    --scene-sky-1: #E9EFF6; --scene-sky-2: #F6F4EE; --scene-mist: #FFFFFF;
+    --scene-mtn-snow: #E6EEF7; --scene-mtn-far: #A8B9CF; --scene-mtn-near: #7890AE; --scene-ridge: #3E5A6D;
+    --scene-lake: #BFDDD9; --scene-lake-hi: #E8F5F1; --scene-grass: #9DB46C; --scene-shore: #CBD9B1;
+    --scene-bush: #2E4A33; --scene-bush-2: #4C6E46;
     --panel-2: #F1EEE5;
     --hairline: #E8E3D6;
     --hairline-soft: #ECE8DD;
@@ -166,10 +171,14 @@
     --bg: #1A1917;
     --panel: #232220;
     --paper: #24211C;
-    --sakura-trunk: #5C4C40; --sakura-branch: #705E4E; --sakura-leaf: #6E9A5C; --sakura-petal: #C4889B; --sakura-petal-2: #A2687E; --sakura-soil: #4A423A;
+    --sakura-trunk: #5C4C40; --sakura-branch: #705E4E; --sakura-leaf: #6E9A5C; --sakura-petal: #C77F9C; --sakura-petal-2: #9C5676; --sakura-petal-3: #E0A9BF; --sakura-leaf-2: #4F7742; --sakura-leaf-3: #8DB377; --sakura-soil: #4A423A;
     --pet-body: #A98D6D; --pet-body-2: #8A6F52; --pet-ink: #E2D8CB; --pet-pale: #6B5B48; --pet-leaf: #5E8750; --pet-leaf-2: #456B3A;
     --art-far: #2C332B;
     --art-near: #363E33;
+    --scene-sky-1: #1D2431; --scene-sky-2: #1A1917; --scene-mist: #2A3241;
+    --scene-mtn-snow: #5A687F; --scene-mtn-far: #3B485C; --scene-mtn-near: #2D394B; --scene-ridge: #1C2A32;
+    --scene-lake: #22363A; --scene-lake-hi: #33494C; --scene-grass: #4B5C37; --scene-shore: #2E392B;
+    --scene-bush: #13201A; --scene-bush-2: #23341F;
     --panel-2: #2B2A27;
     --hairline: #3A3833;
     --hairline-soft: #322F2B;
@@ -284,34 +293,63 @@
   .game-avatar.levelup{ animation: level-glow .9s ease-out; }
   @media (prefers-reduced-motion: reduce){ .game-avatar.levelup{ animation:none; } .game-avatar .sakura{ transition:none; } }
 
-  /* 開機的櫻花。**它是遮罩，不是關卡**，而那句話有兩個具體的實作：
-     1. `pointer-events:none` —— 畫面照常繪製、照常按得到，它只是蓋在上面演一段。
-     2. **由 CSS 決定它何時消失，不是 JS。** 交給 JS 的話，JS 一摔倒就會留下一張永遠
-        蓋住整個 app 的紙——同 `.ai-panel[hidden]` 那個看不見的全屏遮罩，而那一次是
-        瀏覽器測試才抓到的。現在 JS 只負責畫：畫不出來最多是一片乾淨的底色，1200ms
-        後照樣自己走。**上限因此是唯一的機制，不是 JS 的備援。**
-     設計文件的「資料就緒（renderAll 跑完一次）就淡出」在實作時併進了上限這一條：
-     `renderAll()` 是同步的、第一次繪製之前就已經跑完，所以那個條件在 t=0 永遠成立，
-     照字面做的話這段動畫一幀都不會播。 */
+  /* 開機的載入畫面：高山、湖泊、湖邊長大的櫻花樹、在湖邊走來走去的夥伴，下面一條進度條
+     （2026-10-03 使用者裁決：約 3 秒，參考的是「藍色的山、湖、前景的草叢」那種平塗插畫）。
+
+     原本是 1200ms、`pointer-events:none` 的遮罩。改成 3 秒之後有兩件事跟著變，一件沒變：
+     1. **它現在吃點擊，而且點一下就收掉**（`.skip`）。3 秒、整片不透明的時候還讓點擊穿過去，
+        等於讓人按到看不見的按鈕——勾掉一件事、刪掉一個項目，而他根本沒看到自己按了什麼。
+     2. 進度條是**時間做的，不是真的在量載入**：資料在第一次繪製前就已經畫好了（renderAll 是
+        同步的），沒有東西可量。它表達的是「再一下就好」，不是一個百分比。
+     3. **沒變的：由 CSS 決定它何時消失，不是 JS。** 交給 JS 的計時器，JS 一摔倒就留下一張
+        永遠蓋住整個 app 的紙——同 `.ai-panel[hidden]` 那個看不見的全屏遮罩。JS 只負責畫
+        （樹、夥伴）與「點一下跳過」；JS 整個不跑時它照樣在 3.4 秒走掉，而且走掉時是
+        `visibility:hidden`，點擊也一起還給底下的畫面。**上限是唯一的機制，不是 JS 的備援。** */
   .boot-sakura{
-    position:fixed; inset:0; z-index:200; display:grid; place-items:center;
-    background:var(--bg); pointer-events:none;
-    animation: boot-sakura-out 1200ms ease-in forwards;
+    position:fixed; inset:0; z-index:200; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px;
+    background:var(--bg); padding:16px; cursor:pointer;
+    animation: boot-sakura-out 3400ms ease-in forwards;
   }
-  .boot-sakura-art{ width:176px; height:176px; animation: boot-sakura-grow 760ms ease-out both; }
+  .boot-sakura.skip{ animation: boot-skip 320ms ease-in forwards; }
+  @keyframes boot-sakura-out{ 0%, 88%{ opacity:1; } 100%{ opacity:0; visibility:hidden; } }
+  @keyframes boot-skip{ to{ opacity:0; visibility:hidden; } }
+  .boot-scene{ position:relative; width:min(100%, 640px); aspect-ratio: 400 / 260; border-radius:var(--r-l); overflow:hidden; }
+  .boot-land{ position:absolute; inset:0; width:100%; height:100%; display:block; }
+  /* 樹的腳要踩在前岸上：箱子的 89% 高是土（sakuraArt 的 soil 在 y=100/112） */
+  .boot-sakura-art{ position:absolute; right:7%; bottom:5%; width:30%; aspect-ratio:120 / 112;
+                    transform-origin:50% 89%; z-index:1; animation: boot-sakura-grow 900ms ease-out both; }
   .boot-sakura-art svg{ width:100%; height:100%; display:block; overflow:visible; }
-  @keyframes boot-sakura-grow{ from{ transform:scale(.72); opacity:0; } to{ transform:scale(1); opacity:1; } }
-  @keyframes boot-sakura-out{ 0%, 76%{ opacity:1; } 100%{ opacity:0; visibility:hidden; } }
-  /* 專案的夥伴排在櫻花下面。**刻意放在同一個 .boot-sakura 容器內**：
-     pointer-events:none、1200ms 的上限、下面那條 reduced-motion 的 display:none
-     因此全部免費繼承。另開一個容器就要把三個不變量再寫一次，而漏掉任何一個的
-     症狀已經記過——一張永遠蓋住整個 app 的紙。 */
-  .boot-pets{ position:absolute; left:0; right:0; bottom:16%; display:flex; justify-content:center;
-              align-items:flex-end; gap:12px; padding:0 16px; }
-  .boot-pet{ width:46px; height:46px; animation: boot-sakura-grow 760ms ease-out both; }
+  @keyframes boot-sakura-grow{ from{ transform:scale(.6); opacity:0; } to{ transform:scale(1); opacity:1; } }
+  /* 夥伴在湖邊走來走去。**刻意放在同一個 .boot-sakura 容器內**：3.4 秒的上限、
+     reduced-motion 的 display:none 因此全部免費繼承——另開一個容器就要再寫一次，
+     而漏掉任何一個的症狀已經記過：一張永遠蓋住整個 app 的紙。
+     每一隻走自己的一條線（--lane-*，由 JS 指定），走到頭轉身（裡面那一層翻面）。 */
+  .boot-pets{ position:absolute; inset:0; }
+  .boot-pet{ position:absolute; width:13%; aspect-ratio:1; bottom:var(--lane-y); left:var(--lane-a);
+             transform:scale(var(--lane-s, 1)); transform-origin:50% 100%; z-index:var(--lane-z, 2);
+             animation: boot-walk var(--lane-d, 9s) ease-in-out var(--lane-delay, 0s) infinite; }
+  .boot-pet > span{ display:block; width:100%; height:100%;
+                    animation: boot-turn var(--lane-d, 9s) linear var(--lane-delay, 0s) infinite, boot-bob .5s ease-in-out infinite alternate; }
   .boot-pet svg{ width:100%; height:100%; display:block; overflow:visible; }
-  .boot-pet-more{ font-family:var(--mono); font-size:12px; color:var(--text-muted); padding-bottom:12px; }
-  /* 純氛圍、沒有任何資訊在裡面，是最該被關掉的那一種動畫（同光暈、同升級的光） */
+  /* 腳兩組交替擺動（側身圖的 <g class="leg a|b">），以髖為軸：fill-box 的頂端就是髖 */
+  .boot-pet .leg{ transform-box:fill-box; transform-origin:50% 0; animation: pet-leg .42s ease-in-out infinite alternate; }
+  .boot-pet .leg.b{ animation-direction: alternate-reverse; }
+  @keyframes pet-leg{ from{ transform:rotate(-20deg); } to{ transform:rotate(20deg); } }
+  /* 樹不走路：站在自己那條路線的起點，只輕輕晃 */
+  .boot-pet.still{ animation:none; }
+  .boot-pet.still > span{ animation: boot-sway 2.4s ease-in-out infinite alternate; transform-origin:50% 100%; }
+  @keyframes boot-sway{ from{ transform:rotate(-2deg); } to{ transform:rotate(2deg); } }
+  @keyframes boot-walk{ 0%, 4%{ left:var(--lane-a); } 46%, 54%{ left:var(--lane-b); } 96%, 100%{ left:var(--lane-a); } }
+  @keyframes boot-turn{ 0%, 49.9%{ transform:scaleX(1); } 50%, 99.9%{ transform:scaleX(-1); } }
+  @keyframes boot-bob{ from{ translate:0 0; } to{ translate:0 -3%; } }
+  .boot-pet-more{ position:absolute; top:6%; right:4%; font-family:var(--mono); font-size:12px; color:var(--text-muted);
+                  background:var(--panel); border-radius:999px; padding:2px 8px; }
+  .boot-progress{ width:min(60%, 240px); height:6px; border-radius:999px; background:var(--panel-2); overflow:hidden; }
+  .boot-progress > span{ display:block; height:100%; width:0; border-radius:999px; background:var(--amber);
+                         animation: boot-load 2900ms cubic-bezier(.4,.1,.3,1) forwards; }
+  @keyframes boot-load{ to{ width:100%; } }
+  .boot-caption{ font-family:var(--serif); font-size:13px; color:var(--text-muted); margin-top:-8px; }
+  /* 純氛圍、沒有任何資訊在裡面，是最該被關掉的那一種動畫（同升級的光） */
   @media (prefers-reduced-motion: reduce){ .boot-sakura{ display:none; } }
   .game-card{ display:flex; gap:18px; align-items:flex-start; }
   .game-body{ flex:1; min-width:0; }
@@ -2139,13 +2177,66 @@
   </div>
 </div>
 
-<!-- 開機的櫻花。預設就是看得見的（第一次繪製它就在），由 CSS 自己淡掉——理由寫在
-     .boot-sakura 那一段。裡面是空的：inline script 在同一次解析裡就會把樹畫進去。 -->
+<!-- 開機的載入畫面。預設就是看得見的（第一次繪製它就在），由 CSS 自己淡掉——理由寫在
+     .boot-sakura 那一段。山與湖是寫死的 SVG；樹與夥伴是空的，inline script 在同一次解析裡畫進去。 -->
 <!-- 手機版日曆的滑動 bar。只在日曆頁顯示（JS 切 .on），而「只有 bar 本身吃點擊」
      靠的是它窄＋父層沒有遮罩——不做成看不見的全屏覆蓋（.ai-panel[hidden] 那個 bug）。 -->
 <div class="cal-scrollbar" id="calScrollbar" aria-hidden="true"><span></span></div>
 
-<div class="boot-sakura" id="bootSakura" aria-hidden="true"><div class="boot-sakura-art" id="bootSakuraArt"></div><div class="boot-pets" id="bootPets"></div></div>
+<!-- 夥伴的羊毛氈質感：所有夥伴的 SVG 都用 filter="url(#petFelt)" 指到這裡。
+     共用一份而不是每張圖各帶一份：同一個 id 重複出現時瀏覽器只認第一個，而第一個
+     若剛好在一個 display:none 的容器裡（載入畫面收掉之後），濾鏡會整個失效。
+     三層：①邊緣毛起來（turbulence 推一下輪廓）②一層細纖維的明暗（乘上去）
+     ③下緣一圈淡淡的陰影，看起來是鼓起來的一團羊毛，而不是貼紙。 -->
+<svg class="svg-defs" width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute">
+  <filter id="petFelt" x="-15%" y="-15%" width="130%" height="130%" color-interpolation-filters="sRGB">
+    <feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="2" seed="4" result="warp"/>
+    <feDisplacementMap in="SourceGraphic" in2="warp" scale="1.1" xChannelSelector="R" yChannelSelector="G" result="fuzz"/>
+    <feTurbulence type="fractalNoise" baseFrequency="2.4" numOctaves="2" seed="9" result="fib"/>
+    <feColorMatrix in="fib" type="matrix" values="0.5 0 0 0 0.7  0.5 0 0 0 0.7  0.5 0 0 0 0.7  0 0 0 0 1" result="fibG"/>
+    <feComposite in="fibG" in2="fuzz" operator="in" result="fibIn"/>
+    <feBlend in="fuzz" in2="fibIn" mode="multiply" result="felt"/>
+    <feGaussianBlur in="SourceAlpha" stdDeviation="1.4" result="soft"/>
+    <feOffset in="soft" dy="-1.4" result="lifted"/>
+    <feComposite in="SourceAlpha" in2="lifted" operator="out" result="rim"/>
+    <feFlood flood-color="#000" flood-opacity=".16"/>
+    <feComposite in2="rim" operator="in" result="shade"/>
+    <feComposite in="shade" in2="fuzz" operator="in" result="shadeIn"/>
+    <feMerge><feMergeNode in="felt"/><feMergeNode in="shadeIn"/></feMerge>
+  </filter>
+</svg>
+
+<div class="boot-sakura" id="bootSakura" aria-hidden="true">
+  <div class="boot-scene">
+    <svg class="boot-land" viewBox="0 0 400 260" preserveAspectRatio="xMidYMid slice">
+      <defs>
+        <linearGradient id="bootSky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--scene-sky-1)"/><stop offset="1" style="stop-color:var(--scene-sky-2)"/></linearGradient>
+        <linearGradient id="bootPeakA" x1="0" y1="0" x2="1" y2="1"><stop offset="0" style="stop-color:var(--scene-mtn-snow)"/><stop offset=".55" style="stop-color:var(--scene-mtn-far)"/><stop offset="1" style="stop-color:var(--scene-mtn-near)"/></linearGradient>
+        <linearGradient id="bootPeakB" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--scene-mtn-far)"/><stop offset="1" style="stop-color:var(--scene-mtn-near)"/></linearGradient>
+        <linearGradient id="bootLake" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--scene-lake-hi)"/><stop offset="1" style="stop-color:var(--scene-lake)"/></linearGradient>
+      </defs>
+      <rect width="400" height="260" fill="url(#bootSky)"/>
+      <path d="M62 128 C78 70 150 44 214 56 C250 22 330 26 352 70 C388 78 394 124 358 136 Z" fill="var(--scene-mist)" opacity=".8"/>
+      <path d="M150 186 L262 66 C268 59 275 59 281 66 L396 186 Z" fill="url(#bootPeakA)"/>
+      <path d="M272 62 C262 92 292 110 278 140 C270 158 302 172 336 186 L396 186 L281 66 Z" fill="var(--scene-mtn-near)" opacity=".45"/>
+      <path d="M36 186 L140 102 C146 96 153 96 159 102 L266 186 Z" fill="url(#bootPeakB)"/>
+      <path d="M150 99 C142 122 166 134 152 154 C144 166 160 176 182 186 L266 186 L159 102 Z" fill="var(--scene-mtn-snow)" opacity=".28"/>
+      <path d="M0 194 C18 182 32 178 46 172 C60 166 74 172 86 168 C100 162 112 170 126 174 C150 180 170 178 190 180 C214 182 236 174 256 172 C276 170 290 162 306 160 C320 158 334 166 348 168 C366 170 382 178 400 184 L400 202 L0 202 Z" fill="var(--scene-ridge)"/>
+      <rect x="0" y="198" width="400" height="40" fill="url(#bootLake)"/>
+      <path d="M36 206 H170 M210 210 H352 M80 224 H250 M300 220 H384" stroke="var(--scene-lake-hi)" stroke-width="2.5" stroke-linecap="round" opacity=".9"/>
+      <path d="M22 216 C50 203 92 203 122 210 C160 214 198 216 230 218 C180 224 92 226 22 216 Z" fill="var(--scene-grass)"/>
+      <path d="M0 234 C60 228 140 232 200 230 C270 228 340 232 400 228 V260 H0 Z" fill="var(--scene-shore)"/>
+      <path d="M6 260 C2 242 20 234 34 242 C38 228 60 228 64 244 C74 236 90 242 86 260 Z" fill="var(--scene-bush)"/>
+      <path d="M24 252 C30 238 46 236 52 246" stroke="var(--scene-bush-2)" stroke-width="5" stroke-linecap="round" fill="none"/>
+      <path d="M152 260 C150 248 164 242 174 248 C180 238 198 240 200 252 C206 248 214 252 214 260 Z" fill="var(--scene-bush-2)"/>
+      <path d="M332 260 C330 246 344 240 354 246 C360 234 380 236 382 250 C390 246 400 250 400 260 Z" fill="var(--scene-bush)"/>
+    </svg>
+    <div class="boot-sakura-art" id="bootSakuraArt"></div>
+    <div class="boot-pets" id="bootPets"></div>
+  </div>
+  <div class="boot-progress"><span></span></div>
+  <div class="boot-caption" data-i18n>載入中…</div>
+</div>
 
 <script>
 (function(){
@@ -2637,6 +2728,7 @@
       '連續 {0} 天，最長 {1} 天。那一天安排的事全部按時做完才算一天；沒安排的日子不算、也不會斷。':'{0}-day streak, best {1}. A day counts when everything scheduled that day is done on time; days with nothing scheduled neither count nor break it.',
       '目前的挑戰：連續 {0} 天（{1}/{0}）':'Current challenge: {0} days in a row ({1}/{0})',
       '三階挑戰都完成了。':'All three challenges done.',
+      '載入中…':'Loading…',
       '第一件':'First one', '十件':'Ten', '五十件':'Fifty', '一百件':'One hundred', '連續 7 天':'7-day streak', '連續 14 天':'14-day streak', '連續 30 天':'30-day streak', '完美的一週':'Perfect week',
       '今天全部做完了。+{0} XP，連續 {1} 天。':'Everything for today is done. +{0} XP, {1}-day streak.',
       '升到 Lv.{0} 了！':'Level {0}!', '拿到徽章：{0}':'New badge: {0}',
@@ -5438,8 +5530,10 @@
    */
   function sakuraArt(stage, glow){
     const season = { seed:'shoot', sprout:'branch', seedling:'bud', tree:'bloom', flower:'fall', fruit:'shoot2' }[stage] || 'shoot';
-    const soil = '<ellipse cx="60" cy="100" rx="34" ry="9" fill="var(--sakura-soil)"/>';
-    const halo = glow ? '<circle cx="60" cy="60" r="34" fill="var(--halo-b)" opacity=".5"/>' : '';
+    const big = season === 'bloom' || season === 'fall' || season === 'shoot2';
+    const halo = !glow ? '' : big ? '<circle cx="60" cy="48" r="46" fill="var(--halo-b)" opacity=".45"/>'
+                                  : '<circle cx="60" cy="60" r="34" fill="var(--halo-b)" opacity=".5"/>';
+    const soil = '<ellipse cx="60" cy="100" rx="'+(big ? 42 : 34)+'" ry="9" fill="var(--sakura-soil)"/>';
     const leaf = (x, y, deg) => '<ellipse cx="'+x+'" cy="'+y+'" rx="9" ry="4.5" fill="var(--sakura-leaf)" transform="rotate('+deg+' '+x+' '+y+')"/>';
     /** 五瓣的花：五片花瓣繞著一個深色的花心 */
     const flower = (x, y, r) => [18, 90, 162, 234, 306].map(a => {
@@ -5454,27 +5548,72 @@
       + '<path d="M60 70 L79 54" stroke="var(--sakura-branch)" stroke-width="3" stroke-linecap="round" fill="none"/>'
       + '<path d="M60 58 L60 43" stroke="var(--sakura-branch)" stroke-width="2.5" stroke-linecap="round" fill="none"/>';
     const TIPS = [[40,57],[50,68],[80,52],[70,62],[60,41],[52,50],[70,45]];
+    /**
+     * 長大以後的櫻花樹（綻放、花落、第二輪）：扭曲的樹幹＋根，枝條往外伸，
+     * 花冠是一團一團疊起來的花簇——每一簇三層（深粉的影子、粉、淺粉的亮面），
+     * 疊在一起才有「開滿了」的厚度（使用者給的參考圖）。
+     * 位置是寫死的清單，不是亂數：每次重繪都要長得一模一樣，否則樹會自己「閃」。
+     *   spread    花冠的寬度倍率（第二輪 1.12 → 比第一輪大）
+     *   trunk     樹幹粗細倍率
+     *   pinkShare 花簇裡粉色的比例，其餘是綠葉（第二輪＝新綠夾著花；花落＝花謝了一半）
+     *   thin      花落：拿掉一部分花簇，看得到枝
+     */
+    const CANOPY = [[60,22,11],[46,25,10],[74,25,10],[35,34,10],[85,34,10],[53,34,12],[67,34,12],
+                    [26,46,9],[94,46,9],[40,45,11],[60,45,12],[80,45,11],[48,55,9],[72,55,9],[33,57,7],[87,57,7],[60,57,8]];
+    const FALL_PETALS = [[22,70],[96,66],[30,84],[88,80],[44,74],[78,88],[18,90],[102,92],[66,76]];
+    const GROUND_PETALS = [[38,101],[50,103],[70,102],[83,100],[45,98],[76,104],[58,105],[30,99],[90,103]];
+    const bigTree = (o) => {
+      const sx = (x) => (60 + (x - 60) * o.spread).toFixed(1);
+      const sy = (y) => (66 - (66 - y) * (0.9 + o.spread * 0.1)).toFixed(1);
+      const t = o.trunk;
+      const w = (n) => (n * t).toFixed(1);
+      // 樹幹：底部往兩邊張開成根，往上扭一下再分枝
+      const trunkPath = '<path d="M'+(60 - 11*t).toFixed(1)+' 101 C'+(60 - 6*t).toFixed(1)+' 96 '+(60 - 3*t).toFixed(1)+' 90 '+(60 - 4*t).toFixed(1)+' 82'
+        + ' C'+(60 - 5*t).toFixed(1)+' 74 '+(60 - 1*t).toFixed(1)+' 70 '+(60 - 2*t).toFixed(1)+' 63 L'+(60 + 3*t).toFixed(1)+' 63'
+        + ' C'+(60 + 4*t).toFixed(1)+' 70 '+(60 + 1*t).toFixed(1)+' 76 '+(60 + 3*t).toFixed(1)+' 84'
+        + ' C'+(60 + 5*t).toFixed(1)+' 92 '+(60 + 7*t).toFixed(1)+' 97 '+(60 + 12*t).toFixed(1)+' 101 Z" fill="var(--sakura-trunk)"/>';
+      const limb = (x1, y1, x2, y2, sw) => '<path d="M'+x1+' '+y1+' Q'+((x1 + +x2) / 2).toFixed(1)+' '+(Math.min(y1, +y2) - 4).toFixed(1)+' '+x2+' '+y2
+        + '" stroke="var(--sakura-trunk)" stroke-width="'+w(sw)+'" stroke-linecap="round" fill="none"/>';
+      const limbs = limb(59, 66, sx(32), sy(44), 3.2) + limb(61, 66, sx(88), sy(42), 3.2)
+        + limb(60, 64, sx(46), sy(28), 2.6) + limb(60, 64, sx(74), sy(27), 2.6) + limb(60, 64, sx(60), sy(20), 2.4);
+      const clusters = CANOPY.filter((c, i) => !(o.thin && i % 3 === 1));
+      // 每一簇：一團底色（影子往右下偏），上面撒一把小花——淺的、深的交錯。
+      // 撒小花而不是畫一顆亮面：亮面會讓花簇看起來像氣球，小花才像「開滿了」
+      const SPECKS = [[-0.45,-0.35],[0.1,-0.55],[0.5,-0.2],[-0.15,0.05],[0.35,0.35],[-0.5,0.3],[0.05,0.5],[0.6,0.15]];
+      const blob = ([x, y, r], i) => {
+        const pink = (i * 7 % 10) / 10 < o.pinkShare;
+        const R = r * (0.92 + o.spread * 0.08);
+        const X = +sx(x), Y = +sy(y);
+        const shade = pink ? 'var(--sakura-petal-2)' : 'var(--sakura-leaf-2)';
+        const main = pink ? 'var(--sakura-petal)' : 'var(--sakura-leaf)';
+        const lite = pink ? 'var(--sakura-petal-3)' : 'var(--sakura-leaf-3)';
+        return '<circle cx="'+(X + R*0.16).toFixed(1)+'" cy="'+(Y + R*0.2).toFixed(1)+'" r="'+R.toFixed(1)+'" fill="'+shade+'"/>'
+          + '<circle cx="'+X.toFixed(1)+'" cy="'+Y.toFixed(1)+'" r="'+(R*0.88).toFixed(1)+'" fill="'+main+'"/>'
+          + SPECKS.map(([dx, dy], k) => '<circle cx="'+(X + dx*R).toFixed(1)+'" cy="'+(Y + dy*R).toFixed(1)+'" r="'+(R*(k % 3 === 0 ? 0.2 : 0.15)).toFixed(1)
+              + '" fill="'+((k + i) % 3 === 0 ? shade : lite)+'"/>').join('');
+      };
+      const petal = ([x, y], i) => '<ellipse cx="'+x+'" cy="'+y+'" rx="2.6" ry="1.6" fill="var(--sakura-petal)" transform="rotate('+((i * 47) % 180 - 90)+' '+x+' '+y+')"/>';
+      return trunkPath + limbs + clusters.map(blob).join('')
+        + FALL_PETALS.slice(0, o.falling).map(petal).join('') + GROUND_PETALS.slice(0, o.ground).map(petal).join('');
+    };
     let body = '';
-    if(season === 'shoot' || season === 'shoot2'){
-      // 第 5 階回到第 0 階的樣子，只有**樹幹更粗**——那是「第幾輪」唯一的證據。
-      // 少了這個差別，Lv.17 與 Lv.1 長得一模一樣，升級就沒有意義了。
-      // 兩階的芽與葉**逐字相同**，差別只有樹幹的粗細：多畫一片葉子就會變成另一個形狀，
-      // 那樣看的人會以為是別的東西長出來了，而不是「同一棵樹，第二輪」
-      const thick = season === 'shoot2';
-      body = '<path d="M60 100 V86" stroke="var(--sakura-trunk)" stroke-width="'+(thick ? 8.5 : 3.5)+'" stroke-linecap="round" fill="none"/>'
+    if(season === 'shoot'){
+      body = '<path d="M60 100 V86" stroke="var(--sakura-trunk)" stroke-width="3.5" stroke-linecap="round" fill="none"/>'
         + leaf(50, 85, -34) + leaf(70, 83, 34);
     }else if(season === 'branch'){
       body = skeleton(5) + leaf(39, 57, -42) + leaf(81, 52, 42) + leaf(60, 40, 0);
     }else if(season === 'bud'){
       body = skeleton(5.5) + TIPS.slice(0, 5).map(([x, y]) => budDot(x, y)).join('') + leaf(50, 73, -30);
     }else if(season === 'bloom'){
-      body = skeleton(5.5) + TIPS.map(([x, y]) => flower(x, y, 7)).join('');
+      body = bigTree({ spread: 1, trunk: 1, pinkShare: 1, falling: 6, ground: 5 });
+    }else if(season === 'fall'){
+      // 花落：花冠變稀、夾著綠葉，花瓣大量往下飄、落在地上
+      body = bigTree({ spread: 0.92, trunk: 1, pinkShare: 0.45, thin: true, falling: 9, ground: 9 });
     }else{
-      // 花落：樹上只剩三朵，其餘的花瓣在往下飄
-      body = skeleton(5.5) + TIPS.slice(0, 3).map(([x, y]) => flower(x, y, 6.5)).join('')
-        + '<ellipse cx="34" cy="80" rx="4" ry="2.6" fill="var(--sakura-petal)" transform="rotate(-25 34 80)"/>'
-        + '<ellipse cx="88" cy="74" rx="4" ry="2.6" fill="var(--sakura-petal)" transform="rotate(20 88 74)"/>'
-        + '<ellipse cx="76" cy="90" rx="3.6" ry="2.4" fill="var(--sakura-petal)" transform="rotate(-15 76 90)"/>';
+      // 第二輪的新芽（選項 B，2026-10-03 使用者裁決）：**同一棵樹，第二輪**——
+      // 比第一輪大、比較茂盛。樹幹更粗、花冠更寬，滿樹的花夾著新綠。
+      // 第一輪的新芽是地上一株小苗；到了第二輪它已經是一棵大樹，那就是「第幾輪」的證據
+      body = bigTree({ spread: 1.12, trunk: 1.35, pinkShare: 0.75, falling: 4, ground: 3 });
     }
     // 群組的 class 必須與 CSS 的 .game-avatar .sakura 逐字相同，否則「垂下」會安靜地失效
     return '<svg viewBox="0 0 120 112" aria-hidden="true">' + halo + soil + '<g class="sakura">' + body + '</g></svg>';
@@ -5640,6 +5779,153 @@
       + (k >= 3 ? '<ellipse cx="32" cy="'+(top + h * 0.5).toFixed(1)+'" rx="'+(w * 0.52).toFixed(1)+'" ry="'+(h * 0.1).toFixed(1)+'" fill="var(--pet-leaf)"/>' : '');
   }
 
+  // ---- 側身（走路的樣子）----
+  // 載入畫面裡夥伴在湖邊走來走去，正面的圖在那裡會像「站著平移」。所以六種動物
+  // 各有一張**側身、面朝右**的圖（往左走時由 CSS 翻面），六個階段都有——幼體也有。
+  // 跟正面那一套同一條規則：骨架固定，長大只做兩件事（變大、成年才長出特徵）。
+  // 腳一律包在 <g class="leg a|b"> 裡：a、b 兩組交替擺動（CSS 的 pet-leg），
+  // 遠側那兩隻畫在身體後面、顏色深一階，看起來才有前後。地面在 y=58。
+  // 植物不走路，沒有側身圖——載入畫面裡它們站在原地。
+  function sideLeg(x, hip, len, w, cls){
+    return '<g class="leg '+cls+'"><path d="M'+x.toFixed(1)+' '+hip.toFixed(1)+' V'+(hip + len).toFixed(1)
+      + '" stroke="var(--pet-body-2)" stroke-width="'+w.toFixed(1)+'" stroke-linecap="round"/></g>';
+  }
+  function sideEye(x, y){ return '<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="1.5" fill="var(--pet-ink)"/>'; }
+
+  function petSideDeer(k){
+    const g = k / 5;
+    const len = 8 + g * 8, hip = 58 - len, rx = 10 + g * 5, ry = 6 + g * 3;
+    const cy = hip - ry * 0.45, cx = 30;
+    const hx = cx + rx + 3 + g, hy = cy - ry - 5 - g * 3, hr = 4.4 + g * 1.4;
+    // 小鹿身上有白點，長大就淡掉；成年才有鹿角
+    const spots = k <= 2 ? [[-0.3,-0.35],[0.05,-0.5],[0.35,-0.3]].map(([dx, dy]) =>
+      '<circle cx="'+(cx + dx * rx).toFixed(1)+'" cy="'+(cy + dy * ry).toFixed(1)+'" r="1.4" fill="var(--pet-pale)"/>').join('') : '';
+    const antler = k === 5
+      ? '<path d="M'+(hx-1)+' '+(hy-hr+0.5)+' L'+(hx-3)+' '+(hy-hr-9)+' M'+(hx-3)+' '+(hy-hr-9)+' L'+(hx-8)+' '+(hy-hr-11)+' M'+(hx-2.2)+' '+(hy-hr-5)+' L'+(hx+2)+' '+(hy-hr-9)+'" stroke="var(--pet-ink)" stroke-width="1.8" stroke-linecap="round" fill="none"/>'
+      : '';
+    return sideLeg(cx - rx * 0.45, hip, len, 2 + g, 'b') + sideLeg(cx + rx * 0.42, hip, len, 2 + g, 'a')
+      + '<ellipse cx="'+(cx - rx + 1)+'" cy="'+(cy - ry * 0.5).toFixed(1)+'" rx="2.2" ry="1.6" fill="var(--pet-pale)"/>'
+      + '<ellipse cx="'+cx+'" cy="'+cy.toFixed(1)+'" rx="'+rx.toFixed(1)+'" ry="'+ry.toFixed(1)+'" fill="var(--pet-body)"/>'
+      + spots
+      + '<path d="M'+(cx + rx * 0.55).toFixed(1)+' '+(cy - ry * 0.3).toFixed(1)+' L'+hx.toFixed(1)+' '+hy.toFixed(1)+'" stroke="var(--pet-body)" stroke-width="'+(4 + g * 2).toFixed(1)+'" stroke-linecap="round"/>'
+      + sideLeg(cx - rx * 0.65, hip, len, 2 + g, 'a') + sideLeg(cx + rx * 0.62, hip, len, 2 + g, 'b')
+      + antler
+      + '<ellipse cx="'+(hx - 2.5).toFixed(1)+'" cy="'+(hy - hr + 0.5).toFixed(1)+'" rx="1.4" ry="3" fill="var(--pet-body-2)" transform="rotate(-35 '+(hx - 2.5).toFixed(1)+' '+(hy - hr + 0.5).toFixed(1)+')"/>'
+      + '<ellipse cx="'+hx.toFixed(1)+'" cy="'+hy.toFixed(1)+'" rx="'+hr.toFixed(1)+'" ry="'+(hr * 0.85).toFixed(1)+'" fill="var(--pet-body)"/>'
+      + '<ellipse cx="'+(hx + hr * 0.85).toFixed(1)+'" cy="'+(hy + 1.6).toFixed(1)+'" rx="2.6" ry="2" fill="var(--pet-body)"/>'
+      + '<circle cx="'+(hx + hr * 0.85 + 2.2).toFixed(1)+'" cy="'+(hy + 1.2).toFixed(1)+'" r="1" fill="var(--pet-ink)"/>'
+      + sideEye(hx + 1, hy - 0.8);
+  }
+
+  function petSideCat(k){
+    const g = k / 5;
+    const len = 4 + g * 5, hip = 58 - len, rx = 9 + g * 4, ry = 4.8 + g * 2.4;
+    const cy = hip - ry * 0.4, cx = 29;
+    const hx = cx + rx + 1.5, hy = cy - ry - 1 - g, hr = 4.6 + g * 1.5;
+    return sideLeg(cx - rx * 0.4, hip, len, 2 + g * 0.6, 'b') + sideLeg(cx + rx * 0.45, hip, len, 2 + g * 0.6, 'a')
+      + '<path d="M'+(cx - rx + 1).toFixed(1)+' '+cy.toFixed(1)+' Q'+(cx - rx - 6).toFixed(1)+' '+(cy - 1).toFixed(1)+' '+(cx - rx - 6 - g * 2).toFixed(1)+' '+(cy - 8 - g * 6).toFixed(1)
+        + '" stroke="var(--pet-body-2)" stroke-width="'+(2 + g * 1.2).toFixed(1)+'" stroke-linecap="round" fill="none"/>'
+      + '<ellipse cx="'+cx+'" cy="'+cy.toFixed(1)+'" rx="'+rx.toFixed(1)+'" ry="'+ry.toFixed(1)+'" fill="var(--pet-body)"/>'
+      + sideLeg(cx - rx * 0.6, hip, len, 2 + g * 0.6, 'a') + sideLeg(cx + rx * 0.65, hip, len, 2 + g * 0.6, 'b')
+      + '<path d="M'+(hx - 3).toFixed(1)+' '+(hy - hr * 0.6).toFixed(1)+' L'+(hx - 3.5).toFixed(1)+' '+(hy - hr - 4).toFixed(1)+' L'+(hx + 0.5).toFixed(1)+' '+(hy - hr * 0.8).toFixed(1)+' Z" fill="var(--pet-body)"/>'
+      + '<path d="M'+(hx + 0.5).toFixed(1)+' '+(hy - hr * 0.8).toFixed(1)+' L'+(hx + 2).toFixed(1)+' '+(hy - hr - 4).toFixed(1)+' L'+(hx + 3.6).toFixed(1)+' '+(hy - hr * 0.5).toFixed(1)+' Z" fill="var(--pet-body)"/>'
+      + '<circle cx="'+hx.toFixed(1)+'" cy="'+hy.toFixed(1)+'" r="'+hr.toFixed(1)+'" fill="var(--pet-body)"/>'
+      + sideEye(hx + 1.6, hy - 0.6)
+      + '<circle cx="'+(hx + hr - 0.3).toFixed(1)+'" cy="'+(hy + 1.4).toFixed(1)+'" r=".9" fill="var(--pet-ink)"/>';
+  }
+
+  function petSideFox(k){
+    const g = k / 5;
+    const len = 5 + g * 5, hip = 58 - len, rx = 9 + g * 4, ry = 5 + g * 2.2;
+    const cy = hip - ry * 0.4, cx = 30;
+    const hx = cx + rx + 1.5, hy = cy - ry - 1.5 - g * 1.5, hr = 4.3 + g * 1.4;
+    // 尾巴從細細一條長成一大叢，成熟以後尾巴尖是白的（同正面那一張）
+    const tR = 3 + g * 5;
+    const tx = cx - rx - tR * 0.7, ty = cy - 2 - g * 2;
+    return sideLeg(cx - rx * 0.4, hip, len, 1.9 + g * 0.6, 'b') + sideLeg(cx + rx * 0.45, hip, len, 1.9 + g * 0.6, 'a')
+      + '<ellipse cx="'+tx.toFixed(1)+'" cy="'+ty.toFixed(1)+'" rx="'+(tR * 1.3).toFixed(1)+'" ry="'+(tR * 0.75).toFixed(1)+'" fill="var(--pet-body-2)" transform="rotate(-20 '+tx.toFixed(1)+' '+ty.toFixed(1)+')"/>'
+      + (k >= 3 ? '<circle cx="'+(tx - tR * 0.9).toFixed(1)+'" cy="'+(ty - tR * 0.2).toFixed(1)+'" r="'+(tR * 0.5).toFixed(1)+'" fill="var(--pet-pale)"/>' : '')
+      + '<ellipse cx="'+cx+'" cy="'+cy.toFixed(1)+'" rx="'+rx.toFixed(1)+'" ry="'+ry.toFixed(1)+'" fill="var(--pet-body)"/>'
+      + sideLeg(cx - rx * 0.6, hip, len, 1.9 + g * 0.6, 'a') + sideLeg(cx + rx * 0.65, hip, len, 1.9 + g * 0.6, 'b')
+      + '<path d="M'+(hx - 2.5).toFixed(1)+' '+(hy - hr * 0.5).toFixed(1)+' L'+(hx - 2).toFixed(1)+' '+(hy - hr - 5).toFixed(1)+' L'+(hx + 1.5).toFixed(1)+' '+(hy - hr * 0.7).toFixed(1)+' Z" fill="var(--pet-body)"/>'
+      + '<circle cx="'+hx.toFixed(1)+'" cy="'+hy.toFixed(1)+'" r="'+hr.toFixed(1)+'" fill="var(--pet-body)"/>'
+      + '<path d="M'+(hx + hr * 0.5).toFixed(1)+' '+(hy - 1.6).toFixed(1)+' L'+(hx + hr + 4 + g).toFixed(1)+' '+(hy + 1.2).toFixed(1)+' L'+(hx + hr * 0.4).toFixed(1)+' '+(hy + 2.6).toFixed(1)+' Z" fill="var(--pet-body)"/>'
+      + '<circle cx="'+(hx + hr + 3.6 + g).toFixed(1)+'" cy="'+(hy + 1.2).toFixed(1)+'" r=".9" fill="var(--pet-ink)"/>'
+      + sideEye(hx + 1.2, hy - 1);
+  }
+
+  function petSideRabbit(k){
+    const g = k / 5;
+    const len = 3 + g * 3, hip = 58 - len, r = 7 + g * 4;
+    const cy = hip - r * 0.55, cx = 29;
+    const hx = cx + r * 0.9, hy = cy - r * 0.75, hr = 4.4 + g * 1.7;
+    const ear = 6 + g * 9;                            // 耳朵拉長，同正面那一張
+    const earAt = (dx, deg, fill) => { const ex = hx + dx, ey = hy - hr * 0.6 - ear * 0.45;
+      return '<ellipse cx="'+ex.toFixed(1)+'" cy="'+ey.toFixed(1)+'" rx="'+(1.6 + g * 0.6).toFixed(1)+'" ry="'+(ear * 0.55).toFixed(1)+'" fill="'+fill+'" transform="rotate('+deg+' '+ex.toFixed(1)+' '+(hy - hr * 0.6).toFixed(1)+')"/>'; };
+    return sideLeg(cx - r * 0.35, hip, len, 2.4, 'b') + sideLeg(cx + r * 0.45, hip, len, 2, 'a')
+      + earAt(-2.2, -28, 'var(--pet-body-2)')
+      + '<circle cx="'+(cx - r * 1.05).toFixed(1)+'" cy="'+(cy - r * 0.2).toFixed(1)+'" r="'+(2.2 + g).toFixed(1)+'" fill="var(--pet-pale)"/>'
+      + '<ellipse cx="'+cx+'" cy="'+cy.toFixed(1)+'" rx="'+(r * 1.1).toFixed(1)+'" ry="'+(r * 0.85).toFixed(1)+'" fill="var(--pet-body)"/>'
+      + sideLeg(cx - r * 0.6, hip, len, 2.6, 'a') + sideLeg(cx + r * 0.6, hip, len, 2, 'b')
+      + earAt(0, -18, 'var(--pet-body)')
+      + '<circle cx="'+hx.toFixed(1)+'" cy="'+hy.toFixed(1)+'" r="'+hr.toFixed(1)+'" fill="var(--pet-body)"/>'
+      + sideEye(hx + 1.4, hy - 0.6)
+      + '<circle cx="'+(hx + hr - 0.2).toFixed(1)+'" cy="'+(hy + 1.2).toFixed(1)+'" r=".9" fill="var(--pet-ink)"/>';
+  }
+
+  function petSideBird(k){
+    const g = k / 5;
+    const len = 3.5 + g * 4, hip = 58 - len, rx = 7 + g * 3.5, ry = 6 + g * 3;
+    const cy = hip - ry * 0.7, cx = 30;
+    const hx = cx + rx * 0.6, hy = cy - ry * 0.8, hr = 4.3 + g * 1.5;
+    // 成年是老鷹：翅膀變長、尖，喙變成尖鉤
+    const wing = k === 5
+      ? '<path d="M'+(cx + 3)+' '+(cy - 2)+' Q'+(cx - 6)+' '+(cy - 4)+' '+(cx - rx - 6)+' '+(cy + 3)+' Q'+(cx - 4)+' '+(cy + 4)+' '+(cx + 3)+' '+(cy + 2)+' Z" fill="var(--pet-body-2)"/>'
+      : '<ellipse cx="'+(cx - 1).toFixed(1)+'" cy="'+cy.toFixed(1)+'" rx="'+(3.5 + g * 3).toFixed(1)+'" ry="'+(2.6 + g * 1.4).toFixed(1)+'" fill="var(--pet-body-2)"/>';
+    const beak = k === 5
+      ? '<path d="M'+(hx + hr - 1).toFixed(1)+' '+(hy - 1.4).toFixed(1)+' L'+(hx + hr + 4).toFixed(1)+' '+(hy + 0.2).toFixed(1)+' Q'+(hx + hr + 3).toFixed(1)+' '+(hy + 3).toFixed(1)+' '+(hx + hr - 0.5).toFixed(1)+' '+(hy + 1.6).toFixed(1)+' Z" fill="var(--pet-ink)"/>'
+      : '<path d="M'+(hx + hr - 1).toFixed(1)+' '+(hy - 1).toFixed(1)+' L'+(hx + hr + 2.5 + g * 1.5).toFixed(1)+' '+(hy + 0.3).toFixed(1)+' L'+(hx + hr - 1).toFixed(1)+' '+(hy + 1.6).toFixed(1)+' Z" fill="var(--pet-ink)"/>';
+    const legs = (x, cls) => '<g class="leg '+cls+'"><path d="M'+x.toFixed(1)+' '+hip.toFixed(1)+' V'+(hip + len).toFixed(1)+'" stroke="var(--pet-ink)" stroke-width="1.2" stroke-linecap="round"/></g>';
+    return legs(cx - 1.5, 'b')
+      + '<path d="M'+(cx - rx + 1).toFixed(1)+' '+(cy - 1).toFixed(1)+' L'+(cx - rx - 4 - g * 2).toFixed(1)+' '+(cy - 3 - g).toFixed(1)+' L'+(cx - rx - 3 - g * 2).toFixed(1)+' '+(cy + 2).toFixed(1)+' Z" fill="var(--pet-body-2)"/>'
+      + '<ellipse cx="'+cx+'" cy="'+cy.toFixed(1)+'" rx="'+rx.toFixed(1)+'" ry="'+ry.toFixed(1)+'" fill="var(--pet-body)"/>'
+      + legs(cx + 2, 'a')
+      + '<circle cx="'+hx.toFixed(1)+'" cy="'+hy.toFixed(1)+'" r="'+hr.toFixed(1)+'" fill="var(--pet-body)"/>'
+      + wing + beak + sideEye(hx + 1.2, hy - 0.8);
+  }
+
+  function petSideTurtle(k){
+    const g = k / 5;
+    const len = 3 + g * 2, hip = 58 - len, sr = 9 + g * 6;
+    const cx = 30, base = hip + 0.5;
+    const cells = [[0,-0.45],[-0.45,-0.3],[0.45,-0.3],[-0.22,-0.7],[0.22,-0.7],[0,-0.15]];
+    const n = Math.min(cells.length, Math.round(1 + k));
+    const pattern = cells.slice(0, n).map(([dx, dy]) =>
+      '<circle cx="'+(cx + dx * sr).toFixed(1)+'" cy="'+(base + dy * sr * 0.8).toFixed(1)+'" r="'+(1.6 + g).toFixed(1)+'" fill="none" stroke="var(--pet-body-2)" stroke-width="1.2"/>').join('');
+    const hx = cx + sr + 3, hy = base - 3 - g * 1.5;
+    return sideLeg(cx - sr * 0.45, hip, len, 3, 'b') + sideLeg(cx + sr * 0.5, hip, len, 3, 'a')
+      + '<path d="M'+(cx - sr - 1).toFixed(1)+' '+(base - 0.5).toFixed(1)+' L'+(cx - sr - 4).toFixed(1)+' '+(base + 1).toFixed(1)+'" stroke="var(--pet-body-2)" stroke-width="2" stroke-linecap="round"/>'
+      + '<path d="M'+(cx + sr * 0.6).toFixed(1)+' '+(base - 2).toFixed(1)+' Q'+(hx - 1).toFixed(1)+' '+(hy + 1).toFixed(1)+' '+hx.toFixed(1)+' '+hy.toFixed(1)+'" stroke="var(--pet-body-2)" stroke-width="'+(3 + g).toFixed(1)+'" stroke-linecap="round" fill="none"/>'
+      + '<circle cx="'+hx.toFixed(1)+'" cy="'+hy.toFixed(1)+'" r="'+(3 + g * 1.4).toFixed(1)+'" fill="var(--pet-body-2)"/>'
+      + sideEye(hx + 1, hy - 0.6)
+      + '<ellipse cx="'+cx+'" cy="'+base.toFixed(1)+'" rx="'+(sr + 2).toFixed(1)+'" ry="2.2" fill="var(--pet-pale)"/>'
+      + '<path d="M'+(cx - sr).toFixed(1)+' '+base.toFixed(1)+' A'+sr.toFixed(1)+' '+(sr * 0.8).toFixed(1)+' 0 0 1 '+(cx + sr).toFixed(1)+' '+base.toFixed(1)+' Z" fill="var(--pet-body)"/>'
+      + pattern
+      + sideLeg(cx - sr * 0.7, hip, len, 3.2, 'a') + sideLeg(cx + sr * 0.7, hip, len, 3.2, 'b');
+  }
+
+  /**
+   * 側身的那一張（走路用）。只有動物有；植物回 '' 讓呼叫端改用正面那一張。
+   * 套同一層羊毛氈（見 #petFelt）。
+   */
+  function petSideArt(speciesId, stage){
+    const k = petStageIndex(stage);
+    const draw = { deer:petSideDeer, bird:petSideBird, rabbit:petSideRabbit, cat:petSideCat,
+                   fox:petSideFox, turtle:petSideTurtle }[speciesId];
+    if(!draw) return '';
+    return '<svg viewBox="0 0 64 64" aria-hidden="true"><g class="pet side" filter="url(#petFelt)">' + draw(k) + '</g></svg>';
+  }
+
   /**
    * 一隻夥伴的 SVG。`stage` 由引擎算出來（petStageOf），這裡只翻成序數再畫。
    * 不認得的物種回空字串而不是丟例外：畫不出來最多是那一格空白，
@@ -5651,7 +5937,8 @@
                    fox:petArtFox, turtle:petArtTurtle,
                    fir:(n)=>petArtTree(n,'fir'), pine:(n)=>petArtTree(n,'pine') }[speciesId];
     if(!draw){ console.error('petArt: 不認得的夥伴', speciesId); return ''; }
-    return '<svg viewBox="0 0 64 64" aria-hidden="true"><g class="pet">' + draw(k) + '</g></svg>';
+    // 羊毛氈的質感是一層 SVG 濾鏡（#petFelt，定義在 body 裡那一份共用的 <defs>），不是另一套圖
+    return '<svg viewBox="0 0 64 64" aria-hidden="true"><g class="pet" filter="url(#petFelt)">' + draw(k) + '</g></svg>';
   }
 
   /** 給人看的階段名稱。動物與植物兩套語彙，中間四階共用 */
@@ -5706,7 +5993,7 @@
 
   /**
    * 開機的櫻花：從新芽長到**你現在那一階**，不是每次都從頭長到滿——那樣才有「我的樹」
-   * 的意思。整段最多 760ms，而它何時消失不歸這裡管（見 `.boot-sakura` 的 CSS 註解）。
+   * 的意思。整段在 2200ms 內長完，而它何時消失不歸這裡管（見 `.boot-sakura` 的 CSS 註解）。
    *
    * 它只在開機被呼叫一次。切頁籤不播：播一次是儀式，第三次就變成「這個 app 好慢」。
    */
@@ -5715,13 +6002,26 @@
     const order = GAME_STAGES.map(([, name]) => name);   // 不另外抄一份：抄出來的那一份遲早走鐘
     const upto = Math.max(0, order.indexOf(stage));
     box.innerHTML = sakuraArt(order[0], false);
+    // 在進度條跑完之前長到現在那一階（2200ms 內），最後那一點時間讓人看一眼長好的樹
     for(let i = 1; i <= upto; i++){
-      setTimeout(() => { box.innerHTML = sakuraArt(order[i], false); }, 760 / (upto + 1) * i);
+      setTimeout(() => { box.innerHTML = sakuraArt(order[i], false); }, 2200 / (upto + 1) * i);
     }
   }
 
   /** 開機畫面上最多排幾隻夥伴。放不下第五隻；Pro 不限專案數，不設上限會變成動物園 */
   const BOOT_PETS_MAX = 4;
+  /**
+   * 四條在湖邊走的路線（場景的百分比）：兩條在前岸、兩條在對岸（遠一點＝小一點）。
+   * 負的 delay 讓牠們一開場就散在各自路線的不同位置，而不是四隻同時從起點出發。
+   * `z`：對岸的走在樹**後面**（0），前岸的走在樹**前面**（2）；樹是 1。
+   * 少了這一層，對岸的小動物會「浮」在樹冠上。前岸的路線不走到樹那裡，免得蓋住樹幹。
+   */
+  const BOOT_LANES = [
+    { y:'4%',  a:'6%',  b:'46%', s:'1',   d:'9s',  delay:'-2s', z:'2' },
+    { y:'22%', a:'10%', b:'40%', s:'.55', d:'11s', delay:'-6s', z:'0' },
+    { y:'10%', a:'24%', b:'54%', s:'.85', d:'10s', delay:'-4s', z:'2' },
+    { y:'23%', a:'44%', b:'86%', s:'.5',  d:'13s', delay:'-1s', z:'0' },
+  ];
 
   /**
    * 開機時櫻花下面那一排夥伴。畫的是**各自現在那一階**（不是長大後的樣子）——
@@ -5738,10 +6038,13 @@
     const roster = petRoster(projects);
     box.innerHTML = '';
     if(!roster.length) return;          // 沒有夥伴就整排不出現，不留空位
-    roster.slice(0, BOOT_PETS_MAX).forEach(r => {
+    roster.slice(0, BOOT_PETS_MAX).forEach((r, i) => {
+      const lane = BOOT_LANES[i];
+      const side = petSideArt(r.pet, r.stage);       // 動物走路用側身；植物沒有側身圖，站在原地
       const d = document.createElement('div');
-      d.className = 'boot-pet' + (r.stage === 'adult' ? ' adult' : '');
-      d.innerHTML = petArt(r.pet, r.stage);
+      d.className = 'boot-pet' + (r.stage === 'adult' ? ' adult' : '') + (side ? '' : ' still');
+      Object.entries(lane).forEach(([k, v]) => d.style.setProperty('--lane-' + k, v));
+      d.innerHTML = '<span>' + (side || petArt(r.pet, r.stage)) + '</span>';
       box.appendChild(d);
     });
     if(roster.length > BOOT_PETS_MAX){
@@ -5749,6 +6052,17 @@
       more.textContent = '+' + (roster.length - BOOT_PETS_MAX);
       box.appendChild(more);
     }
+  }
+
+  /**
+   * 載入畫面「點一下就跳過」。它吃點擊（見 .boot-sakura 的 CSS 註解），所以一定要有出口；
+   * 這裡只加 class，**消失仍然是 CSS 的事**——JS 沒跑時沒有這個出口，但 3.4 秒的上限照樣在。
+   */
+  function bootSkipWire(){
+    const el = document.getElementById('bootSakura'); if(!el) return;
+    const skip = () => el.classList.add('skip');
+    el.addEventListener('pointerdown', skip);
+    document.addEventListener('keydown', skip, { once: true });
   }
 
   let gameToastTimer = null;
@@ -9788,7 +10102,8 @@
   if(!loadedFromStorage && !gatedAtBoot) persist();   // 首次開啟即建立存檔，之後重整才接得回來
   applyLang();                        // 內含 renderAll()：語言要在第一次繪製前就套好
   bootSakuraPlay(lastGame && lastGame.stage);   // 開機的櫻花：演到你現在那一階（閘門關著時也演，那台裝置就是第一階）
-  bootPetsPlay(ganttProjects);                  // 櫻花下面那一排：各自現在那一階，沒有夥伴就整排不出現
+  bootPetsPlay(ganttProjects);                  // 湖邊走來走去的夥伴：各自現在那一階，沒有夥伴就一隻都不出現
+  bootSkipWire();                               // 點一下（或按任何鍵）就收掉載入畫面
   // 開機時也要同步一次：renderNav() 只在切頁籤時跑，而第一次進來沒有人切過頁籤
   calScrollbarSync();
   if(gatedAtBoot) loginGateShow();
