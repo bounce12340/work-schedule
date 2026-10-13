@@ -103,10 +103,15 @@
        的「成年」那一條量出來的）。同 --amber-ink：加一個新 token，**不要去動
        `--teal` 本身**——那是「工作」型別的顏色，改了每一處都要重驗 */
     --teal-ink: #176B4F;
+    /* 按鈕底：白字壓在 --amber 上只有 3.1:1。不動 --amber（主色），另外加一個深一階的底 */
+    --accent-fill: #A4651C;
     --red: #C74B43;
     --red-dim: rgba(199,75,67,0.10);
+    /* 淡紅底上的警告字（不是逾期）。--red 壓在 --red-dim 上只有 4.0:1；逾期的字仍然是 --red */
+    --red-ink: #A83A33;
     --violet: #6C5CE0;
     --violet-dim: rgba(108,92,224,0.10);
+    --violet-ink: #5A4BC9;   /* 淡紫底上的紫字。--violet 只有 4.3:1，同 --amber-ink */
     /* 「不在」的顏色。刻意**不是**三種項目類型的任何一色，也不是紅色——
        它不是一件要做的事，也不是警示，它只是一個事實。 */
     --away: #4F6070;
@@ -210,10 +215,13 @@
     --teal: #3FBF92;
     --teal-dim: rgba(63,191,146,0.14);
     --teal-ink: #3FBF92;   /* 暗色本來就夠（4.83:1），不另外調 */
+    --accent-fill: var(--amber);   /* 暗色的按鈕字是深色，8.1:1 */
     --red: #E8756B;
     --red-dim: rgba(232,117,107,0.14);
+    --red-ink: var(--red);
     --violet: #9B8CF5;
     --violet-dim: rgba(155,140,245,0.14);
+    --violet-ink: var(--violet);
     --away: #9DB0C1;
     --away-dim: rgba(157,176,193,0.14);
     --notice: #A7A59C;
@@ -366,7 +374,7 @@
   @media (max-width: 640px){ .game-card{ flex-direction:column; align-items:center; text-align:center; } .badge-wall, .challenge-track{ justify-content:center; } }
   .clock-block{ font-family: var(--mono); text-align:right; }
   .clock-block .now-date{ font-size:13px; color:var(--text-muted); }
-  .clock-block .now-time{ font-size:19px; font-weight:700; color:var(--amber); letter-spacing:1px; }
+  .clock-block .now-time{ font-size:19px; font-weight:700; color:var(--amber-ink); letter-spacing:1px; }
 
   .metric-strip{ display:grid; grid-template-columns: repeat(4, 1fr); gap:10px; margin-bottom:22px; }
   .metric-strip.off{ display:none; }
@@ -378,7 +386,7 @@
   .metric-card.overdue::before{ background: var(--red); }
   .metric-list-row .od-date{ font-family: var(--mono); font-size:11px; color: var(--red); flex-shrink:0; }
   .occ-date.overdue{ color: var(--red); font-weight:700; }
-  .item-link{ font-family:var(--mono); font-size:11px; color:var(--violet); text-decoration:none; background:var(--violet-dim); padding:3px 8px; border-radius:var(--r-s); white-space:nowrap; }
+  .item-link{ font-family:var(--mono); font-size:11px; color:var(--violet-ink); text-decoration:none; background:var(--violet-dim); padding:3px 8px; border-radius:var(--r-s); white-space:nowrap; }
   .item-link:hover{ text-decoration:underline; }
   /* 小標（卡片名、區段名、欄位名）原本一律是「等寬＋字距 2px＋大寫＋--text-dim」：
      9.5～10.5px 的灰字，對比只有 2.57:1（亮）／3.51:1（暗），六種小標全部低於 4.5:1，
@@ -433,18 +441,18 @@
   /* 數字留在等寬字（它是在報數），但顏色從 --text-dim（2.57:1）改成 --text-muted。
      它一直沒被量到：check-contrast 原本寫的選擇器 `.chip-name` 根本不存在，那一條
      每次都印「略過」，連帶這個鄰居也沒人看 */
-  .chip .cnt{ font-family:var(--mono); font-size:10.5px; color: var(--text-muted); }
+  .chip .cnt{ font-family:var(--mono); font-size:11.5px; color: var(--text-muted); }
   .chip button{ background:transparent; border:none; cursor:pointer; color: var(--text-dim); font-size:12px; width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center; }
   .chip button:hover{ background: var(--hairline-soft); color: var(--text); }
   .chip button.chip-del:hover{ color: var(--red); background: var(--red-dim); }
   .chip input{ font-family: var(--sans); font-size:13px; border:1px solid var(--amber); border-radius:var(--r-s); padding:3px 6px; width:110px; outline:none; }
   .add-chip-btn{ display:flex; align-items:center; gap:6px; background: var(--panel-2); border:1px dashed var(--dash); border-radius:999px; padding:8px 16px; font-size:13px; font-weight:600; color: var(--text-muted); cursor:pointer; }
-  .add-chip-btn:hover{ color: var(--amber); border-color: var(--amber); }
+  .add-chip-btn:hover{ color: var(--amber-ink); border-color: var(--amber-ink); }
 
   .mode-tabs{ display:flex; gap:4px; margin-bottom:16px; background: var(--panel); border:1px solid var(--hairline); border-radius:var(--r-m); padding:4px; width: fit-content; }
   .mode-tab{ font-family: var(--sans); font-size:13.5px; font-weight:600; padding: 9px 18px; border-radius:var(--r-s); cursor:pointer; color: var(--text-muted); border:none; background:transparent; transition: all .15s ease; }
   .mode-tab:hover{ color: var(--text); }
-  .mode-tab.active{ background: var(--amber); color:var(--on-accent); }
+  .mode-tab.active{ background: var(--accent-fill); color:var(--on-accent); }
 
   .period-row{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom: 18px; padding: 14px 16px; background: var(--panel); border:1px solid var(--hairline); border-radius:var(--r-m); }
   /* 頁籤與「年份」原本各佔一整排，加上大項目、範圍列、篩選列，清單前面擋了五排、
@@ -465,12 +473,14 @@
   input[type=search], input[type=email], input[type=password], input[type=url]{ font-family: var(--mono); background: var(--panel-2); color: var(--text); border:1px solid var(--hairline); border-radius:var(--r-s); padding:7px 10px; font-size:13px; outline:none; }
   textarea{ font-family: var(--sans); background: var(--panel-2); color: var(--text); border:1px solid var(--hairline); border-radius:var(--r-s); padding:10px 12px; font-size:13.5px; outline:none; resize:vertical; width:100%; line-height:1.6; }
   textarea:focus{ border-color: var(--amber); }
+  /* 瀏覽器預設的提示字是 #757575，壓在 --panel-2 上只有 4.0:1 */
+  input::placeholder, textarea::placeholder{ color: var(--text-dim); opacity:1; }
   select, input[type=date], input[type=time]{ cursor:pointer; }
   select:focus, input:focus, button:focus-visible{ outline: 2px solid var(--amber); outline-offset:1px; }
   .qbtn, .mbtn{ font-family: var(--mono); font-size:12.5px; font-weight:600; padding:7px 12px; border-radius:var(--r-s); border:1px solid var(--hairline); background: var(--panel-2); color: var(--text-muted); cursor:pointer; }
-  .qbtn.active, .mbtn.active{ background: var(--amber-dim); border-color: var(--amber); color: var(--amber); }
+  .qbtn.active, .mbtn.active{ background: var(--amber-dim); border-color: var(--amber); color: var(--amber-ink); }
   .add-year-btn{ font-family: var(--mono); font-size:12px; color: var(--text-dim); background:transparent; border:1px dashed var(--dash); border-radius:var(--r-s); padding:7px 10px; cursor:pointer; }
-  .add-year-btn:hover{ color: var(--amber); border-color: var(--amber); }
+  .add-year-btn:hover{ color: var(--amber-ink); border-color: var(--amber-ink); }
   .month-grid{ display:flex; gap:6px; flex-wrap:wrap; }
 
   .scope-strip{ display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; flex-wrap:wrap; gap:12px; }
@@ -479,12 +489,12 @@
   .stat-pills{ display:flex; gap:8px; flex-wrap:wrap; }
   .pill{ font-family: var(--mono); font-size:12px; padding:6px 12px; border-radius:999px; border:1px solid var(--hairline); color:var(--text-muted); display:flex; align-items:center; gap:6px; background:var(--panel); }
   .pill b{ color:var(--text); font-size:13px; }
-  .pill.done b{ color: var(--teal); }
-  .pill.pending b{ color: var(--amber); }
+  .pill.done b{ color: var(--teal-ink); }
+  .pill.pending b{ color: var(--amber-ink); }
 
   /* 主要動作做成藥丸。方角在密集的列表裡是對的（邊界清楚），但這幾顆是
      「開始做一件事」的入口，不是資料——圓下去之後整頁的硬邊少了一截。 */
-  .add-project-btn{ font-family: var(--sans); font-weight:700; font-size:14px; background: var(--amber); color:var(--on-accent); border:none; border-radius:999px; padding:11px 20px; cursor:pointer; display:flex; align-items:center; gap:8px; box-shadow: var(--shadow-btn); }
+  .add-project-btn{ font-family: var(--sans); font-weight:700; font-size:14px; background: var(--accent-fill); color:var(--on-accent); border:none; border-radius:999px; padding:11px 20px; cursor:pointer; display:flex; align-items:center; gap:8px; box-shadow: var(--shadow-btn); }
   .add-project-btn:hover{ filter: brightness(1.06); }
   .add-project-btn:active{ transform: translateY(1px); box-shadow:none; }
 
@@ -585,7 +595,7 @@
                      border:1px solid var(--hairline); border-radius:var(--r-s);
                      background:var(--panel-2); color:var(--text); }
   .ai-send{ font-family:var(--mono); font-size:12px; padding:0 14px; border-radius:var(--r-s); cursor:pointer;
-            border:1px solid var(--amber); background:var(--amber); color:var(--on-accent); }
+            border:1px solid var(--accent-fill); background:var(--accent-fill); color:var(--on-accent); }
   .ai-send:disabled{ opacity:.5; cursor:default; }
   .ai-usage{ font-family:var(--mono); font-size:10.5px; color:var(--text-dim);
              padding:0 16px 12px; }
@@ -624,29 +634,29 @@
     .ai-btns{ flex-direction:row; flex:1 1 100%; }
     .ai-send{ flex:1; padding:11px 0; min-height:42px; }
   }
-  .tag-chip{ font-family:var(--mono); font-size:10.5px; padding:2px 7px; border-radius:var(--r-s);
+  .tag-chip{ font-family:var(--mono); font-size:11.5px; padding:2px 7px; border-radius:var(--r-s);
              background:var(--panel-2); color:var(--text-muted); border:1px solid var(--hairline);
              cursor:pointer; white-space:nowrap; }
-  .tag-chip:hover{ color:var(--amber); border-color:var(--amber); }
+  .tag-chip:hover{ color:var(--amber-ink); border-color:var(--amber-ink); }
   .qbtn.tag{ font-family:var(--mono); }
   .filter-sep{ width:1px; align-self:stretch; background:var(--hairline); margin:0 4px; }
-  .sub-badge{ font-family:var(--mono); font-size:10.5px; padding:2px 7px; border-radius:var(--r-s);
+  .sub-badge{ font-family:var(--mono); font-size:11.5px; padding:2px 7px; border-radius:var(--r-s);
               background:var(--panel-2); color:var(--text-muted); border:1px solid var(--hairline);
               cursor:pointer; white-space:nowrap; }
   .sub-badge.all{ color:var(--teal); border-color:var(--teal); }
   /* 前置作業未完成。用琥珀（介面主色＝「注意一下」）而不是紅色：紅色是逾期
      的顏色，而前置沒做完**不是**逾期，混用會讓真正遲交的東西被稀釋。 */
-  .dep-badge{ font-family:var(--mono); font-size:10.5px; padding:2px 7px; border-radius:var(--r-s);
+  .dep-badge{ font-family:var(--mono); font-size:11.5px; padding:2px 7px; border-radius:var(--r-s);
               background:var(--amber-dim); color:var(--amber-ink); white-space:nowrap; cursor:help; }
-  .away-badge{ font-family:var(--mono); font-size:10.5px; padding:2px 7px; border-radius:var(--r-s);
+  .away-badge{ font-family:var(--mono); font-size:11.5px; padding:2px 7px; border-radius:var(--r-s);
                background:var(--away-dim); color:var(--away); white-space:nowrap; }
   /* 休假的附註與「不在」同形狀、只換顏色：兩者是同一類資訊（那天人的狀態），
      長得不一樣只會讓人以為它們是不同種類的東西。**兩者都與逾期的紅字並存** */
-  .leave-badge{ font-family:var(--mono); font-size:10.5px; padding:2px 7px; border-radius:var(--r-s);
+  .leave-badge{ font-family:var(--mono); font-size:11.5px; padding:2px 7px; border-radius:var(--r-s);
                 background:var(--leave-dim); color:var(--leave); white-space:nowrap; }
   /* 純告知（item.noticeOnly）。用中性的灰而**不是**任何一個型別色，也不是紅或琥珀：
      它要說的是「這件事不用你動手」，不是「注意」。三個顏色都是有意義的，借用會稀釋掉。 */
-  .notice-badge{ font-family:var(--mono); font-size:10.5px; padding:2px 7px; border-radius:var(--r-s);
+  .notice-badge{ font-family:var(--mono); font-size:11.5px; padding:2px 7px; border-radius:var(--r-s);
                  background:var(--notice-dim); color:var(--notice); white-space:nowrap; cursor:help; }
   /* 沒有勾選框的那一格仍然要佔位，後面每一欄才不會整排往左跑（.checkbox 的寬度） */
   .notice-gap{ width:19px; flex-shrink:0; }
@@ -671,10 +681,10 @@
   .tag-edit .tag-chip button{ border:none; background:none; color:inherit; cursor:pointer;
                               margin-left:4px; padding:0; font-size:11px; }
   .tag-suggest{ display:flex; flex-wrap:wrap; gap:5px; margin-top:6px; }
-  .tag-suggest button{ font-family:var(--mono); font-size:10.5px; padding:2px 7px; border-radius:var(--r-s);
+  .tag-suggest button{ font-family:var(--mono); font-size:11.5px; padding:2px 7px; border-radius:var(--r-s);
                        background:transparent; color:var(--text-dim); border:1px dashed var(--hairline);
                        cursor:pointer; }
-  .tag-suggest button:hover{ color:var(--amber); border-color:var(--amber); }
+  .tag-suggest button:hover{ color:var(--amber-ink); border-color:var(--amber-ink); }
   .sub-row{ display:flex; gap:6px; align-items:center; margin-bottom:6px; }
   .sub-row input{ flex:1; }
   .sub-row button{ border:1px solid var(--hairline); background:var(--panel); color:var(--text-muted);
@@ -682,7 +692,7 @@
   .sub-row button:hover{ color:var(--red); border-color:var(--red); }
   .sub-add{ font-family:var(--mono); font-size:11.5px; padding:6px 10px; border-radius:var(--r-s);
             border:1px dashed var(--hairline); background:transparent; color:var(--text-muted); cursor:pointer; }
-  .sub-add:hover{ color:var(--amber); border-color:var(--amber); }
+  .sub-add:hover{ color:var(--amber-ink); border-color:var(--amber-ink); }
   .field-hint{ font-size:11px; color:var(--text-dim); margin-top:6px; line-height:1.6; }
   .checkbox{ width:19px; height:19px; border-radius:6px; border:1.5px solid var(--checkbox-border); display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; font-size:12px; color:transparent; transition: all .15s ease; }
   .checkbox.done{ background: var(--teal); border-color: var(--teal); color:var(--on-accent); }
@@ -707,19 +717,19 @@
   .type-badge.meeting::before{ background: var(--violet); }
   .type-badge.assignment::before{ background: var(--amber); }
   .parent-tag{ font-family: var(--mono); font-size:11px; color: var(--text-muted); background: var(--panel-2); border:1px solid var(--hairline); padding:2px 8px; border-radius:999px; }
-  .recur-badge{ font-family: var(--mono); font-size:11px; color: var(--amber); background: var(--amber-dim); padding:2px 8px; border-radius:var(--r-s); white-space:nowrap; }
+  .recur-badge{ font-family: var(--mono); font-size:11px; color: var(--amber-ink); background: var(--amber-dim); padding:2px 8px; border-radius:var(--r-s); white-space:nowrap; }
   .occ-date{ font-family: var(--mono); font-size:12px; color: var(--text-muted); white-space:nowrap; }
   /* 時間對三種類型都適用，顏色跟著該列的類型走，才不會讓工作項目掛一個會議色的徽章 */
-  .meeting-time{ font-family: var(--mono); font-size:11.5px; color: var(--violet); background: var(--violet-dim); padding:3px 8px; border-radius:var(--r-s); flex-shrink:0; }
-  .occ-row.type-work .meeting-time{ color: var(--teal); background: var(--teal-dim); }
-  .occ-row.type-assignment .meeting-time{ color: var(--amber); background: var(--amber-dim); }
+  .meeting-time{ font-family: var(--mono); font-size:11.5px; color: var(--violet-ink); background: var(--violet-dim); padding:3px 8px; border-radius:var(--r-s); flex-shrink:0; }
+  .occ-row.type-work .meeting-time{ color: var(--teal-ink); background: var(--teal-dim); }
+  .occ-row.type-assignment .meeting-time{ color: var(--amber-ink); background: var(--amber-dim); }
   .metric-list-row .m-time{ font-family: var(--mono); font-size:11.5px; color: var(--text-muted); flex-shrink:0; }
   .occ-spacer{ flex:1; }
   .occ-actions{ display:flex; align-items:center; gap:4px; }
   .icon-btn{ background:transparent; border:none; cursor:pointer; color: var(--text-dim); font-size:13px; padding:5px 7px; border-radius:var(--r-s); }
   .icon-btn:hover{ background: var(--panel-2); color: var(--text); }
   .icon-btn.danger:hover{ color: var(--red); background: var(--red-dim); }
-  .icon-btn.skip:hover{ color: var(--amber); background: var(--amber-dim); }
+  .icon-btn.skip:hover{ color: var(--amber-ink); background: var(--amber-dim); }
   /* 平常只是「看」，編輯／刪除／分享／略過卻一直掛在每一行上吵。**有滑鼠的裝置**
      才收起來：滑鼠移到那一行、或用 Tab 走到那一行裡的按鈕（:focus-within）時出現。
      手機沒有「移過去」這個動作，所以照舊一直顯示（媒體查詢只認 hover:hover 且
@@ -742,7 +752,7 @@
   .cal-title{ font-family: var(--mono); font-size:20px; font-weight:700; }
   .cal-nav{ display:flex; gap:8px; align-items:center; }
   .cal-nav button{ font-family: var(--mono); font-size:13px; font-weight:700; background: var(--panel); border:1px solid var(--hairline); color: var(--text-muted); border-radius:var(--r-s); padding:8px 12px; cursor:pointer; }
-  .cal-nav button:hover{ color: var(--amber); border-color: var(--amber); }
+  .cal-nav button:hover{ color: var(--amber-ink); border-color: var(--amber-ink); }
   .cal-legend{ display:flex; gap:14px; font-family: var(--mono); font-size:11.5px; color: var(--text-muted); }
   .cal-legend span{ display:flex; align-items:center; gap:6px; }
   .legend-dot{ width:8px; height:8px; border-radius:50%; }
@@ -940,7 +950,7 @@
            background:transparent; color: var(--text-muted); cursor:pointer; font-size:13px; line-height:1;
            display:inline-flex; align-items:center; justify-content:center; font-family: var(--sans); }
   .rt-btn:hover{ background: var(--panel-2); color: var(--text); }
-  .rt-btn.active{ background: var(--amber-dim); border-color: var(--amber); color: var(--amber); }
+  .rt-btn.active{ background: var(--amber-dim); border-color: var(--amber); color: var(--amber-ink); }
   .rt-btn.rt-b{ font-weight:800; } .rt-btn.rt-i{ font-style:italic; }
   .rt-btn.rt-u{ text-decoration:underline; } .rt-btn.rt-s{ text-decoration:line-through; }
   .rt-btn.rt-fg{ font-weight:700; border-bottom:2px solid var(--violet); border-radius:6px 6px 2px 2px; }
@@ -953,7 +963,7 @@
   .rt-swatch:hover{ outline:2px solid var(--amber); outline-offset:1px; }
   .rt-sizebtn{ padding:3px 9px; border-radius:var(--r-s); border:1px solid var(--hairline);
                background: var(--panel-2); color: var(--text); cursor:pointer; font-size:12px; }
-  .rt-sizebtn:hover{ border-color: var(--amber); color: var(--amber); }
+  .rt-sizebtn:hover{ border-color: var(--amber-ink); color: var(--amber-ink); }
 
   .rt-edit{ min-height:96px; max-height:340px; overflow-y:auto; padding:10px 12px;
             font-family: var(--sans); font-size:13.5px; line-height:1.7; color: var(--text); outline:none; }
@@ -975,14 +985,14 @@
 
   .rt-toggle{ margin-top:8px; background:none; border:none; padding:0; cursor:pointer;
               font-family: var(--mono); font-size:11px; color: var(--text-dim); }
-  .rt-toggle:hover{ color: var(--amber); }
+  .rt-toggle:hover{ color: var(--amber-ink); }
 
   .account-box{ display:flex; align-items:center; gap:9px; }
   .account-email{ font-family: var(--mono); font-size:11px; color: var(--text-muted); max-width:190px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .account-btn{ font-family: var(--mono); font-size:11px; padding:6px 10px; border-radius:var(--r-s); cursor:pointer; border:1px solid var(--hairline); background: var(--panel); color: var(--text-muted); }
-  .account-btn:hover{ border-color: var(--amber); color: var(--amber); }
+  .account-btn:hover{ border-color: var(--amber-ink); color: var(--amber-ink); }
   .icon-square{ background: var(--panel); border:1px solid var(--hairline); border-radius:var(--r-s); width:42px; height:42px; flex-shrink:0; cursor:pointer; color: var(--text-muted); font-size:17px; display:flex; align-items:center; justify-content:center; }
-  .icon-square:hover{ border-color: var(--amber); color: var(--amber); }
+  .icon-square:hover{ border-color: var(--amber-ink); color: var(--amber-ink); }
   footer.storage-note{ margin-top:32px; text-align:center; font-family: var(--mono); font-size:11px; color: var(--text-dim); line-height:1.8; }
   footer.storage-note .storage-state{ color: var(--teal); }
   footer.storage-note .storage-state.off{ color: var(--amber); }
@@ -1141,7 +1151,7 @@
   .todo-row input[type=text]{ flex:1; min-width:0; font-family: var(--sans); font-size:13px; background: var(--panel); }
   .todo-row input[type=text].done{ color: var(--text-dim); text-decoration: line-through; }
   .add-todo-btn{ align-self:flex-start; font-family: var(--mono); font-size:11.5px; color: var(--text-muted); background:transparent; border:1px dashed var(--dash); border-radius:var(--r-s); padding:7px 11px; cursor:pointer; }
-  .add-todo-btn:hover{ color: var(--amber); border-color: var(--amber); }
+  .add-todo-btn:hover{ color: var(--amber-ink); border-color: var(--amber-ink); }
   .todo-progress{ font-family: var(--mono); font-size:12.5px; color: var(--text-muted); white-space:nowrap; }
   .todo-progress b{ color: var(--teal); font-size:13.5px; }
 
@@ -1183,7 +1193,7 @@
   /* 閘門的診斷行：只在「看起來像 app 卻沒認出自己」時才填內容（見 loginGateShow） */
   .gate-diag{ margin-top:12px; font-family: var(--mono); font-size:11.5px; color: var(--text-muted); word-break:break-all; line-height:1.6; }
   .app-auth-tabs{ margin-bottom:14px; }
-  .app-auth-tabs button.active{ background: var(--amber); color: var(--on-accent); border-color: var(--amber); }
+  .app-auth-tabs button.active{ background: var(--accent-fill); color: var(--on-accent); border-color: var(--accent-fill); }
   .acct-danger{ border-color: var(--red-dim); }
   .ghost-btn.danger-btn{ color: var(--red); border-color: var(--red); }
   .ghost-btn.danger-btn:hover{ background: var(--red-dim); color: var(--red); border-color: var(--red); }
@@ -1191,13 +1201,13 @@
   .modal-actions button{ flex:1; padding:11px; border-radius:999px; font-family: var(--sans); font-weight:700; font-size:14px; cursor:pointer; }
   .btn-cancel{ background: transparent; border:1px solid var(--hairline); color: var(--text-muted); }
   .btn-cancel:hover{ border-color:var(--hairline-strong); }
-  .btn-confirm{ background: var(--amber); border:none; color:var(--on-accent); }
+  .btn-confirm{ background: var(--accent-fill); border:none; color:var(--on-accent); }
   .btn-confirm:hover{ filter:brightness(1.05); }
   .btn-clear{ background: transparent; border:1px dashed var(--hairline); color: var(--text-dim); }
   .btn-clear:hover{ color: var(--red); border-color: var(--red); }
   .scope-note{ font-family: var(--mono); font-size:11px; color: var(--text-muted); background: var(--panel-2); border:1px solid var(--hairline); border-radius:var(--r-s); padding:9px 11px; margin-bottom:16px; }
-  .scope-note b{ color: var(--amber); }
-  .recur-warn{ font-family: var(--mono); font-size:11px; color: var(--red); background: var(--red-dim); border:1px solid rgba(199,75,67,0.32); border-radius:var(--r-s); padding:9px 11px; margin-bottom:14px; line-height:1.75; }
+  .scope-note b{ color: var(--amber-ink); }
+  .recur-warn{ font-family: var(--mono); font-size:11px; color: var(--red-ink); background: var(--red-dim); border:1px solid rgba(199,75,67,0.32); border-radius:var(--r-s); padding:9px 11px; margin-bottom:14px; line-height:1.75; }
   .holiday-list-box{ display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
   .holiday-chip{ font-family: var(--mono); font-size:11px; background: var(--panel-2); border:1px solid var(--hairline); border-radius:var(--r-s); padding:3px 6px; display:flex; align-items:center; gap:5px; color:var(--text-muted); }
   .holiday-chip button{ background:none; border:none; cursor:pointer; color:var(--text-dim); font-size:11px; }
@@ -1244,7 +1254,7 @@
   .acct-dev-this{ font-family:var(--mono); font-size:10.5px; color:var(--teal);
                   border:1px solid var(--teal); border-radius:4px; padding:0 5px; }
   .ghost-btn{ font-family: var(--mono); font-size:11px; color: var(--text-dim); background:transparent; border:1px dashed var(--dash); border-radius:var(--r-s); padding:7px 12px; cursor:pointer; }
-  .ghost-btn:hover{ color: var(--amber); border-color: var(--amber); }
+  .ghost-btn:hover{ color: var(--amber-ink); border-color: var(--amber-ink); }
   .builtin-holiday{ margin-top:8px; display:flex; flex-direction:column; gap:6px; }
   .builtin-holiday .source-note{ font-family:var(--mono); font-size:10.5px; color:var(--text-dim); line-height:1.6; }
   .builtin-holiday button:disabled{ opacity:.55; cursor:default; }
@@ -1285,7 +1295,7 @@
   .share-existing-row .who{ flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .share-perm-hint{ font-family:var(--mono); font-size:11px; color:var(--text-dim); margin-top:7px; line-height:1.7; }
   .msg-inline{ display:none; font-size:12.5px; line-height:1.6; padding:9px 11px; border-radius:var(--r-s); margin-bottom:4px; }
-  .msg-inline.err{ display:block; background:var(--red-dim); border:1px solid var(--red); color:var(--red); }
+  .msg-inline.err{ display:block; background:var(--red-dim); border:1px solid var(--red); color:var(--red-ink); }
   .msg-inline.ok{ display:block; background:var(--teal-dim); border:1px solid var(--teal); color:var(--teal); }
 
   @media (prefers-reduced-motion: reduce){ *{ transition: none !important; } }

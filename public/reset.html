@@ -26,8 +26,10 @@
   /* 與 login.html 同一組變數與元件樣式。這兩頁是同一個流程的前後段，長相必須一致。 */
   :root{
     --bg:#F6F4EE; --panel:#FFFFFF; --panel-2:#F1EEE5;
-    --hairline:#E4E0D3; --text:#2A2A26; --text-muted:#71706A; --text-dim:#A2A099;
+    --hairline:#E4E0D3; --text:#2A2A26; --text-muted:#5F5E58; --text-dim:#6B6A63;
     --amber:#C9822E; --amber-dim:rgba(201,130,46,0.12);
+    --amber-ink:#8A5716; --accent-fill:#A4651C;
+    --disabled-fill:#A2A099;  /* 停用中的按鈕刻意淡：它本來就不該被按（WCAG 對停用元件不設對比） */  /* 同主畫面：淺底上的琥珀字、白字按鈕的底 */
     --teal:#1F8C68; --teal-dim:rgba(31,140,104,0.10);
     --red:#C74B43; --red-dim:rgba(199,75,67,0.10);
     --on-accent:#FFFDF9;
@@ -38,9 +40,10 @@
     color-scheme:dark;
     --bg:#1A1917; --panel:#232220; --panel-2:#2B2A27;
     --hairline:#3A3833;
-    --text:#E8E5DC; --text-muted:#A8A49A; --text-dim:#7A766D;
+    --text:#E8E5DC; --text-muted:#A8A49A; --text-dim:#9A968C;
     --on-accent:#17160F;
     --amber:#E3A052; --amber-dim:rgba(227,160,82,0.16);
+    --amber-ink:var(--amber); --accent-fill:var(--amber); --disabled-fill:#7A766D;
     --teal:#3FBF92; --teal-dim:rgba(63,191,146,0.14);
     --red:#E8756B; --red-dim:rgba(232,117,107,0.14);
   }
@@ -49,7 +52,7 @@
        display:flex;align-items:center;justify-content:center;padding:24px;}
   .card{width:100%;max-width:420px;background:var(--panel);border:1px solid var(--hairline);
         border-radius:16px;padding:32px 28px;}
-  .eyebrow{font-family:var(--mono);font-size:10.5px;letter-spacing:.18em;color:var(--text-dim);
+  .eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.18em;color:var(--text-dim);
            text-transform:uppercase;margin-bottom:6px;}
   h1{margin:0 0 8px;font-size:21px;font-weight:700;letter-spacing:.01em;}
   .lede{margin:0 0 22px;font-size:13px;line-height:1.7;color:var(--text-muted);}
@@ -59,16 +62,16 @@
   input{width:100%;padding:11px 12px;border:1px solid var(--hairline);border-radius:8px;
         background:var(--panel-2);color:var(--text);font-family:var(--sans);font-size:14px;}
   input:focus{outline:none;border-color:var(--amber);background:var(--panel);}
-  .hint{font-family:var(--mono);font-size:10.5px;color:var(--text-dim);margin-top:5px;}
-  button.submit{width:100%;margin-top:6px;padding:12px;border:none;border-radius:9px;background:var(--amber);
+  .hint{font-family:var(--mono);font-size:11.5px;color:var(--text-dim);margin-top:5px;}
+  button.submit{width:100%;margin-top:6px;padding:12px;border:none;border-radius:9px;background:var(--accent-fill);
                 color:var(--on-accent);font-family:var(--sans);font-size:14.5px;font-weight:700;cursor:pointer;}
-  button.submit:disabled{background:var(--text-dim);cursor:not-allowed;}
+  button.submit:disabled{background:var(--disabled-fill);cursor:not-allowed;}
   .msg{margin-top:16px;padding:11px 13px;border-radius:8px;font-size:13px;line-height:1.65;display:none;}
   .msg.err{display:block;background:var(--red-dim);border:1px solid rgba(199,75,67,.3);color:var(--red);}
   .msg.ok{display:block;background:var(--teal-dim);border:1px solid rgba(31,140,104,.3);color:var(--teal);}
-  .foot{margin-top:22px;text-align:center;font-family:var(--mono);font-size:10.5px;
+  .foot{margin-top:22px;text-align:center;font-family:var(--mono);font-size:11.5px;
         color:var(--text-dim);line-height:1.8;}
-  .foot a{color:var(--amber);text-decoration:none;}
+  .foot a{color:var(--amber-ink);text-decoration:none;}
   /* 密碼欄位的眼睛。登不進去時看不到自己打了什麼，連「是不是打錯」都無從判斷。
      兩個 SVG 疊著、靠 .shown 決定顯示哪一個；切換狀態刻意不記住（重新載入回到隱藏）。 */
   .pw-wrap{position:relative;display:block;}
