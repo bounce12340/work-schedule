@@ -46,6 +46,7 @@ function txnJws(over = {}) {
     productId: MONTHLY,
     originalTransactionId: '2000000000000001',
     transactionId: '2000000000000009',
+    appAccountToken: 'u1',
     expiresDate: NOW + 30 * DAY,
     // AppTransaction 才有的欄位要清掉，免得看起來像另一種東西
     appTransactionId: undefined,
@@ -100,6 +101,7 @@ test('訂閱交易：驗得過，而且讀出來的欄位就是簽進去的那�
   assert.equal(r.productId, MONTHLY);
   assert.equal(r.originalTransactionId, '2000000000000001');
   assert.equal(r.expiresDate, NOW + 30 * DAY);
+  assert.equal(r.appAccountToken, 'u1');
   assert.equal(r.revocationDate, null);
 });
 
@@ -218,7 +220,7 @@ test('管理者的永久方案不被 Apple 蓋掉，但那次購買仍然要留�
   assert.ok(events(env).some(e => e.detail?.includes('管理者')), '要看得到我們刻意沒寫');
 });
 
-test('搬移：同一份訂閱綁到第二個帳號是搬過去，不是拒絕', async () => {
+test('appAccountToken 不同的帳號不能接手另一個帳號的訂閱', async () => {
   const env = makeAppleEnv();
   addUser(env, 'u1', 'a@x.test');
   addUser(env, 'u2', 'b@x.test');
@@ -230,13 +232,12 @@ test('搬移：同一份訂閱綁到第二個帳號是搬過去，不是拒絕',
   const { status, body } = await unwrap(await handlePlanApple(
     post('https://x.test/api/plan/apple', { signedTransaction: jws }), env, { id: 'u2' }
   ));
-  assert.equal(status, 200);
-  assert.equal(body.plan, 'pro');
+  assert.equal(status, 400);
+  assert.equal(body.reason, 'account_token');
 
-  assert.equal(userRow(env, 'u1').plan_source, null, '舊帳號要被清空');
-  assert.equal(userRow(env, 'u1').apple_original_txn, null);
-  assert.equal(userRow(env, 'u2').apple_original_txn, '2000000000000001');
-  assert.ok(events(env).some(e => e.kind === 'transferred'), '搬移要留下事件');
+  assert.equal(userRow(env, 'u1').plan_source, 'apple', '原帳號仍保留權利');
+  assert.equal(userRow(env, 'u1').apple_original_txn, '2000000000000001');
+  assert.equal(userRow(env, 'u2').apple_original_txn, null);
 });
 
 // ------------------------------------------------------------ POST /api/apple/notifications

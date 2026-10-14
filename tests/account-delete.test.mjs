@@ -12,7 +12,7 @@ import { createSession, getSessionUser } from '../src/session.js';
 import { hashPassword } from '../src/crypto.js';
 import { makeEnv, seedState, unwrap } from './d1.mjs';
 
-const TABLES = ['user_state', 'shares', 'sessions', 'ics_feed', 'reminder_feed', 'password_resets', 'email_codes', 'users'];
+const TABLES = ['user_state', 'shares', 'sessions', 'ics_feed', 'reminder_feed', 'password_resets', 'email_codes', 'oauth_identities', 'users'];
 
 async function setup() {
   const env = makeEnv();
@@ -27,6 +27,9 @@ async function setup() {
     env.DB.prepare('INSERT INTO reminder_feed (user_id, enabled, digest, updated_at) VALUES (?, 1, ?, 0)').bind(id, '[]').run();
     env.DB.prepare('INSERT INTO password_resets (token_hash, user_id, created_at, expires_at) VALUES (?, ?, 0, 1)').bind('r' + id, id).run();
     env.DB.prepare('INSERT INTO email_codes (email, code_hash, expires_at, attempts, created_at) VALUES (?, ?, 1, 0, 0)').bind(email, 'c').run();
+    env.DB.prepare(`INSERT INTO oauth_identities
+      (id, user_id, provider, subject, email, created_at, updated_at)
+      VALUES (?, ?, 'google', ?, ?, 0, 0)`).bind('oauth-' + id, id, 'google-' + id, email).run();
   }
   // 兩個方向的分享都要有：A 分享給 B、B 分享給 A
   env.DB.prepare(`INSERT INTO shares (id, owner_id, target_id, resource_kind, resource_id, permission, created_at)
@@ -45,6 +48,7 @@ function snapshotOf(env, userId, email) {
     reminder: q('SELECT * FROM reminder_feed WHERE user_id = ?'),
     resets: q('SELECT * FROM password_resets WHERE user_id = ?'),
     codes: env.DB.prepare('SELECT * FROM email_codes WHERE email = ?').bind(email).all().results,
+    oauth: env.DB.prepare('SELECT * FROM oauth_identities WHERE user_id = ?').bind(userId).all().results,
   };
 }
 
@@ -64,6 +68,36 @@ test('密碼錯回 403，而且每一張表都一列沒少', async () => {
   const after = TABLES.map(t => env.DB.prepare(`SELECT COUNT(*) AS n FROM ${t}`).first().n);
   assert.deepEqual(after, before);
   assert.equal(env.DB.prepare('SELECT COUNT(*) AS n FROM admin_activity').first().n, 0, '失敗不留記錄');
+});
+
+test('刪除帳號：Apple refresh token 會送到 revoke，而且第三方身分一併刪除', async () => {
+  const env = await setup();
+  const keys = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign']);
+  const der = new Uint8Array(await crypto.subtle.exportKey('pkcs8', keys.privateKey));
+  let called = null;
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    called = { url: String(url), body: String(init.body) };
+    return new Response('', { status: 200 });
+  };
+  Object.assign(env, {
+    APPLE_SIGN_IN_TEAM_ID: 'TEAM123',
+    APPLE_SIGN_IN_KEY_ID: 'KEY123',
+    APPLE_SIGN_IN_CLIENT_ID: 'com.bounceto.workschedule',
+    APPLE_SIGN_IN_PRIVATE_KEY: `-----BEGIN PRIVATE KEY-----\n${Buffer.from(der).toString('base64')}\n-----END PRIVATE KEY-----`,
+  });
+  env.DB.prepare(`INSERT INTO oauth_identities
+    (id, user_id, provider, subject, email, apple_refresh_token, created_at, updated_at)
+    VALUES ('apple-a', 'A', 'apple', 'apple-sub', 'a@privaterelay.appleid.com', 'refresh-secret', 0, 0)`).run();
+  try {
+    const r = await unwrap(await handleDeleteAccount(del('correct-horse'), env, A));
+    assert.equal(r.status, 200);
+    assert.equal(called.url, 'https://appleid.apple.com/auth/revoke');
+    assert.match(called.body, /refresh-secret/);
+    assert.equal(env.DB.prepare('SELECT COUNT(*) AS n FROM oauth_identities WHERE user_id = ?').bind('A').first().n, 0);
+  } finally {
+    globalThis.fetch = real;
+  }
 });
 
 test('密碼對：A 在每一張表裡都清空、所有 session 失效、留下一筆本人刪除的記錄', async () => {

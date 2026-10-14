@@ -65,13 +65,13 @@ npx wrangler secret put APP_URL              # optional, used for the link insid
 >
 > Without these, reminders simply do not run; nothing else is affected.
 
-**Existing databases need migrations 001 through 012 before deploying** (`schema.sql` cannot add columns to tables that already exist). In particular, `012-unsub-token.sql` must be applied before reminder cron runs; otherwise unsubscribe-token writes fail only in production:
+**Existing databases need migrations 001 through 013 before deploying** (`schema.sql` cannot add columns to tables that already exist). `012-unsub-token.sql` must be applied before reminder cron runs, and `013-oauth-identities.sql` must be applied before Google or Apple sign-in:
 
 ```bash
-npx wrangler d1 execute work-schedule-db --remote --file=./migrations/012-unsub-token.sql
+npx wrangler d1 execute work-schedule-db --remote --file=./migrations/013-oauth-identities.sql
 ```
 
-The command above assumes migrations `001`–`011` have already been applied. If they have not, run only the missing migrations one at a time in filename order; do not rerun an already-applied `ALTER TABLE`. For a new database, use `npm run db:init` to create the current complete schema.
+The command above assumes migrations `001`–`012` have already been applied. If they have not, run only the missing migrations one at a time in filename order; do not rerun an already-applied `ALTER TABLE`. For a new database, use `npm run db:init` to create the current complete schema.
 
 Finally, deploy:
 
@@ -81,9 +81,9 @@ npm run deploy
 
 ### iOS App Store release
 
-The project uses a Capacitor native shell, so the owner does not need to own a Mac: [`.github/workflows/ios.yml`](.github/workflows/ios.yml) builds on GitHub's macOS runner and can upload to App Store Connect. The complete owner checklist, TestFlight acceptance steps, required Apple setup, and Traditional Chinese / English store-copy drafts are in [`docs/app-store-checklist.md`](docs/app-store-checklist.md).
+The project uses a Capacitor native shell, so the owner does not need to own a Mac: [`.github/workflows/ios.yml`](.github/workflows/ios.yml) builds on GitHub's macOS runner and can upload to App Store Connect. The complete owner checklist, Google / Apple sign-in setup, TestFlight acceptance steps, required Apple setup, and Traditional Chinese / English store-copy drafts are in [`docs/app-store-checklist.md`](docs/app-store-checklist.md) and [`docs/app-store-connect-guide.zh-TW.md`](docs/app-store-connect-guide.zh-TW.md).
 
-The current bundle ID is `com.bounceto.workschedule`, the minimum iOS version is 16, and the marketing version is managed in `mobile/package.json`. The owner must create the App Store record, Bundle ID, subscription products, and Apple Developer settings; the workflow builds/uploads but does not submit an app for review.
+The current bundle ID is `com.bounceto.workschedule`, the minimum iOS version is 16, the target is universal for iPhone and iPad, and the marketing version is managed in `mobile/package.json`. The owner must create the App Store record, Google OAuth client, Sign in with Apple capability, subscription products, and Apple Developer settings; the workflow builds/uploads but does not submit an app for review.
 
 **When `TURNSTILE_SECRET` is unset, all registration and login is rejected** rather than allowed through. Allowing it through would make bot protection meaningless.
 
@@ -186,7 +186,7 @@ APP_URL=<optional>
 - **Pro is an auto-renewing subscription bought inside the app** (StoreKit 2). Prices always come from StoreKit, never hard-coded. The subscription screen carries the price, the renewal terms, a Restore purchase button and links to the terms and privacy policy — all four are App Review requirements
 - Entitlements are written by two paths: the app pushes its transactions (at launch, on purchase, on restore) and Apple's **server notifications** keep the expiry current for people who renew but only ever use the web. Expiry only moves forward, except refunds
 - **Push notifications** (APNs): overdue/upcoming, the tree's message when a streak breaks, and an optional "you have N things today". Each has its own switch, independent of the emails. Nothing is sent on quiet days. Three Worker secrets: `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_P8`
-- A public [privacy policy](./public/privacy.html) is served at `/privacy.html`
+- Public support, marketing, and privacy pages are served at `https://work-schedule.bounceto12340.workers.dev/support.html` and `https://work-schedule.bounceto12340.workers.dev/privacy.html`
 
 ### 💾 Automatic backups and reminders (after deployment)
 - Every day all schedules are backed up to Cloudflare R2, keeping the latest 14 copies (**password hashes excluded**; after a restore everyone resets through "Forgot password")
@@ -253,7 +253,7 @@ For the full architecture and data model see [`工作排程確認系統_專案�
 | Limitation | Detail |
 |---|---|
 | Sign-in required | A device that has never signed in only sees the gate; a signed-in device works offline on local data |
-| Free plan caps | Up to 3 major projects and 3 projects, 5 AI requests a day; Pro is unlimited. Lapsing deletes nothing, you just can't add more |
+| Free plan caps | Up to 3 major projects and 3 projects, 5 AI requests a day; Pro is unlimited. Pro is US$10 monthly or US$100 yearly, auto-renewing. Lapsing deletes nothing, you just can't add more |
 | Standalone storage scope | Without deployment, data lives in *this browser only* and does not follow you across devices; clearing browser data clears it too |
 | Sync conflicts | Merged item by item against the last synced content; you only choose a side when the same item changed on both |
 | Holidays | Weekends are automatic. Public holidays are bundled only for years that have been officially published (currently 2026 and 2027); other years can be pasted in bulk |
@@ -262,5 +262,5 @@ For the full architecture and data model see [`工作排程確認系統_專案�
 | "Away" and "Leave" | Only a mark on the calendar and the row: they move no dates and **do not affect overdue** or the calendar subscription. The single difference: **on a leave day no email and no push go out at all**, while the red overdue text on screen stays exactly as it is |
 | Weekend work days | Supported: weekend dates added to the "work days" list count as working days, so recurrences are not pushed past them |
 | Gantt | Bars cannot be dragged; dates are changed through the task table |
-| iOS app | Free download, Pro is an in-app auto-renewing subscription; one Apple ID = one account. Every front-end release needs a new build submitted to the App Store. Public registration happens only inside the app |
+| iOS app | Free download, sign in with Google or Sign in with Apple, Pro is an in-app auto-renewing subscription at US$10 monthly or US$100 yearly; entitlements are tied to the app account UUID and Restore Purchases works across devices and the web. Every front-end release needs a new build submitted to the App Store |
 | Changing recurrence frequency | Switching monthly ↔ quarterly resets the per-occurrence done / override / skip records (you are warned before saving) |

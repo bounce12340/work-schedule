@@ -10,8 +10,8 @@ CREATE TABLE IF NOT EXISTS users (
   created_at    INTEGER NOT NULL,
   approved_at   INTEGER,
   approved_by   TEXT,
-  -- iOS app 是付費下載：在 app 裡註冊的帳號帶著 Apple 簽過名的購買證明，驗過就
-  -- 自動核准。purchase_source 為 'ios_app'；既有帳號與網頁註冊的為 NULL（走管理者核准）。
+  -- iOS app 的註冊來源。purchase_source 仍保留給舊版 app proof 記錄；
+  -- 新版 Google／Apple OAuth 帳號由 oauth_identities 綁定。
   -- app_transaction_id 代表「那一次購買」，UNIQUE：一次購買一個帳號，擋「買一份、
   -- 開十個帳號」；刪掉帳號後那個 id 就空出來，可以再註冊。
   purchase_source    TEXT,
@@ -45,6 +45,23 @@ CREATE TABLE IF NOT EXISTS plan_events (
 CREATE INDEX IF NOT EXISTS idx_plan_events_user ON plan_events(user_id, created_at);
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_app_transaction ON users(app_transaction_id);
+
+-- 第三方登入身分。provider + subject 是 Google／Apple 對同一個帳號的穩定識別，
+-- 不能只用 email，因為 Apple 私密轉寄 email 可能改變。Apple refresh token 只為
+-- 帳號刪除時撤銷 Sign in with Apple credential 使用，Google 不需要存 token。
+CREATE TABLE IF NOT EXISTS oauth_identities (
+  id                  TEXT PRIMARY KEY,
+  user_id             TEXT NOT NULL,
+  provider            TEXT NOT NULL, -- 'apple' | 'google'
+  subject             TEXT NOT NULL,
+  email               TEXT,
+  apple_refresh_token TEXT,
+  created_at          INTEGER NOT NULL,
+  updated_at          INTEGER NOT NULL,
+  UNIQUE(provider, subject),
+  UNIQUE(user_id, provider)
+);
+CREATE INDEX IF NOT EXISTS idx_oauth_identities_user ON oauth_identities(user_id);
 
 -- Session。只存 token 的 SHA-256，不存原文：DB 若外洩，裡面的值無法直接拿來登入。
 -- 選 DB session 而非無狀態 JWT，是為了讓管理者停用帳號能立即生效。

@@ -11,17 +11,20 @@
 - Display name：`工作排程`。
 - 最低版本：iOS 16。
 - 目前 marketing version：`1.3.0`，來源是 `mobile/package.json`；每次前端 release 要提高它，build number 由 workflow 的 GitHub run number 產生。
-- 法律頁：`https://work-schedule.bounceto12340.workers.dev/privacy.html` 與 `/terms.html`。若正式網域不同，請在 App Store Connect 改成正式 URL，並確認公開可讀、不需登入。
+- 法律頁：`https://work-schedule.bounceto12340.workers.dev/privacy.html` 與 `https://work-schedule.bounceto12340.workers.dev/terms.html`；支援／行銷頁：`https://work-schedule.bounceto12340.workers.dev/support.html`。這些頁面公開可讀、不需登入。
+- 登入：iOS app 提供 Google OAuth 與 Sign in with Apple；Apple capability 是必要設定。既有 email 登入路徑仍保留給既有帳號。
 
 ## Josh 必須自己完成的 Apple／商店設定
 
-- [ ] 申請並維持 Apple Developer Program 會員；接受 Paid Apps Agreement、稅務與銀行合約。免費 app 加上自動續訂訂閱仍需要可用的付費合約。
+- [x] Apple Developer Program 已由 Josh 擁有；仍須接受 Paid Apps Agreement、稅務與銀行合約。
 - [ ] 在 Apple Developer 建立或確認 App ID `com.bounceto.workschedule`，開啟 Push Notifications capability。
+- [ ] 在同一個 App ID 開啟 Sign in with Apple capability。
 - [ ] 在 App Store Connect 建立 iOS App record，選正確的 Bundle ID、語言（繁體中文／英文）與 SKU。
 - [ ] 建立一個 Pro subscription group，建立兩個 auto-renewable products：
   - `com.bounceto.workschedule.pro.monthly`
   - `com.bounceto.workschedule.pro.yearly`
-- [ ] 為兩個訂閱填名稱、描述、價格、地區、審查截圖與本地化資料，並送交 Apple 審核商品。程式不寫死價格，會從 StoreKit 讀取。
+- [ ] 每月商品價格設為 US$10、週期 1 Month；每年商品價格設為 US$100、週期 1 Year。填入繁中／英文名稱、描述與 IAP review screenshot，並送交 Apple 審核商品。程式不寫死價格，會從 StoreKit 讀取。
+- [ ] 依 [`docs/app-store-connect-guide.zh-TW.md`](app-store-connect-guide.zh-TW.md) 建立 Google iOS OAuth client，並將實際 client ID 填入前端、Xcode URL scheme 與 Worker。
 - [ ] 在 App Store Server Notifications 設定 production 與 sandbox URL：
   `https://work-schedule.bounceto12340.workers.dev/api/apple/notifications`
 - [ ] 建立 App Store Connect API key。角色要能讓 Xcode 使用 cloud-managed distribution certificates；目前 workflow 預期 `Admin`。
@@ -30,7 +33,8 @@
   - `ASC_ISSUER_ID`
   - `ASC_API_KEY_P8`（完整 `.p8` 內容，含 BEGIN／END）
   - `APPLE_TEAM_ID`
-- [ ] 在正式 Worker 完成 `migrations/001` 到 `migrations/012`，至少確認 `012-unsub-token.sql` 已執行；部署前先備份 D1。
+- [ ] 在正式 Worker 完成 `migrations/001` 到 `migrations/013`，至少確認 `013-oauth-identities.sql` 已執行；部署前先備份 D1。
+- [ ] 設定 Apple Sign in with Apple secrets：`APPLE_SIGN_IN_TEAM_ID`、`APPLE_SIGN_IN_KEY_ID`、`APPLE_SIGN_IN_PRIVATE_KEY`、`APPLE_SIGN_IN_CLIENT_ID=com.bounceto.workschedule`。
 - [ ] 設定正式 Worker secrets／vars：Turnstile、AgentMail（若啟用）、`APP_URL`、APNs 三個 secret（`APNS_KEY_ID`、`APNS_TEAM_ID`、`APNS_P8`），以及 Apple sandbox 開關。`APP_PURCHASE_ALLOW_SANDBOX=1` 只能在 TestFlight／sandbox 測試期間開啟，上架前要關閉。
 
 ## 建置與 TestFlight 驗收
@@ -39,11 +43,13 @@
 - [ ] 用 GitHub Actions 的 `workflow_dispatch` 執行 iOS workflow；第一次可把 `upload` 設為 `false` 只產生 `.ipa` artifact，確認設定後再上傳。
 - [ ] 上傳版本在 App Store Connect 完成 processing 後，加入 Internal Testing；不要把「upload success」當成「可審查」。
 - [ ] 在真實 iPhone／TestFlight 測試：
-  - [ ] 註冊、email 驗證碼登入、登出、忘記密碼。
+  - [x] Josh 已用 TestFlight 測過 build；仍需驗收 Google 登入與 Sign in with Apple。
+  - [ ] Google 登入、Sign in with Apple、登出、忘記密碼。
   - [ ] 關掉 app 後重開仍保留登入；打開飛航模式時既有資料仍可用。
   - [ ] 新增工作、會議、循環任務、日曆、甘特專案、筆記與同步。
   - [ ] iOS app 與網頁登入同一帳號後資料一致；換另一個帳號不能看到前一位使用者的資料。
-  - [ ] 訂閱商品顯示 Apple 實際價格與週期；購買後 Pro 權利出現；恢復購買、取消續訂、到期／退款狀態都符合預期。
+  - [ ] 訂閱商品顯示 Apple 實際價格與週期；購買後 Pro 權利出現；每月／每年、恢復購買、取消續訂、到期／退款狀態都符合預期。
+  - [ ] 用同一個 app 帳號在另一台裝置與網頁登入，確認 Pro 權利跟著帳號而不是跟著裝置。
   - [ ] 允許推播後收到一則 admin test push；拒絕權限時畫面明確說明，不是假裝成功。
   - [ ] 訂閱畫面的使用條款與隱私權連結在 app 內、離線時也能開啟。
   - [ ] 帳號刪除會清除帳號、排程、分享、session 與推播 token。
@@ -104,9 +110,10 @@
 
 ## 尚待 Josh 決定的問題
 
-- [ ] `com.bounceto.workschedule` 是否已屬於要上架的 Apple Developer team？若不是，正式 bundle ID 與 Worker 驗證要一起改。
+- [x] Bundle ID 已確認為 `com.bounceto.workschedule`。
 - [ ] 商店正式名稱是否用「工作排程」／「Work Schedule」，或要加入「確認系統」以利搜尋？
-- [ ] 是否真的要支援 iPad？目前 Xcode target 是 iPhone + iPad；若不支援，需在送審前調整 target、截圖與商店裝置設定。
-- [ ] Pro 月／年價格、免費版上限、銷售地區與是否提供 promo offer。
-- [ ] 正式客服信箱、Support URL、Marketing URL 與 privacy URL 是否使用目前 bounceto12340.workers.dev 網域。
+- [x] 支援 iPad；需要 iPad 13 吋截圖。
+- [x] Pro 為每月 US$10 與每年 US$100 的自動續訂訂閱。
+- [x] 支援、行銷與隱私權政策使用 `work-schedule.bounceto12340.workers.dev` 網域。
+- [ ] 是否提供 promo offer。
 - [ ] 目標使用者是否包含一般消費者，還是只供 Josh／特定團隊使用？這會影響商店文案、審查測試帳號與是否需要更完整的企業資料處理說明。

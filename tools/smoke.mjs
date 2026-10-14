@@ -137,7 +137,7 @@ function makeServer(loggedIn, plan = 'pro') {
   const reminderPuts = [];
   const reminderPosts = [];
   const unsubPosts = [];
-  for (const f of ['index.html', 'login.html', 'reset.html', 'admin.html', 'privacy.html', 'terms.html', 'unsub.html']) {
+  for (const f of ['index.html', 'login.html', 'reset.html', 'admin.html', 'privacy.html', 'terms.html', 'support.html', 'unsub.html']) {
     assets.set('/' + f, readFileSync(PUBLIC + f, 'utf8'));
   }
   // sw.js 一定要真的供應。擋掉它會讓註冊失敗噴一行 console.error，而把

@@ -8,17 +8,18 @@
  *
  *   - 登入回 token（存 Keychain、每次請求帶 Bearer），不發 cookie
  *   - 真人驗證改用 email 驗證碼：收得到寄到這個信箱的碼，同時證明信箱是本人的
- *   - 註冊附上 Apple 簽過名的購買證明（AppTransaction），驗過就**自動核准**——
- *     app 是付費下載，錢在 App Store 那一刻收完了，「付過錢」就是核准的條件
+ *   - Google／Sign in with Apple 由 Worker 驗證 provider token，subject 綁到本地 user UUID
+ *   - 舊版 AppTransaction 註冊路徑保留相容性；新版帳號使用 OAuth identity
  *
  * 網頁那一側（handlers/auth.js）一行都沒改：cookie、Turnstile、管理者核准照舊。
  * 兩條路進的是同一張 users 與同一張 sessions。
  */
-import { hashPassword, verifyPassword, uuid, sha256, timingSafeEqual } from '../crypto.js';
+import { hashPassword, verifyPassword, uuid, sha256, timingSafeEqual, generateToken } from '../crypto.js';
 import { createSession } from '../session.js';
 import { checkThrottle, recordFailure, clearFailures, throttleKeys } from '../throttle.js';
 import { sendMail, escHtml } from '../mail.js';
 import { verifyAppTransaction } from '../apppurchase.js';
+import { verifyAppOAuth, linkOAuthIdentity, revokeAppleCredential } from '../oauth.js';
 import { json, adminEmails } from './auth.js';
 import { logAdminAction } from './backup.js';
 
@@ -188,7 +189,72 @@ export async function handleAppLogin(request, env) {
 
   const session = await createSession(env, user.id, appUserAgent(request), { app: true });
   return json({ ok: true, token: session.token, expiresAt: session.expiresAt,
-                user: { email: user.email, role: user.role } });
+                user: { id: user.id, email: user.email, role: user.role } });
+}
+
+/**
+ * POST /api/auth/app/oauth
+ * { provider: 'apple'|'google', idToken, authorizationCode?, codeVerifier?, redirectUri? }
+ *
+ * The Worker validates the provider credential before looking up or creating a
+ * local user. The provider subject is stored separately from email because
+ * Apple's private relay address is not a stable account key.
+ */
+export async function handleAppOAuth(request, env) {
+  const body = await readJson(request);
+  if (!body) return json({ error: '請求格式錯誤' }, 400);
+  const auth = await verifyAppOAuth(body, env).catch(e => {
+    console.error('app OAuth verification failed', e?.stack || String(e));
+    return { ok: false, reason: 'provider_unavailable' };
+  });
+  if (!auth.ok) {
+    const status = auth.reason === 'not_configured' ? 503 : 401;
+    return json({ error: oauthMessage(auth.reason), reason: auth.reason }, status);
+  }
+
+  let identity = await env.DB.prepare(
+    'SELECT user_id FROM oauth_identities WHERE provider = ? AND subject = ?'
+  ).bind(auth.provider, auth.subject).first();
+  let user = identity
+    ? await env.DB.prepare('SELECT id, email, role, status FROM users WHERE id = ?').bind(identity.user_id).first()
+    : null;
+
+  if (!user && auth.email) {
+    user = await env.DB.prepare(
+      'SELECT id, email, role, status FROM users WHERE email = ?'
+    ).bind(auth.email).first();
+  }
+  if (!user && !auth.email) {
+    return json({ error: '這個登入服務沒有提供 email，請改用原本的登入方式' }, 400);
+  }
+
+  const now = Date.now();
+  if (!user) {
+    const id = uuid();
+    const isBootstrapAdmin = adminEmails(env).includes(auth.email || '');
+    await env.DB.prepare(
+      `INSERT INTO users (id, email, password_hash, role, status, created_at, approved_at, approved_by)
+       VALUES (?, ?, ?, ?, 'approved', ?, ?, 'oauth')`
+    ).bind(
+      id, auth.email,
+      await hashPassword(generateToken()), isBootstrapAdmin ? 'admin' : 'user',
+      now, now
+    ).run();
+    user = await env.DB.prepare(
+      'SELECT id, email, role, status FROM users WHERE id = ?'
+    ).bind(id).first();
+  }
+  if (user.status !== 'approved') {
+    return json({ error: statusMessage(user.status), status: user.status }, 403);
+  }
+
+  const linked = await linkOAuthIdentity(env, auth, user.id);
+  if (!linked.ok) return json({ error: '這個登入身分已連結到另一個帳號' }, 409);
+  const session = await createSession(env, user.id, appUserAgent(request), { app: true });
+  return json({
+    ok: true, token: session.token, expiresAt: session.expiresAt,
+    user: { id: user.id, email: user.email, role: user.role },
+  });
 }
 
 /**
@@ -216,6 +282,16 @@ export async function handleDeleteAccount(request, env, user) {
   await logAdminAction(env, user, user, '本人刪除帳號（含其雲端排程資料）');
 
   const id = user.id;
+  const identities = await env.DB.prepare(
+    'SELECT provider, apple_refresh_token FROM oauth_identities WHERE user_id = ?'
+  ).bind(id).all();
+  for (const row of identities.results || []) {
+    if (row.provider === 'apple' && row.apple_refresh_token) {
+      await revokeAppleCredential(row.apple_refresh_token, env).catch(e =>
+        console.error('Apple credential revoke failed during account deletion', e?.stack || String(e))
+      );
+    }
+  }
   await env.DB.batch([
     env.DB.prepare('DELETE FROM user_state WHERE user_id = ?').bind(id),
     env.DB.prepare('DELETE FROM shares WHERE owner_id = ? OR target_id = ?').bind(id, id),
@@ -225,6 +301,7 @@ export async function handleDeleteAccount(request, env, user) {
     env.DB.prepare('DELETE FROM device_tokens WHERE user_id = ?').bind(id),
     env.DB.prepare('DELETE FROM password_resets WHERE user_id = ?').bind(id),
     env.DB.prepare('DELETE FROM email_codes WHERE email = ?').bind(user.email),
+    env.DB.prepare('DELETE FROM oauth_identities WHERE user_id = ?').bind(id),
     env.DB.prepare('DELETE FROM users WHERE id = ?').bind(id),
   ]);
   return json({ ok: true });
@@ -276,6 +353,13 @@ function purchaseMessage(reason) {
     case 'expired': return '購買證明的憑證已過期，請更新 app 後再試';
     default: return '無法驗證 App Store 的購買證明，請確認是從 App Store 安裝';
   }
+}
+
+function oauthMessage(reason) {
+  if (reason === 'not_configured') return '登入服務尚未設定完成';
+  if (reason === 'identity_in_use') return '這個登入身分已連結到另一個帳號';
+  if (reason === 'expired') return '登入憑證已過期，請重新登入';
+  return '無法驗證這個登入身分，請重新嘗試';
 }
 
 /** app 帶 X-App-Client（ios/1.3.0）時併進 user agent，裝置清單才分得出是 app */

@@ -188,8 +188,8 @@ export async function verifyAppTransaction(jws, opts) {
  * 業務規則，屬於 handler（`src/handlers/planapple.js` 的 `PRODUCT_IDS`）；驗簽
  * 模組只回答「這段資料是不是 Apple 簽的、裡面寫了什麼」。
  *
- * `expiresDate` 只有自動續訂訂閱才有；消耗型／非消耗型商品沒有，那種交易在這裡
- * 會被判成 `format`——我們只賣訂閱，收到別的東西就是不對。
+ * `verifySubscriptionTransaction` 只接受有 `expiresDate` 的自動續訂訂閱；
+ * `verifyPurchaseTransaction` 另外供方案白名單使用，能讀沒有 `expiresDate` 的非消耗型商品。
  *
  * @returns {Promise<{ok:true, productId:string, originalTransactionId:string,
  *                    transactionId:string, expiresDate:number,
@@ -197,6 +197,17 @@ export async function verifyAppTransaction(jws, opts) {
  *                  |{ok:false, reason:string}>}
  */
 export async function verifySubscriptionTransaction(jws, opts) {
+  const res = await verifyPurchaseTransaction(jws, opts);
+  if (!res.ok) return res;
+  if (!Number.isFinite(res.expiresDate)) return fail('format');
+  return res;
+}
+
+/**
+ * 驗證一筆 StoreKit 2 交易。訂閱有 expiresDate，非消耗型方案沒有；
+ * 兩者都帶 productId、originalTransactionId 與可選的 appAccountToken。
+ */
+export async function verifyPurchaseTransaction(jws, opts) {
   const res = await verifyAppleJws(jws, opts);
   if (!res.ok) return res;
   const payload = res.payload;
@@ -209,8 +220,9 @@ export async function verifySubscriptionTransaction(jws, opts) {
 
   const productId = String(payload.productId || '');
   const originalTransactionId = String(payload.originalTransactionId || '');
-  const expiresDate = Number(payload.expiresDate);
-  if (!productId || !originalTransactionId || !Number.isFinite(expiresDate)) return fail('format');
+  const expiresDate = payload.expiresDate == null ? null : Number(payload.expiresDate);
+  if (!productId || !originalTransactionId
+      || (expiresDate !== null && !Number.isFinite(expiresDate))) return fail('format');
 
   return {
     ok: true,
@@ -219,6 +231,7 @@ export async function verifySubscriptionTransaction(jws, opts) {
     transactionId: String(payload.transactionId || ''),
     expiresDate,
     revocationDate: Number.isFinite(payload.revocationDate) ? Number(payload.revocationDate) : null,
+    appAccountToken: payload.appAccountToken ? String(payload.appAccountToken) : null,
     environment: String(payload.environment || ''),
   };
 }

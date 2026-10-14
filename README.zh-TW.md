@@ -65,13 +65,13 @@ npx wrangler secret put APP_URL              # 選填，信件內的連結
 >
 > 沒設定時提醒功能不會運作，但不影響其他任何功能。
 
-**既有的資料庫要先跑最新的 migration 再部署**（`schema.sql` 補不了已存在資料表的新欄位）。目前必須依序完成 `001` 到 `012`；尤其 `012-unsub-token.sql` 沒跑時，提醒信的退訂連結會在正式 cron 才爆出欄位不存在：
+**既有的資料庫要先跑最新的 migration 再部署**（`schema.sql` 補不了已存在資料表的新欄位）。目前必須依序完成 `001` 到 `013`；`012-unsub-token.sql` 沒跑時，提醒信的退訂連結會在正式 cron 才爆出欄位不存在，`013-oauth-identities.sql` 沒跑時，Google／Apple 登入會失敗：
 
 ```bash
-npx wrangler d1 execute work-schedule-db --remote --file=./migrations/012-unsub-token.sql
+npx wrangler d1 execute work-schedule-db --remote --file=./migrations/013-oauth-identities.sql
 ```
 
-上面這行假設 `001`–`011` 已按順序完成；若不是，請只執行尚未跑過的 migration，依檔名順序逐一執行，不要重跑已套用的 `ALTER TABLE`。全新資料庫則使用 `npm run db:init` 建立目前完整 schema。
+上面這行假設 `001`–`012` 已按順序完成；若不是，請只執行尚未跑過的 migration，依檔名順序逐一執行，不要重跑已套用的 `ALTER TABLE`。全新資料庫則使用 `npm run db:init` 建立目前完整 schema。
 
 最後部署：
 
@@ -81,9 +81,9 @@ npm run deploy
 
 ### iOS App Store 發布
 
-本專案選用 Capacitor 原生外殼，不需要擁有 Mac：`.github/workflows/ios.yml` 會在 GitHub 的 macOS runner 上產生 archive、簽章並可上傳到 App Store Connect。完整的帳號、訂閱、TestFlight、截圖與送審步驟，以及繁中／英文商店文案草稿，請看 [`docs/app-store-checklist.md`](docs/app-store-checklist.md)。
+本專案選用 Capacitor 原生外殼，不需要擁有 Mac：`.github/workflows/ios.yml` 會在 GitHub 的 macOS runner 上產生 archive、簽章並可上傳到 App Store Connect。完整的帳號、Google／Apple 登入、訂閱、TestFlight、截圖與送審步驟，以及繁中／英文商店文案草稿，請看 [`docs/app-store-checklist.md`](docs/app-store-checklist.md) 與 [`docs/app-store-connect-guide.zh-TW.md`](docs/app-store-connect-guide.zh-TW.md)。
 
-目前 bundle ID 是 `com.bounceto.workschedule`、最低 iOS 16、版本號由 `mobile/package.json` 管理。App Store Connect 的 App record、Bundle ID、訂閱商品與 Apple Developer 設定仍必須由擁有者本人完成；workflow 只負責建置／上傳，不會替你送審。
+目前 bundle ID 是 `com.bounceto.workschedule`、最低 iOS 16、支援 iPhone 與 iPad、版本號由 `mobile/package.json` 管理。App Store Connect 的 App record、Google OAuth、Sign in with Apple、訂閱商品與 Apple Developer 設定仍必須由擁有者本人完成；workflow 只負責建置／上傳，不會替你送審。
 
 **`TURNSTILE_SECRET` 未設定時所有註冊與登入都會被拒絕**，而不是放行——未設定就放行等於真人驗證形同虛設。
 
@@ -251,7 +251,7 @@ public/sw.js           service worker（加到主畫面／離線可用）
 | 限制 | 說明 |
 |---|---|
 | 必須登入 | 從來沒登入過的裝置只會看到「請登入」；登入過的裝置離線時用本機資料 |
-| 免費版上限 | 大項目與專案各最多 3 個、AI 每天 5 次；Pro 不限。降級不刪資料，只是不能再新增 |
+| 免費版上限 | 大項目與專案各最多 3 個、AI 每天 5 次；Pro 不限。Pro 為每月 US$10 或每年 US$100 的自動續訂訂閱。降級不刪資料，只是不能再新增 |
 | 同步衝突 | 以「上次同步的內容」為基準逐項合併；只有同一個項目兩邊都改過才需要選邊 |
 | 假日判斷 | 週六日自動視為假日；國定假日只內建已公布的年度（目前 2026、2027），其餘年度可批次貼上 |
 | 前置作業 | 只顯示狀態，不會自動順延日期，也不會擋住勾選。一個項目最多五個前置 |
@@ -259,5 +259,5 @@ public/sw.js           service worker（加到主畫面／離線可用）
 | 「不在」與「休假」 | 只是日曆與列上的標記：不移動任何日期，也**不影響逾期**與行事曆訂閱。差別只有一個——**休假那一天的提醒信與推播整批不送**，畫面上的紅字一個字都不改 |
 | 週末補班 | 已支援：在「補班日」清單加入的週末視為工作日，循環不會被順延跳過 |
 | 甘特圖 | 長條不支援拖曳，日期透過表格輸入修改 |
-| iOS app | 免費下載，Pro 為 app 內自動續訂訂閱；一個 Apple ID 一個帳號。前端每次改版都要重新打包送審。陌生人只能在 app 裡註冊 |
+| iOS app | 免費下載，使用 Google 或 Sign in with Apple 登入，Pro 為每月 US$10 或每年 US$100 的 app 內自動續訂訂閱；權利綁定 app 帳號 UUID，恢復購買後可在其他裝置與網頁使用。前端每次改版都要重新打包送審 |
 | 變更循環頻率 | 每月 ↔ 每季互換時，各次的完成／覆寫／略過紀錄會重置（存檔時會事先警告） |

@@ -4,6 +4,8 @@ import UserNotifications
 import Capacitor
 import StoreKit
 import Security
+import AuthenticationServices
+import CryptoKit
 
 /**
  * 這個 app 唯一的原生插件。只做網頁做不到的事：
@@ -35,7 +37,9 @@ import Security
  * 註冊方式見 MainViewController.swift（bridge.registerPluginInstance）。
  */
 @objc(WorkScheduleNativePlugin)
-public class WorkScheduleNativePlugin: CAPPlugin, CAPBridgedPlugin {
+public class WorkScheduleNativePlugin: CAPPlugin, CAPBridgedPlugin,
+    ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding,
+    ASWebAuthenticationPresentationContextProviding {
     public let identifier = "WorkScheduleNativePlugin"
     public let jsName = "WorkScheduleNative"
     public let pluginMethods: [CAPPluginMethod] = [
@@ -49,6 +53,8 @@ public class WorkScheduleNativePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "manageSubscriptions", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "requestPush", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "pushStatus", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "signInApple", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "signInGoogle", returnType: CAPPluginReturnPromise),
     ]
 
     private let service = "com.bounceto.workschedule"
@@ -63,6 +69,10 @@ public class WorkScheduleNativePlugin: CAPPlugin, CAPBridgedPlugin {
 
     /// StoreKit 要求 app 一啟動就監聽；不 finish 的交易會被一直重送。
     private var updatesTask: Task<Void, Never>?
+    private var appleController: ASAuthorizationController?
+    private var pendingAppleCall: CAPPluginCall?
+    private var pendingAppleNonce: String?
+    private var googleSession: ASWebAuthenticationSession?
 
     override public func load() {
         if #available(iOS 15.0, *) {
@@ -81,6 +91,95 @@ public class WorkScheduleNativePlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     deinit { updatesTask?.cancel() }
+
+    // MARK: - Google／Apple 登入
+
+    /// Sign in with Apple 的 identity token 與 authorization code 都交給 Worker 驗證。
+    /// nonce 是原文回傳給 JS、hash 放進 Apple request，避免重放別人的 identity token。
+    @objc func signInApple(_ call: CAPPluginCall) {
+        let provider = ASAuthorizationAppleIDProvider()
+        let request = provider.createRequest()
+        request.requestedScopes = [.email, .fullName]
+        let nonce = UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        request.nonce = SHA256.hash(data: Data(nonce.utf8))
+            .map { String(format: "%02x", $0) }.joined()
+        pendingAppleNonce = nonce
+        pendingAppleCall = call
+        let controller = ASAuthorizationController(authorizationRequests: [request])
+        controller.delegate = self
+        controller.presentationContextProvider = self
+        appleController = controller
+        controller.performRequests()
+    }
+
+    /// Google OAuth 使用 PKCE 的 ASWebAuthenticationSession。JS 產生 authorization URL，
+    /// native 只負責顯示系統瀏覽器並把 callback URL 回給 JS。
+    @objc func signInGoogle(_ call: CAPPluginCall) {
+        guard let raw = call.getString("authorizationURL"),
+              let url = URL(string: raw),
+              let scheme = call.getString("callbackScheme") else {
+            call.reject("authorizationURL and callbackScheme required")
+            return
+        }
+        DispatchQueue.main.async {
+            let session = ASWebAuthenticationSession(url: url, callbackURLScheme: scheme) {
+                [weak self] callback, error in
+                self?.googleSession = nil
+                if let error = error {
+                    call.reject("Google sign-in failed: \(error.localizedDescription)")
+                } else if let callback = callback {
+                    call.resolve(["callbackURL": callback.absoluteString])
+                } else {
+                    call.reject("Google sign-in returned no callback")
+                }
+            }
+            session.presentationContextProvider = self
+            self.googleSession = session
+            if !session.start() {
+                self.googleSession = nil
+                call.reject("Google sign-in could not start")
+            }
+        }
+    }
+
+    public func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
+        bridge?.viewController?.view.window ?? ASPresentationAnchor()
+    }
+
+    public func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        bridge?.viewController?.view.window ?? ASPresentationAnchor()
+    }
+
+    public func authorizationController(controller: ASAuthorizationController,
+                                        didCompleteWithAuthorization authorization: ASAuthorization) {
+        guard let call = pendingAppleCall else { return }
+        pendingAppleCall = nil
+        appleController = nil
+        guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
+              let identityData = credential.identityToken else {
+            call.reject("Apple sign-in returned no identity token")
+            return
+        }
+        var result: [String: Any] = [
+            "idToken": String(data: identityData, encoding: .utf8) ?? "",
+            "user": credential.user,
+            "nonce": pendingAppleNonce ?? "",
+        ]
+        if let code = credential.authorizationCode {
+            result["authorizationCode"] = String(data: code, encoding: .utf8) ?? ""
+        }
+        pendingAppleNonce = nil
+        call.resolve(result)
+    }
+
+    public func authorizationController(controller: ASAuthorizationController,
+                                        didCompleteWithError error: Error) {
+        let call = pendingAppleCall
+        pendingAppleCall = nil
+        appleController = nil
+        pendingAppleNonce = nil
+        call?.reject("Apple sign-in failed: \(error.localizedDescription)")
+    }
 
     // MARK: - 購買證明
 
@@ -111,7 +210,7 @@ public class WorkScheduleNativePlugin: CAPPlugin, CAPBridgedPlugin {
 
     /// 回 { products: [{ id, displayPrice, period, displayName, description }] }。
     ///
-    /// **價格一定要從 StoreKit 拿，不能寫死 US$4.99**：各國幣別與 Apple 的匯率換算
+    /// **價格一定要從 StoreKit 拿，不能寫死 US$10／US$100**：各國幣別與 Apple 的匯率換算
     /// 都在那裡，而且 Apple 審查會看訂閱畫面上的價格對不對。
     @objc func getProducts(_ call: CAPPluginCall) {
         guard #available(iOS 15.0, *) else { call.reject("iOS 15 or later required"); return }
@@ -162,7 +261,15 @@ public class WorkScheduleNativePlugin: CAPPlugin, CAPBridgedPlugin {
             do {
                 let products = try await Product.products(for: [productId])
                 guard let product = products.first else { call.reject("product not found"); return }
-                let result = try await product.purchase()
+                var options: Set<Product.PurchaseOption> = []
+                if let token = call.getString("appAccountToken"),
+                   let accountToken = UUID(uuidString: token) {
+                    options.insert(.appAccountToken(accountToken))
+                } else {
+                    call.reject("appAccountToken required")
+                    return
+                }
+                let result = try await product.purchase(options: options)
                 switch result {
                 case .success(let verification):
                     switch verification {

@@ -1,0 +1,63 @@
+{
+  "configVersion": 1,
+  "defaultLocale": "en_US",
+  "products": [
+    {
+      "displayPrice": "10.00",
+      "familyShareable": false,
+      "id": "com.bounceto.workschedule.pro.monthly",
+      "locale": "en_US",
+      "localizations": [
+        {
+          "description": "Unlocks Pro limits with automatic monthly renewal.",
+          "displayName": "Pro Monthly",
+          "locale": "en_US"
+        },
+        {
+          "description": "每月自動續訂，解鎖 Pro 上限。",
+          "displayName": "Pro 每月方案",
+          "locale": "zh_TW"
+        }
+      ],
+      "productType": "Auto-Renewable Subscription",
+      "recurringSubscriptionPeriod": "One Month",
+      "subscriptionGroupID": "pro"
+    },
+    {
+      "displayPrice": "100.00",
+      "familyShareable": false,
+      "id": "com.bounceto.workschedule.pro.yearly",
+      "locale": "en_US",
+      "localizations": [
+        {
+          "description": "Unlocks Pro limits with automatic yearly renewal.",
+          "displayName": "Pro Yearly",
+          "locale": "en_US"
+        },
+        {
+          "description": "每年自動續訂，解鎖 Pro 上限。",
+          "displayName": "Pro 每年方案",
+          "locale": "zh_TW"
+        }
+      ],
+      "productType": "Auto-Renewable Subscription",
+      "recurringSubscriptionPeriod": "One Year",
+      "subscriptionGroupID": "pro"
+    }
+  ],
+  "subscriptionGroups": [
+    {
+      "id": "pro",
+      "localizations": [
+        {
+          "locale": "en_US",
+          "name": "Pro"
+        },
+        {
+          "locale": "zh_TW",
+          "name": "Pro"
+        }
+      ]
+    }
+  ]
+}
