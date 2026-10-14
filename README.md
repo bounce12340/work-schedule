@@ -71,6 +71,8 @@ npx wrangler secret put APP_URL              # optional, used for the link insid
 npx wrangler d1 execute work-schedule-db --remote --file=./migrations/012-unsub-token.sql
 ```
 
+The command above assumes migrations `001`–`011` have already been applied. If they have not, run only the missing migrations one at a time in filename order; do not rerun an already-applied `ALTER TABLE`. For a new database, use `npm run db:init` to create the current complete schema.
+
 Finally, deploy:
 
 ```bash

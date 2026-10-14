@@ -71,6 +71,8 @@ npx wrangler secret put APP_URL              # 選填，信件內的連結
 npx wrangler d1 execute work-schedule-db --remote --file=./migrations/012-unsub-token.sql
 ```
 
+上面這行假設 `001`–`011` 已按順序完成；若不是，請只執行尚未跑過的 migration，依檔名順序逐一執行，不要重跑已套用的 `ALTER TABLE`。全新資料庫則使用 `npm run db:init` 建立目前完整 schema。
+
 最後部署：
 
 ```bash
