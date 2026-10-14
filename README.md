@@ -2,7 +2,7 @@
 
 **English** ・ [繁體中文](./README.zh-TW.md) ・ [日本語](./README.ja.md) ・ [한국어](./README.ko.md)
 
-A work-scheduling tool that lives in a single HTML file: tasks, meetings, recurring items, a month calendar and a Gantt chart, all in one file. Download it, open it in a browser, and it works.
+A work-scheduling tool that lives in a single HTML file: tasks, meetings, recurring items, a month calendar and a Gantt chart, all in one file. The deployed web app and iOS app require sign-in; a previously signed-in device can continue using its local data offline.
 
 > Pure front end. No dependencies, no install. No Node.js, no server, no database required.
 
@@ -65,10 +65,10 @@ npx wrangler secret put APP_URL              # optional, used for the link insid
 >
 > Without these, reminders simply do not run; nothing else is affected.
 
-**Existing databases need the newest migration before deploying** (`schema.sql` cannot add columns to tables that already exist):
+**Existing databases need migrations 001 through 012 before deploying** (`schema.sql` cannot add columns to tables that already exist). In particular, `012-unsub-token.sql` must be applied before reminder cron runs; otherwise unsubscribe-token writes fail only in production:
 
 ```bash
-npx wrangler d1 execute work-schedule-db --remote --file=./migrations/011-mail-sender.sql
+npx wrangler d1 execute work-schedule-db --remote --file=./migrations/012-unsub-token.sql
 ```
 
 Finally, deploy:
@@ -76,6 +76,12 @@ Finally, deploy:
 ```bash
 npm run deploy
 ```
+
+### iOS App Store release
+
+The project uses a Capacitor native shell, so the owner does not need to own a Mac: [`.github/workflows/ios.yml`](.github/workflows/ios.yml) builds on GitHub's macOS runner and can upload to App Store Connect. The complete owner checklist, TestFlight acceptance steps, required Apple setup, and Traditional Chinese / English store-copy drafts are in [`docs/app-store-checklist.md`](docs/app-store-checklist.md).
+
+The current bundle ID is `com.bounceto.workschedule`, the minimum iOS version is 16, and the marketing version is managed in `mobile/package.json`. The owner must create the App Store record, Bundle ID, subscription products, and Apple Developer settings; the workflow builds/uploads but does not submit an app for review.
 
 **When `TURNSTILE_SECRET` is unset, all registration and login is rejected** rather than allowed through. Allowing it through would make bot protection meaningless.
 
@@ -165,7 +171,7 @@ APP_URL=<optional>
 - **Signed-in devices**: see which devices you are signed in on and when each was last used, with one-click "Sign out all other devices" (keeps the current one); IP addresses are not recorded
 - **Delete my account**: at the bottom of the tab; confirm with your password and the account, every schedule in the cloud, shares, calendar feed and reminder settings are gone (daily backups expire after 14 days). Works on the web and in the iOS app
 - A device that has never signed in only sees the sign-in gate; a device that has signed in keeps working offline on local data
-- **Free and Pro**: Free has no time limit but caps: up to 3 major projects and 3 projects, 5 AI requests a day. Pro lifts the caps (20 AI requests a day). When Pro lapses nothing is deleted; you just can't add more. Subscriptions are bought inside the iPhone app (not yet released) and the web shares the same one
+- **Free and Pro**: Free has no time limit but caps: up to 3 major projects and 3 projects, 5 AI requests a day. Pro lifts the caps (20 AI requests a day). When Pro lapses nothing is deleted; you just can't add more. Subscriptions are bought inside the iPhone app and the web shares the same one
 - **Gamification**: a cherry tree that grows as your character (new shoot → branching → in bud → in full bloom → petals falling → a second round as a bigger, lusher tree). On boot a ~3-second loading scene plays: mountains and a lake, the cherry tree growing on the shore to your current stage, your companions wandering around the lake, and a progress bar. Tap to skip; it never appears under `prefers-reduced-motion`. +10 XP per on-time completion, +30 for a perfect day (everything scheduled that day done on time), +100 per badge; streaks, 7→14→30-day challenges and a badge wall under "My account". Days with nothing scheduled neither count nor break the streak. Same for Free and Pro
 - **A companion per project**: each Gantt project can raise one of eight animals or trees (deer→stag, bird→eagle, rabbit, cat, fox, turtle, fir, pine). It grows as the project's to-dos get checked off and only reaches its adult form when **every** to-do is done — 99% is still almost-grown, deliberately. Nothing is stored but the species: the stage is computed, so deleting a finished to-do lets it shrink back. Companions have a wool-felt look; in the boot loading scene your biggest few walk around the lake in side view (trees stay put; at most four, the rest collapse into "+N"), and never appears under `prefers-reduced-motion`. Someone you shared a project with can grow your animal by ticking tasks, but can never change its species
 - **Every password field has a show/hide eye**: sign-in, sign-up, forgot password, reset, the app's login screen, change password and delete account. The toggle is deliberately not remembered — it is back to hidden next time

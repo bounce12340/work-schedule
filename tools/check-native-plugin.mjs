@@ -197,7 +197,25 @@ if (apsOk && !/#if DEBUG\s+return "sandbox"\s+#else\s+return "production"/.test(
 }
 if (apsOk) checked.push('推播的 entitlements（Debug／Release 各自的環境）');
 
-// ---- 6. 訂閱的 product id 三側要逐字相同 ----
+// ---- 6. Apple Privacy Manifest 必須真的進入 bundle ----
+// PrivacyInfo.xcprivacy 不會因為檔案放在 repo 裡就自動進入 app；
+// project.pbxproj 也要把它列在 Resources，否則 App Store Connect 看不到它。
+const privacyManifest = read(IOS + 'PrivacyInfo.xcprivacy');
+if (!/<key>NSPrivacyTracking<\/key>\s*<false\/>/.test(privacyManifest)) {
+  fail('PrivacyInfo.xcprivacy 必須宣告 NSPrivacyTracking=false——本 app 不應被視為追蹤 app');
+}
+if (!/NSPrivacyAccessedAPICategoryUserDefaults/.test(privacyManifest)
+    || !/<string>CA92\.1<\/string>/.test(privacyManifest)) {
+  fail('PrivacyInfo.xcprivacy 缺少 UserDefaults 的 CA92.1 理由——Capacitor／WebKit 的偏好儲存需要它');
+}
+if (!/PrivacyInfo\.xcprivacy in Resources/.test(pbxproj)
+    || !/path = PrivacyInfo\.xcprivacy;/.test(pbxproj)) {
+  fail('project.pbxproj 沒有把 PrivacyInfo.xcprivacy 加入 Resources——簽好的 app 會缺 manifest');
+} else {
+  checked.push('Apple Privacy Manifest 已加入 app bundle');
+}
+
+// ---- 7. 訂閱的 product id 三側要逐字相同 ----
 // Swift 拿它去跟 StoreKit 要商品、Worker 拿它當白名單、App Store Connect 是真正的來源。
 // 打錯的症狀不是報錯，是**「買得下去，但買完還是免費版」**——使用者付了錢而畫面沒變，
 // 而三個地方各有一份字串，沒有任何東西會發現它們不一樣。同 PLAN_LIMITS 那條。

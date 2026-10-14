@@ -65,10 +65,10 @@ npx wrangler secret put APP_URL              # 選填，信件內的連結
 >
 > 沒設定時提醒功能不會運作，但不影響其他任何功能。
 
-**既有的資料庫要先跑最新的 migration 再部署**（`schema.sql` 補不了已存在資料表的新欄位）：
+**既有的資料庫要先跑最新的 migration 再部署**（`schema.sql` 補不了已存在資料表的新欄位）。目前必須依序完成 `001` 到 `012`；尤其 `012-unsub-token.sql` 沒跑時，提醒信的退訂連結會在正式 cron 才爆出欄位不存在：
 
 ```bash
-npx wrangler d1 execute work-schedule-db --remote --file=./migrations/011-mail-sender.sql
+npx wrangler d1 execute work-schedule-db --remote --file=./migrations/012-unsub-token.sql
 ```
 
 最後部署：
@@ -76,6 +76,12 @@ npx wrangler d1 execute work-schedule-db --remote --file=./migrations/011-mail-s
 ```bash
 npm run deploy
 ```
+
+### iOS App Store 發布
+
+本專案選用 Capacitor 原生外殼，不需要擁有 Mac：`.github/workflows/ios.yml` 會在 GitHub 的 macOS runner 上產生 archive、簽章並可上傳到 App Store Connect。完整的帳號、訂閱、TestFlight、截圖與送審步驟，以及繁中／英文商店文案草稿，請看 [`docs/app-store-checklist.md`](docs/app-store-checklist.md)。
+
+目前 bundle ID 是 `com.bounceto.workschedule`、最低 iOS 16、版本號由 `mobile/package.json` 管理。App Store Connect 的 App record、Bundle ID、訂閱商品與 Apple Developer 設定仍必須由擁有者本人完成；workflow 只負責建置／上傳，不會替你送審。
 
 **`TURNSTILE_SECRET` 未設定時所有註冊與登入都會被拒絕**，而不是放行——未設定就放行等於真人驗證形同虛設。
 

@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "prepare-www": "node scripts/prepare-www.mjs",
+    "check-www": "npm run prepare-www && node scripts/check-www.mjs",
     "sync": "npm run prepare-www && npx cap sync ios",
     "open": "npx cap open ios"
   },

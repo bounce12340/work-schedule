@@ -28,7 +28,7 @@
 <body>
 <main>
   <h1>隱私權政策</h1>
-  <div class="updated">工作排程確認系統 · 最後更新：2026-09-14</div>
+  <div class="updated">工作排程確認系統 · 最後更新：2026-10-14</div>
   <div class="lang"><a href="#en">English below</a></div>
 
   <section>
@@ -36,8 +36,10 @@
     <ul>
       <li><b>你的排程</b>：項目、會議、循環規則、專案與甘特圖、每日記錄與專案筆記、標籤、假日設定。這些是你自己輸入的。</li>
       <li><b>帳號資料</b>：email、密碼的雜湊（PBKDF2，永遠不存明文）、註冊時間、帳號狀態。</li>
-      <li><b>從 App Store 安裝的話</b>：Apple 提供的購買證明裡的購買識別碼與購買日期，用來確認這個帳號是付費下載的 app 建立的。不含你的 Apple ID、姓名或付款資訊。</li>
+      <li><b>App 交易資料</b>：Apple 提供的 app 交易識別碼與購買日期，用來限制同一個 Apple 帳號重複建立 app 帳號。不含你的 Apple ID、姓名或付款資訊。</li>
+      <li><b>Pro 訂閱資料</b>：訂閱商品識別碼、Apple 的原始交易識別碼、到期日與退款／撤銷日期，用來判斷 Pro 權利。付款資料由 Apple 處理，我們不會取得信用卡資料。</li>
       <li><b>登入中的裝置</b>：裝置類型（例如「iPhone app」或「Chrome on Windows」）與最後使用時間。<b>不記錄 IP 位址。</b></li>
+      <li><b>推播資料</b>：你允許推播後，會儲存 Apple APNs 裝置 token、環境與最後使用時間；你登出、取消註冊或 token 失效時會刪除。</li>
       <li><b>分享記錄</b>：你分享給誰、誰動過你分享的項目，保留 90 天。</li>
     </ul>
   </section>
@@ -61,8 +63,15 @@
     <ul>
       <li><b>AI 小幫手</b>（你按下去才會用）：你當下的排程摘要會送到 DeepSeek 的 API 產生回答。不用這個功能就不會送。</li>
       <li><b>提醒信與驗證碼</b>：透過 AgentMail 寄到你註冊的信箱。</li>
+      <li><b>Apple</b>：App 內的購買與訂閱由 Apple StoreKit 處理；Apple 也會把已簽章的訂閱狀態通知送到本服務，用來更新續訂、到期與退款。</li>
+      <li><b>推播</b>：開啟推播時，通知內容與 APNs token 會送到 Apple Push Notification service。</li>
       <li><b>字型</b>：頁面會向 Google Fonts 取得字型檔；離線或封鎖時退回系統字型，功能不受影響。</li>
     </ul>
+  </section>
+
+  <section>
+    <h2>保留多久</h2>
+    <p>帳號與排程會保留到你刪除帳號。登入 session 會在期限到期或登出後失效；分享與管理記錄保留 90 天，寄信記錄保留 30 天，備份最多保留 14 份。訂閱事件只保留必要的交易識別碼與權利狀態。推播 token 在取消註冊或被 Apple 判定失效時刪除。</p>
   </section>
 
   <section>
@@ -79,15 +88,17 @@
   <hr>
 
   <h1 id="en">Privacy Policy</h1>
-  <div class="updated">Work Schedule · Last updated 2026-09-14</div>
+  <div class="updated">Work Schedule · Last updated 2026-10-14</div>
 
   <section>
     <h2>What we store</h2>
     <ul>
       <li><b>Your schedule</b>: items, meetings, recurrence rules, projects and Gantt charts, daily notes and project notes, tags, holiday settings. All of it is what you typed in.</li>
       <li><b>Account data</b>: email, a password hash (PBKDF2; plaintext is never stored), registration time, account status.</li>
-      <li><b>If installed from the App Store</b>: the purchase identifier and purchase date from Apple's purchase proof, used to confirm that this account was created by the paid app. It does not include your Apple ID, name or payment details.</li>
+      <li><b>App transaction data</b>: an app transaction identifier and purchase date from Apple, used to prevent repeated account creation with the same Apple account. We do not receive your Apple ID, name or payment details.</li>
+      <li><b>Pro subscription data</b>: the product identifier, Apple original transaction identifier, expiry date, and refund/revocation date, used to determine Pro entitlement. Apple processes payment; we do not receive card details.</li>
       <li><b>Signed-in devices</b>: device type (for example "iPhone app" or "Chrome on Windows") and last-used time. <b>IP addresses are not recorded.</b></li>
+      <li><b>Push data</b>: if you allow push notifications, we store Apple's APNs device token, environment and last-used time; it is deleted when you sign out, unregister, or the token becomes invalid.</li>
       <li><b>Sharing log</b>: who you shared with and who changed a shared item, kept for 90 days.</li>
     </ul>
   </section>
@@ -111,8 +122,15 @@
     <ul>
       <li><b>AI assistant</b> (only when you use it): a summary of your current schedule is sent to DeepSeek's API to produce the answer. Nothing is sent if you don't use it.</li>
       <li><b>Reminder and verification emails</b>: delivered through AgentMail to the address you registered with.</li>
+      <li><b>Apple</b>: in-app purchases and subscriptions are processed by Apple StoreKit. Apple also sends signed subscription-status notifications to this service so renewals, expiry and refunds can update your entitlement.</li>
+      <li><b>Push notifications</b>: when enabled, notification content and the APNs token are sent to Apple's Push Notification service.</li>
       <li><b>Fonts</b>: the page fetches font files from Google Fonts; offline or blocked, it falls back to system fonts with no loss of function.</li>
     </ul>
+  </section>
+
+  <section>
+    <h2>Retention</h2>
+    <p>Your account and schedule remain until you delete your account. Sign-in sessions expire or are revoked when you sign out; sharing and admin logs are kept for 90 days, mail logs for 30 days, and at most 14 backups are retained. Subscription events retain only the transaction identifiers and entitlement state needed to operate subscriptions. Push tokens are deleted when you unregister or Apple reports them invalid.</p>
   </section>
 
   <section>

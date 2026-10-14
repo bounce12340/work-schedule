@@ -278,7 +278,7 @@ function purchaseMessage(reason) {
   }
 }
 
-/** app 帶 X-App-Client（ios/1.0.0）時併進 user agent，裝置清單才分得出是 app */
+/** app 帶 X-App-Client（ios/1.3.0）時併進 user agent，裝置清單才分得出是 app */
 function appUserAgent(request) {
   const ua = request.headers.get('user-agent') || '';
   const client = request.headers.get('x-app-client') || '';

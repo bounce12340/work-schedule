@@ -2289,7 +2289,7 @@
   const NATIVE = NATIVE_SIGNALS.length > 0;
   const SITE_ORIGIN ='https://work-schedule.bounceto12340.workers.dev';   // 線上網址；閘門的「前往登入」與 app 的 API 都指這裡
   const API_BASE = NATIVE ? SITE_ORIGIN : '';
-  const APP_CLIENT = 'ios/1.0.0';   // 併進 user agent，「登入中的裝置」才分得出是 app
+  const APP_CLIENT = 'ios/1.3.0';   // 併進 user agent，「登入中的裝置」才分得出是 app
   const TOKEN_KEY = 'sessionToken';
   let appToken = null;              // 只在 app 裡有值；存在 Keychain，不進 localStorage
 
