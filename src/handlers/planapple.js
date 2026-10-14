@@ -145,7 +145,7 @@ export async function handlePlanApple(request, env, user) {
   if (list.length > 20) return json({ error: '一次最多 20 筆' }, 400);
 
   const row = await env.DB.prepare(
-    'SELECT id, plan_source, plan_expires_at FROM users WHERE id = ?'
+    'SELECT id, plan_source, plan_expires_at, apple_original_txn FROM users WHERE id = ?'
   ).bind(user.id).first();
   if (!row) return json({ error: '找不到帳號' }, 404);
 
@@ -155,6 +155,10 @@ export async function handlePlanApple(request, env, user) {
     const txn = await verifySubscriptionTransaction(jws, verifyOpts(env));
     if (!txn.ok) { lastReason = txn.reason; continue; }
     if (!PRODUCT_IDS.has(txn.productId)) { lastReason = 'unknown_product'; continue; }
+    // 新交易一定要把目前登入的本地 user UUID 放進 appAccountToken。
+    // 沒有它就不能把 Restore Purchases 綁到錯的帳號；舊版交易可由 Apple
+    // notification 更新，但不能由新的 app request 重新綁定。
+    if (txn.appAccountToken !== user.id) { lastReason = 'account_token'; continue; }
 
     const res = await applyEntitlement(env, row, txn, { source: 'app', kind: 'subscribed' });
     if (res.applied) {
@@ -257,7 +261,7 @@ export async function handleAppleNotification(request, env) {
   }
 
   const row = await env.DB.prepare(
-    'SELECT id, plan_source, plan_expires_at FROM users WHERE apple_original_txn = ?'
+    'SELECT id, plan_source, plan_expires_at, apple_original_txn FROM users WHERE apple_original_txn = ?'
   ).bind(originalTxn).first();
 
   // 找不到帳號**不是錯誤**：可能是使用者先在 App Store 訂了、還沒在 app 裡註冊。
@@ -270,6 +274,13 @@ export async function handleAppleNotification(request, env) {
       detail: '找不到對應帳號',
     });
     return json({ ok: true, unmatched: true });
+  }
+  if (txn.appAccountToken && txn.appAccountToken !== row.id) {
+    await recordPlanEvent(env, {
+      userId: row.id, source: 'apple_notification', kind: 'account_mismatch',
+      originalTxn, notificationUuid: uuid, detail: 'appAccountToken 與帳號不一致',
+    });
+    return json({ ok: true, rejected: 'account_mismatch' });
   }
 
   // 到期／退款／撤銷：把到期日設成通知裡的時間（可以往前，同退款）。

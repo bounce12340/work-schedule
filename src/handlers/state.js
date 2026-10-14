@@ -10,7 +10,7 @@ const MAX_STATE_BYTES = 1_000_000;   // 遠高於實際用量（示範資料約 
  * 401 傳達的是同一件事，順手把 user 帶上就能把啟動縮成一次往返。
  * /api/auth/me 仍然保留：admin.html 與其他呼叫端還在用。
  */
-export async function handleGetState(env, user) {
+export async function handleGetState(env, user, request = null) {
   const row = await env.DB
     .prepare('SELECT state, updated_at FROM user_state WHERE user_id = ?')
     .bind(user.id)
@@ -18,6 +18,11 @@ export async function handleGetState(env, user) {
 
   // 方案順帶回：前端啟動時本來就要知道才能決定「＋ 新增」要開表單還是開升級說明
   const me = { email: user.email, role: user.role, status: user.status, createdAt: user.createdAt, ...planInfo(user) };
+  // StoreKit appAccountToken 必須是穩定的本地帳號 UUID。只對 app 回傳，
+  // 網頁版不需要知道這個識別值。
+  if (request?.headers?.get('x-app-client')?.startsWith('ios/')) {
+    me.appAccountToken = user.id;
+  }
 
   // 沒有雲端資料不是錯誤：代表這個使用者還沒同步過，前端應沿用本地資料
   if (!row) return json({ user: me, state: null, updatedAt: null });

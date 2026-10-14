@@ -2087,6 +2087,11 @@
       <button type="button" id="appAuthTabLogin" class="active" data-i18n>登入</button>
       <button type="button" id="appAuthTabRegister" data-i18n>註冊</button>
     </div>
+    <div class="acct-row" style="margin-top:12px;">
+      <button class="ghost-btn" id="btnAppSignInApple" type="button" data-i18n>使用 Apple 登入</button>
+      <button class="ghost-btn" id="btnAppSignInGoogle" type="button" data-i18n>使用 Google 登入</button>
+    </div>
+    <div class="acct-sub" style="margin:10px 0;text-align:center;" data-i18n>或使用既有 email 帳號登入</div>
     <div class="field"><label>Email</label><input type="email" id="inputAppAuthEmail" autocomplete="username" inputmode="email" autocapitalize="off" spellcheck="false"></div>
     <div class="field" id="appAuthCodeRow" style="display:none;"><label data-i18n>驗證碼（六位數字）</label><input type="text" id="inputAppAuthCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6"></div>
     <div class="field" id="appAuthPwRow"><label data-i18n>密碼</label><span class="pw-wrap"><input type="password" id="inputAppAuthPw" autocomplete="current-password"><button type="button" class="pw-eye" data-i18n-aria aria-label="顯示密碼" aria-pressed="false" tabindex="-1"><svg class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="2.6"/></svg><svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="2.6"/><path d="M4 20 20 4"/></svg></button></span></div>
@@ -2289,7 +2294,9 @@
   const NATIVE = NATIVE_SIGNALS.length > 0;
   const SITE_ORIGIN ='https://work-schedule.bounceto12340.workers.dev';   // 線上網址；閘門的「前往登入」與 app 的 API 都指這裡
   const API_BASE = NATIVE ? SITE_ORIGIN : '';
-  const APP_CLIENT = 'ios/1.0.0';   // 併進 user agent，「登入中的裝置」才分得出是 app
+  const APP_CLIENT = 'ios/1.3.0';   // 併進 user agent，「登入中的裝置」才分得出是 app
+  const GOOGLE_IOS_CLIENT_ID = 'REPLACE_WITH_GOOGLE_IOS_CLIENT_ID';
+  const GOOGLE_REDIRECT_URI = 'com.googleusercontent.apps.REPLACE_WITH_GOOGLE_IOS_CLIENT_ID:/oauth2redirect/google';
   const TOKEN_KEY = 'sessionToken';
   let appToken = null;              // 只在 app 裡有值；存在 Keychain，不進 localStorage
 
@@ -2348,6 +2355,7 @@
       // 訂閱（E2）。名字與 Swift 的 pluginMethods 逐字相同，tools/check-native-plugin.mjs 比對兩側。
       getProducts: call('getProducts'), purchase: call('purchase'),
       currentEntitlements: call('currentEntitlements'), manageSubscriptions: call('manageSubscriptions'),
+      signInApple: call('signInApple'), signInGoogle: call('signInGoogle'),
       // 推播（B）
       requestPush: call('requestPush'), pushStatus: call('pushStatus')
     };
@@ -2480,9 +2488,69 @@
     submit.textContent = reg ? tr('建立帳號') : tr('登入');
     submit.style.display = step2 ? '' : 'none';
   }
+
+  let appOAuthBusy = false;
+  function oauthB64(bytes){
+    let s=''; for(const b of bytes) s += String.fromCharCode(b);
+    return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+  }
+  function oauthRandom(){
+    const bytes = new Uint8Array(32); crypto.getRandomValues(bytes); return oauthB64(bytes);
+  }
+  async function oauthChallenge(verifier){
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+    return oauthB64(new Uint8Array(digest));
+  }
+  async function appOAuth(provider){
+    if(appOAuthBusy) return;
+    const p = nativePlugin(); if(!p) return;
+    appOAuthBusy = true; appAuthMsg(tr('登入中…'));
+    try{
+      let body;
+      if(provider === 'apple'){
+        const r = await p.signInApple();
+        body = { provider:'apple', idToken:r.idToken, authorizationCode:r.authorizationCode, nonce:r.nonce };
+      }else{
+        if(GOOGLE_IOS_CLIENT_ID.startsWith('REPLACE_')) throw new Error('Google OAuth client id is not configured');
+        const verifier = oauthRandom(), state = oauthRandom();
+        const challenge = await oauthChallenge(verifier);
+        const authURL = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+        authURL.search = new URLSearchParams({
+          client_id: GOOGLE_IOS_CLIENT_ID, redirect_uri: GOOGLE_REDIRECT_URI,
+          response_type:'code', scope:'openid email profile', state,
+          code_challenge: challenge, code_challenge_method:'S256',
+        });
+        const r = await p.signInGoogle({
+          authorizationURL: authURL.toString(),
+          callbackScheme: GOOGLE_REDIRECT_URI.split(':')[0],
+        });
+        const callback = new URL(r.callbackURL);
+        if(callback.searchParams.get('state') !== state) throw new Error('Google OAuth state mismatch');
+        body = {
+          provider:'google', authorizationCode:callback.searchParams.get('code') || '',
+          codeVerifier:verifier, redirectUri:GOOGLE_REDIRECT_URI,
+        };
+      }
+      const r = await fetch(API_BASE + '/api/auth/app/oauth', {
+        method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify(body)
+      });
+      const d = await r.json().catch(()=>({}));
+      if(!r.ok || !d.token){ appAuthMsg(d.error || ('HTTP '+r.status), 'err'); return; }
+      appToken = d.token;
+      await nativeTokenSave(appToken);
+      appAuthHide();
+      location.reload();
+    }catch(e){
+      console.error('app OAuth failed', e);
+      appAuthMsg(tr('登入失敗') + '：' + String(e?.message || e), 'err');
+    }finally{ appOAuthBusy = false; }
+  }
+
   if(appAuthView){
     document.getElementById('appAuthTabLogin').onclick = ()=>{ appAuthMode = 'login'; appAuthMsg(''); appAuthRender(); };
     document.getElementById('appAuthTabRegister').onclick = ()=>{ appAuthMode = 'register'; appAuthMsg(''); appAuthRender(); };
+    document.getElementById('btnAppSignInApple').onclick = ()=> appOAuth('apple');
+    document.getElementById('btnAppSignInGoogle').onclick = ()=> appOAuth('google');
     // 忘記密碼走網頁版的信件重設流程，app 不重做一份；Safari 開
     document.getElementById('btnAppAuthForgot').onclick = ()=>{ window.open(API_BASE + '/login', '_blank'); };
     const sendCode = async (btn)=>{
@@ -2759,6 +2827,9 @@
       // ---- 訂閱（E2）----
       '要新增更多請訂閱 Pro：到「我的帳號」分頁的「方案」那一區。':'To add more, subscribe to Pro under “Plan” on the My account tab.',
       '恢復購買':'Restore purchase', '管理訂閱':'Manage subscription',
+      '使用 Apple 登入':'Sign in with Apple', '使用 Google 登入':'Sign in with Google',
+      '或使用既有 email 帳號登入':'Or sign in with an existing email account',
+      '登入中…':'Signing in…', '登入失敗':'Sign-in failed',
       '每月':'Monthly', '每年':'Yearly', '每週':'Weekly', '每天':'Daily',
       '處理中…':'Working…', '讀取中…':'Loading…',
       '訂閱會自動續訂，可隨時在 iPhone 的「設定 → Apple ID → 訂閱項目」裡取消。取消後到期前仍可使用。付款由 App Store 處理。':'Your subscription renews automatically. Cancel any time in Settings → Apple ID → Subscriptions on your iPhone; you keep access until the period ends. Payment is handled by the App Store.',
@@ -5317,7 +5388,9 @@
     const p = nativePlugin(); if(!p || !p.purchase) return;
     subBusy = true; subMsg(tr('處理中…'));
     try{
-      const r = await p.purchase({ productId });
+      const accountToken = accountMe && accountMe.appAccountToken;
+      if(!accountToken) { subMsg(tr('尚未取得帳號識別碼，請重新登入'), 'err'); return; }
+      const r = await p.purchase({ productId, appAccountToken: accountToken });
       // 使用者自己按取消**不是錯誤**，不要跳紅字說失敗
       if(r && r.cancelled){ subMsg(''); return; }
       if(r && r.pending){ subMsg(tr('這筆購買要等家長核准，核准後會自動生效。')); return; }

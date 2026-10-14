@@ -8,7 +8,7 @@ import { handleListShares, handleCreateShare, handleDeleteShare, handleUpdateSha
 import { handleIcsStatus, handleIcsEnable, handleIcsDisable, handleIcsPut, handleIcsFeed } from './handlers/ics.js';
 import { handleReminderStatus, handleReminderEnable, handleReminderPut, handleUnsubscribe, handleUnsubscribeOneClick, sendOverdueReminders, sendStreakBroken } from './handlers/reminder.js';
 import { handleForgotPassword, handleResetPassword as handleSelfResetPassword } from './handlers/password-reset.js';
-import { handleAppCode, handleAppRegister, handleAppLogin, handleDeleteAccount } from './handlers/appauth.js';
+import { handleAppCode, handleAppRegister, handleAppLogin, handleAppOAuth, handleDeleteAccount } from './handlers/appauth.js';
 import { handlePlanApple, handleAppleNotification } from './handlers/planapple.js';
 import { handlePushRegister, handlePushUnregister, handlePushTest, sendPushes } from './handlers/push.js';
 import { getSessionUser } from './session.js';
@@ -181,6 +181,9 @@ async function route(request, env, ctx) {
   if (path === '/api/auth/app/login') {
     return request.method === 'POST' ? handleAppLogin(request, env) : methodNotAllowed();
   }
+  if (path === '/api/auth/app/oauth') {
+    return request.method === 'POST' ? handleAppOAuth(request, env) : methodNotAllowed();
+  }
 
   // Apple 的伺服器通知：**公開端點**，Apple 直接打進來，沒有 session 可言。
   // 憑證是 payload 本身的簽章（同一條 Apple 憑證鏈），不是 cookie 也不是 Bearer。
@@ -201,7 +204,7 @@ async function route(request, env, ctx) {
 
   if (path === '/api/state') {
     // GET 收下整個 user：它順帶回傳身分，讓前端啟動時不必再打一次 /api/auth/me
-    if (request.method === 'GET') return handleGetState(env, user);
+    if (request.method === 'GET') return handleGetState(env, user, request);
     if (request.method === 'PUT') return handlePutState(request, env, user);
     return methodNotAllowed();
   }

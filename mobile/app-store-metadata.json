@@ -1,0 +1,27 @@
+{
+  "bundleId": "com.bounceto.workschedule",
+  "displayName": "工作排程",
+  "minimumIOSVersion": "16.0",
+  "supportUrl": "https://work-schedule.bounceto12340.workers.dev/support.html",
+  "marketingUrl": "https://work-schedule.bounceto12340.workers.dev/support.html",
+  "privacyPolicyUrl": "https://work-schedule.bounceto12340.workers.dev/privacy.html",
+  "subscriptionGroup": {
+    "id": "pro",
+    "displayName": "Pro"
+  },
+  "products": [
+    {
+      "id": "com.bounceto.workschedule.pro.monthly",
+      "type": "Auto-Renewable Subscription",
+      "price": "US$10.00",
+      "period": "monthly"
+    },
+    {
+      "id": "com.bounceto.workschedule.pro.yearly",
+      "type": "Auto-Renewable Subscription",
+      "price": "US$100.00",
+      "period": "yearly"
+    }
+  ],
+  "deviceFamilies": ["iPhone", "iPad"]
+}

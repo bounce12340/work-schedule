@@ -2,7 +2,7 @@
 
 **English** ・ [繁體中文](./README.zh-TW.md) ・ [日本語](./README.ja.md) ・ [한국어](./README.ko.md)
 
-A work-scheduling tool that lives in a single HTML file: tasks, meetings, recurring items, a month calendar and a Gantt chart, all in one file. Download it, open it in a browser, and it works.
+A work-scheduling tool that lives in a single HTML file: tasks, meetings, recurring items, a month calendar and a Gantt chart, all in one file. The deployed web app and iOS app require sign-in; a previously signed-in device can continue using its local data offline.
 
 > Pure front end. No dependencies, no install. No Node.js, no server, no database required.
 
@@ -65,17 +65,25 @@ npx wrangler secret put APP_URL              # optional, used for the link insid
 >
 > Without these, reminders simply do not run; nothing else is affected.
 
-**Existing databases need the newest migration before deploying** (`schema.sql` cannot add columns to tables that already exist):
+**Existing databases need migrations 001 through 013 before deploying** (`schema.sql` cannot add columns to tables that already exist). `012-unsub-token.sql` must be applied before reminder cron runs, and `013-oauth-identities.sql` must be applied before Google or Apple sign-in:
 
 ```bash
-npx wrangler d1 execute work-schedule-db --remote --file=./migrations/011-mail-sender.sql
+npx wrangler d1 execute work-schedule-db --remote --file=./migrations/013-oauth-identities.sql
 ```
+
+The command above assumes migrations `001`–`012` have already been applied. If they have not, run only the missing migrations one at a time in filename order; do not rerun an already-applied `ALTER TABLE`. For a new database, use `npm run db:init` to create the current complete schema.
 
 Finally, deploy:
 
 ```bash
 npm run deploy
 ```
+
+### iOS App Store release
+
+The project uses a Capacitor native shell, so the owner does not need to own a Mac: [`.github/workflows/ios.yml`](.github/workflows/ios.yml) builds on GitHub's macOS runner and can upload to App Store Connect. The complete owner checklist, Google / Apple sign-in setup, TestFlight acceptance steps, required Apple setup, and Traditional Chinese / English store-copy drafts are in [`docs/app-store-checklist.md`](docs/app-store-checklist.md) and [`docs/app-store-connect-guide.zh-TW.md`](docs/app-store-connect-guide.zh-TW.md).
+
+The current bundle ID is `com.bounceto.workschedule`, the minimum iOS version is 16, the target is universal for iPhone and iPad, and the marketing version is managed in `mobile/package.json`. The owner must create the App Store record, Google OAuth client, Sign in with Apple capability, subscription products, and Apple Developer settings; the workflow builds/uploads but does not submit an app for review.
 
 **When `TURNSTILE_SECRET` is unset, all registration and login is rejected** rather than allowed through. Allowing it through would make bot protection meaningless.
 
@@ -165,7 +173,7 @@ APP_URL=<optional>
 - **Signed-in devices**: see which devices you are signed in on and when each was last used, with one-click "Sign out all other devices" (keeps the current one); IP addresses are not recorded
 - **Delete my account**: at the bottom of the tab; confirm with your password and the account, every schedule in the cloud, shares, calendar feed and reminder settings are gone (daily backups expire after 14 days). Works on the web and in the iOS app
 - A device that has never signed in only sees the sign-in gate; a device that has signed in keeps working offline on local data
-- **Free and Pro**: Free has no time limit but caps: up to 3 major projects and 3 projects, 5 AI requests a day. Pro lifts the caps (20 AI requests a day). When Pro lapses nothing is deleted; you just can't add more. Subscriptions are bought inside the iPhone app (not yet released) and the web shares the same one
+- **Free and Pro**: Free has no time limit but caps: up to 3 major projects and 3 projects, 5 AI requests a day. Pro lifts the caps (20 AI requests a day). When Pro lapses nothing is deleted; you just can't add more. Subscriptions are bought inside the iPhone app and the web shares the same one
 - **Gamification**: a cherry tree that grows as your character (new shoot → branching → in bud → in full bloom → petals falling → a second round as a bigger, lusher tree). On boot a ~3-second loading scene plays: mountains and a lake, the cherry tree growing on the shore to your current stage, your companions wandering around the lake, and a progress bar. Tap to skip; it never appears under `prefers-reduced-motion`. +10 XP per on-time completion, +30 for a perfect day (everything scheduled that day done on time), +100 per badge; streaks, 7→14→30-day challenges and a badge wall under "My account". Days with nothing scheduled neither count nor break the streak. Same for Free and Pro
 - **A companion per project**: each Gantt project can raise one of eight animals or trees (deer→stag, bird→eagle, rabbit, cat, fox, turtle, fir, pine). It grows as the project's to-dos get checked off and only reaches its adult form when **every** to-do is done — 99% is still almost-grown, deliberately. Nothing is stored but the species: the stage is computed, so deleting a finished to-do lets it shrink back. Companions have a wool-felt look; in the boot loading scene your biggest few walk around the lake in side view (trees stay put; at most four, the rest collapse into "+N"), and never appears under `prefers-reduced-motion`. Someone you shared a project with can grow your animal by ticking tasks, but can never change its species
 - **Every password field has a show/hide eye**: sign-in, sign-up, forgot password, reset, the app's login screen, change password and delete account. The toggle is deliberately not remembered — it is back to hidden next time
@@ -178,7 +186,7 @@ APP_URL=<optional>
 - **Pro is an auto-renewing subscription bought inside the app** (StoreKit 2). Prices always come from StoreKit, never hard-coded. The subscription screen carries the price, the renewal terms, a Restore purchase button and links to the terms and privacy policy — all four are App Review requirements
 - Entitlements are written by two paths: the app pushes its transactions (at launch, on purchase, on restore) and Apple's **server notifications** keep the expiry current for people who renew but only ever use the web. Expiry only moves forward, except refunds
 - **Push notifications** (APNs): overdue/upcoming, the tree's message when a streak breaks, and an optional "you have N things today". Each has its own switch, independent of the emails. Nothing is sent on quiet days. Three Worker secrets: `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_P8`
-- A public [privacy policy](./public/privacy.html) is served at `/privacy.html`
+- Public support, marketing, and privacy pages are served at `https://work-schedule.bounceto12340.workers.dev/support.html` and `https://work-schedule.bounceto12340.workers.dev/privacy.html`
 
 ### 💾 Automatic backups and reminders (after deployment)
 - Every day all schedules are backed up to Cloudflare R2, keeping the latest 14 copies (**password hashes excluded**; after a restore everyone resets through "Forgot password")
@@ -245,7 +253,7 @@ For the full architecture and data model see [`工作排程確認系統_專案�
 | Limitation | Detail |
 |---|---|
 | Sign-in required | A device that has never signed in only sees the gate; a signed-in device works offline on local data |
-| Free plan caps | Up to 3 major projects and 3 projects, 5 AI requests a day; Pro is unlimited. Lapsing deletes nothing, you just can't add more |
+| Free plan caps | Up to 3 major projects and 3 projects, 5 AI requests a day; Pro is unlimited. Pro is US$10 monthly or US$100 yearly, auto-renewing. Lapsing deletes nothing, you just can't add more |
 | Standalone storage scope | Without deployment, data lives in *this browser only* and does not follow you across devices; clearing browser data clears it too |
 | Sync conflicts | Merged item by item against the last synced content; you only choose a side when the same item changed on both |
 | Holidays | Weekends are automatic. Public holidays are bundled only for years that have been officially published (currently 2026 and 2027); other years can be pasted in bulk |
@@ -254,5 +262,5 @@ For the full architecture and data model see [`工作排程確認系統_專案�
 | "Away" and "Leave" | Only a mark on the calendar and the row: they move no dates and **do not affect overdue** or the calendar subscription. The single difference: **on a leave day no email and no push go out at all**, while the red overdue text on screen stays exactly as it is |
 | Weekend work days | Supported: weekend dates added to the "work days" list count as working days, so recurrences are not pushed past them |
 | Gantt | Bars cannot be dragged; dates are changed through the task table |
-| iOS app | Free download, Pro is an in-app auto-renewing subscription; one Apple ID = one account. Every front-end release needs a new build submitted to the App Store. Public registration happens only inside the app |
+| iOS app | Free download, sign in with Google or Sign in with Apple, Pro is an in-app auto-renewing subscription at US$10 monthly or US$100 yearly; entitlements are tied to the app account UUID and Restore Purchases works across devices and the web. Every front-end release needs a new build submitted to the App Store |
 | Changing recurrence frequency | Switching monthly ↔ quarterly resets the per-occurrence done / override / skip records (you are warned before saving) |

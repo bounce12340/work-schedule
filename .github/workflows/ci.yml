@@ -52,7 +52,7 @@ jobs:
 
       - run: npm ci
 
-      # 五個測試檔。occurrence 引擎與富文字是從 public/index.html 抽真正的原始碼
+      # 全部測試檔。occurrence 引擎與富文字是從 public/index.html 抽真正的原始碼
       # 求值，所以這一步同時也在確認那些區段註解還在（找不到區段會直接失敗）。
       - name: 單元測試
         run: npm test
@@ -70,6 +70,11 @@ jobs:
       # 追了四輪才找到，見 docs/postmortems/2026-09-16-app-silent-standalone.md。
       - name: 原生插件接線檢查
         run: node tools/check-native-plugin.mjs
+
+      # iOS app 內建主畫面與法律頁；www/ 是建置產物，不進 git，
+      # 因此每個 PR 都要從目前的 public/ 重新產生並檢查一次。
+      - name: iOS app web bundle
+        run: npm --prefix mobile run check-www
 
       # service worker 的快取版本號有沒有跟著前端一起加。
       #

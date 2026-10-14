@@ -96,12 +96,13 @@ jobs:
           fi
           CHANGED=$(git diff --name-only HEAD~1 HEAD)
           echo "這次動到的檔案："; echo "$CHANGED"
-          # 只有 public/index.html 會被塞進 app（mobile/scripts/prepare-www.mjs 只複製它）。
-          # login/admin/privacy/terms、sw.js、Worker、文件都不在 app 裡，改了不必重打。
-          if printf '%s\n' "$CHANGED" | grep -qE '^(public/index\.html|mobile/|\.github/workflows/ios\.yml)'; then
+          # app 會內建 public/index.html、privacy.html 與 terms.html（見
+          # mobile/scripts/prepare-www.mjs）。改 Worker、login/admin、sw.js 或文件不必重打；
+          # 法律頁改動則必須重打，因為它們也會隨 app bundle 上架。
+          if printf '%s\n' "$CHANGED" | grep -qE '^(public/(index|privacy|terms)\.html|mobile/|\.github/workflows/ios\.yml)'; then
             echo "build=true" >> "$GITHUB_OUTPUT"
           else
-            echo "::notice::這次沒有動到 app 內建的 public/index.html 或 mobile/，不打包"
+            echo "::notice::這次沒有動到 app 內建的前端或 mobile/，不打包"
             echo "build=false" >> "$GITHUB_OUTPUT"
           fi
 
