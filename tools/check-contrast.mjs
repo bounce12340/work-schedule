@@ -66,6 +66,18 @@ const TARGETS = [
   ['.period-label', '「年份」小標'],
   // --text-dim 的代表（它用在 40 處字色上，逐一造出來不實際；token 本身另外由 TOKEN_CHECK 量）
   ['footer.storage-note', 'footer 的說明（--text-dim）'],
+  // 按鈕上的字與看板上的小徽章。上面那句「不列徽章」讓這幾個一直沒被量到，2026-10-13 外部的
+  // 檢查工具（impeccable）一次抓到七個：白字壓在 --amber 上 3.1:1、循環徽章 2.7:1、
+  // 手機上的時鐘 2.8:1……全部都是 #25 修過的那個 bug class（--amber 當淺底上的字）。
+  ['.mode-tab.active', '選中的檢視頁籤（白字壓在強調底上）'],
+  ['#openItemModal', '「＋ 新增小項目」按鈕'],
+  ['.pill.pending b', '「未完成」的數字'],
+  ['.pill.done b', '「已完成」的數字'],
+  ['.recur-badge', '循環徽章'],
+  ['.meeting-time', '會議時間'],
+  ['.tag-chip', '標籤'],
+  ['.sub-badge', '步驟數'],
+  ['#nowTime', '時鐘'],
 ];
 
 /**
