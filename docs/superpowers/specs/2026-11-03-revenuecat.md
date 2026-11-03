@@ -1,6 +1,8 @@
 # 工作排程確認系統改接 RevenueCat：計畫
 
-狀態：**計畫，還沒動任何程式。** 使用者 2026-11-03 選了「讓工作排程確認系統改用 RevenueCat 收費」（不是另建的「藍綠攻防戰」專案）。
+狀態：**使用者選了方案甲，程式已改（PR #72），還沒在 Mac 上編過。** 使用者 2026-11-03 選了「讓工作排程確認系統改用 RevenueCat 收費」（不是另建的「藍綠攻防戰」專案）。
+
+RevenueCat 後台（2026-11-03 透過 MCP 建好）：專案「工作排程確認系統」、App Store app `com.bounceto.workschedule`、entitlement `pro`、兩個商品都掛在 `pro` 上、offering `default`（`$rc_monthly`／`$rc_annual`）。**還缺**：In-App Purchase Key 與 App Store Connect API key（使用者自己上傳）、Apple 伺服器通知改指向 RevenueCat 並設定轉送網址（使用者在兩邊後台設定）。
 
 ## 現在的樣子（不要弄壞的東西）
 

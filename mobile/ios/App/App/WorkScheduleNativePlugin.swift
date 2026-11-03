@@ -6,6 +6,7 @@ import StoreKit
 import Security
 import AuthenticationServices
 import CryptoKit
+import RevenueCat
 
 /**
  * 這個 app 唯一的原生插件。只做網頁做不到的事：
@@ -67,6 +68,15 @@ public class WorkScheduleNativePlugin: CAPPlugin, CAPBridgedPlugin,
         "com.bounceto.workschedule.pro.yearly",
     ]
 
+    /// RevenueCat 的**公開** SDK key（給 app 用的，不是秘密；秘密的 v2 key 永遠不進 app）。
+    /// 專案「工作排程確認系統」→ app「工作排程確認系統 (iOS)」。
+    ///
+    /// RevenueCat 在這裡只是**記帳本**（docs/superpowers/specs/2026-11-03-revenuecat.md 方案甲）：
+    /// 買、驗、寫權利全部照舊由我們自己做，`purchasesAreCompletedBy: .myApp` 告訴它
+    /// 「你看著就好」。所以它的每一個呼叫都**不准讓我們的路失敗**——RevenueCat 掛掉的
+    /// 代價只能是「它那邊少一筆資料」，不能是「使用者買不到」。
+    private static let revenueCatAPIKey = "appl_SoWVMSUbYTijgqIFOJTXlYwFrVp"
+
     /// StoreKit 要求 app 一啟動就監聽；不 finish 的交易會被一直重送。
     private var updatesTask: Task<Void, Never>?
     private var appleController: ASAuthorizationController?
@@ -75,10 +85,17 @@ public class WorkScheduleNativePlugin: CAPPlugin, CAPBridgedPlugin,
     private var googleSession: ASWebAuthenticationSession?
 
     override public func load() {
+        if !Purchases.isConfigured {
+            Purchases.configure(
+                with: Configuration.Builder(withAPIKey: Self.revenueCatAPIKey)
+                    .with(purchasesAreCompletedBy: .myApp, storeKitVersion: .storeKit2)
+                    .build()
+            )
+        }
         if #available(iOS 15.0, *) {
             let ids = productIds
             updatesTask = Task.detached {
-                for await update in Transaction.updates {
+                for await update in StoreKit.Transaction.updates {
                     guard case .verified(let tx) = update else { continue }
                     if ids.contains(tx.productID) {
                         // 權利本身由 JS 在啟動／回到前景時用 currentEntitlements 推上去；
@@ -91,6 +108,14 @@ public class WorkScheduleNativePlugin: CAPPlugin, CAPBridgedPlugin,
     }
 
     deinit { updatesTask?.cancel() }
+
+    /// 讓 RevenueCat 的客戶 id 與我們的 user id 相同（= StoreKit 的 appAccountToken）。
+    /// 失敗只印出來：它是記帳本，不是門。
+    private func revenueCatLogIn(_ userId: String) async {
+        guard Purchases.isConfigured, Purchases.shared.appUserID != userId else { return }
+        do { _ = try await Purchases.shared.logIn(userId) }
+        catch { print("[RevenueCat] logIn failed: \(error.localizedDescription)") }
+    }
 
     // MARK: - Google／Apple 登入
 
@@ -189,7 +214,7 @@ public class WorkScheduleNativePlugin: CAPPlugin, CAPBridgedPlugin,
         if #available(iOS 16.0, *) {
             Task {
                 do {
-                    let result = try await AppTransaction.shared
+                    let result = try await StoreKit.AppTransaction.shared
                     switch result {
                     case .verified(let tx):
                         call.resolve(["jws": result.jwsRepresentation, "environment": String(describing: tx.environment)])
@@ -216,7 +241,7 @@ public class WorkScheduleNativePlugin: CAPPlugin, CAPBridgedPlugin,
         guard #available(iOS 15.0, *) else { call.reject("iOS 15 or later required"); return }
         Task {
             do {
-                let products = try await Product.products(for: productIds)
+                let products = try await StoreKit.Product.products(for: productIds)
                 let out: [[String: Any]] = products.map { p in
                     var period = ""
                     if let sub = p.subscription {
@@ -259,17 +284,22 @@ public class WorkScheduleNativePlugin: CAPPlugin, CAPBridgedPlugin,
         }
         Task {
             do {
-                let products = try await Product.products(for: [productId])
+                let products = try await StoreKit.Product.products(for: [productId])
                 guard let product = products.first else { call.reject("product not found"); return }
-                var options: Set<Product.PurchaseOption> = []
+                var options: Set<StoreKit.Product.PurchaseOption> = []
                 if let token = call.getString("appAccountToken"),
                    let accountToken = UUID(uuidString: token) {
                     options.insert(.appAccountToken(accountToken))
+                    await revenueCatLogIn(token)
                 } else {
                     call.reject("appAccountToken required")
                     return
                 }
                 let result = try await product.purchase(options: options)
+                // 先告訴記帳本，再處理結果。recordPurchase 自己會略過取消與待核准。
+                // 不 await 它的錯誤：失敗只代表 RevenueCat 晚一點（下次回到前景）才看到這一筆。
+                do { _ = try await Purchases.shared.recordPurchase(result) }
+                catch { print("[RevenueCat] recordPurchase failed: \(error.localizedDescription)") }
                 switch result {
                 case .success(let verification):
                     switch verification {
@@ -299,9 +329,13 @@ public class WorkScheduleNativePlugin: CAPPlugin, CAPBridgedPlugin,
     /// 一筆都沒有時回空陣列，**不是錯誤**——沒訂閱的人就是這樣。
     @objc func currentEntitlements(_ call: CAPPluginCall) {
         guard #available(iOS 15.0, *) else { call.reject("iOS 15 or later required"); return }
+        let token = call.getString("appAccountToken")
         Task {
+            // 換手機、重灌之後第一個走到的是這裡，不是 purchase：沒有這一行，
+            // 恢復購買的人在 RevenueCat 裡會是一個匿名客戶。
+            if let token = token, UUID(uuidString: token) != nil { await revenueCatLogIn(token) }
             var out: [String] = []
-            for await entitlement in Transaction.currentEntitlements {
+            for await entitlement in StoreKit.Transaction.currentEntitlements {
                 guard case .verified(let tx) = entitlement else { continue }
                 if productIds.contains(tx.productID) { out.append(entitlement.jwsRepresentation) }
             }
@@ -431,6 +465,12 @@ public class WorkScheduleNativePlugin: CAPPlugin, CAPBridgedPlugin,
         guard let key = call.getString("key") else { call.reject("key required"); return }
         let status = SecItemDelete(query(key) as CFDictionary)
         if status != errSecSuccess && status != errSecItemNotFound { call.reject("keychain delete failed: \(status)"); return }
+        // 清掉登入 token 就是登出（登出鈕與 401 都走這裡）。RevenueCat 也要跟著換回
+        // 匿名，否則下一個在這台手機登入的人買的東西會記到前一個人名下。
+        // 已經是匿名時 logOut 會回錯誤，那是正常的，忽略。
+        if Purchases.isConfigured && !Purchases.shared.isAnonymous {
+            Purchases.shared.logOut { _, _ in }
+        }
         call.resolve()
     }
 
