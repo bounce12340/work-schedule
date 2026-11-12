@@ -5452,7 +5452,8 @@
     if(!NATIVE || !p || !p.currentEntitlements) return;
     let jws = [];
     try{
-      const r = await p.currentEntitlements();
+      // appAccountToken 只給 RevenueCat 對帳用（讓恢復購買的人不是匿名客戶）；權利仍由 Worker 決定
+      const r = await p.currentEntitlements({ appAccountToken: (accountMe && accountMe.appAccountToken) || undefined });
       jws = Array.isArray(r && r.jws) ? r.jws : [];
     }catch(e){
       console.error('currentEntitlements failed', e);
