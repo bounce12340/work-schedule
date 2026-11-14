@@ -137,7 +137,7 @@ function makeServer(loggedIn, plan = 'pro') {
   const reminderPuts = [];
   const reminderPosts = [];
   const unsubPosts = [];
-  for (const f of ['index.html', 'login.html', 'reset.html', 'admin.html', 'privacy.html', 'terms.html', 'support.html', 'unsub.html']) {
+  for (const f of ['index.html', 'login.html', 'reset.html', 'admin.html', 'privacy.html', 'terms.html', 'support.html', 'unsub.html', 'subscribe.html']) {
     assets.set('/' + f, readFileSync(PUBLIC + f, 'utf8'));
   }
   // sw.js 一定要真的供應。擋掉它會讓註冊失敗噴一行 console.error，而把
@@ -172,7 +172,7 @@ function makeServer(loggedIn, plan = 'pro') {
       if (!loggedIn) return send(404, { error: 'not found' });
       if (url.pathname === '/api/state') {
         if (req.method === 'PUT') return send(200, { ok: true, updatedAt: 1 });
-        return send(200, { user: { ...ME, plan, planSource: plan === 'pro' ? 'admin' : null, planExpiresAt: null }, state: null, updatedAt: null });
+        return send(200, { user: { ...ME, plan, planSource: plan === 'pro' ? 'admin' : null, planExpiresAt: null, webBilling: true }, state: null, updatedAt: null });
       }
       // iOS app 的登入／驗證碼：回一個假 token，讓「app 外殼」那一輪走得完
       if (url.pathname === '/api/auth/app/login') return send(200, { ok: true, token: APP_TOKEN, expiresAt: 9e12, user: ME });
@@ -509,6 +509,20 @@ async function walk(page, log, plan = 'pro', server = null) {
   // 連續斷掉的信（F2）：與逾期提醒各自一顆按鈕
   await need('#btnStreakMail', '櫻花樹的信開關');
 
+  // 網頁版訂閱（Paddle）：免費版看得到兩顆訂閱按鈕、連到 /subscribe.html；
+  // 管理者給的 Pro 整塊不顯示（他沒有網頁版的訂閱可以管）。假後端兩輪都回 webBilling: true，
+  // 所以「Pro 也看得到訂閱鈕」與「免費版看不到」兩種錯法都會在這裡紅。
+  {
+    const buyVisible = await page.locator('#viewAccount #btnWebSubMonthly').isVisible();
+    if (plan === 'free') {
+      if (!buyVisible) throw new Error('免費版的「我的帳號」看不到網頁版的訂閱按鈕');
+      const href = await page.locator('#btnWebSubYearly').getAttribute('href');
+      if (href !== '/subscribe.html?plan=yearly') throw new Error('年訂閱按鈕連錯地方：' + href);
+    } else if (await page.locator('#acctWebSub').isVisible()) {
+      throw new Error('管理者給的 Pro 也出現了網頁版的訂閱區');
+    }
+  }
+
   // 取消訂閱那一區。**驗的是「看得見、而且真的按得動」**——只存在於 DOM 裡的
   // 按鈕沒有人按得到，而找不到出口的人會去按信箱軟體的「取消訂閱」，代價是
   // 整個帳號被寄信商封鎖（helen 2026-09-09）。
@@ -797,6 +811,11 @@ async function walkNative(page, log, seen) {
   await need('#acctSub a[href="/terms.html"]', '訂閱區的使用條款連結');
   await need('#acctSub a[href="/privacy.html"]', '訂閱區的隱私權政策連結');
   checked.push(`訂閱方案(${prices.length})`);
+  // app 裡**絕對不能**出現網頁版（Paddle）的訂閱：Apple 3.1.1 只准 IAP。
+  // 假後端照樣回 webBilling: true，擋得住它的只有前端的 NATIVE 判斷。
+  if (await page.locator('#acctWebSub').isVisible()) {
+    throw new Error('app 裡出現了網頁版的訂閱區（Apple 3.1.1 會退件）');
+  }
 
   // 推播（子專案 B）。三顆開關要在，而且**打開一個要真的去註冊 device token**——
   // 只驗按鈕在不在的話，「按了沒反應」會是綠的。
@@ -843,7 +862,8 @@ async function walkNative(page, log, seen) {
 
 {
   const label = 'iOS app 外殼（假 Capacitor）';
-  const server = makeServer(true);
+  // 免費版：網頁版的訂閱鈕只會對免費版顯示，用 Pro 跑的話「app 裡不准出現」那條是空斷言
+  const server = makeServer(true, 'free');
   await new Promise(r => server.listen(PORT, r));
   const launch = process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {};
   const browser = await chromium.launch(launch);

@@ -1253,6 +1253,7 @@
   .acct-dev-when{ font-family:var(--mono); font-size:11px; color:var(--text-dim); }
   .acct-dev-this{ font-family:var(--mono); font-size:10.5px; color:var(--teal);
                   border:1px solid var(--teal); border-radius:4px; padding:0 5px; }
+  a.ghost-btn{ text-decoration:none; display:inline-block; }   /* 網頁版訂閱的兩顆是連結（到 /subscribe.html），長得要跟按鈕一樣 */
   .ghost-btn{ font-family: var(--mono); font-size:11px; color: var(--text-dim); background:transparent; border:1px dashed var(--dash); border-radius:var(--r-s); padding:7px 12px; cursor:pointer; }
   .ghost-btn:hover{ color: var(--amber-ink); border-color: var(--amber-ink); }
   .builtin-holiday{ margin-top:8px; display:flex; flex-direction:column; gap:6px; }
@@ -1674,6 +1675,19 @@
               <a href="/privacy.html" target="_blank" rel="noopener" data-i18n>隱私權政策</a>
             </div>
             <div class="acct-sub" id="acctSubMsg" style="margin-top:8px;"></div>
+          </div>
+          <!-- 網頁版的訂閱（Paddle）。**只在網頁版出現**：app 裡只能走 Apple 的 IAP（3.1.1），
+               連提都不能提「去網頁訂比較便宜」。付款整個在 /subscribe.html 那一頁，
+               這一頁維持零外部相依。 -->
+          <div id="acctWebSub" style="display:none">
+            <div class="acct-row" id="acctWebSubBuy">
+              <a class="ghost-btn" id="btnWebSubMonthly" href="/subscribe.html?plan=monthly" data-i18n>每月 US$10 訂閱</a>
+              <a class="ghost-btn" id="btnWebSubYearly" href="/subscribe.html?plan=yearly" data-i18n>每年 US$100 訂閱</a>
+            </div>
+            <div class="acct-row">
+              <button class="ghost-btn" id="btnWebSubManage" type="button" style="display:none" data-i18n>管理訂閱</button>
+            </div>
+            <div class="acct-sub" id="acctWebSubNote" style="margin-top:8px;"></div>
           </div>
         </div>
 
@@ -2824,6 +2838,11 @@
       '大項目與專案各最多 {0} 個，AI 小幫手每天 {1} 次。':'Up to {0} major projects and {0} projects; AI assistant {1} times a day.',
       '訂閱 Pro 的功能即將在這個 app 裡推出。':'Pro subscriptions are coming to this app soon.',
       '要升級請在 iPhone app 的「我的帳號」裡訂閱 Pro，網頁版會一起變成 Pro。':'To upgrade, subscribe to Pro from “My account” in the iPhone app; the web version becomes Pro too.',
+      '每月 US$10 訂閱':'Subscribe monthly · US$10',
+      '每年 US$100 訂閱':'Subscribe yearly · US$100',
+      '訂閱會自動續訂，可隨時在這裡的「管理訂閱」取消。付款由 Paddle 代收。網頁版與 iPhone app 會一起變成 Pro。':'Subscriptions renew automatically; cancel any time under “Manage subscription” here. Payment is handled by Paddle. Both the web and the iPhone app become Pro.',
+      '取消、更換信用卡、看收據都在「管理訂閱」裡。取消後到期前仍可使用。':'Cancel, change your card or see receipts under “Manage subscription”. After cancelling you keep Pro until the end of the period.',
+      '暫時打不開訂閱管理頁，請稍後再試':'Can’t open subscription management right now. Please try again later.',
       // ---- 訂閱（E2）----
       '要新增更多請訂閱 Pro：到「我的帳號」分頁的「方案」那一區。':'To add more, subscribe to Pro under “Plan” on the My account tab.',
       '恢復購買':'Restore purchase', '管理訂閱':'Manage subscription',
@@ -4031,7 +4050,7 @@
   function openUpgrade(kind, count){
     const limit = PLAN_LIMITS.free[kind];
     document.getElementById('upgradeText').textContent = tf(PLAN_KIND_TEXT[kind], limit, count);
-    document.getElementById('upgradeHow').textContent = NATIVE
+    document.getElementById('upgradeHow').textContent = (NATIVE || (accountMe && accountMe.webBilling))
       ? tr('要新增更多請訂閱 Pro：到「我的帳號」分頁的「方案」那一區。')
       : tr('要新增更多請訂閱 Pro。訂閱在 iPhone app 的「我的帳號」裡進行，網頁版會一起變成 Pro。');
     document.getElementById('upgradeOverlay').classList.add('show');
@@ -5467,7 +5486,44 @@
     await subSendTransactions(jws, { loud });
   }
 
+  /**
+   * 網頁版的訂閱區。三種狀態：
+   *   免費、而且 Paddle 設定好了 → 兩顆訂閱按鈕（連到 /subscribe.html）
+   *   Pro、來源是網頁（paddle）  → 「管理訂閱」（Paddle 的客戶頁：取消、換卡、收據）
+   *   其餘（app 訂的、管理者給的、Paddle 沒設定）→ 整塊不顯示
+   */
+  function acctRenderWebSub(){
+    const box = document.getElementById('acctWebSub');
+    if(!box) return;
+    const me = accountMe || {};
+    const canBuy = !NATIVE && me.webBilling === true && me.plan !== 'pro';
+    const canManage = !NATIVE && me.planSource === 'paddle';
+    box.style.display = (canBuy || canManage) ? '' : 'none';
+    document.getElementById('acctWebSubBuy').style.display = canBuy ? '' : 'none';
+    document.getElementById('btnWebSubManage').style.display = canManage ? '' : 'none';
+    document.getElementById('acctWebSubNote').textContent = canBuy
+      ? tr('訂閱會自動續訂，可隨時在這裡的「管理訂閱」取消。付款由 Paddle 代收。網頁版與 iPhone app 會一起變成 Pro。')
+      : (canManage ? tr('取消、更換信用卡、看收據都在「管理訂閱」裡。取消後到期前仍可使用。') : '');
+  }
+  {
+    const btn = document.getElementById('btnWebSubManage');
+    if(btn) btn.onclick = async ()=>{
+      btn.disabled = true;
+      const note = document.getElementById('acctWebSubNote');
+      try{
+        const r = await fetch('/api/plan/paddle/portal', { method: 'POST', credentials: 'same-origin' });
+        const d = await r.json().catch(()=>({}));
+        if(r.ok && d.url){ location.href = d.url; return; }
+        note.textContent = (d && d.error) || tr('暫時打不開訂閱管理頁，請稍後再試');
+      }catch(e){
+        console.error('paddle portal failed', e);
+        note.textContent = tr('打不開訂閱管理頁') + '：' + String((e && e.message) || e);
+      }finally{ btn.disabled = false; }
+    };
+  }
+
   function acctRenderSub(){
+    acctRenderWebSub();
     const box = document.getElementById('acctSub');
     if(!box) return;
     // 網頁版沒有這一塊：Apple 不允許 app 連到外部付款，而網頁這邊也還沒有付款（E4）
@@ -5510,7 +5566,7 @@
     }else{
       nameEl.textContent = tr('免費版');
       subEl.textContent = tf('大項目與專案各最多 {0} 個，AI 小幫手每天 {1} 次。', PLAN_LIMITS.free.majorProjects, PLAN_LIMITS.free.aiPerDay)
-        + (NATIVE ? '' : ' ' + tr('要升級請在 iPhone app 的「我的帳號」裡訂閱 Pro，網頁版會一起變成 Pro。'));
+        + ((NATIVE || accountMe.webBilling) ? '' : ' ' + tr('要升級請在 iPhone app 的「我的帳號」裡訂閱 Pro，網頁版會一起變成 Pro。'));
     }
     acctRenderSub();
   }

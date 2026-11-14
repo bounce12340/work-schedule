@@ -24,9 +24,15 @@ CREATE TABLE IF NOT EXISTS users (
   -- 同時算成 Pro；換帳號「恢復購買」是搬過去，不是拒絕。
   plan_source        TEXT,
   plan_expires_at    INTEGER,
-  apple_original_txn TEXT
+  apple_original_txn TEXT,
+  -- 網頁版訂閱（Paddle，見 src/handlers/planpaddle.js）。plan_source='paddle' 時由
+  -- webhook 維護到期日；paddle_event_at 是上一則處理過的事件時間（Paddle 不保證順序）。
+  paddle_subscription_id TEXT,
+  paddle_customer_id     TEXT,
+  paddle_event_at        INTEGER
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_apple_original_txn ON users(apple_original_txn);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_paddle_subscription ON users(paddle_subscription_id);
 
 -- 方案的每一次變動：app 推上來的交易、Apple 的伺服器通知、管理者手動。
 -- notification_uuid UNIQUE 同時是 Apple 通知的去重鍵（Apple 會重送）。
