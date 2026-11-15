@@ -85,6 +85,8 @@ npm run deploy
 
 目前 bundle ID 是 `com.bounceto.workschedule`、最低 iOS 16、支援 iPhone 與 iPad、版本號由 `mobile/package.json` 管理。App Store Connect 的 App record、Google OAuth、Sign in with Apple、訂閱商品與 Apple Developer 設定仍必須由擁有者本人完成；workflow 只負責建置／上傳，不會替你送審。
 
+**網頁版訂閱（選用，Paddle）。** 網頁版可以透過 Paddle（經銷商身分代收款）賣同一個 Pro 訂閱。六個 Worker secret（`PADDLE_API_KEY`、`PADDLE_WEBHOOK_SECRET`、`PADDLE_CLIENT_TOKEN`、`PADDLE_PRICE_MONTHLY`、`PADDLE_PRICE_YEARLY`、`PADDLE_ENV`）都設好、`migrations/014-paddle.sql` 也跑過之前，訂閱鈕不會出現。iPhone app 裡永遠不會出現（App Store 3.1.1）。設定步驟見 [`docs/superpowers/specs/2026-11-14-web-subscription-paddle.md`](docs/superpowers/specs/2026-11-14-web-subscription-paddle.md)。
+
 **`TURNSTILE_SECRET` 未設定時所有註冊與登入都會被拒絕**，而不是放行——未設定就放行等於真人驗證形同虛設。
 
 ### 本機開發用的 `.dev.vars`

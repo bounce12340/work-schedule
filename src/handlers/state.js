@@ -1,5 +1,6 @@
 import { json } from './auth.js';
 import { planOf, planInfo, capViolations, exceedsPlanCap } from '../plan.js';
+import { paddleConfig } from './planpaddle.js';
 
 const MAX_STATE_BYTES = 1_000_000;   // 遠高於實際用量（示範資料約 1.8 KB）
 
@@ -22,6 +23,9 @@ export async function handleGetState(env, user, request = null) {
   // 網頁版不需要知道這個識別值。
   if (request?.headers?.get('x-app-client')?.startsWith('ios/')) {
     me.appAccountToken = user.id;
+  } else {
+    // 網頁版能不能直接訂閱（Paddle 的設定齊了沒）。app 不回：app 裡只能走 Apple 的 IAP
+    me.webBilling = paddleConfig(env).enabled;
   }
 
   // 沒有雲端資料不是錯誤：代表這個使用者還沒同步過，前端應沿用本地資料

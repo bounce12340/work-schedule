@@ -85,6 +85,8 @@ The project uses a Capacitor native shell, so the owner does not need to own a M
 
 The current bundle ID is `com.bounceto.workschedule`, the minimum iOS version is 16, the target is universal for iPhone and iPad, and the marketing version is managed in `mobile/package.json`. The owner must create the App Store record, Google OAuth client, Sign in with Apple capability, subscription products, and Apple Developer settings; the workflow builds/uploads but does not submit an app for review.
 
+**Web subscription (optional, Paddle).** The web version can sell the same Pro subscription through Paddle (Merchant of Record). It stays hidden until six Worker secrets are set (`PADDLE_API_KEY`, `PADDLE_WEBHOOK_SECRET`, `PADDLE_CLIENT_TOKEN`, `PADDLE_PRICE_MONTHLY`, `PADDLE_PRICE_YEARLY`, `PADDLE_ENV`) and `migrations/014-paddle.sql` has run. The iPhone app never shows it (App Store guideline 3.1.1). Setup steps: [`docs/superpowers/specs/2026-11-14-web-subscription-paddle.md`](docs/superpowers/specs/2026-11-14-web-subscription-paddle.md).
+
 **When `TURNSTILE_SECRET` is unset, all registration and login is rejected** rather than allowed through. Allowing it through would make bot protection meaningless.
 
 ### `.dev.vars` for local development

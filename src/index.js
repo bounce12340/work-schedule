@@ -10,6 +10,7 @@ import { handleReminderStatus, handleReminderEnable, handleReminderPut, handleUn
 import { handleForgotPassword, handleResetPassword as handleSelfResetPassword } from './handlers/password-reset.js';
 import { handleAppCode, handleAppRegister, handleAppLogin, handleAppOAuth, handleDeleteAccount } from './handlers/appauth.js';
 import { handlePlanApple, handleAppleNotification } from './handlers/planapple.js';
+import { handlePaddleConfig, handlePaddleCheckout, handlePaddlePortal, handlePaddleWebhook } from './handlers/planpaddle.js';
 import { handlePushRegister, handlePushUnregister, handlePushTest, sendPushes } from './handlers/push.js';
 import { getSessionUser } from './session.js';
 
@@ -191,6 +192,12 @@ async function route(request, env, ctx) {
     return request.method === 'POST' ? handleAppleNotification(request, env) : methodNotAllowed();
   }
 
+  // Paddle 的 webhook（網頁版訂閱）：**公開端點**，Paddle 直接打進來。
+  // 憑證是 Paddle-Signature 的 HMAC，不是 cookie 也不是 Bearer。
+  if (path === '/api/paddle/webhook') {
+    return request.method === 'POST' ? handlePaddleWebhook(request, env) : methodNotAllowed();
+  }
+
   // 以下都需要有效 session
   const user = await getSessionUser(request, env);
   if (!user) return json({ error: '尚未登入' }, 401);
@@ -235,6 +242,17 @@ async function route(request, env, ctx) {
   // app 推上來的訂閱交易（購買成功、啟動時的 currentEntitlements、恢復購買）
   if (path === '/api/plan/apple') {
     return request.method === 'POST' ? handlePlanApple(request, env, user) : methodNotAllowed();
+  }
+
+  // 網頁版訂閱（Paddle）。只有網頁版會打；app 裡永遠走 Apple 的 IAP（3.1.1）。
+  if (path === '/api/plan/paddle/config') {
+    return request.method === 'GET' ? handlePaddleConfig(env) : methodNotAllowed();
+  }
+  if (path === '/api/plan/paddle/checkout') {
+    return request.method === 'POST' ? handlePaddleCheckout(request, env, user) : methodNotAllowed();
+  }
+  if (path === '/api/plan/paddle/portal') {
+    return request.method === 'POST' ? handlePaddlePortal(request, env, user) : methodNotAllowed();
   }
 
   if (path === '/api/ics/status') {

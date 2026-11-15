@@ -39,6 +39,7 @@
       <li><b>第三方登入</b>：你選擇 Google 或 Sign in with Apple 時，會儲存該服務提供的 subject、email 與登入來源，用來把不同裝置連到同一個本服務帳號。Apple refresh token 只用於你刪除帳號時撤銷 Apple credential。</li>
       <li><b>App 交易資料</b>：Apple 提供的 app 交易識別碼與購買日期，用來限制同一個 Apple 帳號重複建立 app 帳號。不含你的 Apple ID、姓名或付款資訊。</li>
       <li><b>Pro 訂閱資料</b>：訂閱商品識別碼、Apple 的原始交易識別碼、到期日與退款／撤銷日期，用來判斷 Pro 權利。付款資料由 Apple 處理，我們不會取得信用卡資料。</li>
+      <li><b>網頁版訂閱資料</b>：在網頁版訂閱時，會儲存 Paddle 的訂閱識別碼、客戶識別碼與到期日，用來判斷 Pro 權利。付款資料由 Paddle 處理，我們不會取得信用卡資料。</li>
       <li><b>登入中的裝置</b>：裝置類型（例如「iPhone app」或「Chrome on Windows」）與最後使用時間。<b>不記錄 IP 位址。</b></li>
       <li><b>推播資料</b>：你允許推播後，會儲存 Apple APNs 裝置 token、環境與最後使用時間；你登出、取消註冊或 token 失效時會刪除。</li>
       <li><b>分享記錄</b>：你分享給誰、誰動過你分享的項目，保留 90 天。</li>
@@ -65,6 +66,7 @@
       <li><b>AI 小幫手</b>（你按下去才會用）：你當下的排程摘要會送到 DeepSeek 的 API 產生回答。不用這個功能就不會送。</li>
       <li><b>提醒信與驗證碼</b>：透過 AgentMail 寄到你註冊的信箱。</li>
       <li><b>Apple</b>：App 內的購買與訂閱由 Apple StoreKit 處理；Apple 也會把已簽章的訂閱狀態通知送到本服務，用來更新續訂、到期與退款。</li>
+      <li><b>Paddle</b>（只在網頁版訂閱時）：結帳由 Paddle.com 處理，你的 email、付款資料與所在國家由 Paddle 收集；本服務會把你的帳號識別碼附在那筆訂單上，Paddle 會把訂閱狀態的通知送回本服務。</li>
       <li><b>Google</b>：你選擇 Google 登入時，Google 會提供已驗證的登入 token；本服務只保留必要的帳號 subject 與 email，不會取得 Google 密碼。</li>
       <li><b>推播</b>：開啟推播時，通知內容與 APNs token 會送到 Apple Push Notification service。</li>
       <li><b>字型</b>：頁面會向 Google Fonts 取得字型檔；離線或封鎖時退回系統字型，功能不受影響。</li>
@@ -100,6 +102,7 @@
       <li><b>Third-party sign-in</b>: if you choose Google or Sign in with Apple, we store the provider subject, email and provider name to connect your devices to the same Work Schedule account. An Apple refresh token is used only to revoke the Apple credential when you delete the account.</li>
       <li><b>App transaction data</b>: an app transaction identifier and purchase date from Apple, used to prevent repeated account creation with the same Apple account. We do not receive your Apple ID, name or payment details.</li>
       <li><b>Pro subscription data</b>: the product identifier, Apple original transaction identifier, expiry date, and refund/revocation date, used to determine Pro entitlement. Apple processes payment; we do not receive card details.</li>
+      <li><b>Web subscription data</b>: if you subscribe on the web, we store Paddle’s subscription identifier, customer identifier and expiry date to determine Pro entitlement. Paddle processes payment; we do not receive card details.</li>
       <li><b>Signed-in devices</b>: device type (for example "iPhone app" or "Chrome on Windows") and last-used time. <b>IP addresses are not recorded.</b></li>
       <li><b>Push data</b>: if you allow push notifications, we store Apple's APNs device token, environment and last-used time; it is deleted when you sign out, unregister, or the token becomes invalid.</li>
       <li><b>Sharing log</b>: who you shared with and who changed a shared item, kept for 90 days.</li>
@@ -126,6 +129,7 @@
       <li><b>AI assistant</b> (only when you use it): a summary of your current schedule is sent to DeepSeek's API to produce the answer. Nothing is sent if you don't use it.</li>
       <li><b>Reminder and verification emails</b>: delivered through AgentMail to the address you registered with.</li>
       <li><b>Apple</b>: in-app purchases and subscriptions are processed by Apple StoreKit. Apple also sends signed subscription-status notifications to this service so renewals, expiry and refunds can update your entitlement.</li>
+      <li><b>Paddle</b> (only when you subscribe on the web): checkout is handled by Paddle.com, which collects your email, payment details and country. We attach your account identifier to that order, and Paddle sends subscription-status notifications back to this service.</li>
       <li><b>Google</b>: when you choose Google sign-in, Google provides a verified sign-in token; we store only the necessary subject and email and never receive your Google password.</li>
       <li><b>Push notifications</b>: when enabled, notification content and the APNs token are sent to Apple's Push Notification service.</li>
       <li><b>Fonts</b>: the page fetches font files from Google Fonts; offline or blocked, it falls back to system fonts with no loss of function.</li>

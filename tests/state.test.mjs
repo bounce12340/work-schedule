@@ -130,7 +130,7 @@ test('GET /api/state 一併回身分，前端才不必再打一次 /api/auth/me'
 
   const { body } = await unwrap(await handleGetState(env, user));
   // 方案也順帶回：前端啟動時就要知道「＋ 新增」該開表單還是開升級說明
-  assert.deepEqual(body.user, { email: 'a@x.com', role: 'admin', status: 'approved', plan: 'free', planSource: null, planExpiresAt: null });
+  assert.deepEqual(body.user, { email: 'a@x.com', role: 'admin', status: 'approved', plan: 'free', planSource: null, planExpiresAt: null, webBilling: false });
   assert.equal(body.updatedAt, 4000);
   assert.equal(body.state.items[0].id, 'a');
 
