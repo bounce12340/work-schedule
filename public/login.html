@@ -231,7 +231,8 @@
           // 只接受同源、而且是授權頁的網址：這個值存在 sessionStorage，但仍然不能變成任意轉址
           var back = null;
           try { back = sessionStorage.getItem('ws.oauthReturn'); sessionStorage.removeItem('ws.oauthReturn'); } catch (e) {}
-          if (back && back.indexOf(location.origin + '/authorize.html?') === 0) { location.href = back; return; }
+          // 線上 Cloudflare 會把 /authorize.html 轉成 /authorize（保留 query），所以那一頁實際的網址是後者；兩種都認
+          if (back && /^\/authorize(\.html)?\?/.test(back.slice(location.origin.length)) && back.indexOf(location.origin + '/') === 0) { location.href = back; return; }
           location.href = '/'; return;
         }
         if (mode==='forgot') {
