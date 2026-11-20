@@ -189,7 +189,7 @@ function withQuery(base, params) {
 }
 
 /**
- * GET /oauth/authorize：先驗 client 與 redirect_uri，再把人帶到 /authorize.html 那一頁
+ * GET /oauth/authorize：先驗 client 與 redirect_uri，再把人帶到 /authorize 那一頁（＝authorize.html；直接用不帶副檔名的網址，省掉 Cloudflare 多轉一次）
  * 讓他按「允許」。
  *
  * **redirect_uri 對不上就絕不轉址**，直接在這裡顯示錯誤：拿一個沒登記過的網址轉過去，
@@ -210,7 +210,7 @@ export async function handleAuthorizeRedirect(request, env) {
       error: 'invalid_request', error_description: '需要 response_type=code 與 S256 的 PKCE', state: p.get('state'),
     }), 302);
   }
-  return Response.redirect(new URL('/authorize.html' + url.search, url).toString(), 302);
+  return Response.redirect(new URL('/authorize' + url.search, url).toString(), 302);
 }
 
 /** POST /api/oauth/info：授權頁要顯示「誰想要連、你是誰、你能不能連」。要 session。 */
