@@ -226,7 +226,14 @@
       var data = await res.json().catch(function(){ return {}; });
 
       if (res.ok) {
-        if (mode==='login') { location.href = '/'; return; }
+        if (mode==='login') {
+          // 從 AI agent 的授權頁（/authorize.html）被帶來登入的人，登入完回那一頁繼續按「允許」。
+          // 只接受同源、而且是授權頁的網址：這個值存在 sessionStorage，但仍然不能變成任意轉址
+          var back = null;
+          try { back = sessionStorage.getItem('ws.oauthReturn'); sessionStorage.removeItem('ws.oauthReturn'); } catch (e) {}
+          if (back && back.indexOf(location.origin + '/authorize.html?') === 0) { location.href = back; return; }
+          location.href = '/'; return;
+        }
         if (mode==='forgot') {
           // 這則訊息對「有註冊」與「沒註冊」完全相同——伺服器刻意不說有沒有這個
           // 帳號（說了就變成帳號列舉工具），前端當然也不能自己補上去

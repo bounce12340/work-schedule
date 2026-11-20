@@ -19,6 +19,8 @@ src/plan.js            方案（free / pro）：planOf、上限、「只有變�
 src/handlers/          auth / state / admin / share / password-reset / appauth 等 API
 src/apppurchase.js     App Store 購買證明（AppTransaction JWS）的離線驗簽
 src/handlers/planpaddle.js 網頁版訂閱（Paddle）：結帳、客戶頁、webhook 驗簽與寫權利
+src/mcp/               MCP 伺服器：讓外部 AI agent 讀寫排程（schedule.js 純函式／auth.js 金鑰與 OAuth／server.js JSON-RPC）
+public/authorize.html  OAuth 授權頁（agent 要連進來時「允許／拒絕」）
 src/mail.js            AgentMail 寄信（逾期提醒與密碼重設共用），並把每一封的結果寫進 mail_log
 src/throttle.js        登入失敗節流（email 與 IP 兩個維度）
 migrations/            既有資料庫的欄位變更（schema.sql 的 IF NOT EXISTS 補不了欄位）
@@ -66,6 +68,7 @@ mobile/                iOS app 外殼（Capacitor；自己的 package.json，見
 | `tests/state.test.mjs`（下半） | 連續斷掉的信：`dayReport`、三個「不該寄」（沒斷、連續 < 2、開關關著）、同一天只寄一次、寄失敗不記錄、兩個開關互不影響 | 直接 import Worker 端模組，攔 `fetch` 當假信箱 |
 | `tests/pet.test.mjs` | 專案的夥伴：完成度、六個階段的門檻、**199/200 是 `almost` 不是 `adult`**、白名單、舊存檔的形狀、`petRoster` 排序、被分享者改不到 `pet` | 從 `index.html` 抽〈富文字〉〈持久化〉〈專案的夥伴〉求值；`mergeSharedEdit` 直接 import Worker 端模組 |
 | `tests/conflict.test.mjs` | 衝突預覽（〈衝突預覽〉區段，**尚未接上畫面**）：半開區間、沒有結束時間時只比同開始時間（不套預設時長）、只比會議、時區不同不換算只提示、90 天範圍、略過／單次覆寫／假日調整、休假輕量提示、**輸入資料前後逐字相同** | 從 `index.html` 抽〈date helpers〉〈occurrence engine〉〈衝突預覽〉求值；七種突變各自驗過會紅 |
+| `tests/mcp.test.mjs` | MCP：401 帶 `WWW-Authenticate`、非 Pro 擋、金鑰只存雜湊、**伺服器建的項目與前端 `normalizeItems` 逐欄相同**、改頻率清完成、復原（**使用者之後改過就拒絕**）、跨帳號隔離、競態重試、OAuth 全流程（PKCE、code 單次、open redirect、免費帳號 402、refresh 輪替與撤銷） | 直接 import Worker 端模組；前端的 `normalizeItems`／`normalizeRecurrence`／`stableStringify` 從 `index.html` 抽出來比 |
 
 前三者的挑選理由：前兩者近乎純函式、零 DOM 依賴；第三者是**競態**——靠併發碰運氣測不到，但可以把空窗做成確定性的。
 
@@ -98,7 +101,7 @@ npm run db:init:local  # 對本機 miniflare D1 建表（--local 的資料庫與
 npm run db:init        # 對遠端 D1 建表
 npm run admin:reset    # 破窗鎚：直接改密碼（見〈破窗鎚〉）
 npm run deploy         # 部署
-npm test               # 全部測試檔（node:test，不需安裝任何東西；目前 508 個測試）
+npm test               # 全部測試檔（node:test，不需安裝任何東西；目前 530 個測試）
 ```
 
 跑單一測試檔或單一測試（`npm test` 沒有轉發參數的管道，直接用 node）：
@@ -870,7 +873,7 @@ Turnstile 擋得住「一秒鐘一萬次」的機器人，擋不住「一分鐘�
 
 **改版時要做的事**：`mobile/package.json` 的 `version` 往上加（build 號是 GitHub 的 `run_number`，不用管）→ **合併進 main 就會自動打包上傳**（CI 綠、且動到 `public/index.html` 或 `mobile/`）→ App Store Connect 送審。手動觸發與 `ios-v*` tag 仍然留著，兩者都不看路徑條件。
 
-**部署順序**：`migrations/005-app-purchase.sql`、`006-plan.sql`、`007-streak-mail.sql`、`008-push.sql`、`009-leave-days.sql`、`010-mail-log.sql` 、`011-mail-sender.sql` 、`012-unsub-token.sql` 與 `014-paddle.sql` 都要在部署新 Worker **之前**跑（`010` 是新增資料表，漏跑只會讓寄信多一行警告，不會 500；**`011` 是加欄位，漏跑會讓 `/api/admin/mail-log` 的 SELECT 直接失敗**）（`getSessionUser` 的 SELECT 讀 `plan_source`，欄位不在**每一個**登入請求都會 500；`007`／`008`／`009` 的欄位則是 `/api/reminder` 與 cron 會讀），理由見〈資料庫結構變更〉。006 跑完、Worker 部署完之後，還要到 `/admin` 把既有的兩個帳號設成「Pro（永久）」——漏掉的症狀是他們的第四個專案被擋，當場就會知道。
+**部署順序**：`migrations/005-app-purchase.sql`、`006-plan.sql`、`007-streak-mail.sql`、`008-push.sql`、`009-leave-days.sql`、`010-mail-log.sql` 、`011-mail-sender.sql` 、`012-unsub-token.sql` 、`014-paddle.sql` 與 `015-mcp.sql` 都要在部署新 Worker **之前**跑（`010` 是新增資料表，漏跑只會讓寄信多一行警告，不會 500；**`011` 是加欄位，漏跑會讓 `/api/admin/mail-log` 的 SELECT 直接失敗**）（`getSessionUser` 的 SELECT 讀 `plan_source`，欄位不在**每一個**登入請求都會 500；`007`／`008`／`009` 的欄位則是 `/api/reminder` 與 cron 會讀），理由見〈資料庫結構變更〉。006 跑完、Worker 部署完之後，還要到 `/admin` 把既有的兩個帳號設成「Pro（永久）」——漏掉的症狀是他們的第四個專案被擋，當場就會知道。
 
 ### 開發者有 Mac 了（2026-09-17）
 
@@ -960,6 +963,21 @@ cd mobile/ios/App && xcodebuild -scheme App -sdk iphonesimulator -configuration 
 | 結束類事件**只結束網頁那一份**；網頁那一份**不縮短 Apple 那一份** | 兩邊都付了錢的人取比較長的那一份；取消一份不能把另一份撐著的 Pro 一起關掉 |
 | **price 白名單** | 同一個 Paddle 帳號底下還有別的產品 |
 | 退款不自動收回 Pro；刪帳號不自動取消 Paddle 訂閱 | 前者要在 Paddle 後台「立即取消」；後者還沒做（見設計文件） |
+
+## 讓 AI agent 連進來（MCP，`src/mcp/`）
+
+設計文件 `docs/superpowers/specs/2026-11-20-mcp-server.md`。`POST /mcp`（Streamable HTTP、無狀態），OAuth 與個人金鑰（`wsk_`）兩種登入，**只給 Pro**，**可以直接改但每一筆都記錄、可以一鍵復原**（使用者的裁決）。
+
+| 決定 | 理由 |
+|---|---|
+| 排程讀前端推上來的 digest（多帶 `i`／`o`），不在 Worker 展開 | 同 ICS／提醒信／AI：occurrence 引擎只有一份 |
+| 伺服器建的項目**與前端 `normalizeItems` 逐欄相同**，測試用真的前端程式碼比 | 欄位集不一致，三方合併會把「沒改過」判成衝突 |
+| 寫入走帶條件的 UPDATE 重試三次，套免費版上限、每天 500 次、1MB | 換一個入口不能少一道擋 |
+| `mcp_activity` 只記那一個東西的前後；**使用者之後又改過就拒絕復原** | 復原不能蓋掉使用者自己的修改 |
+| Pro 在**每一次** `tools/call` 檢查 | 訂閱到期後手上還有 refresh token 的 agent 不該繼續寫 |
+| redirect_uri 對不上**不轉址**，直接 400；PKCE S256 必填；code 單次 | open redirect 與授權碼重放 |
+| CORS `*` 只在 `/mcp`、`/oauth/*`、`/.well-known/*`，不開 credentials | 只認 Bearer |
+| 前端 `cloudRefresh()` 在回到前景（30 秒節流）與復原後拉一次 | agent 改的是雲端，開著的分頁要跟上，否則下一次推送撞 409 |
 
 ## 推播（子專案 B，`src/apns.js` + `src/handlers/push.js`）
 

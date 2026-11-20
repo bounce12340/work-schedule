@@ -199,6 +199,13 @@ APP_URL=<optional>
 - **Unsubscribing works three ways**, and all three are needed: a `List-Unsubscribe` header so the mail client's own button reaches *us* instead of telling the provider to block the address account-wide; a clearly visible **Unsubscribe** button inside every subscription email; and a prominent opt-out block on the account page (`/#notify`, linked from every email). Each kind unsubscribes only itself — turning off the tree's letters leaves the overdue reminders alone. One user lost her password-reset mail to exactly this: she pressed her mail client's unsubscribe, and the provider blocked everything
 - When nothing is overdue and nothing is coming due, no email is sent at all — and the same rule applies to push notifications
 
+### 🤖 Connect AI agents (MCP, Pro)
+
+- Claude, ChatGPT and other agents can read and change your schedule through `https://<your-site>/mcp`: list items, see what's due, add items, move dates, tick things done
+- Sign in with OAuth (the agent opens an "Allow" page) or a personal API key from **My account › Connect AI agents**
+- Every change an agent makes is listed on the account page with a one-tap **Undo**; undo refuses if you've edited that item since
+- Run `migrations/015-mcp.sql` before deploying. Design: [`docs/superpowers/specs/2026-11-20-mcp-server.md`](docs/superpowers/specs/2026-11-20-mcp-server.md)
+
 ### 🔗 Sharing (after deployment)
 
 - Press **🔗** on any item, **group (including all its items)** or project, and enter the other person's account email

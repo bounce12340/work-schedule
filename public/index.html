@@ -1250,6 +1250,12 @@
              padding:8px 0; border-bottom:1px solid var(--hairline); font-size:12.5px; }
   .acct-dev:last-child{ border-bottom:none; }
   .acct-dev-name{ font-weight:600; }
+  .acct-dev .ghost-btn{ margin-left:auto; }
+  .acct-h2{ font-size:12.5px; font-weight:700; margin:14px 0 4px; }
+  /* MCP 網址與金鑰：長字串要能整段選取、斷行，不撐破手機的版面 */
+  .acct-mcp-url{ font-family:var(--mono); font-size:12px; background:var(--panel-2); border:1px solid var(--hairline);
+                 border-radius:var(--r-s); padding:6px 8px; word-break:break-all; user-select:all; flex:1 1 220px; min-width:0; }
+  .acct-mcp-key{ margin:8px 0; padding:10px; border:1px dashed var(--amber); border-radius:var(--r-s); }
   .acct-dev-when{ font-family:var(--mono); font-size:11px; color:var(--text-dim); }
   .acct-dev-this{ font-family:var(--mono); font-size:10.5px; color:var(--teal);
                   border:1px solid var(--teal); border-radius:4px; padding:0 5px; }
@@ -1755,6 +1761,36 @@
           <div id="acctDeviceList"><div class="acct-sub" data-i18n>載入中…</div></div>
           <div class="acct-row">
             <button id="btnLogoutOthers" class="ghost-btn" type="button" data-i18n>登出其他所有裝置</button>
+          </div>
+        </div>
+
+        <!-- MCP：讓 Claude、ChatGPT 這類 AI agent 直接讀寫排程（Pro）。設計文件：
+             docs/superpowers/specs/2026-11-20-mcp-server.md -->
+        <div class="acct-sec" id="acctMcp">
+          <div class="acct-h" data-i18n>🔌 連接 AI agent（MCP）</div>
+          <div class="acct-sub" id="acctMcpIntro"></div>
+          <div id="acctMcpPro" style="display:none">
+            <div class="acct-row" style="align-items:center;">
+              <code id="acctMcpUrl" class="acct-mcp-url"></code>
+              <button id="btnMcpCopyUrl" class="ghost-btn" type="button" data-i18n>複製網址</button>
+            </div>
+            <div class="acct-sub" data-i18n>Claude.ai、ChatGPT：在它們的「連接器」裡貼上這個網址，按連接後登入一次就好。Claude Code、Cursor 這類工具：建立一把金鑰，放在 Authorization: Bearer 標頭裡。</div>
+            <div class="acct-row">
+              <input id="inputMcpKeyName" type="text" maxlength="60" data-i18n-ph placeholder="金鑰名稱（例如：Claude Code）">
+              <button id="btnMcpCreateKey" class="ghost-btn" type="button" data-i18n>建立金鑰</button>
+            </div>
+            <div class="acct-mcp-key" id="acctMcpNewKey" style="display:none">
+              <div class="acct-sub" data-i18n>這把金鑰只會出現這一次，請現在複製起來。弄丟了就撤銷它、再建一把。</div>
+              <div class="acct-row" style="align-items:center;">
+                <code id="acctMcpKeyText" class="acct-mcp-url"></code>
+                <button id="btnMcpCopyKey" class="ghost-btn" type="button" data-i18n>複製金鑰</button>
+              </div>
+            </div>
+            <div class="acct-h2" data-i18n>已連接的 agent 與金鑰</div>
+            <div id="acctMcpConnList"><div class="acct-sub" data-i18n>載入中…</div></div>
+            <div class="acct-h2" data-i18n>agent 最近做的修改</div>
+            <div class="acct-sub" data-i18n>每一筆都可以復原。若那一項之後你又改過，為了不蓋掉你的修改，就不會動它。</div>
+            <div id="acctMcpActivity"><div class="acct-sub" data-i18n>載入中…</div></div>
           </div>
         </div>
 
@@ -3115,6 +3151,24 @@
       '在別人的電腦上忘記登出時，可以從這裡把它踢掉。不記錄 IP 位址。':
         'Signed in on someone else\'s computer and forgot to sign out? Remove it here. IP addresses are not recorded.',
       '登出其他所有裝置':'Sign out all other devices',
+      '🔌 連接 AI agent（MCP）':'🔌 Connect AI agents (MCP)',
+      '複製網址':'Copy URL', '建立金鑰':'Create key', '複製金鑰':'Copy key', '已複製':'Copied',
+      'Claude.ai、ChatGPT：在它們的「連接器」裡貼上這個網址，按連接後登入一次就好。Claude Code、Cursor 這類工具：建立一把金鑰，放在 Authorization: Bearer 標頭裡。':'Claude.ai, ChatGPT: paste this URL into their connector settings, press Connect and sign in once. Claude Code, Cursor and similar tools: create a key and send it in the Authorization: Bearer header.',
+      '金鑰名稱（例如：Claude Code）':'Key name (e.g. Claude Code)',
+      '這把金鑰只會出現這一次，請現在複製起來。弄丟了就撤銷它、再建一把。':'This key is shown only once. Copy it now; if you lose it, revoke it and create another.',
+      '已連接的 agent 與金鑰':'Connected agents and keys',
+      'agent 最近做的修改':'Recent changes made by agents',
+      '每一筆都可以復原。若那一項之後你又改過，為了不蓋掉你的修改，就不會動它。':'Each change can be undone. If you edited that item afterwards, undo leaves it alone so your edit is not overwritten.',
+      '讓 Claude、ChatGPT 這類 AI agent 讀取並修改你的排程：新增項目、改日期、勾完成都可以，每一筆都會記錄下來，可以復原。':'Let AI agents such as Claude and ChatGPT read and change your schedule: add items, change dates, mark done. Every change is logged and can be undone.',
+      '這是 Pro 功能：讓 Claude、ChatGPT 這類 AI agent 直接讀取並修改你的排程。':'This is a Pro feature: let AI agents such as Claude and ChatGPT read and change your schedule directly.',
+      '還沒有連接任何 agent。':'No agents connected yet.', '還沒用過':'Not used yet', '撤銷':'Revoke',
+      '要撤銷「{0}」嗎？用它連進來的 agent 會立刻失去權限。':'Revoke “{0}”? Agents using it lose access immediately.',
+      '撤銷失敗，請稍後再試。':'Could not revoke. Please try again later.',
+      '連線清單讀取失敗，其餘設定不受影響。':'Could not load connections; other settings are unaffected.',
+      'agent 還沒有改過任何東西。':'Agents have not changed anything yet.', '已復原':'Undone',
+      '復原失敗，請稍後再試。':'Could not undo. Please try again later.',
+      '修改紀錄讀取失敗，其餘設定不受影響。':'Could not load the change log; other settings are unaffected.',
+      '請手動複製：':'Copy manually:', '建立失敗，請稍後再試。':'Could not create. Please try again later.',
       '要登出其他所有裝置嗎？這一台會保留。':'Sign out all other devices? This one stays signed in.',
       // 刪除自己的帳號
       '🗑 刪除我的帳號':'🗑 Delete my account',
@@ -4203,6 +4257,22 @@
   }
 
   // 兩台裝置各自改過同一份資料時不能靜默挑一邊，否則一定有人的編輯會消失
+  /**
+   * 雲端被別人改過時（MCP 的 agent、被分享者的勾選、另一台裝置）把它拉下來合併。
+   * 走的是既有的三方合併：只有一邊改過的自動採用，兩邊都改到同一項才問人。
+   * 版本號沒變就什麼都不做——不推、不重繪，回到前景時才不會白白寫一次雲端。
+   */
+  let cloudRefreshAt = 0;
+  async function cloudRefresh(force){
+    if(!cloudEnabled || pushInFlight) return;
+    if(!force && Date.now() - cloudRefreshAt < 30000) return;
+    cloudRefreshAt = Date.now();
+    const res = await cloudPull();
+    if(res.kind !== 'ok' || !res.data || !res.data.state) return;
+    if(res.data.updatedAt === cloudUpdatedAt) return;
+    handleConflict({ state: res.data.state, updatedAt: res.data.updatedAt });
+  }
+
   function handleConflict(remote){
     const meta = readCloudMeta();
     const baseSnap = meta && meta.baseSnapshot;
@@ -5554,7 +5624,7 @@
     if(terms) terms.textContent = tr('訂閱會自動續訂，可隨時在 iPhone 的「設定 → Apple ID → 訂閱項目」裡取消。取消後到期前仍可使用。付款由 App Store 處理。');
   }
 
-  const ACCT_CLOUD_SECTIONS = ['acctIdentity','acctPlan','acctReminder','acctIcs','acctDevices','acctDanger'];
+  const ACCT_CLOUD_SECTIONS = ['acctIdentity','acctPlan','acctReminder','acctIcs','acctDevices','acctMcp','acctDanger'];
   function acctRenderPlan(){
     const nameEl = document.getElementById('acctPlanName'), subEl = document.getElementById('acctPlanSub');
     if(!nameEl || !subEl || !accountMe) return;
@@ -5607,6 +5677,7 @@
 
     syncReminderBtn();
     acctLoadDevices();
+    acctLoadMcp();
   }
 
   /**
@@ -5654,6 +5725,125 @@
       console.error('logout others failed', e);
       alert(tr('目前離線，無法登出其他裝置。'));
     }finally{ this.disabled = false; }
+  };
+
+  /**
+   * 「連接 AI agent（MCP）」那一區。三塊各自讀、各自失敗：連線清單壞了不該讓修改紀錄
+   * 也跟著看不到（同裝置清單的模式）。金鑰原文只在建立的那一刻出現一次。
+   */
+  function acctMcpUrl(){ return (NATIVE ? SITE_ORIGIN : location.origin) + '/mcp'; }
+  async function acctLoadMcp(){
+    const intro = document.getElementById('acctMcpIntro');
+    const box = document.getElementById('acctMcpPro');
+    if(!intro || !box) return;
+    const pro = !!(accountMe && accountMe.plan === 'pro');
+    intro.textContent = pro
+      ? tr('讓 Claude、ChatGPT 這類 AI agent 讀取並修改你的排程：新增項目、改日期、勾完成都可以，每一筆都會記錄下來，可以復原。')
+      : tr('這是 Pro 功能：讓 Claude、ChatGPT 這類 AI agent 直接讀取並修改你的排程。');
+    box.style.display = pro ? '' : 'none';
+    if(!pro) return;
+    document.getElementById('acctMcpUrl').textContent = acctMcpUrl();
+    acctLoadMcpConnections();
+    acctLoadMcpActivity();
+  }
+  async function acctLoadMcpConnections(){
+    const el = document.getElementById('acctMcpConnList');
+    try{
+      const r = await fetch('/api/mcp/connections', { cache:'no-store' });
+      if(r.status===401){ sessionExpired(); return; }
+      if(!r.ok) throw new Error('HTTP ' + r.status);
+      const list = (await r.json()).connections || [];
+      if(!list.length){ el.innerHTML = '<div class="acct-sub">' + escapeHtml(tr('還沒有連接任何 agent。')) + '</div>'; return; }
+      el.innerHTML = '';
+      for(const c of list){
+        const row = document.createElement('div');
+        row.className = 'acct-dev';
+        const name = document.createElement('span'); name.className = 'acct-dev-name';
+        name.textContent = (c.kind === 'key' ? '🔑 ' : '🔗 ') + c.name;
+        const when = document.createElement('span'); when.className = 'acct-dev-when';
+        when.textContent = c.lastUsedAt ? tf('最後使用 {0}', acctSince(c.lastUsedAt)) : tr('還沒用過');
+        const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'ghost-btn';
+        btn.textContent = tr('撤銷');
+        btn.onclick = async ()=>{
+          if(!confirm(tf('要撤銷「{0}」嗎？用它連進來的 agent 會立刻失去權限。', c.name))) return;
+          btn.disabled = true;
+          try{
+            const d = await fetch('/api/mcp/connections/' + encodeURIComponent(c.id), { method:'DELETE' });
+            if(!d.ok) throw new Error('HTTP ' + d.status);
+            acctLoadMcpConnections();
+          }catch(e){ console.error('mcp revoke failed', e); btn.disabled = false; alert(tr('撤銷失敗，請稍後再試。')); }
+        };
+        row.append(name, when, btn);
+        el.appendChild(row);
+      }
+    }catch(e){
+      console.error('mcp connections failed', e);
+      el.innerHTML = '<div class="acct-sub">' + escapeHtml(tr('連線清單讀取失敗，其餘設定不受影響。')) + '</div>';
+    }
+  }
+  async function acctLoadMcpActivity(){
+    const el = document.getElementById('acctMcpActivity');
+    try{
+      const r = await fetch('/api/mcp/activity', { cache:'no-store' });
+      if(r.status===401){ sessionExpired(); return; }
+      if(!r.ok) throw new Error('HTTP ' + r.status);
+      const list = (await r.json()).changes || [];
+      if(!list.length){ el.innerHTML = '<div class="acct-sub">' + escapeHtml(tr('agent 還沒有改過任何東西。')) + '</div>'; return; }
+      el.innerHTML = '';
+      for(const c of list){
+        const row = document.createElement('div');
+        row.className = 'acct-dev';
+        // summary 裡有使用者（或 agent）打的標題，一律 textContent
+        const what = document.createElement('span'); what.className = 'acct-dev-name';
+        what.textContent = c.summary;
+        const who = document.createElement('span'); who.className = 'acct-dev-when';
+        who.textContent = c.by + ' · ' + acctSince(Date.parse(c.at));
+        row.append(what, who);
+        if(c.undone){
+          const done = document.createElement('span'); done.className = 'acct-dev-when';
+          done.textContent = tr('已復原');
+          row.appendChild(done);
+        }else if(c.tool !== 'undo_change'){
+          const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'ghost-btn';
+          btn.textContent = tr('復原');
+          btn.onclick = async ()=>{
+            btn.disabled = true;
+            try{
+              const u = await fetch('/api/mcp/activity/' + encodeURIComponent(c.changeId) + '/undo', { method:'POST' });
+              const d = await u.json().catch(()=>({}));
+              if(!u.ok){ alert(d.error || tr('復原失敗，請稍後再試。')); btn.disabled = false; return; }
+              await cloudRefresh(true);
+              acctLoadMcpActivity();
+            }catch(e){ console.error('mcp undo failed', e); btn.disabled = false; alert(tr('復原失敗，請稍後再試。')); }
+          };
+          row.appendChild(btn);
+        }
+        el.appendChild(row);
+      }
+    }catch(e){
+      console.error('mcp activity failed', e);
+      el.innerHTML = '<div class="acct-sub">' + escapeHtml(tr('修改紀錄讀取失敗，其餘設定不受影響。')) + '</div>';
+    }
+  }
+  async function acctCopy(text, btn){
+    try{ await navigator.clipboard.writeText(text); const old = btn.textContent; btn.textContent = tr('已複製'); setTimeout(()=>{ btn.textContent = old; }, 1500); }
+    catch(e){ console.error('copy failed', e); prompt(tr('請手動複製：'), text); }
+  }
+  document.getElementById('btnMcpCopyUrl').onclick = function(){ acctCopy(acctMcpUrl(), this); };
+  document.getElementById('btnMcpCopyKey').onclick = function(){ acctCopy(document.getElementById('acctMcpKeyText').textContent, this); };
+  document.getElementById('btnMcpCreateKey').onclick = async function(){
+    const nameEl = document.getElementById('inputMcpKeyName');
+    this.disabled = true;
+    try{
+      const r = await fetch('/api/mcp/keys', { method:'POST', headers:{ 'content-type':'application/json' }, body: JSON.stringify({ name: nameEl.value }) });
+      const d = await r.json().catch(()=>({}));
+      if(!r.ok){ alert(d.error || tr('建立失敗，請稍後再試。')); return; }
+      document.getElementById('acctMcpKeyText').textContent = d.token;
+      document.getElementById('acctMcpNewKey').style.display = '';
+      nameEl.value = '';
+      acctLoadMcpConnections();
+    }catch(e){ console.error('mcp key create failed', e); alert(tr('建立失敗，請稍後再試。')); }
+    finally{ this.disabled = false; }
   };
 
   // ================= 遊戲化畫面 =================
@@ -9432,7 +9622,10 @@
       // 那個判斷的細節（到期日、跨多天以結束日算、當天 23:59:59 的界線）都在
       // 〈遊戲化〉區段且有測試守著；在 Worker 重寫一份必然分歧，而分歧的症狀是
       // 「畫面說連續 12 天、信說斷了」——比沒有那封信更糟。同 ICS 與逾期提醒。
-      ot: gameOnTime(o) ? 1 : 0
+      ot: gameOnTime(o) ? 1 : 0,
+      // 給 MCP 的 get_schedule／set_done：agent 要勾完成，得知道是哪一個項目的哪一次
+      i: o.item.id,
+      o: o.occKey
     }));
   }
 
@@ -10273,6 +10466,8 @@
   // 頂層碰 document 會讓整支測試爆掉——那支測試已經實際擋下來一次。
   document.addEventListener('visibilitychange', ()=>{
     if(document.hidden){ flushPendingWrites(); return; }
+    // 回到前景：AI agent（MCP）或別的裝置可能在這段時間改過雲端，拉下來合併
+    cloudRefresh(false).catch(e=>console.error('cloud refresh failed', e));
     // 回到前景：把目前有效的訂閱權利推一次。這取代了 Transaction.updates 的事件——
     // 家庭共享、在別台裝置續訂、Ask to Buy 核准，三種都會在這一刻被看到。
     // 靜默失敗是刻意的：使用者沒有按任何東西，跳紅字只會嚇到人（見 subPushEntitlements）。
