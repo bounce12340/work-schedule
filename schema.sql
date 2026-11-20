@@ -408,3 +408,54 @@ CREATE TABLE IF NOT EXISTS mail_log (
 );
 
 CREATE INDEX IF NOT EXISTS idx_mail_log_time ON mail_log(created_at);
+
+-- MCP（讓 AI agent 連進來讀寫排程，src/mcp/）。mcp_tokens 只存雜湊：個人金鑰（kind=key）、
+-- OAuth 的 access／refresh（同一次授權共用 grant_id，撤銷時一起刪）。mcp_activity 是每一筆
+-- agent 修改的紀錄（改前改後只存那一個實體），給「我的帳號」頁列出與一鍵復原，保留 90 天。
+CREATE TABLE IF NOT EXISTS mcp_tokens (
+  id           TEXT PRIMARY KEY,
+  user_id      TEXT NOT NULL,
+  kind         TEXT NOT NULL,
+  token_hash   TEXT NOT NULL UNIQUE,
+  name         TEXT,
+  client_id    TEXT,
+  grant_id     TEXT,
+  created_at   INTEGER NOT NULL,
+  expires_at   INTEGER,
+  last_used_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_mcp_tokens_user ON mcp_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_mcp_tokens_grant ON mcp_tokens(grant_id);
+
+CREATE TABLE IF NOT EXISTS oauth_clients (
+  client_id     TEXT PRIMARY KEY,
+  client_name   TEXT NOT NULL,
+  redirect_uris TEXT NOT NULL,
+  created_at    INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS oauth_codes (
+  code_hash      TEXT PRIMARY KEY,
+  client_id      TEXT NOT NULL,
+  user_id        TEXT NOT NULL,
+  redirect_uri   TEXT NOT NULL,
+  code_challenge TEXT NOT NULL,
+  expires_at     INTEGER NOT NULL,
+  used_at        INTEGER,
+  created_at     INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS mcp_activity (
+  id          TEXT PRIMARY KEY,
+  user_id     TEXT NOT NULL,
+  actor       TEXT NOT NULL,
+  tool        TEXT NOT NULL,
+  entity_kind TEXT NOT NULL,
+  entity_id   TEXT NOT NULL,
+  summary     TEXT NOT NULL,
+  before      TEXT,
+  after       TEXT,
+  created_at  INTEGER NOT NULL,
+  undone_at   INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_mcp_activity_user ON mcp_activity(user_id, created_at);

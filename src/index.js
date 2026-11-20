@@ -10,6 +10,12 @@ import { handleReminderStatus, handleReminderEnable, handleReminderPut, handleUn
 import { handleForgotPassword, handleResetPassword as handleSelfResetPassword } from './handlers/password-reset.js';
 import { handleAppCode, handleAppRegister, handleAppLogin, handleAppOAuth, handleDeleteAccount } from './handlers/appauth.js';
 import { handlePlanApple, handleAppleNotification } from './handlers/planapple.js';
+import { handleMcp, mcpPreflight, handleActivityList, handleActivityUndo } from './mcp/server.js';
+import {
+  handleProtectedResourceMetadata, handleAuthServerMetadata, handleRegister as handleOAuthRegister,
+  handleAuthorizeRedirect, handleAuthorizeInfo, handleAuthorizeDecision, handleToken,
+  handleListConnections, handleCreateKey, handleRevokeConnection,
+} from './mcp/auth.js';
 import { handlePaddleConfig, handlePaddleCheckout, handlePaddlePortal, handlePaddleWebhook } from './handlers/planpaddle.js';
 import { handlePushRegister, handlePushUnregister, handlePushTest, sendPushes } from './handlers/push.js';
 import { getSessionUser } from './session.js';
@@ -119,6 +125,30 @@ async function route(request, env, ctx) {
       return request.method === 'GET' ? handleIcsFeed(env, m[1]) : methodNotAllowed();
     }
   }
+
+  // MCP 與它的 OAuth：agent 從別的網域直接打進來，憑證是 Bearer token（不是 cookie），
+  // 所以這幾條自己回 `Access-Control-Allow-Origin: *`，不走上面只放行 app 的那一套 CORS。
+  if (path === '/mcp') return handleMcp(request, env);
+  if (path === '/.well-known/oauth-protected-resource' || path === '/.well-known/oauth-protected-resource/mcp') {
+    return request.method === 'OPTIONS' ? mcpPreflight() : handleProtectedResourceMetadata(request);
+  }
+  if (path === '/.well-known/oauth-authorization-server' || path === '/.well-known/oauth-authorization-server/mcp') {
+    return request.method === 'OPTIONS' ? mcpPreflight() : handleAuthServerMetadata(request);
+  }
+  if (path === '/oauth/register') {
+    if (request.method === 'OPTIONS') return mcpPreflight();
+    return request.method === 'POST' ? handleOAuthRegister(request, env) : methodNotAllowed();
+  }
+  if (path === '/oauth/token') {
+    if (request.method === 'OPTIONS') return mcpPreflight();
+    return request.method === 'POST' ? handleToken(request, env) : methodNotAllowed();
+  }
+  if (path === '/oauth/authorize') {
+    return request.method === 'GET' ? handleAuthorizeRedirect(request, env) : methodNotAllowed();
+  }
+  // 其餘的 /.well-known/* 與 /oauth/* 也經過 Worker（run_worker_first），但不能落到下面
+  // 要登入的 servePage：那會把 agent 的探測請求 302 到登入頁，看起來像「伺服器壞了」
+  if (path.startsWith('/.well-known/') || path.startsWith('/oauth/')) return json({ error: 'Not Found' }, 404);
 
   if (!path.startsWith('/api/')) return servePage(request, env, url, path);
 
@@ -253,6 +283,31 @@ async function route(request, env, ctx) {
   }
   if (path === '/api/plan/paddle/portal') {
     return request.method === 'POST' ? handlePaddlePortal(request, env, user) : methodNotAllowed();
+  }
+
+  // MCP：授權頁（要 session）與「我的帳號」頁的金鑰／連線／修改紀錄
+  if (path === '/api/oauth/info') {
+    return request.method === 'POST' ? handleAuthorizeInfo(request, env, user) : methodNotAllowed();
+  }
+  if (path === '/api/oauth/decision') {
+    return request.method === 'POST' ? handleAuthorizeDecision(request, env, user) : methodNotAllowed();
+  }
+  if (path === '/api/mcp/connections') {
+    return request.method === 'GET' ? handleListConnections(env, user) : methodNotAllowed();
+  }
+  if (path === '/api/mcp/keys') {
+    return request.method === 'POST' ? handleCreateKey(request, env, user) : methodNotAllowed();
+  }
+  {
+    const m = path.match(/^\/api\/mcp\/connections\/([^/]+)$/);
+    if (m) return request.method === 'DELETE' ? handleRevokeConnection(env, user, decodeURIComponent(m[1])) : methodNotAllowed();
+  }
+  if (path === '/api/mcp/activity') {
+    return request.method === 'GET' ? handleActivityList(env, user) : methodNotAllowed();
+  }
+  {
+    const m = path.match(/^\/api\/mcp\/activity\/([^/]+)\/undo$/);
+    if (m) return request.method === 'POST' ? handleActivityUndo(env, user, decodeURIComponent(m[1])) : methodNotAllowed();
   }
 
   if (path === '/api/ics/status') {

@@ -17,7 +17,8 @@ import { generateToken } from '../crypto.js';
  * 使用者一段時間沒開 app 也不影響正確性。
  */
 
-const MAX_DIGEST_BYTES = 200_000;
+// 2026-11 每一筆多帶項目 id 與 occKey（給 MCP），約多 40 位元組 × 2000 筆，上限跟著放寬
+const MAX_DIGEST_BYTES = 400_000;
 // 一次信裡最多列這麼多筆，其餘用「還有 N 項」帶過——把兩百行倒進信裡沒有人會讀
 const MAX_LISTED = 20;
 
@@ -191,7 +192,11 @@ export async function handleReminderPut(request, env, user) {
     // 這裡自己比對。理由同「不在 Worker 展開循環規則」：那個判斷有一堆細節
     // （到期日、跨多天以結束日算、當天 23:59:59 的界線），兩套實作必然分歧，
     // 而分歧的症狀是「畫面說連續 12 天、信說斷了」——比沒有這封信更糟。
-    ot: r?.ot ? 1 : 0
+    ot: r?.ot ? 1 : 0,
+    // 項目 id 與 occKey：給 MCP 的 get_schedule／set_done 用（agent 要勾完成得知道
+    // 是「哪一個項目的哪一次」）。舊版前端不帶，就留 null
+    i: typeof r?.i === 'string' ? r.i.slice(0, 64) : null,
+    o: typeof r?.o === 'string' ? r.o.slice(0, 20) : null
   })).filter(r => /^\d{4}-\d{2}-\d{2}$/.test(r.d));
 
   // 連續天數同理：前端算好推上來。它是「最後一次同步當下」的值，而信裡印的就是

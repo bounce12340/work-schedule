@@ -137,7 +137,7 @@ function makeServer(loggedIn, plan = 'pro') {
   const reminderPuts = [];
   const reminderPosts = [];
   const unsubPosts = [];
-  for (const f of ['index.html', 'login.html', 'reset.html', 'admin.html', 'privacy.html', 'terms.html', 'support.html', 'unsub.html', 'subscribe.html']) {
+  for (const f of ['index.html', 'login.html', 'reset.html', 'admin.html', 'privacy.html', 'terms.html', 'support.html', 'unsub.html', 'subscribe.html', 'authorize.html']) {
     assets.set('/' + f, readFileSync(PUBLIC + f, 'utf8'));
   }
   // sw.js 一定要真的供應。擋掉它會讓註冊失敗噴一行 console.error，而把
@@ -193,6 +193,13 @@ function makeServer(loggedIn, plan = 'pro') {
         }],
       });
       if (url.pathname === '/api/activity') return send(200, { activity: [] });
+      // MCP（連接 AI agent）：給一筆連線與一筆可復原的修改，讓「Pro 看得到清單與復原鈕」測得到東西
+      if (url.pathname === '/api/mcp/connections') return send(200, { connections: [
+        { id: 'c1', kind: 'oauth', name: 'Smoke Agent', createdAt: 1, lastUsedAt: null },
+      ] });
+      if (url.pathname === '/api/mcp/activity') return send(200, { changes: [
+        { changeId: 'a1', tool: 'create_item', summary: '新增項目「agent 加的」', by: 'Smoke Agent', at: '2026-11-20T00:00:00Z', undone: false },
+      ] });
       if (url.pathname === '/api/reminder') {
         if (req.method === 'PUT') {
           let raw = '';
@@ -505,6 +512,25 @@ async function walk(page, log, plan = 'pro', server = null) {
   // 只存在於 DOM 裡的按鈕沒有人按得到。
   if (!(await page.locator('#viewAccount #btnLogout').isVisible())) {
     throw new Error('「登出」不在我的帳號頁上（或看不見）');
+  }
+  // 連接 AI agent（MCP）：只給 Pro。Pro 看得到網址、連線清單與「復原」；免費版只看到一行說明。
+  // 量的是「看得見」不是「在 DOM 裡」——同一個元素兩輪都在，差別只在顯示。
+  {
+    await need('#viewAccount #acctMcp', '連接 AI agent 區');
+    const proBox = await page.locator('#acctMcpPro').isVisible();
+    if (plan === 'pro') {
+      if (!proBox) throw new Error('Pro 看不到「連接 AI agent」的設定');
+      const url = (await page.locator('#acctMcpUrl').textContent()).trim();
+      if (!url.endsWith('/mcp')) throw new Error('MCP 網址不對：' + url);
+      await page.waitForFunction(() => /Smoke Agent/.test(document.getElementById('acctMcpConnList').textContent), null, { timeout: 3000 })
+        .catch(() => { throw new Error('連線清單沒有畫出假後端給的那一筆'); });
+      await page.waitForFunction(() => !!document.querySelector('#acctMcpActivity button'), null, { timeout: 3000 })
+        .catch(() => { throw new Error('agent 的修改紀錄沒有「復原」按鈕'); });
+    } else {
+      if (proBox) throw new Error('免費版也看得到「連接 AI agent」的設定');
+      const intro = (await page.locator('#acctMcpIntro').textContent()).trim();
+      if (!intro) throw new Error('免費版的「連接 AI agent」沒有說明');
+    }
   }
   // 連續斷掉的信（F2）：與逾期提醒各自一顆按鈕
   await need('#btnStreakMail', '櫻花樹的信開關');

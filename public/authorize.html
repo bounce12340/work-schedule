@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light dark">
+<meta name="robots" content="noindex, nofollow">
+<script>
+  // 與 index.html／login.html 共用同一個偏好鍵，暗色使用者不會被閃一下。
+  (function(){
+    var pref = null;
+    try{ pref = localStorage.getItem('workSchedule.v1.theme'); }catch(e){}
+    var dark = (pref === 'dark') || (pref !== 'light' &&
+      window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  })();
+</script>
+<title>連接 AI agent — 工作排程確認系統</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" media="print" onload="this.media='all';this.onload=null"
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700;900&family=Noto+Serif+TC:wght@400;600&display=swap">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700;900&family=Noto+Serif+TC:wght@400;600&display=swap"></noscript>
+<style>
+  /* 與 login.html／subscribe.html 同一組變數與元件樣式。 */
+  :root{
+    --bg:#F6F4EE; --panel:#FFFFFF; --panel-2:#F1EEE5;
+    --hairline:#E4E0D3; --text:#2A2A26; --text-muted:#5F5E58; --text-dim:#6B6A63;
+    --amber:#C9822E; --amber-dim:rgba(201,130,46,0.12);
+    --amber-ink:#8A5716; --accent-fill:#A4651C;
+    --disabled-fill:#A2A099;
+    --red:#C74B43; --red-dim:rgba(199,75,67,0.10);
+    --on-accent:#FFFDF9;
+    --mono:'JetBrains Mono',monospace; --sans:'Noto Sans TC','Inter',sans-serif;
+  }
+  :root[data-theme="dark"]{
+    --bg:#1A1917; --panel:#232220; --panel-2:#2B2A27;
+    --hairline:#3A3833;
+    --text:#E8E5DC; --text-muted:#A8A49A; --text-dim:#9A968C;
+    --on-accent:#17160F;
+    --amber:#E3A052; --amber-dim:rgba(227,160,82,0.16);
+    --amber-ink:var(--amber); --accent-fill:var(--amber); --disabled-fill:#7A766D;
+    --red:#E8756B; --red-dim:rgba(232,117,107,0.14);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;min-height:100vh;background:var(--bg);color:var(--text);font-family:var(--sans);
+       display:flex;align-items:center;justify-content:center;padding:24px;}
+  .card{width:100%;max-width:420px;background:var(--panel);border:1px solid var(--hairline);
+        border-radius:14px;padding:28px 26px;box-shadow:0 1px 3px rgba(0,0,0,.04);}
+  h1{margin:0 0 8px;font-size:21px;font-weight:700;}
+  .lede{margin:0 0 16px;font-size:13.5px;line-height:1.7;color:var(--text-muted);}
+  .who{font-weight:700;color:var(--text);}
+  ul{margin:0 0 16px;padding-left:20px;font-size:13px;line-height:1.8;color:var(--text-muted);}
+  .row{display:flex;gap:10px;}
+  button{flex:1;padding:12px;border-radius:9px;font-family:var(--sans);font-size:14.5px;font-weight:700;cursor:pointer;}
+  button.allow{border:none;background:var(--accent-fill);color:var(--on-accent);}
+  button.deny{border:1px solid var(--hairline);background:var(--panel-2);color:var(--text);}
+  button:disabled{background:var(--disabled-fill);cursor:not-allowed;}
+  .msg{margin-top:16px;padding:11px 13px;border-radius:8px;font-size:13px;line-height:1.65;display:none;
+       background:var(--red-dim);border:1px solid rgba(199,75,67,.3);color:var(--red);}
+  .msg.show{display:block;}
+  .foot{margin-top:20px;text-align:center;font-size:12px;color:var(--text-dim);line-height:1.8;}
+  .foot a{color:var(--amber-ink);text-decoration:none;}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>連接 AI agent</h1>
+  <p class="lede" id="lede">讀取中…</p>
+  <ul id="scopes" hidden>
+    <li>讀取你的項目、大項目、甘特專案與排程</li>
+    <li>新增與修改項目、勾選完成、刪除項目</li>
+    <li>每一筆修改都會記錄在「我的帳號」裡，可以一鍵復原</li>
+    <li>隨時可以在「我的帳號 › 連接 AI agent」撤銷</li>
+  </ul>
+  <div class="row" id="actions" hidden>
+    <button class="deny" type="button" id="btnDeny">拒絕</button>
+    <button class="allow" type="button" id="btnAllow">允許</button>
+  </div>
+  <div class="row" id="loginRow" hidden>
+    <button class="allow" type="button" id="btnLogin">先登入</button>
+  </div>
+  <div class="msg" id="msg" role="alert"></div>
+  <div class="foot">
+    <a href="/">回到工作排程</a> · <a href="/privacy.html" target="_blank" rel="noopener">隱私權政策</a>
+  </div>
+</div>
+<script>
+(function(){
+  var q = new URLSearchParams(location.search);
+  var req = {
+    client_id: q.get('client_id') || '',
+    redirect_uri: q.get('redirect_uri') || '',
+    code_challenge: q.get('code_challenge') || '',
+    state: q.get('state') || ''
+  };
+  var lede = document.getElementById('lede');
+  var msg = document.getElementById('msg');
+  function say(t){ msg.textContent = t; msg.className = 'msg show'; }
+  function post(path, body){
+    return fetch(path, { method:'POST', credentials:'same-origin', headers:{ 'content-type':'application/json' }, body: JSON.stringify(body) });
+  }
+
+  document.getElementById('btnLogin').onclick = function(){
+    try{ sessionStorage.setItem('ws.oauthReturn', location.href); }catch(e){}
+    location.href = '/login';
+  };
+
+  function decide(approve){
+    document.getElementById('btnAllow').disabled = true;
+    document.getElementById('btnDeny').disabled = true;
+    post('/api/oauth/decision', Object.assign({ approve: approve }, req))
+      .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, d: d }; }); })
+      .then(function(x){
+        // 轉去哪裡由伺服器決定（它驗過 redirect_uri）；這裡只照著走
+        if(x.ok && x.d.redirect){ location.href = x.d.redirect; return; }
+        say(x.d.error || '授權失敗，請回到 agent 重新連接一次。');
+        document.getElementById('btnAllow').disabled = false;
+        document.getElementById('btnDeny').disabled = false;
+      })
+      .catch(function(e){ console.error('decision failed', e); say('連線失敗，請稍後再試。'); });
+  }
+  document.getElementById('btnAllow').onclick = function(){ decide(true); };
+  document.getElementById('btnDeny').onclick = function(){ decide(false); };
+
+  post('/api/oauth/info', req).then(function(r){
+    if(r.status === 401){
+      lede.textContent = '要先登入你的工作排程帳號，才能把它連接到 AI agent。';
+      document.getElementById('loginRow').hidden = false;
+      return;
+    }
+    return r.json().then(function(d){
+      if(!r.ok){ lede.textContent = d.error || '這個授權請求無效。請回到 agent 重新連接一次。'; return; }
+      // client 名稱是對方註冊時自己填的，一律 textContent
+      lede.textContent = '';
+      var who = document.createElement('span'); who.className = 'who'; who.textContent = d.clientName;
+      var acct = document.createElement('span'); acct.className = 'who'; acct.textContent = d.email;
+      lede.append(who, document.createTextNode(' 想要連接你的工作排程（'), acct, document.createTextNode('）。允許之後，它可以：'));
+      document.getElementById('scopes').hidden = false;
+      if(!d.pro){
+        say('連接 AI agent 是 Pro 功能，這個帳號目前不是 Pro。可以在「我的帳號 › 方案」升級。');
+        document.getElementById('actions').hidden = false;
+        document.getElementById('btnAllow').disabled = true;
+        return;
+      }
+      document.getElementById('actions').hidden = false;
+    });
+  }).catch(function(e){ console.error('oauth info failed', e); lede.textContent = '連線失敗，請稍後再試。'; });
+})();
+</script>
+</body>
+</html>
