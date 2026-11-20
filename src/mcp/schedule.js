@@ -166,20 +166,32 @@ export function listItems(state, { majorProjectId, type, query, limit } = {}) {
  * digest（回看一年、前瞻三個月），**不在 Worker 重寫一份**——同 ICS 與逾期提醒的理由：
  * 兩套必然分歧，而「agent 說你沒有逾期、畫面說有」比沒有這個工具更糟。
  */
-export function scheduleFromDigest(digest, { from, to, includeDone }, todayYmd) {
+export function scheduleFromDigest(digest, { from, to, includeDone }, todayYmd, state = null) {
   if (!isYmd(from) || !isYmd(to)) fail('from 與 to 要是 YYYY-MM-DD');
   if (to < from) fail('to 不可以早於 from');
   const span = (Date.parse(to) - Date.parse(from)) / 86400000;
   if (span > 92) fail('一次最多查 92 天');
-  const rows = (Array.isArray(digest) ? digest : [])
+  // **完成狀態以當下的 state 為準，不以 digest 為準。** digest 是前端上一次打開時算好的，
+  // agent（或另一台裝置）之後勾的不會在裡面——不疊上去的話，agent 勾完再查一次會看到
+  // 「沒勾到」，然後再勾一次或回報失敗。日期與循環展開仍然只能信 digest（引擎只在前端）。
+  const byId = new Map(((state && state.items) || []).map(it => [it.id, it]));
+  const live = r => {
+    if (!state || !r.i) return { keep: true, done: !!r.done };      // 舊格式的 digest：沒有 id 可以對
+    const it = byId.get(r.i);
+    if (!it) return { keep: false };                                 // 算完之後被刪掉了
+    if (r.o && it.skipped && it.skipped[r.o]) return { keep: false }; // 算完之後被略過了
+    const done = it.recurrence ? !!(it.doneMap && it.doneMap[r.o]) : !!it.done;
+    return { keep: true, done };
+  };
+  return (Array.isArray(digest) ? digest : [])
     .filter(r => r && isYmd(r.d) && r.d >= from && r.d <= to)
-    .filter(r => includeDone || !r.done)
-    .map(r => ({
+    .map(r => ({ r, l: live(r) }))
+    .filter(x => x.l.keep && (includeDone || !x.l.done))
+    .map(({ r, l }) => ({
       itemId: r.i || null, occurrenceKey: r.o || null, title: r.t, type: r.k, date: r.d,
-      done: !!r.done, overdue: !r.done && r.d < todayYmd,
+      done: l.done, overdue: !l.done && r.d < todayYmd,
     }))
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-  return rows;
 }
 
 // ------------------------------------------------------------ 寫

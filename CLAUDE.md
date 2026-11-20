@@ -101,7 +101,7 @@ npm run db:init:local  # 對本機 miniflare D1 建表（--local 的資料庫與
 npm run db:init        # 對遠端 D1 建表
 npm run admin:reset    # 破窗鎚：直接改密碼（見〈破窗鎚〉）
 npm run deploy         # 部署
-npm test               # 全部測試檔（node:test，不需安裝任何東西；目前 530 個測試）
+npm test               # 全部測試檔（node:test，不需安裝任何東西；目前 531 個測試）
 ```
 
 跑單一測試檔或單一測試（`npm test` 沒有轉發參數的管道，直接用 node）：
@@ -977,6 +977,7 @@ cd mobile/ios/App && xcodebuild -scheme App -sdk iphonesimulator -configuration 
 | Pro 在**每一次** `tools/call` 檢查 | 訂閱到期後手上還有 refresh token 的 agent 不該繼續寫 |
 | redirect_uri 對不上**不轉址**，直接 400；PKCE S256 必填；code 單次 | open redirect 與授權碼重放 |
 | CORS `*` 只在 `/mcp`、`/oauth/*`、`/.well-known/*`，不開 credentials | 只認 Bearer |
+| `get_schedule` 的**完成狀態以當下的資料為準**，日期才信 digest；digest 之後刪掉／略過的不列；digest 比資料舊時回 `note` | digest 是前端上次打開時算的。不疊上去的話，agent 勾完再查一次會看到「沒勾到」，然後重勾或回報失敗（上線後實測抓到的） |
 | 前端 `cloudRefresh()` 在回到前景（30 秒節流）與復原後拉一次 | agent 改的是雲端，開著的分頁要跟上，否則下一次推送撞 409 |
 
 ## 推播（子專案 B，`src/apns.js` + `src/handlers/push.js`）
