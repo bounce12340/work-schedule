@@ -269,7 +269,10 @@ test('寫入撞到別的裝置剛好寫進去：重讀重算，兩邊的修改�
 
 test('get_schedule 讀的是前端推上來的 digest，逾期照日期判斷', async () => {
   const env = makeEnv(); const u = proUser(env, 'u1', 'a@x.test');
-  seedState(env, 'u1', baseState(), 1000);
+  seedState(env, 'u1', baseState({ items: [
+    { id: 'item_a', title: '早就該交', type: 'assignment', date: '2020-01-01', recurrence: null, done: false, doneMap: {}, skipped: {} },
+    { id: 'item_b', title: '做完了', type: 'work', date: '2020-01-02', recurrence: { freq: 'monthly', day: 2 }, done: false, doneMap: { '2020-01': true }, skipped: {} },
+  ] }), 1000);
   env.DB.prepare('INSERT INTO reminder_feed (user_id, enabled, digest, updated_at) VALUES (?, 1, ?, 0)').bind('u1', JSON.stringify([
     { t: '早就該交', d: '2020-01-01', k: 'assignment', done: 0, ot: 0, i: 'item_a', o: 'single' },
     { t: '做完了', d: '2020-01-02', k: 'work', done: 1, ot: 1, i: 'item_b', o: '2020-01' },
@@ -280,6 +283,40 @@ test('get_schedule 讀的是前端推上來的 digest，逾期照日期判斷', 
   const all = await call(env, t, 'get_schedule', { from: '2020-01-01', to: '2020-01-31', includeDone: true });
   assert.equal(all.data.occurrences.length, 2);
   assert.equal((await call(env, t, 'get_schedule', { from: '2020-01-01', to: '2021-01-01' })).isError, true, '超過 92 天要擋');
+});
+
+test('get_schedule 的完成狀態以當下的資料為準：agent 勾完再查要看得到', async () => {
+  const env = makeEnv(); const u = proUser(env, 'u1', 'a@x.test');
+  const st = baseState({ items: [
+    { id: 'item_m', title: '月會', type: 'meeting', date: '2030-01-05', recurrence: { freq: 'monthly', day: 5 }, done: false, doneMap: {}, skipped: {} },
+    { id: 'item_s', title: '單次', type: 'work', date: '2030-01-10', recurrence: null, done: false, doneMap: {}, skipped: {} },
+    { id: 'item_k', title: '會被略過', type: 'work', date: '2030-01-03', recurrence: { freq: 'monthly', day: 3 }, done: false, doneMap: {}, skipped: {} },
+  ] });
+  seedState(env, 'u1', st, 1000);
+  // digest 比 state 舊（updated_at 500 < 1000）：裡面還有一個已經被刪掉的項目
+  env.DB.prepare('INSERT INTO reminder_feed (user_id, enabled, digest, updated_at) VALUES (?, 1, ?, 500)').bind('u1', JSON.stringify([
+    { t: '月會', d: '2030-01-05', k: 'meeting', done: 0, i: 'item_m', o: '2030-01' },
+    { t: '月會', d: '2030-02-05', k: 'meeting', done: 0, i: 'item_m', o: '2030-02' },
+    { t: '單次', d: '2030-01-10', k: 'work', done: 0, i: 'item_s', o: 'single' },
+    { t: '會被略過', d: '2030-01-03', k: 'work', done: 0, i: 'item_k', o: '2030-01' },
+    { t: '已刪除', d: '2030-01-04', k: 'work', done: 0, i: 'item_gone', o: 'single' },
+  ])).run();
+  const t = await keyFor(env, u);
+  const q = { from: '2030-01-01', to: '2030-02-28', includeDone: true };
+  assert.equal((await call(env, t, 'set_done', { itemId: 'item_m', occurrenceKey: '2030-01', done: true })).isError, false);
+  assert.equal((await call(env, t, 'set_done', { itemId: 'item_s', done: true })).isError, false);
+  const s2 = readState(env, 'u1').state; s2.items.find(i => i.id === 'item_k').skipped = { '2030-01': true };
+  env.DB.prepare('UPDATE user_state SET state = ? WHERE user_id = ?').bind(JSON.stringify(s2), 'u1').run();
+  const r = await call(env, t, 'get_schedule', q);
+  const by = Object.fromEntries(r.data.occurrences.map(o => [o.title + o.date, o.done]));
+  assert.equal(by['月會2030-01-05'], true, '剛勾的那一次要是完成');
+  assert.equal(by['月會2030-02-05'], false, '同一個項目的另一次不受影響');
+  assert.equal(by['單次2030-01-10'], true);
+  assert.ok(!('已刪除2030-01-04' in by), '被刪掉的項目不該再出現');
+  assert.ok(!('會被略過2030-01-03' in by), '被略過的那一次不該再出現');
+  assert.ok(r.data.note, 'digest 比資料舊時要說出來');
+  const open = await call(env, t, 'get_schedule', { from: '2030-01-01', to: '2030-02-28' });
+  assert.deepEqual(open.data.occurrences.map(o => o.date), ['2030-02-05'], '沒勾的只剩下一次月會');
 });
 
 test('甘特任務：有子項目的不准直接改進度', () => {

@@ -29,6 +29,7 @@
 | 決定 | 理由 |
 |---|---|
 | **`get_schedule` 讀的是前端推上來的 `reminder_feed.digest`**，不在 Worker 展開循環 | occurrence 引擎只在 `index.html` 裡。同 ICS、提醒信、AI 小幫手：兩份必然分歧，而「agent 根據錯的日期做事」比沒有 agent 更糟。代價是使用者很久沒開 app 時排程是舊的——`get_overview` 回 `scheduleComputedAt` 讓 agent 看得到多舊 |
+| **`get_schedule` 的完成狀態疊上當下的 state**（日期仍信 digest），digest 之後刪掉或略過的不列 | 上線後實測：agent 勾完再查，digest 還是舊的「沒完成」——它會以為沒勾到。dates 只能等前端重算，所以 digest 比資料舊時回一句 `note` |
 | digest 每一筆多帶 `i`（item id）與 `o`（occKey） | 沒有這兩個，agent 看得到「哪天有什麼」卻勾不了它 |
 | **伺服器建出來的項目要與前端 `normalizeItems` 的輸出逐欄相同** | 欄位集不一致時 `stableStringify` 比出差異，三方合併會把「沒改過」判成「兩邊都改過」，使用者下次打開就跳一個不存在的衝突。測試把伺服器建的項目丟進**真的**前端程式碼比對 |
 | `normalizeRecurrence` 是前端那一份的移植，**測試逐案比對** | 同上 |

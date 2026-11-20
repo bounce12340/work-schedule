@@ -262,11 +262,16 @@ async function callTool(env, ctx, name, args) {
     }
     case 'list_items': return S.listItems((await readState(env, user.id)).state, a);
     case 'get_schedule': {
-      const d = await readDigest(env, user.id);
-      return {
+      const [d, st] = await Promise.all([readDigest(env, user.id), readState(env, user.id)]);
+      const out = {
         computedAt: d.updatedAt ? new Date(d.updatedAt).toISOString() : null,
-        occurrences: S.scheduleFromDigest(d.digest, a, ymdTaipei()),
+        occurrences: S.scheduleFromDigest(d.digest, a, ymdTaipei(), st.state),
       };
+      // 算完之後資料又被改過：完成與刪除已經即時反映，但新增或改日期的要等前端重算
+      if (d.updatedAt && st.updatedAt && st.updatedAt > d.updatedAt) {
+        out.note = '排程是 computedAt 那時算的；之後的完成、刪除已即時反映，但之後新增或改過日期的項目要等使用者下次打開 app 才會出現在這裡（可以用 list_items 看）';
+      }
+      return out;
     }
     case 'list_gantt_projects': return { projects: S.listGantt((await readState(env, user.id)).state) };
     case 'list_recent_changes':
