@@ -167,6 +167,11 @@ jobs:
       - name: 舊備份檔匯得回來
         run: node tools/check-migrate.mjs
 
+      # 三方合併細到任務與欄位之後，「同一個專案的不同任務」不該再跳衝突對話框。
+      # tests/merge.test.mjs 證明得了函式對，證明不了啟動時的衝突分支真的用了它。
+      - name: 兩邊各改一處，合併不跳對話框
+        run: node tools/check-merge.mjs
+
   deploy:
     name: 部署到 Cloudflare
     needs: [check, smoke]

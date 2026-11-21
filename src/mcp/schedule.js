@@ -338,21 +338,50 @@ function locate(s, change) {
 }
 
 /**
- * 把一筆變更倒回去。**只在那個實體現在仍然是 agent 改完的樣子時才倒**——使用者之後
- * 自己又改過的話，倒回去等於在他沒看的時候把他的編輯蓋掉（同〈為什麼前置作業不自動
- * 順延〉）。那種情況回一句說明，讓人自己決定。
+ * 把一筆變更倒回去。**只看「這一筆改了哪幾欄」**，而不是整個實體還是不是改完的樣子：
+ * agent 對同一個任務連寫三次（狀態、預測、進度），整個實體比對會讓前兩筆再也復原不了；
+ * 使用者改了同一個任務的別的欄位，也不該讓這一筆不能復原。
+ *
+ * 規則：
+ *  - 更新（before、after 都有）：算出 before／after 之間變了哪些頂層欄位；那幾欄現在若仍是
+ *    after 的值就只把那幾欄倒回 before（before 沒有這欄就刪掉），其餘欄位保持現狀；
+ *    **任何一個變過的欄位現在已經不是 after 的值**（使用者或後來的寫入又動過）就拒絕——
+ *    倒回去等於在他沒看的時候把他的編輯蓋掉（同〈為什麼前置作業不自動順延〉）。
+ *  - 建立（before 為空）：整個實體比對，現在跟 after 有任何差別就拒絕——使用者在新東西上
+ *    動過任何一欄，刪掉它都會連他的修改一起丟。
+ *  - 刪除（after 為空）：放回去；同一個 id 現在已經有東西就拒絕。
+ *  - 實體現在不見了（更新的情況）：拒絕。
  */
 export function revertChange(state, change) {
   const s = ensureState(clone(state));
   const { list, id } = locate(s, change);
   const idx = list.findIndex(x => x.id === id);
   const current = idx >= 0 ? list[idx] : null;
-  const expected = change.after;
-  if (stableStringify(current) !== stableStringify(expected)) {
-    fail('這一筆之後又被改過了，自動復原會蓋掉後來的修改，所以沒有動它');
+  const { before, after } = change;
+
+  if (before == null) {                                  // 建立 → 刪掉
+    if (stableStringify(current) !== stableStringify(after)) {
+      fail('這一筆之後又被改過了，自動復原會蓋掉後來的修改，所以沒有動它');
+    }
+    list.splice(idx, 1);
+    return s;
   }
-  if (change.before == null) list.splice(idx, 1);
-  else if (idx >= 0) list[idx] = clone(change.before);
-  else list.push(clone(change.before));
+  if (after == null) {                                   // 刪除 → 放回去
+    if (current) fail('同一個編號現在已經有東西了，自動復原會蓋掉它，所以沒有動它');
+    list.push(clone(before));
+    return s;
+  }
+  if (!current) fail('這一筆改的東西現在已經不在了，沒有東西可以復原');
+  const changed = [...new Set([...Object.keys(before), ...Object.keys(after)])]
+    .filter(k => stableStringify(before[k]) !== stableStringify(after[k]));
+  for (const k of changed) {
+    if (stableStringify(current[k]) !== stableStringify(after[k])) {
+      fail(`「${k}」這一欄之後又被改過了，自動復原會蓋掉後來的修改，所以沒有動它`);
+    }
+  }
+  for (const k of changed) {
+    if (k in before) current[k] = clone(before[k]);
+    else delete current[k];
+  }
   return s;
 }

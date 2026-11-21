@@ -230,6 +230,172 @@ test('使用者後來又改過的：復原不准蓋掉它', async () => {
   assert.equal(readState(env, 'u1').state.items[0].title, '我改過了');
 });
 
+// 復原細到欄位（第零批 13）
+function userEdit(env, fn) {
+  const cur = readState(env, 'u1');
+  fn(cur.state);
+  env.DB.prepare('UPDATE user_state SET state = ? WHERE user_id = ?').bind(JSON.stringify(cur.state), 'u1').run();
+}
+const taskOf = env => readState(env, 'u1').state.ganttProjects[0].tasks[0];
+
+test('同一個任務連寫三次（名稱、結束日、進度）：三筆可以用任何順序各自復原', async () => {
+  for (const order of [[0, 1, 2], [2, 1, 0], [1, 0, 2], [1, 2, 0]]) {
+    const env = makeEnv(); const u = proUser(env, 'u1', 'a@x.test');
+    seedState(env, 'u1', baseState(), 1000);
+    const t = await keyFor(env, u);
+    const ids = [];
+    ids.push((await call(env, t, 'update_gantt_task', { projectId: 'gp_1', taskId: 'task_1', name: '新名字' })).data.changeId);
+    ids.push((await call(env, t, 'update_gantt_task', { projectId: 'gp_1', taskId: 'task_1', end: '2026-02-15' })).data.changeId);
+    ids.push((await call(env, t, 'update_gantt_task', { projectId: 'gp_1', taskId: 'task_1', progress: 60 })).data.changeId);
+    assert.ok(ids.every(Boolean));
+    const undone = new Set();
+    for (const i of order) {
+      const r = await call(env, t, 'undo_change', { changeId: ids[i] });
+      assert.equal(r.isError, false, `順序 ${order} 第 ${i} 筆：` + JSON.stringify(r.raw));
+      undone.add(i);
+      const cur = taskOf(env);
+      assert.equal(cur.name, undone.has(0) ? '設計' : '新名字');
+      assert.equal(cur.end, undone.has(1) ? '2026-01-31' : '2026-02-15');
+      assert.equal(cur.progress, undone.has(2) ? 10 : 60);
+    }
+  }
+});
+
+test('agent 改了 X、使用者改了 Y：復原 X 成功，Y 保留使用者的值', async () => {
+  const env = makeEnv(); const u = proUser(env, 'u1', 'a@x.test');
+  seedState(env, 'u1', baseState(), 1000);
+  const t = await keyFor(env, u);
+  const c = await call(env, t, 'update_gantt_task', { projectId: 'gp_1', taskId: 'task_1', name: 'agent 改的名字' });
+  userEdit(env, st => { st.ganttProjects[0].tasks[0].end = '2026-03-31'; });
+  const r = await call(env, t, 'undo_change', { changeId: c.data.changeId });
+  assert.equal(r.isError, false, JSON.stringify(r.raw));
+  assert.equal(taskOf(env).name, '設計');
+  assert.equal(taskOf(env).end, '2026-03-31', '使用者改的另一欄原樣');
+});
+
+test('使用者動過同一欄：復原拒絕，而且什麼都不動', async () => {
+  const env = makeEnv(); const u = proUser(env, 'u1', 'a@x.test');
+  seedState(env, 'u1', baseState(), 1000);
+  const t = await keyFor(env, u);
+  const c = await call(env, t, 'update_gantt_task', { projectId: 'gp_1', taskId: 'task_1', name: 'agent 改的名字' });
+  userEdit(env, st => { st.ganttProjects[0].tasks[0].name = '我自己改的'; });
+  const r = await call(env, t, 'undo_change', { changeId: c.data.changeId });
+  assert.equal(r.isError, true);
+  assert.equal(taskOf(env).name, '我自己改的');
+});
+
+test('復原：實體已經不見了（更新的情況）→ 拒絕；刪除的復原遇到同編號已存在 → 拒絕', async () => {
+  const env = makeEnv(); const u = proUser(env, 'u1', 'a@x.test');
+  const { state } = S.createItem(baseState(), { title: '重要', date: '2026-02-01' });
+  const id = state.items[0].id;
+  seedState(env, 'u1', state, 1000);
+  const t = await keyFor(env, u);
+  const upd = await call(env, t, 'update_item', { itemId: id, title: '改過' });
+  userEdit(env, st => { st.items = []; });
+  assert.equal((await call(env, t, 'undo_change', { changeId: upd.data.changeId })).isError, true);
+  // 刪除 → 使用者自己又建了同編號的 → 復原拒絕
+  const env2 = makeEnv(); const u2 = proUser(env2, 'u1', 'a@x.test');
+  seedState(env2, 'u1', state, 1000);
+  const t2 = await keyFor(env2, u2);
+  const del = await call(env2, t2, 'delete_item', { itemId: id });
+  userEdit(env2, st => { st.items.push({ ...state.items[0], title: '使用者重建的' }); });
+  assert.equal((await call(env2, t2, 'undo_change', { changeId: del.data.changeId })).isError, true);
+  assert.equal(readState(env2, 'u1').state.items[0].title, '使用者重建的');
+});
+
+// 寫入防重複（第零批 0-2）
+test('同一個 requestId 送兩次：第二次回第一次的結果，資料只動一次、紀錄只有一筆', async () => {
+  const env = makeEnv(); const u = proUser(env, 'u1', 'a@x.test');
+  seedState(env, 'u1', baseState(), 1000);
+  const t = await keyFor(env, u);
+  const args = { title: '送件', date: '2026-02-01', requestId: 'req-abc' };
+  const first = await call(env, t, 'create_item', args);
+  const second = await call(env, t, 'create_item', args);
+  assert.equal(first.isError, false); assert.equal(second.isError, false);
+  assert.deepEqual(second.data, first.data, '第二次原樣回上一次的結果');
+  assert.equal(readState(env, 'u1').state.items.length, 1);
+  assert.equal(env.DB.prepare('SELECT COUNT(*) AS n FROM mcp_activity').first().n, 1);
+});
+
+test('同一個 requestId 拿去做不同的事：擋下來，不做', async () => {
+  const env = makeEnv(); const u = proUser(env, 'u1', 'a@x.test');
+  seedState(env, 'u1', baseState(), 1000);
+  const t = await keyFor(env, u);
+  await call(env, t, 'create_item', { title: 'A', date: '2026-02-01', requestId: 'same' });
+  const r = await call(env, t, 'create_item', { title: 'B', date: '2026-02-02', requestId: 'same' });
+  assert.equal(r.isError, true);
+  assert.match(r.data.error, /requestId/);
+  assert.equal(readState(env, 'u1').state.items.length, 1);
+  const other = await call(env, t, 'delete_item', { itemId: 'x', requestId: 'same' });
+  assert.equal(other.isError, true);
+});
+
+test('第一次失敗：位子還回去，同一個 requestId 重試可以成功', async () => {
+  const env = makeEnv(); const u = proUser(env, 'u1', 'a@x.test');
+  seedState(env, 'u1', baseState(), 1000);
+  const t = await keyFor(env, u);
+  const bad = await call(env, t, 'create_item', { title: '', date: '2026-02-01', requestId: 'retry-me' });
+  assert.equal(bad.isError, true);
+  assert.equal(env.DB.prepare('SELECT COUNT(*) AS n FROM mcp_requests').first().n, 0, '失敗不佔位子');
+  const ok = await call(env, t, 'create_item', { title: '補上', date: '2026-02-01', requestId: 'retry-me' });
+  assert.equal(ok.isError, false, JSON.stringify(ok.raw));
+  assert.equal(readState(env, 'u1').state.items.length, 1);
+});
+
+test('還在處理中（result 是 NULL）：回「稍後再試」，不重做', async () => {
+  const env = makeEnv(); const u = proUser(env, 'u1', 'a@x.test');
+  seedState(env, 'u1', baseState(), 1000);
+  const t = await keyFor(env, u);
+  const args = { title: '送件', date: '2026-02-01', requestId: 'busy' };
+  await call(env, t, 'create_item', args);            // 第一次正常做完
+  // 模擬「第一次剛搶到位子、還沒寫結果」：把結果清成 NULL
+  env.DB.prepare('UPDATE mcp_requests SET result = NULL').run();
+  const r = await call(env, t, 'create_item', args);
+  assert.equal(r.isError, true);
+  assert.match(r.data.error, /處理中/);
+  assert.equal(readState(env, 'u1').state.items.length, 1);
+});
+
+test('沒帶 requestId：行為與以前完全相同（兩次就是兩筆）', async () => {
+  const env = makeEnv(); const u = proUser(env, 'u1', 'a@x.test');
+  seedState(env, 'u1', baseState(), 1000);
+  const t = await keyFor(env, u);
+  await call(env, t, 'create_item', { title: '送件', date: '2026-02-01' });
+  await call(env, t, 'create_item', { title: '送件', date: '2026-02-01' });
+  assert.equal(readState(env, 'u1').state.items.length, 2);
+  assert.equal(env.DB.prepare('SELECT COUNT(*) AS n FROM mcp_requests').first().n, 0);
+});
+
+test('requestId 格式不對（空字串、太長、不是字串）→ 擋下來', async () => {
+  const env = makeEnv(); const u = proUser(env, 'u1', 'a@x.test');
+  seedState(env, 'u1', baseState(), 1000);
+  const t = await keyFor(env, u);
+  for (const bad of ['', 'x'.repeat(101), 123]) {
+    const r = await call(env, t, 'create_item', { title: '送件', date: '2026-02-01', requestId: bad });
+    assert.equal(r.isError, true, String(bad).slice(0, 10));
+  }
+  assert.equal(readState(env, 'u1').state.items.length, 0);
+});
+
+test('兩個使用者用同一個 requestId：各做各的、互不影響', async () => {
+  const env = makeEnv(); const a = proUser(env, 'u1', 'a@x.test'); const b = proUser(env, 'u2', 'b@x.test');
+  seedState(env, 'u1', baseState(), 1000); seedState(env, 'u2', baseState(), 1000);
+  const ta = await keyFor(env, a), tb = await keyFor(env, b);
+  const ra = await call(env, ta, 'create_item', { title: 'A 的', date: '2026-02-01', requestId: 'shared-id' });
+  const rb = await call(env, tb, 'create_item', { title: 'B 的', date: '2026-02-01', requestId: 'shared-id' });
+  assert.equal(ra.isError, false); assert.equal(rb.isError, false);
+  assert.equal(readState(env, 'u1').state.items[0].title, 'A 的');
+  assert.equal(readState(env, 'u2').state.items[0].title, 'B 的');
+});
+
+test('每個寫入工具的 inputSchema 都有 requestId，讀取工具沒有', async () => {
+  const env = makeEnv(); const u = proUser(env, 'u1', 'a@x.test');
+  const t = await keyFor(env, u);
+  const list = (await rpc(env, t, 'tools/list')).body.result.tools;
+  const writes = ['create_item', 'update_item', 'set_done', 'delete_item', 'create_major_project', 'add_gantt_task', 'update_gantt_task', 'undo_change'];
+  for (const x of list) assert.equal('requestId' in x.inputSchema.properties, writes.includes(x.name), x.name);
+});
+
 test('別人的資料一個位元組都不變；也讀不到別人的排程', async () => {
   const env = makeEnv(); const a = proUser(env, 'u1', 'a@x.test'); proUser(env, 'u2', 'b@x.test');
   seedState(env, 'u1', baseState(), 1000);

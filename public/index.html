@@ -3887,7 +3887,7 @@
   // ================= 三方合併 =================
   // 兩台裝置（或本機編輯 vs 被分享者寫回）各自改過同一份雲端資料時，把
   // 「上次同步的版本」當基準做三方合併：只有一邊改過的部分自動採用，
-  // 兩邊都改到同一個項目才需要使用者選。整份二選一的舊做法在分享上線後
+  // 兩邊都改到**同一個欄位**（且改成不同的值）才需要使用者選。整份二選一的舊做法在分享上線後
   // 不再可行——被分享者每一次勾選都會讓擁有者的下一次推送變成「衝突」，
   // 使用者若選「以本機覆蓋」，對方的勾選就無聲消失。
   // 此區段內全部是純函式（供測試抽取），不得引用任何模組變數。
@@ -3899,32 +3899,168 @@
   }
   function tmEq(a,b){ return stableStringify(a)===stableStringify(b); }
 
-  /** 以 id 對齊的清單合併。回傳 merged 與 conflicts（預設保留「有編輯的那一邊」）。 */
-  function tmMergeList(baseArr, localArr, remoteArr){
-    const toMap = arr => new Map((Array.isArray(arr)?arr:[]).filter(x=>x&&x.id).map(x=>[x.id,x]));
-    const bm=toMap(baseArr), lm=toMap(localArr), rm=toMap(remoteArr);
+  // ---- 欄位層級的合併 ----
+  // 原本的比對單位是「整個項目／整個專案」：同一個專案裡 agent 改了任務 A、你改了任務 B，
+  // 就判成「兩邊都改了同一個專案」而跳對話框二選一，選哪邊都丟掉另一邊的修改。
+  // 現在「一邊」的單位是**欄位**（地圖型欄位細到 key、清單型欄位以 id 配對再往下一層）：
+  // 只有同一欄、兩邊改成不同的值才算衝突。「只能證明只有一邊改過才自動合併」這條原則
+  // 沒有變，只是不再把不相干的修改綁在一起。
+  //
+  // 每個合併步驟回傳 { m, lc, rc, conf }：
+  //   m   合併結果（衝突的欄位暫時取本機，被刪又被改的取「有編輯的那一邊」）
+  //   lc  本機候選：不衝突的欄位已合併好，衝突的欄位取本機的值
+  //   rc  遠端候選：同上，衝突的欄位取遠端的值
+  //   conf 衝突欄位的路徑（給對話框顯示）
+  // 使用者選一邊時 resolveConflicts 整個換成該候選，所以另一邊「不衝突」的修改不會掉。
+
+  /** 描述每一種實體的內部結構（純資料，不引用任何模組變數）。 */
+  const TM_SPEC_TODO  = {};
+  const TM_SPEC_TASK  = {
+    lists: { todos: TM_SPEC_TODO },
+    // 有子待辦時 progress／done 是**算出來的**：兩邊各自勾不同的待辦，兩邊的 progress 必定不同，
+    // 但都不是真相。合併後的資料一律會經過 applySnapshot() → normalizeGanttProjects() 由 todos
+    // 重算，所以這裡不把它們當衝突（取哪邊都行）。沒有子待辦時它們是真的使用者欄位，照常比。
+    derived: { todos: ['progress', 'done'] }
+  };
+  const TM_SPEC_GANTT = { lists: { tasks: TM_SPEC_TASK } };
+  const TM_SPEC_ITEM  = {
+    maps: ['doneMap', 'overrides', 'skipped', 'doneAt'],
+    // occKey 的格式跟頻率綁定：頻率一改，改的那一邊已經清空這四張表（見 btnConfirmItem）。
+    // 另一邊在舊頻率底下勾的紀錄若照 key 合進來，就會變成孤兒資料。所以頻率有人動過時，
+    // 這四張表整張跟著「動頻率的那一邊」走。
+    occGuard: it => (it && it.recurrence && it.recurrence.freq) || null
+  };
+  const TM_SPEC_MAJOR = {};
+
+  /** 單一值的三方合併。undefined 代表「沒有這個欄位／key」。 */
+  function tmAtom(b, l, r){
+    if(tmEq(l, r)) return { v: l, c: false };
+    if(tmEq(l, b)) return { v: r, c: false };
+    if(tmEq(r, b)) return { v: l, c: false };
+    return { v: l, rv: r, c: true };
+  }
+
+  /** key -> 值 的地圖（doneMap／overrides／skipped／doneAt）逐 key 合併。 */
+  function tmMergeMap(b, l, r, path){
+    b = b || {}; l = l || {}; r = r || {};
+    const m = {}, lc = {}, rc = {}, conf = [];
+    for(const k of new Set([...Object.keys(l), ...Object.keys(r), ...Object.keys(b)])){
+      const a = tmAtom(b[k], l[k], r[k]);
+      if(a.v !== undefined){ m[k] = a.v; lc[k] = a.v; }
+      const rv = a.c ? a.rv : a.v;
+      if(rv !== undefined) rc[k] = rv;
+      if(a.c) conf.push(path + '.' + k);
+    }
+    return { m, lc, rc, conf };
+  }
+
+  function tmIsObj(v){ return v !== null && typeof v === 'object' && !Array.isArray(v); }
+  function tmLabel(x){ return String((x && (x.title || x.name || x.text)) || (x && x.id) || ''); }
+
+  /** 兩邊都有同一個 id：能走快路徑就走，否則逐欄位合併。b 可以是 undefined（兩邊各自新增了同 id）。 */
+  function tmMergeEntity(b, l, r, spec, path){
+    if(tmEq(l, r)) return { m: r, lc: r, rc: r, conf: [] };
+    if(b){
+      if(tmEq(l, b)) return { m: r, lc: r, rc: r, conf: [] };   // 只有遠端改過
+      if(tmEq(r, b)) return { m: l, lc: l, rc: l, conf: [] };   // 只有本機改過
+    }
+    b = b || {};
+    const m = {}, lc = {}, rc = {}, conf = [];
+    const put = (k, res) => {
+      if(res.m  !== undefined) m[k]  = res.m;
+      if(res.lc !== undefined) lc[k] = res.lc;
+      if(res.rc !== undefined) rc[k] = res.rc;
+    };
+    const lists = spec.lists || {}, maps = spec.maps || [], derived = spec.derived || {};
+    const derivedKeys = new Set();
+    Object.keys(derived).forEach(k => derived[k].forEach(d => derivedKeys.add(d)));
+    // 頻率有人動過 → occKey 的地圖整張跟著動頻率的那一邊
+    let mapFrom = null;
+    if(spec.occGuard){
+      const g = spec.occGuard;
+      const cl = !tmEq(g(l), g(b)), cr = !tmEq(g(r), g(b));
+      if(cl && !cr) mapFrom = 'l';
+      else if(cr && !cl) mapFrom = 'r';
+      else if(cl && cr && !tmEq(g(l), g(r))) mapFrom = 'both';   // 頻率本身就是衝突，地圖各跟各的
+    }
+    const deferred = [];
+    for(const k of new Set([...Object.keys(l), ...Object.keys(r), ...Object.keys(b)])){
+      const pk = path ? path + '.' + k : k;
+      const bv = b[k], lv = l[k], rv = r[k];
+      if(derivedKeys.has(k)){ deferred.push(k); continue; }
+      if(maps.includes(k) && mapFrom){
+        put(k, { m: mapFrom === 'r' ? rv : lv, lc: mapFrom === 'r' ? rv : lv, rc: mapFrom === 'l' ? lv : rv });
+        continue;
+      }
+      if(maps.includes(k) && [bv, lv, rv].every(v => v === undefined || tmIsObj(v))){
+        if(bv === undefined && lv === undefined && rv === undefined) continue;
+        const sub = tmMergeMap(bv, lv, rv, pk);
+        put(k, sub); conf.push(...sub.conf);
+        continue;
+      }
+      if(lists[k] && [bv, lv, rv].every(v => v === undefined || Array.isArray(v))){
+        if(bv === undefined && lv === undefined && rv === undefined) continue;
+        const sub = tmMergeList(bv, lv, rv, lists[k], pk);
+        put(k, { m: sub.merged, lc: sub.lc, rc: sub.rc });
+        sub.conflicts.forEach(c => conf.push(...c.fields));
+        continue;
+      }
+      const a = tmAtom(bv, lv, rv);
+      put(k, { m: a.v, lc: a.v, rc: a.c ? a.rv : a.v });
+      if(a.c) conf.push(pk);
+    }
+    // 衍生欄位：合併後仍有子清單就不信任何一邊（取哪邊都行，載入時會重算）；沒有才當一般欄位
+    for(const k of deferred){
+      const pk = path ? path + '.' + k : k;
+      const hasChildren = Object.keys(derived).some(lk => derived[lk].includes(k) && Array.isArray(m[lk]) && m[lk].length);
+      const a = tmAtom(b[k], l[k], r[k]);
+      if(hasChildren){ put(k, { m: l[k] !== undefined ? l[k] : r[k], lc: l[k] !== undefined ? l[k] : r[k], rc: r[k] !== undefined ? r[k] : l[k] }); continue; }
+      put(k, { m: a.v, lc: a.v, rc: a.c ? a.rv : a.v });
+      if(a.c) conf.push(pk);
+    }
+    return { m, lc, rc, conf };
+  }
+
+  /** 單一 id 的合併（含「只在一邊存在」的各種情況）。b／l／r 缺席時為 undefined。 */
+  function tmMergeOne(b, l, r, spec, path){
+    if(l && r) return tmMergeEntity(b, l, r, spec, path);
+    if(l && !r){
+      if(!b) return { m: l, lc: l, rc: l, conf: [] };                                    // 本機新增
+      if(!tmEq(l, b)) return { m: l, lc: l, rc: undefined, conf: [path + '（遠端已刪除）'] }; // 遠端刪、本機改
+      return { m: undefined, lc: undefined, rc: undefined, conf: [] };                    // 遠端刪、本機沒動 → 跟著刪
+    }
+    if(r && !l){
+      if(!b) return { m: r, lc: r, rc: r, conf: [] };                                    // 遠端新增
+      if(!tmEq(r, b)) return { m: r, lc: undefined, rc: r, conf: [path + '（本機已刪除）'] }; // 本機刪、遠端改
+      return { m: undefined, lc: undefined, rc: undefined, conf: [] };
+    }
+    return { m: undefined, lc: undefined, rc: undefined, conf: [] };
+  }
+
+  /**
+   * 以 id 對齊的清單合併。回傳 merged／lc／rc 三份清單，以及 conflicts：
+   * 每筆 { id, local, remote, fields }，local／remote 是**完整的候選實體**（刪除時為 null）。
+   */
+  function tmMergeList(baseArr, localArr, remoteArr, spec, path){
+    spec = spec || {};
+    const toMap = arr => new Map((Array.isArray(arr) ? arr : []).filter(x => x && x.id).map(x => [x.id, x]));
+    const bm = toMap(baseArr), lm = toMap(localArr), rm = toMap(remoteArr);
     // 順序：先照遠端，再補本機新增的——排序穩定即可，畫面各自會再排
-    const order=[...rm.keys()];
+    const order = [...rm.keys()];
     for(const id of lm.keys()) if(!rm.has(id)) order.push(id);
-    const merged=[], conflicts=[];
+    const merged = [], lc = [], rc = [], conflicts = [];
     for(const id of order){
-      const b=bm.get(id), l=lm.get(id), r=rm.get(id);
-      if(l && r){
-        if(tmEq(l,r)){ merged.push(r); }
-        else if(b && tmEq(l,b)){ merged.push(r); }        // 只有遠端改過
-        else if(b && tmEq(r,b)){ merged.push(l); }        // 只有本機改過
-        else { merged.push(l); conflicts.push({ id, local:l, remote:r }); }
-      } else if(l && !r){
-        if(!b){ merged.push(l); }                          // 本機新增
-        else if(!tmEq(l,b)){ merged.push(l); conflicts.push({ id, local:l, remote:null }); } // 遠端刪、本機改
-        // 遠端刪除且本機沒動 → 跟著刪
-      } else if(r && !l){
-        if(!b){ merged.push(r); }                          // 遠端新增
-        else if(!tmEq(r,b)){ merged.push(r); conflicts.push({ id, local:null, remote:r }); } // 本機刪、遠端改
-        // 本機刪除且遠端沒動 → 跟著刪
+      const b = bm.get(id), l = lm.get(id), r = rm.get(id);
+      const p = path === undefined ? '' : path + '[' + tmLabel(l || r || b) + ']';   // 最上層的名稱由呼叫端另外顯示
+      const res = tmMergeOne(b, l, r, spec, p);
+      if(res.m  !== undefined) merged.push(res.m);
+      if(res.lc !== undefined) lc.push(res.lc);
+      if(res.rc !== undefined) rc.push(res.rc);
+      if(res.conf.length){
+        conflicts.push({ id, local: res.lc === undefined ? null : res.lc, remote: res.rc === undefined ? null : res.rc, fields: res.conf });
       }
     }
-    return { merged, conflicts };
+    return { merged, lc, rc, conflicts };
   }
 
   /** key -> 字串 的合併（每日記錄）。刪除以「缺 key」表達。 */
@@ -4014,11 +4150,12 @@
 
   function threeWayMerge(base, local, remote){
     const conflicts=[];
-    const items = tmMergeList(base.items, local.items, remote.items);
+    // 三種清單都走欄位層級的合併；衝突項目的 local／remote 是已合併好不衝突欄位的完整候選
+    const items = tmMergeList(base.items, local.items, remote.items, TM_SPEC_ITEM);
     items.conflicts.forEach(c=>conflicts.push({ kind:'item', name:(c.local||c.remote).title||'（未命名）', ...c }));
-    const gantt = tmMergeList(base.ganttProjects, local.ganttProjects, remote.ganttProjects);
+    const gantt = tmMergeList(base.ganttProjects, local.ganttProjects, remote.ganttProjects, TM_SPEC_GANTT);
     gantt.conflicts.forEach(c=>conflicts.push({ kind:'gantt', name:(c.local||c.remote).name||'（未命名）', ...c }));
-    const majors = tmMergeList(base.majorProjects, local.majorProjects, remote.majorProjects);
+    const majors = tmMergeList(base.majorProjects, local.majorProjects, remote.majorProjects, TM_SPEC_MAJOR);
     majors.conflicts.forEach(c=>conflicts.push({ kind:'major', name:(c.local||c.remote).name||'（未命名）', ...c }));
     const logs = tmMergeLogs(base.dailyLogs, local.dailyLogs, remote.dailyLogs);
     logs.conflicts.forEach(c=>conflicts.push({ kind:'log', name:'每日記錄 '+c.id, ...c }));
@@ -4259,7 +4396,7 @@
   // 兩台裝置各自改過同一份資料時不能靜默挑一邊，否則一定有人的編輯會消失
   /**
    * 雲端被別人改過時（MCP 的 agent、被分享者的勾選、另一台裝置）把它拉下來合併。
-   * 走的是既有的三方合併：只有一邊改過的自動採用，兩邊都改到同一項才問人。
+   * 走的是既有的三方合併：只有一邊改過的自動採用，兩邊把同一個欄位改成不同的值才問人。
    * 版本號沒變就什麼都不做——不推、不重繪，回到前景時才不會白白寫一次雲端。
    */
   let cloudRefreshAt = 0;
@@ -4273,6 +4410,23 @@
     handleConflict({ state: res.data.state, updatedAt: res.data.updatedAt });
   }
 
+  // 衝突對話框是給人看的：合併程式產生的是 `tasks[設計].end` 這種路徑，照原樣印出來
+  // 等於叫使用者讀程式。這裡翻成「任務「設計」的結束日」。認不得的欄位名原樣留著（不會壞，只是不好看）。
+  const CONFLICT_FIELD_LABEL = {
+    name:'名稱', title:'標題', start:'開始日', end:'結束日', progress:'進度', done:'完成', notes:'筆記',
+    date:'日期', endDate:'結束日', type:'類型', text:'內容', recurrence:'循環設定', meetingTime:'時間',
+    link:'連結', tags:'標籤', dependsOn:'前置作業', pet:'夥伴', parentId:'所屬大項目', noticeOnly:'純告知',
+    subtasks:'步驟', subDone:'步驟的勾選', doneMap:'完成紀錄', overrides:'改期', skipped:'略過', doneAt:'完成時間'
+  };
+  function conflictFieldText(path){
+    let rest = String(path || ''), pre = '';
+    rest = rest.replace(/tasks\[([^\]]*)\]\.?/g, (_, n) => { pre += '任務「'+n+'」的'; return ''; });
+    rest = rest.replace(/todos\[([^\]]*)\]\.?/g, (_, n) => { pre += '待辦「'+n+'」的'; return ''; });
+    if(!rest || rest.charAt(0) === '（') return pre.replace(/的$/, '') + rest;   // 整個被刪掉的那一種
+    const parts = rest.split('.');
+    return pre + (CONFLICT_FIELD_LABEL[parts[0]] || parts[0]) + (parts.length > 1 ? '（'+parts.slice(1).join('.')+'）' : '');
+  }
+
   function handleConflict(remote){
     const meta = readCloudMeta();
     const baseSnap = meta && meta.baseSnapshot;
@@ -4280,10 +4434,13 @@
     if(baseSnap && remote && remote.state){
       const { merged, conflicts } = threeWayMerge(baseSnap, snapshot(), remote.state);
       if(conflicts.length){
-        // 只剩「兩邊都改到同一個項目」需要人決定；其餘已自動合併
-        const names = conflicts.slice(0,8).map(c=>'・'+c.name).join('\n');
+        // 只剩「兩邊把同一個欄位改成不同的值」需要人決定；其餘（含同一項目的不同欄位）已自動合併。
+        // 候選（c.local／c.remote）已帶著不衝突欄位的合併結果，所以選哪一邊都不會丟掉另一邊的其他修改。
+        const fieldText = c => (c.fields && c.fields.length)
+          ? '（'+c.fields.slice(0,3).map(conflictFieldText).join('、')+(c.fields.length>3?'…':'')+'）' : '';
+        const names = conflicts.slice(0,8).map(c=>'・'+c.name+fieldText(c)).join('\n');
         const useRemote = confirm(
-          '有 '+conflicts.length+' 個項目在這台裝置與其他來源都被修改過：\n'+names+
+          '有 '+conflicts.length+' 個項目的同一個欄位在這台裝置與其他來源被改成不同的值：\n'+names+
           (conflicts.length>8?'\n…':'')+'\n\n其餘變更已自動合併。上述衝突項目：\n'+
           '［確定］採用雲端版本\n［取消］保留這台裝置的版本'
         );
