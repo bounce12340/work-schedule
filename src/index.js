@@ -17,6 +17,7 @@ import {
   handleStateVersion, handleAgentEventsExport, purgeAgentData,
 } from './handlers/agent.js';
 import { sendAgentNotifyPending } from './handlers/agentnotify.js';
+import { handleProjectPrs, handleHookStatus, handleHookCreate, handleHookDelete, handleGithubHook } from './handlers/github.js';
 import {
   handleProtectedResourceMetadata, handleAuthServerMetadata, handleRegister as handleOAuthRegister,
   handleAuthorizeRedirect, handleAuthorizeInfo, handleAuthorizeDecision, handleToken,
@@ -238,6 +239,13 @@ async function route(request, env, ctx) {
     return request.method === 'POST' ? handlePaddleWebhook(request, env) : methodNotAllowed();
   }
 
+  // GitHub 的 webhook（PR 狀態、測試結果）：**公開端點**，GitHub 直接打進來。
+  // 憑證有兩層：網址裡的 token（只存雜湊）＋ X-Hub-Signature-256 的 HMAC；而且只更新使用者已經連過的 PR。
+  {
+    const m = path.match(/^\/api\/github\/hook\/([A-Za-z0-9_-]{20,64})$/);
+    if (m) return request.method === 'POST' ? handleGithubHook(request, env, m[1]) : methodNotAllowed();
+  }
+
   // 以下都需要有效 session
   const user = await getSessionUser(request, env);
   if (!user) return json({ error: '尚未登入' }, 401);
@@ -322,7 +330,7 @@ async function route(request, env, ctx) {
   }
   {
     const m = path.match(/^\/api\/mcp\/activity\/([^/]+)\/undo$/);
-    if (m) return request.method === 'POST' ? handleActivityUndo(env, user, decodeURIComponent(m[1])) : methodNotAllowed();
+    if (m) return request.method === 'POST' ? handleActivityUndo(env, user, decodeURIComponent(m[1]), url.searchParams.get('batch') === '1') : methodNotAllowed();
   }
 
   // agent 工作區的擁有者那一側：連線設定、暫停、提案、進展日誌、提問、驗收（讀與回答不要求 Pro）
@@ -357,6 +365,17 @@ async function route(request, env, ctx) {
       const id = decodeURIComponent(m[1]);
       return m[2] === 'answer' ? handleAnswerEvent(request, env, user, id) : handleRedactEvent(env, user, id);
     }
+  }
+  // GitHub：專案連到的 PR（讀不要求 Pro）與 webhook 的建立／重新產生／移除
+  {
+    const m = path.match(/^\/api\/projects\/([^/]+)\/prs$/);
+    if (m) return request.method === 'GET' ? handleProjectPrs(env, user, decodeURIComponent(m[1])) : methodNotAllowed();
+  }
+  if (path === '/api/github/hooks') {
+    if (request.method === 'GET') return handleHookStatus(env, user);
+    if (request.method === 'POST') return handleHookCreate(request, env, user);
+    if (request.method === 'DELETE') return handleHookDelete(env, user);
+    return methodNotAllowed();
   }
   {
     const m = path.match(/^\/api\/projects\/([^/]+)\/events$/);

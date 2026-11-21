@@ -3927,6 +3927,28 @@
   // 不必升 STORAGE_VERSION（判準同 gp.pet：舊存檔在新程式碼底下讀起來不會錯）。
   // src/mcp/schedule.js 的 TASK_STATUSES 是同一份清單的副本，tests/mcp.test.mjs 比對兩邊。
   const TASK_STATUSES = ['todo','doing','blocked','waiting','review'];
+  // 第二批的任務欄位（預估、預測、認領、證據連結）與專案的里程碑。**與 src/mcp/schedule.js 逐欄相同**
+  //（tests/agent.test.mjs 把伺服器建的專案丟進這裡比對）：欄位集差一個，三方合併就會把「沒改過」判成「兩邊都改過」。
+  const HOURS_MAX = 10000, TASK_LINKS_MAX = 10, MILESTONES_MAX = 50;
+  function normalizeHours(v){ return (typeof v === 'number' && isFinite(v) && v >= 0 && v <= HOURS_MAX) ? v : null; }
+  function normalizeAssignee(v){
+    const s = String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 60);
+    return s || null;
+  }
+  // 證據連結：只收 http(s)（同 item.link 的白名單）；顯示時一律 textContent／rel=noopener
+  function normalizeTaskLinks(raw){
+    return (Array.isArray(raw) ? raw : [])
+      .filter(l => l && typeof l.url === 'string' && /^https?:\/\//.test(l.url))
+      .slice(0, TASK_LINKS_MAX)
+      .map(l => ({ url: l.url.slice(0, 500), label: String(l.label == null ? '' : l.label).replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 80) }));
+  }
+  function normalizeMilestones(raw){
+    return (Array.isArray(raw) ? raw : [])
+      .filter(m => m && m.id && isYmd(m.date))
+      .slice(0, MILESTONES_MAX)
+      .map(m => ({ id: m.id, name: String(m.name == null ? '' : m.name).replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 200), date: m.date }));
+  }
+
   function normalizeGanttProjects(raw){
     return (Array.isArray(raw) ? raw : []).filter(gp => gp && gp.id).map(gp => ({
       id: gp.id,
@@ -3941,6 +3963,8 @@
       // 專案說明書：**純文字**（不是 HTML——gp.notes 已經是一道要守的安全邊界，不再開第二個）。
       // 人寫給 agent 的規則；agent 只能讀不能改。上限 4000 字
       brief: String(gp.brief == null ? '' : gp.brief).slice(0, 4000),
+      // 里程碑（甘特圖上的菱形）。會不會趕上是算出來的，不存狀態
+      milestones: normalizeMilestones(gp.milestones),
       tasks: (Array.isArray(gp.tasks) ? gp.tasks : [])
         .filter(t => t && t.id && isYmd(t.start) && isYmd(t.end))
         .map(t => {
@@ -3958,6 +3982,13 @@
             // 狀態與「卡住／等待的原因」：不改變 done 與進度的任何規則，也不豁免逾期
             status: TASK_STATUSES.includes(t.status) ? t.status : 'todo',
             blockedNote: String(t.blockedNote == null ? '' : t.blockedNote).slice(0, 200),
+            // 預估（做多久）、實際、預測完成日（agent 只寫這個，永遠不動 end）、認領、證據連結
+            estimateHours: normalizeHours(t.estimateHours),
+            actualHours: normalizeHours(t.actualHours),
+            forecastEnd: isYmd(t.forecastEnd) ? t.forecastEnd : null,
+            assignee: normalizeAssignee(t.assignee),
+            claimedAt: (typeof t.claimedAt === 'number' && isFinite(t.claimedAt) && t.claimedAt > 0) ? t.claimedAt : null,
+            links: normalizeTaskLinks(t.links),
             todos,
             progress: todos.length ? todoProgress(todos) : Math.max(0, Math.min(100, parseInt(t.progress) || 0)),
             done: todos.length ? todos.every(td => td.done) : !!t.done
@@ -4172,7 +4203,7 @@
     // 重算，所以這裡不把它們當衝突（取哪邊都行）。沒有子待辦時它們是真的使用者欄位，照常比。
     derived: { todos: ['progress', 'done'] }
   };
-  const TM_SPEC_GANTT = { lists: { tasks: TM_SPEC_TASK } };
+  const TM_SPEC_GANTT = { lists: { tasks: TM_SPEC_TASK, milestones: {} } };
   const TM_SPEC_ITEM  = {
     maps: ['doneMap', 'overrides', 'skipped', 'doneAt'],
     // occKey 的格式跟頻率綁定：頻率一改，改的那一邊已經清空這四張表（見 btnConfirmItem）。
@@ -8995,7 +9026,7 @@
       // 否則「剛建立」是 undefined、「載入後」是 null，兩者在 stableStringify 下
       // 不同——三方合併會把「沒改過」判成「兩邊都改過」。預設不給夥伴：挑一隻
       // 本來就是這個功能的重點
-      else{ const gp={ id: uid('gp'), name, tasks: [], notes:'', pet:null, brief:'' }; ganttProjects.push(gp); selectedGanttProjectId = gp.id; }
+      else{ const gp={ id: uid('gp'), name, tasks: [], notes:'', pet:null, brief:'', milestones:[] }; ganttProjects.push(gp); selectedGanttProjectId = gp.id; }
     });
   };
 
@@ -9016,7 +9047,7 @@
     addTaskBtn.onclick = ()=>{
       const s = ymd(new Date());
       const e = new Date(); e.setDate(e.getDate()+7);
-      commit(()=>{ gp.tasks.push({ id: uid('task'), name:'新任務', start:s, end: ymd(e), progress:0, done:false, todos:[], status:'todo', blockedNote:'' }); });
+      commit(()=>{ gp.tasks.push({ id: uid('task'), name:'新任務', start:s, end: ymd(e), progress:0, done:false, todos:[], status:'todo', blockedNote:'', estimateHours:null, actualHours:null, forecastEnd:null, assignee:null, claimedAt:null, links:[] }); });
     };
     if(cloudEnabled){
       const shareBtn=document.createElement('button'); shareBtn.className='qbtn'; shareBtn.textContent=tr('🔗 分享此專案');
@@ -11520,20 +11551,20 @@
     // 夥伴給一隻：`tools/` 的瀏覽器腳本要有東西可量（開機畫面那一排、
     // 專案頁那一列），而「示範資料剛好沒有這個功能」就是〈永遠不會執行的
     // 斷言〉那一節的形狀。三個任務裡一個 done → 33%，落在 half 那一階
-    const gp = { id: uid('gp'), name:'官網改版專案', tasks: [], notes:'', pet:'deer', brief:'' };
+    const gp = { id: uid('gp'), name:'官網改版專案', tasks: [], notes:'', pet:'deer', brief:'', milestones:[] };
     ganttProjects.push(gp); selectedGanttProjectId = gp.id;
     const s1=new Date(t); const e1=new Date(t); e1.setDate(e1.getDate()+10);
     const s2=new Date(e1); const e2=new Date(e1); e2.setDate(e2.getDate()+14);
     const s3=new Date(e2); const e3=new Date(e2); e3.setDate(e3.getDate()+10);
     // 第二項刻意帶子代辦，示範「進度隨逐項完成自動推進」；其餘維持手動百分比
-    gp.tasks.push({ id: uid('task'), name:'需求訪談與規劃', start: ymd(s1), end: ymd(e1), progress:100, done:true, todos:[], status:'todo', blockedNote:'' });
+    gp.tasks.push({ id: uid('task'), name:'需求訪談與規劃', start: ymd(s1), end: ymd(e1), progress:100, done:true, todos:[], status:'todo', blockedNote:'', estimateHours:null, actualHours:null, forecastEnd:null, assignee:null, claimedAt:null, links:[] });
     gp.tasks.push({ id: uid('task'), name:'視覺與介面設計', start: ymd(s2), end: ymd(e2), progress:0, done:false, todos:[
       { id: uid('todo'), text:'競品介面盤點', done:true, review:false },
       { id: uid('todo'), text:'首頁與內頁線框圖', done:true, review:false },
       { id: uid('todo'), text:'視覺風格提案', done:false, review:false },
       { id: uid('todo'), text:'設計稿交付與標註', done:false, review:false }
-    ], status:'todo', blockedNote:'' });
-    gp.tasks.push({ id: uid('task'), name:'前端開發與測試', start: ymd(s3), end: ymd(e3), progress:0, done:false, todos:[], status:'todo', blockedNote:'' });
+    ], status:'todo', blockedNote:'', estimateHours:null, actualHours:null, forecastEnd:null, assignee:null, claimedAt:null, links:[] });
+    gp.tasks.push({ id: uid('task'), name:'前端開發與測試', start: ymd(s3), end: ymd(e3), progress:0, done:false, todos:[], status:'todo', blockedNote:'', estimateHours:null, actualHours:null, forecastEnd:null, assignee:null, claimedAt:null, links:[] });
     gp.tasks.forEach(syncTaskFromTodos);
   }
 

@@ -21,6 +21,8 @@ src/apppurchase.js     App Store 購買證明（AppTransaction JWS）的離線�
 src/handlers/planpaddle.js 網頁版訂閱（Paddle）：結帳、客戶頁、webhook 驗簽與寫權利
 src/mcp/               MCP 伺服器：讓外部 AI agent 讀寫排程（schedule.js 純函式／auth.js 金鑰與 OAuth／server.js JSON-RPC）
 src/handlers/agentnotify.js agent 提問／提案時的通知（信與推播，30 分鐘節流、休假不送；cron 補送）
+src/mcp/prs.js         任務連到 GitHub 的 PR（upsert_pr／unlink_pr／list_project_prs，agent 回報與 webhook 共用同一張 project_prs）
+src/handlers/github.js GitHub 那一側：擁有者看 PR、建立／重新產生 webhook、公開的 webhook 接收端（驗 HMAC）
 public/authorize.html  OAuth 授權頁（agent 要連進來時「允許／拒絕」）
 src/mail.js            AgentMail 寄信（逾期提醒與密碼重設共用），並把每一封的結果寫進 mail_log
 src/throttle.js        登入失敗節流（email 與 IP 兩個維度）
@@ -71,6 +73,7 @@ mobile/                iOS app 外殼（Capacitor；自己的 package.json，見
 | `tests/conflict.test.mjs` | 衝突預覽（〈衝突預覽〉區段，**尚未接上畫面**）：半開區間、沒有結束時間時只比同開始時間（不套預設時長）、只比會議、時區不同不換算只提示、90 天範圍、略過／單次覆寫／假日調整、休假輕量提示、**輸入資料前後逐字相同** | 從 `index.html` 抽〈date helpers〉〈occurrence engine〉〈衝突預覽〉求值；七種突變各自驗過會紅 |
 | `tests/mcp.test.mjs` | MCP：401 帶 `WWW-Authenticate`、非 Pro 擋、金鑰只存雜湊、**伺服器建的項目與前端 `normalizeItems` 逐欄相同**、改頻率清完成、復原（**細到欄位**：同一任務連寫三次可任意順序各自復原、使用者改了別的欄位不擋、**改了同一欄才拒絕**）、**`requestId` 防重複**（同 id 回上一次的結果、指紋不同擋、失敗還位子、處理中、兩個使用者互不影響）、跨帳號隔離、競態重試、OAuth 全流程（PKCE、code 單次、open redirect、免費帳號 402、refresh 輪替與撤銷） | 直接 import Worker 端模組；前端的 `normalizeItems`／`normalizeRecurrence`／`stableStringify` 從 `index.html` 抽出來比 |
 | `tests/agent.test.mjs` | agent 工作區（第一批）：**伺服器建的甘特專案／任務／子待辦與前端 `normalizeGanttProjects` 逐欄相同**、agent 寫的狀態走一次真的 `applySnapshot`→`snapshot`、連線設定（**OAuth 換 token 之後 review 仍在**、**查不到設定＝暫停**、migration 回填、暫停擋每一個寫入工具、5 次復原自動暫停）、review 模式（**資料一個位元都沒變**、日誌不受審核擋、同意在當下資料上套、**一項套不上去整份不套 stale**、同意的競態、兩台同時同意只套一次、20 份上限、跨帳號）、待驗收（set_done／進度 100／**一個一個勾子待辦**都攔、驗收／退回、提案同意時也攔、可復原）、日誌（署名由伺服器填、200／天、2000 字、只能加、遮蔽只有擁有者、**Pro 到期擁有者照樣讀與回答**、跨帳號）、專案消失 30 天才清（**讀不到 state 不算消失**）、備份與刪帳號 | 直接 import Worker 端模組；前端的 `normalizeGanttProjects`／`applySnapshot`／`snapshot` 從 `index.html` 抽出來比（`todoProgress` 單獨抽那一個純函式）；競態用既有的 `env.DB.prepare` 攔截模式 |
+| `tests/agent2.test.mjs` | agent 工作區（第二批 2A）：**新欄位（預估／預測／認領／連結／里程碑）與前端 `normalizeGanttProjects` 逐欄相同**（含舊形狀、壞資料靜靜濾掉、常數兩邊相同、走一次真的 `applySnapshot`→`snapshot`、三方合併里程碑不衝突）、`set_task_estimate`（**`end`／進度／完成一個位元都不動**、預測改了自動寫進展、落在週末／假日清單／休假日只提醒不拒絕）、里程碑（`atRisk` 是算出來的）、**`claim_task`（四種成功／拒絕、24 小時、人手動指派搶不走、注入別人的認領的確定性競態）**、`links`、**`apply_changes`（只寫一次 user_state、全部成功或全部不做、整批復原也全有全無、整批只算一次復原）**、**`dryRun`（state／紀錄／日誌／requestId 一個位元都不動、暫停中可預演）**、`get_changes_since`、**PR（網址白名單、合併不動任務、`source`／時間、300 筆上限、跨帳號）**、**webhook（測試裡自己算真的 HMAC：未知 token 404、簽章錯 401、沒連過的 PR 只忽略不新增、別人的密鑰動不到我的列、`check_run` 不會把單一個通過當整體通過）**、備份不帶 PR 與密鑰 | 直接 import Worker 端模組；前端的正規化從 `index.html` 抽出來比；競態用 `withRaceBeforeFirstUpdate`（同 `state.test.mjs`）；十七種突變各自驗過會紅 |
 | `tests/agent-notify.test.mjs` | agent 問了問題／提了提案要通知到人（1B）：**信、主旨、HTML、推播裡都不出現問題與提案的全文**（連選項也不放）、連線名稱（外部字串）跳脫、**同一專案 30 分鐘內最多一封、多的併進 pending**、cron 補送「還有 N 件」、**兩個併發的提問只有一封**（`last_sent_at` 的 compare-and-swap）、休假只累計不送（cron 當天也不補，隔天補）、**送失敗不寫 `last_sent_at`**、開關關著不送也不累計、**是訂閱信**（不走交易信的寄件帳號、帶 `List-Unsubscribe`）、**退訂 `kind=agent` 只關這一顆**（反方向也不連坐，一鍵退訂同一支）、`/api/reminder` 的 `agentNotify`（其他五顆的送出不會順手改掉它）、自動暫停的那一刻寄信、通知寄不出去**不能讓 agent 的提問變成錯誤**、`/api/state/version`（只回兩個數字、**使用者自己的回答不算「agent 剛更新了」**、新提案算、別人的不算）、匯出用的日誌端點只回自己的 | 直接 import Worker 端模組，攔 `fetch` 當假的 AgentMail 與 APNs（同 `push.test.mjs`）；七種突變各自驗過會紅 |
 
 前三者的挑選理由：前兩者近乎純函式、零 DOM 依賴；第三者是**競態**——靠併發碰運氣測不到，但可以把空窗做成確定性的。
@@ -104,7 +107,7 @@ npm run db:init:local  # 對本機 miniflare D1 建表（--local 的資料庫與
 npm run db:init        # 對遠端 D1 建表
 npm run admin:reset    # 破窗鎚：直接改密碼（見〈破窗鎚〉）
 npm run deploy         # 部署
-npm test               # 全部測試檔（node:test，不需安裝任何東西；目前 636 個測試）
+npm test               # 全部測試檔（node:test，不需安裝任何東西；目前 672 個測試）
 ```
 
 跑單一測試檔或單一測試（`npm test` 沒有轉發參數的管道，直接用 node）：
@@ -891,7 +894,7 @@ Turnstile 擋得住「一秒鐘一萬次」的機器人，擋不住「一分鐘�
 
 **改版時要做的事**：`mobile/package.json` 的 `version` 往上加（build 號是 GitHub 的 `run_number`，不用管）→ **合併進 main 就會自動打包上傳**（CI 綠、且動到 `public/index.html` 或 `mobile/`）→ App Store Connect 送審。手動觸發與 `ios-v*` tag 仍然留著，兩者都不看路徑條件。
 
-**部署順序**：`migrations/005-app-purchase.sql`、`006-plan.sql`、`007-streak-mail.sql`、`008-push.sql`、`009-leave-days.sql`、`010-mail-log.sql` 、`011-mail-sender.sql` 、`012-unsub-token.sql` 、`014-paddle.sql` 與 `015-mcp.sql` 與 `016-mcp-requests.sql` 與 `017-agent-workspace.sql` 與 `018-agent-notify.sql` 都要在部署新 Worker **之前**跑（**`018` 是 `ALTER TABLE reminder_feed ADD COLUMN agent_notify`——漏跑的話 `/api/reminder` 的讀寫與逾期提醒的 SELECT 全部失敗，「我的帳號」的通知區整個讀不出來；它也建 `agent_notify_state`，那張是新增資料表，漏跑只讓 agent 通知失敗、不會讓 agent 的提問失敗**）（**`017` 含 `ALTER TABLE mcp_activity ADD COLUMN conn_id`——漏跑的話每一個 agent 寫入工具都失敗；它還回填既有連線的設定列，漏跑或晚跑的話所有現存連線會被當成暫停**）（`010` 是新增資料表，漏跑只會讓寄信多一行警告，不會 500；**`011` 是加欄位，漏跑會讓 `/api/admin/mail-log` 的 SELECT 直接失敗**）（`getSessionUser` 的 SELECT 讀 `plan_source`，欄位不在**每一個**登入請求都會 500；`007`／`008`／`009` 的欄位則是 `/api/reminder` 與 cron 會讀），理由見〈資料庫結構變更〉。006 跑完、Worker 部署完之後，還要到 `/admin` 把既有的兩個帳號設成「Pro（永久）」——漏掉的症狀是他們的第四個專案被擋，當場就會知道。
+**部署順序**：`migrations/005-app-purchase.sql`、`006-plan.sql`、`007-streak-mail.sql`、`008-push.sql`、`009-leave-days.sql`、`010-mail-log.sql` 、`011-mail-sender.sql` 、`012-unsub-token.sql` 、`014-paddle.sql` 與 `015-mcp.sql` 與 `016-mcp-requests.sql` 與 `017-agent-workspace.sql` 與 `018-agent-notify.sql` 與 `019-project-prs.sql` 都要在部署新 Worker **之前**跑（**`019` 含 `ALTER TABLE mcp_activity ADD COLUMN batch_id`——漏跑的話每一個 agent 寫入工具都失敗（同 `017` 的 `conn_id`）；其餘是新增資料表 `project_prs`、`github_hooks`，漏跑只讓 PR 相關的工具與端點失敗**）（**`018` 是 `ALTER TABLE reminder_feed ADD COLUMN agent_notify`——漏跑的話 `/api/reminder` 的讀寫與逾期提醒的 SELECT 全部失敗，「我的帳號」的通知區整個讀不出來；它也建 `agent_notify_state`，那張是新增資料表，漏跑只讓 agent 通知失敗、不會讓 agent 的提問失敗**）（**`017` 含 `ALTER TABLE mcp_activity ADD COLUMN conn_id`——漏跑的話每一個 agent 寫入工具都失敗；它還回填既有連線的設定列，漏跑或晚跑的話所有現存連線會被當成暫停**）（`010` 是新增資料表，漏跑只會讓寄信多一行警告，不會 500；**`011` 是加欄位，漏跑會讓 `/api/admin/mail-log` 的 SELECT 直接失敗**）（`getSessionUser` 的 SELECT 讀 `plan_source`，欄位不在**每一個**登入請求都會 500；`007`／`008`／`009` 的欄位則是 `/api/reminder` 與 cron 會讀），理由見〈資料庫結構變更〉。006 跑完、Worker 部署完之後，還要到 `/admin` 把既有的兩個帳號設成「Pro（永久）」——漏掉的症狀是他們的第四個專案被擋，當場就會知道。
 
 ### 開發者有 Mac 了（2026-09-17）
 
@@ -1016,10 +1019,31 @@ cd mobile/ios/App && xcodebuild -scheme App -sdk iphonesimulator -configuration 
 | 給 agent 的回應把日誌與說明書放在 `untrusted_text` 欄位，instructions 明講那是資料不是指令 | 公開 repo 的 PR 標題、別的 agent 的日誌都可能含注入 |
 | 專案消失 30 天才清日誌：每日 cron 的獨立一步 `agent_events`（`purgeAgentData`），用 `project_absent(user_id, project_id, missing_since)` 記「第一次看到它不在」；專案回來就刪那一列；**讀不到或形狀不對的 state 整個跳過** | 刪除有復原、三方合併可能救回來；把「讀不到」當「專案不見」會讓一次資料庫小故障變成 30 天後的資料遺失 |
 | 任務新欄位 `status`／`blockedNote`、子待辦 `review`、專案 `brief` 不升 `STORAGE_VERSION`；前後端形狀由 `tests/agent.test.mjs` 逐欄比對；`review` 在 `done` 時一律讀成 false | 不留會與 `done` 並存的過期旗標 |
-| 工具共 21 個（目標 ≤ 20；既有 13 個名稱與必填參數一個字沒動，只加選填）；全部有 annotations | 沒有 `list_proposals`：`get_project_brief` 與收件匣已列出開著的提案 |
+| 工具共 21 個（1A 時；第二批之後 29 個，見下一節）；既有 13 個名稱與必填參數一個字沒動，只加選填；全部有 annotations | 沒有 `list_proposals`：`get_project_brief` 與收件匣已列出開著的提案 |
 | 擁有者端點（讀日誌、回答、處理提案、驗收）**不要求 Pro** | Pro 到期之後那是使用者自己的資料 |
 
 **1B（畫面與通知）**見下一節〈agent 工作區的畫面與通知（1B）〉。
+
+### agent 工作區的第二批（2A：伺服器端與資料形狀，`src/mcp/prs.js`／`src/handlers/github.js`）
+
+設計文件同上（第二批、乙 1、乙 2）。migration `019-project-prs.sql`。**2A 沒有任何新畫面**（2B 才做）；前端只補了 `normalizeGanttProjects` 與建立路徑，讓新欄位存得住。工具共 **29 個**（21＋`set_task_estimate`、`upsert_milestone`、`claim_task`、`apply_changes`、`get_changes_since`、`upsert_pr`、`unlink_pr`、`list_project_prs`）：沒有把 `set_task_estimate` 併進 `update_gantt_task`、也沒有把 `unlink_pr` 併進 `upsert_pr`——前者**結構上沒有 `start`／`end` 這兩個參數**才說得上「永遠不碰計畫日期」，後者 annotations 不同（destructive）。
+
+| 決定 | 理由 |
+|---|---|
+| 任務新欄位 `estimateHours`／`actualHours`／`forecastEnd`／`assignee`／`claimedAt`／`links`、專案 `milestones`，不升 `STORAGE_VERSION`；**前端 `normalizeGanttProjects`、伺服器 `ensureTaskShape`、所有建立路徑（含 seed）同一組規則**，`tests/agent2.test.mjs` 逐欄比對；`TM_SPEC_GANTT.lists` 多一個 `milestones`（以 id 配對） | 欄位集差一個，三方合併就把「沒改過」判成「兩邊都改過」；里程碑若當整個陣列比，使用者與 agent 各加一個就會衝突 |
+| `set_task_estimate` 的白名單**沒有 `start`／`end`**，夾帶的會被丟掉；`forecastEnd` 改了就由伺服器寫一筆進展「預測從 A 改成 B」（`ops.js` 的操作回 `events`，`mutate` 一起寫，署名取連線）；落在週末（`customWorkdays` 補班日除外）、`customHolidays`、`reminder_feed.leave_days` 時**不拒絕、不順延**，回應帶 `notice` | 計畫是使用者的、預測是 agent 的（兩條線）；內建國定假日只在前端，使用者沒載進 `customHolidays` 就提醒不到——盡力而為不是保證 |
+| `claim_task` 的條件（沒人／自己／超過 24 小時沒動靜）寫在**純函式**裡，靠 `casWrite` 的帶條件 UPDATE 與重試保證只有一個贏；`assignee` 有值但 `claimedAt` 為空（人手動指派）視為新的、agent 搶不走；agent 寫自己認領的任務（`update_gantt_task`／`upsert_task_todo`／`set_task_estimate`）時 `claimedAt` 跟著更新（`touchClaim`，署名要完全相同） | 不是先讀再寫；`tests/agent2.test.mjs` 在 UPDATE 前注入別人的認領，輸的重讀後被擋下。`casWrite` 的條件拿掉會紅 |
+| `apply_changes`：最多 50 個，**一個 `mutate`、一次寫入、同一個 `batch_id`**，任何一個丟 `OpError` 整批不寫；review 模式變成一份提案（`createProposal` 的 `max`），同意時多個操作也共用 `batch_id`；`undo_change` 的 `batch:true`（帳號頁端點 `?batch=1`）把整批**依相反順序、一個 `mutate`** 倒回去，每一列仍走 `revertChange` 的欄位層級規則、**任何一列會拒絕就整批不動**；不帶 `batch` 仍只復原那一筆（原本的行為）。自動暫停改數 `COUNT(DISTINCT COALESCE(batch_id, id))`：一整批復原算一次 | 一批裡半套的結果比沒套更糟；50 列的批次復原一次不該就把連線停掉 |
+| `dryRun:true`（`STATE_OP_NAMES` 的工具與 `apply_changes`）走 `dryRunOps`：同一條 `applyOps`、驗收攔截、方案上限、大小檢查，**不寫 state／紀錄／日誌，也不佔 `requestId`**（`handleMcp` 在 dryRun 時繞過 `withRequestId`）；暫停中可預演；review 模式也不長提案。**`add_project_event`／`upsert_pr` 等沒有 dryRun**（它們不是「算出一份新 state」） | 預演若佔了 `requestId`，同一個 id 之後真的送出會拿到預演的結果 |
+| `get_changes_since` 從 `mcp_activity` 讀，回應明講「**使用者自己在畫面上改的沒有逐次記錄**」 | 不然 agent 會把「這裡沒列」讀成「使用者沒改」 |
+| 工具回應都帶 `today`（台北） | agent 不必猜時區 |
+| `project_prs` 與 agent 回報、webhook 寫**同一張表**；每列記 `source` 與 `updated_at`；`upsert_pr` 以 (使用者, repo, 編號) 為鍵、網址只收 `https://github.com/<owner>/<repo>/pull/<n>`（`parsePrUrl`）、標題／分支去換行截 200 字、state／checks 變了自動寫進展（不放標題）、每人最多 300 筆（單句帶條件的 INSERT）、每個專案每天的進展上限同日誌；**這個模組沒有任何一行寫 `user_state`**——PR 合併不會動任務的 `done` | 合併不等於做完；寫在別的檔案裡的「順手」才是風險 |
+| `upsert_pr` 不受 review 模式攔（和日誌、提問一樣）；回給 agent 的標題、作者一律在 `untrusted_text` 底下；instructions 建議連了公開 repo 的專案用 review 模式 | PR 連結是外部資料的快取，不是排程資料；公開 repo 誰都能開 PR |
+| webhook `POST /api/github/hook/:token`：**token 只存雜湊（`github_hooks.token_hash`）、`secret` 存明碼**（驗 HMAC 要原文，同 `unsub_token` 的取捨）；順序：查不到 token 404（不讀 body）→ `X-Hub-Signature-256` 用 body 原文算 HMAC、恆定時間比對、錯就 401 → **只更新使用者已經連過的列**（沒連過的 200 忽略、**webhook 從不新增列**）；`check_suite` 決定整體測試結果，`check_run` 只會改成失敗或進行中、**不會把單一個通過當整體通過，也不會把失敗蓋回進行中**；1MB 上限 | 外洩時拿到密鑰的人只能改已連過的 PR 的狀態，而且還要知道網址裡的 token；沒連過的 repo 若會新增，任何拿到網址的人都能往別人的專案塞東西 |
+| `project_prs`、`github_hooks` **不進每日備份**；刪帳號清掉兩張表（`tests/account-delete.test.mjs` 兩個人各一份） | 前者是快取（還原出過期的「測試通過」比沒有更糟）；後者是憑證 |
+| 不存 GitHub 的 token、不主動問 GitHub | 兩條路都是對方把資料送過來 |
+
+**驗證**：`tests/agent2.test.mjs`；突變驗證過十七種改法（`end` 被改、claim 條件／stale 判斷拿掉、`casWrite` 不帶版本條件、`apply_changes` 吞掉失敗的操作、dryRun 照樣寫、webhook 簽章不驗／未知 token 不 404／不限 `user_id`／沒連過的也新增、`check_run` 通過算整體通過、`unlink_pr` 不限 `user_id`、批次復原不是全有全無、PR 網址放寬、`claimedAt` 不更新、預測改了不寫進展、備份帶了 `github_hooks`）。真的 GitHub 打進來沒驗（要使用者設一次 webhook 看 `ping`）。**2B 要做的畫面**：預測虛線與「晚 N 天」、里程碑菱形（顏色用 `S.milestoneStatus` 同一條規則）、認領標記與「N 天沒動靜」、證據連結、PR 看板、webhook 設定區。
 
 ### agent 工作區的畫面與通知（第一批 1B，`index.html` 的〈agent 工作區〉區段、`src/handlers/agentnotify.js`）
 

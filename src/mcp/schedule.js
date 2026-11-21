@@ -19,6 +19,10 @@ const MAX_NOTE = 200, MAX_TODO_TEXT = 500, MAX_TODOS = 200, MAX_LOG = 2000;
 const FREQS = ['monthly', 'quarterly', 'weekly', 'biweekly', 'yearly'];
 const MAX_TITLE = 200;
 const MAX_TAGS = 12, MAX_TAG_LEN = 24;
+// 第二批：與 index.html 的 HOURS_MAX／TASK_LINKS_MAX／MILESTONES_MAX 同一組（測試比對兩邊的輸出）
+export const MAX_HOURS = 10000, MAX_TASK_LINKS = 10, MAX_MILESTONES = 50, MAX_ASSIGNEE = 60, MAX_LINK_LABEL = 80;
+/** 認領超過這麼久沒動靜，任何人（或別的 agent）可以接手。不自動清掉：清掉等於在沒人看的時候改資料。 */
+export const CLAIM_STALE_MS = 24 * 3600 * 1000;
 
 export const isYmd = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v + 'T00:00:00Z'));
 const isHm = v => typeof v === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(v);
@@ -275,8 +279,11 @@ export function listGantt(state) {
     tasks: (gp.tasks || []).map(t => ({
       id: t.id, name: t.name, start: t.start, end: t.end, progress: t.progress, done: !!t.done,
       status: TASK_STATUSES.includes(t.status) ? t.status : 'todo', blockedNote: t.blockedNote || '',
+      estimateHours: normHours(t.estimateHours), actualHours: normHours(t.actualHours),
+      forecastEnd: isYmd(t.forecastEnd) ? t.forecastEnd : null, assignee: normAssignee(t.assignee), links: normLinks(t.links),
       todos: (t.todos || []).map(td => ({ id: td.id, text: td.text, done: !!td.done, review: !!td.review && !td.done })),
     })),
+    milestones: normMilestones(gp.milestones),
   }));
 }
 
@@ -295,15 +302,42 @@ export function addGanttTask(state, projectId, f) {
   const gp = findGantt(s, projectId);
   if (!isYmd(f.start) || !isYmd(f.end)) fail('start 與 end 要是 YYYY-MM-DD');
   if (f.end < f.start) fail('end 不可以早於 start');
-  const t = { id: uid('task'), name: cleanTitle(f.name), start: f.start, end: f.end, progress: 0, done: false, todos: [], status: 'todo', blockedNote: '' };
+  const t = { id: uid('task'), name: cleanTitle(f.name), start: f.start, end: f.end, progress: 0, done: false, todos: [], status: 'todo', blockedNote: '',
+    estimateHours: null, actualHours: null, forecastEnd: null, assignee: null, claimedAt: null, links: [] };
   gp.tasks.push(t);
   return { state: s, change: { kind: 'ganttTask', id: taskRef(gp.id, t.id), before: null, after: clone(t), summary: `在「${gp.name}」新增任務「${t.name}」` } };
 }
 
 /** 舊存檔的任務沒有新欄位：改它之前先補齊（補在 before 快照之前，復原時不會把補的欄位當成「這一筆改的」）。 */
+function normHours(v) { return (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= MAX_HOURS) ? v : null; }
+function normAssignee(v) {
+  const x = String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, MAX_ASSIGNEE);
+  return x || null;
+}
+/** index.html 的 normalizeTaskLinks 的逐行移植：存檔裡的壞資料靜靜濾掉（寫入工具則是嚴格驗證，見 cleanLinks）。 */
+function normLinks(raw) {
+  return (Array.isArray(raw) ? raw : [])
+    .filter(l => l && typeof l.url === 'string' && /^https?:\/\//.test(l.url))
+    .slice(0, MAX_TASK_LINKS)
+    .map(l => ({ url: l.url.slice(0, 500), label: String(l.label == null ? '' : l.label).replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, MAX_LINK_LABEL) }));
+}
+function normMilestones(raw) {
+  return (Array.isArray(raw) ? raw : [])
+    .filter(m => m && m.id && isYmd(m.date))
+    .slice(0, MAX_MILESTONES)
+    .map(m => ({ id: m.id, name: String(m.name == null ? '' : m.name).replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, MAX_TITLE), date: m.date }));
+}
+
 function ensureTaskShape(t) {
   if (!TASK_STATUSES.includes(t.status)) t.status = 'todo';
   if (typeof t.blockedNote !== 'string') t.blockedNote = '';
+  // 第二批的欄位：與前端 normalizeGanttProjects 同一組規則（補在 before 快照之前）
+  t.estimateHours = normHours(t.estimateHours);
+  t.actualHours = normHours(t.actualHours);
+  t.forecastEnd = isYmd(t.forecastEnd) ? t.forecastEnd : null;
+  t.assignee = normAssignee(t.assignee);
+  t.claimedAt = (typeof t.claimedAt === 'number' && Number.isFinite(t.claimedAt) && t.claimedAt > 0) ? t.claimedAt : null;
+  t.links = normLinks(t.links);
   t.todos = Array.isArray(t.todos) ? t.todos : [];
   for (const td of t.todos) td.review = !!td.review && !td.done;
 }
@@ -322,7 +356,28 @@ function syncTaskFromTodos(t) {
 /** 有效的完成：有子待辦時由子待辦算（同前端），否則看 done。 */
 export const effectiveDone = t => (Array.isArray(t.todos) && t.todos.length ? t.todos.every(td => td.done) : !!t.done);
 
-export function updateGanttTask(state, projectId, taskId, f) {
+/**
+ * agent 寫了它被指派的任務：認領的新舊（claimedAt）跟著更新。只看署名完全相同的認領；
+ * 別人認領的任務被誰改了，不該讓那份認領看起來還很新。
+ */
+function touchClaim(t, ctx) {
+  if (ctx && ctx.actor && t.assignee && t.assignee === ctx.actor) t.claimedAt = ctx.now || Date.now();
+}
+
+/** 證據連結：寫入時嚴格驗證（不是靜靜濾掉）——agent 傳錯要當場知道。 */
+function cleanLinks(raw) {
+  if (raw == null) return [];
+  if (!Array.isArray(raw)) fail('links 要是 [{ url, label }] 的陣列');
+  if (raw.length > MAX_TASK_LINKS) fail(`一個任務最多 ${MAX_TASK_LINKS} 個連結`);
+  return raw.map((l, i) => {
+    if (!l || typeof l !== 'object' || typeof l.url !== 'string' || !/^https?:\/\//.test(l.url)) fail(`第 ${i + 1} 個連結的 url 只接受 http:// 或 https:// 開頭的網址`);
+    const label = String(l.label == null ? '' : l.label).replace(/[\u0000-\u001f\u007f]/g, ' ').trim();
+    if (label.length > MAX_LINK_LABEL) fail(`第 ${i + 1} 個連結的 label 最多 ${MAX_LINK_LABEL} 字`);
+    return { url: l.url.slice(0, 500), label };
+  });
+}
+
+export function updateGanttTask(state, projectId, taskId, f, ctx = null) {
   const s = ensureState(clone(state));
   const gp = findGantt(s, projectId);
   const t = gp.tasks.find(x => x.id === taskId);
@@ -350,11 +405,13 @@ export function updateGanttTask(state, projectId, taskId, f) {
   }
   if ('blockedNote' in f) t.blockedNote = cleanNote(f.blockedNote);
   if (t.status === 'blocked' && !t.blockedNote) fail('blocked 一定要帶一句原因（blockedNote）：「卡住了」沒有原因等於沒說');
+  if ('links' in f) t.links = cleanLinks(f.links);
+  touchClaim(t, ctx);
   return { state: s, change: { kind: 'ganttTask', id: taskRef(gp.id, t.id), before, after: clone(t), summary: `修改任務「${t.name}」` } };
 }
 
 /** 新增或修改任務底下的一個子待辦；有子待辦時任務的進度與完成由它們算出（同前端）。 */
-export function upsertTaskTodo(state, projectId, taskId, f) {
+export function upsertTaskTodo(state, projectId, taskId, f, ctx = null) {
   const s = ensureState(clone(state));
   const gp = findGantt(s, projectId);
   const t = gp.tasks.find(x => x.id === taskId);
@@ -380,14 +437,165 @@ export function upsertTaskTodo(state, projectId, taskId, f) {
   }
   if (todo.done) todo.review = false;
   syncTaskFromTodos(t);
+  touchClaim(t, ctx);
   return { state: s, change: { kind: 'ganttTask', id: taskRef(gp.id, t.id), before, after: clone(t), summary: `${f.todoId ? '修改' : '新增'}任務「${t.name}」的子待辦「${todo.text}」` } };
 }
 
 export function createGanttProject(state, name) {
   const s = ensureState(clone(state));
-  const gp = { id: uid('gp'), name: cleanTitle(name), notes: '', pet: null, brief: '', tasks: [] };
+  const gp = { id: uid('gp'), name: cleanTitle(name), notes: '', pet: null, brief: '', milestones: [], tasks: [] };
   s.ganttProjects.push(gp);
   return { state: s, change: { kind: 'ganttProject', id: gp.id, before: null, after: clone(gp), summary: `新增專案「${gp.name}」` } };
+}
+
+// ------------------------------------------------------------ 第二批：預估、里程碑、認領
+
+const md = ymd => { const [y, m, d] = ymd.split('-'); return `${+m}/${+d}`; };
+const fmtForecast = (ymd, other) => (!ymd ? '（無）' : (other && other.slice(0, 4) !== ymd.slice(0, 4) ? ymd : md(ymd)));
+
+/**
+ * 預測完成日落在使用者不太會做事的日子時的提醒（**不拒絕、不自動順延**，同「不在不順延」）：
+ * 週末（除非那天被標成補班日）、state.customHolidays、reminder_feed 推上來的 leave_days。
+ * 內建的國定假日清單只存在前端；使用者沒把它載進 customHolidays 的話這裡看不到——
+ * 提醒是盡力而為，不是保證。
+ */
+export function forecastNotices(state, ymd, leaveDays) {
+  const out = [];
+  if (!isYmd(ymd)) return out;
+  const workdays = new Set(Array.isArray(state.customWorkdays) ? state.customWorkdays : []);
+  const dow = new Date(ymd + 'T00:00:00Z').getUTCDay();
+  if ((dow === 0 || dow === 6) && !workdays.has(ymd)) out.push(`${md(ymd)} 是${dow === 0 ? '週日' : '週六'}`);
+  if (Array.isArray(state.customHolidays) && state.customHolidays.includes(ymd)) out.push(`${md(ymd)} 是假日（使用者的假日清單裡有這一天）`);
+  if (Array.isArray(leaveDays) && leaveDays.includes(ymd)) out.push(`${md(ymd)} 是使用者的休假日`);
+  return out;
+}
+
+function cleanHours(v, name) {
+  if (v === null) return null;
+  if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > MAX_HOURS) fail(`${name} 要是 0～${MAX_HOURS} 的數字（或 null 清掉）`);
+  return Math.round(v * 100) / 100;
+}
+
+/**
+ * 設預估時數、實際時數、預測完成日。**永遠不碰 start／end／progress／done**：計畫是使用者的，
+ * 預測是 agent 的，兩條線並存才看得出差距（設計文件第 6 項）。
+ * 回 { state, change, events, notices }：events 是要寫進進展日誌的（預測改了就自動記一筆），
+ * notices 是給 agent 的提醒（預測落在週末／假日／休假日）。
+ */
+export function setTaskEstimate(state, projectId, taskId, f, ctx = null) {
+  const s = ensureState(clone(state));
+  const gp = findGantt(s, projectId);
+  const t = gp.tasks.find(x => x.id === taskId);
+  if (!t) fail('找不到這個 taskId');
+  if (!['estimateHours', 'actualHours', 'forecastEnd'].some(k => k in f)) fail('至少要給 estimateHours、actualHours、forecastEnd 其中一個');
+  ensureTaskShape(t);
+  const before = clone(t);
+  if ('estimateHours' in f) t.estimateHours = cleanHours(f.estimateHours, 'estimateHours');
+  if ('actualHours' in f) t.actualHours = cleanHours(f.actualHours, 'actualHours');
+  const events = [], notices = [];
+  if ('forecastEnd' in f) {
+    if (f.forecastEnd !== null && !isYmd(f.forecastEnd)) fail('forecastEnd 要是 YYYY-MM-DD（或 null 清掉）');
+    if (f.forecastEnd !== t.forecastEnd) {
+      events.push({ projectId: gp.id, taskId: t.id,
+        body: `「${t.name}」預測從 ${fmtForecast(t.forecastEnd, f.forecastEnd)} 改成 ${fmtForecast(f.forecastEnd, t.forecastEnd)}` });
+    }
+    t.forecastEnd = f.forecastEnd;
+    if (f.forecastEnd) notices.push(...forecastNotices(s, f.forecastEnd, ctx && ctx.leaveDays));
+  }
+  touchClaim(t, ctx);
+  return { state: s, change: { kind: 'ganttTask', id: taskRef(gp.id, t.id), before, after: clone(t), summary: `設定任務「${t.name}」的預估／預測` }, events, notices };
+}
+
+/** 里程碑：新增（不帶 id）、修改（帶 id）、刪除（帶 id 與 remove:true）。改的是專案的 milestones 這一欄。 */
+export function upsertMilestone(state, projectId, f, ctx = null) {
+  const s = ensureState(clone(state));
+  const gp = findGantt(s, projectId);
+  gp.milestones = Array.isArray(gp.milestones) ? gp.milestones : [];
+  const snap = () => ({ id: gp.id, name: gp.name, milestones: clone(gp.milestones) });
+  const before = snap();
+  let summary;
+  if (f.remove) {
+    if (!f.id) fail('remove 要帶 id（要刪的那個里程碑）');
+    const i = gp.milestones.findIndex(m => m.id === f.id);
+    if (i < 0) fail('找不到這個里程碑 id');
+    const [gone] = gp.milestones.splice(i, 1);
+    summary = `刪除「${gp.name}」的里程碑「${gone.name}」`;
+  } else {
+    const cleanName = v => {
+      const x = String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, MAX_TITLE);
+      if (!x) fail('name 不可以是空的');
+      return x;
+    };
+    if (f.date !== undefined && !isYmd(f.date)) fail('date 要是 YYYY-MM-DD');
+    if (f.id) {
+      const m = gp.milestones.find(x => x.id === f.id);
+      if (!m) fail('找不到這個里程碑 id');
+      if ('name' in f) m.name = cleanName(f.name);
+      if (f.date !== undefined) m.date = f.date;
+      summary = `修改「${gp.name}」的里程碑「${m.name}」`;
+    } else {
+      if (!('name' in f) || f.date === undefined) fail('新增里程碑要帶 name 與 date');
+      if (gp.milestones.length >= MAX_MILESTONES) fail(`一個專案最多 ${MAX_MILESTONES} 個里程碑`);
+      const m = { id: uid('ms'), name: cleanName(f.name), date: f.date };
+      gp.milestones.push(m);
+      summary = `在「${gp.name}」新增里程碑「${m.name}」`;
+    }
+  }
+  return { state: s, change: { kind: 'ganttProject', id: gp.id, before, after: snap(), summary } };
+}
+
+/**
+ * 認領：**條件寫在這個純函式裡**，靠 casWrite 的帶條件 UPDATE（updated_at 沒變才寫）與重試保證只有一個贏——
+ * 兩個 agent 同時認領時，輸的那個重讀之後會在這裡看到對方已經認領而失敗。不是先讀再寫。
+ * 成功條件：沒人認領／認領的就是自己／對方超過 24 小時沒動靜（claimedAt 太舊）。
+ * assignee 有值但 claimedAt 是空的（人手動指派的）視為「新的」，不讓 agent 搶走。
+ * release:true：放掉自己的認領（只能放自己的）。
+ */
+export function claimTask(state, projectId, taskId, f, ctx) {
+  const s = ensureState(clone(state));
+  const gp = findGantt(s, projectId);
+  const t = gp.tasks.find(x => x.id === taskId);
+  if (!t) fail('找不到這個 taskId');
+  ensureTaskShape(t);
+  const before = clone(t);
+  const now = (ctx && ctx.now) || Date.now();
+  const actor = ctx && ctx.actor;
+  if (!actor) fail('認領要知道你是誰（連線的署名）');
+  if (f && f.release) {
+    if (t.assignee !== actor) fail('只能放掉自己的認領');
+    t.assignee = null; t.claimedAt = null;
+    return { state: s, change: { kind: 'ganttTask', id: taskRef(gp.id, t.id), before, after: clone(t), summary: `放掉任務「${t.name}」的認領` } };
+  }
+  const mine = t.assignee === actor;
+  const stale = !!t.assignee && typeof t.claimedAt === 'number' && now - t.claimedAt > CLAIM_STALE_MS;
+  if (t.assignee && !mine && !stale) {
+    const ageH = typeof t.claimedAt === 'number' ? Math.max(0, Math.floor((now - t.claimedAt) / 3600000)) : null;
+    fail(`這個任務已經被「${t.assignee}」認領${ageH == null ? '' : `（${ageH} 小時前有動靜）`}；對方超過 24 小時沒動靜才能接手`);
+  }
+  t.assignee = actor; t.claimedAt = now;
+  return { state: s, change: { kind: 'ganttTask', id: taskRef(gp.id, t.id), before, after: clone(t),
+    summary: `${t.assignee === before.assignee ? '更新' : (before.assignee ? '接手' : '認領')}任務「${t.name}」` } };
+}
+
+const dayMs = ymd => Date.parse(ymd + 'T00:00:00Z');
+/** 預測比計畫晚幾天（負的＝比計畫早）。沒有預測回 null。 */
+export const lateDays = t => (isYmd(t.forecastEnd) && isYmd(t.end) ? Math.round((dayMs(t.forecastEnd) - dayMs(t.end)) / 86400000) : null);
+
+/**
+ * 里程碑會不會趕上——**算出來的，不存狀態**（同夥伴的階段）。把關的是「計畫在這一天之前（end ≤ 里程碑日）要完成」的任務：
+ * 其中還沒完成、而預測完成日（forecastEnd）超過里程碑日的 → 有風險；已經過了里程碑日卻還有沒完成的 → 也有風險（已錯過）。
+ * 前端畫菱形的顏色要用同一條規則（2B）。
+ */
+export function milestoneStatus(gp, m, todayYmd) {
+  const gating = (gp.tasks || []).filter(t => t.end <= m.date);
+  const open = gating.filter(t => !effectiveDone(t));
+  const late = open.filter(t => isYmd(t.forecastEnd) && t.forecastEnd > m.date);
+  const missed = open.length > 0 && todayYmd > m.date;
+  return {
+    atRisk: late.length > 0 || missed,
+    reason: late.length ? '有任務的預測完成日超過里程碑' : (missed ? '已過里程碑日，還有任務沒完成' : null),
+    gatingTasks: gating.length, openTasks: open.length, riskTaskIds: late.map(t => t.id),
+  };
 }
 
 const escHtml = v => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -502,6 +710,8 @@ const FIELD_LABELS = {
   title: '標題', date: '日期', type: '類型', endDate: '結束日', meetingTime: '時間', parentId: '大項目', link: '連結',
   noticeOnly: '純告知', tags: '標籤', recurrence: '循環', done: '完成', name: '名稱', start: '開始', end: '結束',
   progress: '進度', status: '狀態', blockedNote: '原因', todos: '子待辦',
+  estimateHours: '預估時數', actualHours: '實際時數', forecastEnd: '預測完成日', assignee: '認領', claimedAt: '認領時間',
+  links: '證據連結', milestones: '里程碑',
 };
 const shortVal = v => {
   if (v === undefined || v === null) return null;
