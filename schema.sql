@@ -459,7 +459,8 @@ CREATE TABLE IF NOT EXISTS mcp_activity (
   after       TEXT,
   created_at  INTEGER NOT NULL,
   undone_at   INTEGER,
-  conn_id     TEXT                -- 哪一條連線做的（自動暫停：同一條連線一小時內被復原 5 次以上）
+  conn_id     TEXT,               -- 哪一條連線做的（自動暫停：同一條連線一小時內被復原 5 次以上）
+  batch_id    TEXT                -- apply_changes／多個操作的提案：同一批的每一列帶同一個，復原可以整批倒回去
 );
 CREATE INDEX IF NOT EXISTS idx_mcp_activity_user ON mcp_activity(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_mcp_activity_conn ON mcp_activity(conn_id, undone_at);
@@ -543,4 +544,34 @@ CREATE TABLE IF NOT EXISTS agent_notify_state (
   pending      INTEGER NOT NULL DEFAULT 0,
   actor        TEXT,
   PRIMARY KEY (user_id, project_id)
+);
+
+-- 任務連到的 GitHub PR（第二批）。agent 回報與 webhook 寫同一張表；每一列記 source 與 updated_at。
+CREATE TABLE IF NOT EXISTS project_prs (
+  id          TEXT PRIMARY KEY,
+  user_id     TEXT NOT NULL,
+  project_id  TEXT NOT NULL,
+  task_id     TEXT,
+  repo        TEXT NOT NULL,
+  number      INTEGER,
+  branch      TEXT,
+  title       TEXT,
+  state       TEXT,
+  checks      TEXT,
+  review      TEXT,
+  author      TEXT,
+  url         TEXT NOT NULL,
+  source      TEXT NOT NULL,
+  updated_at  INTEGER NOT NULL,
+  UNIQUE (user_id, repo, number)
+);
+CREATE INDEX IF NOT EXISTS idx_project_prs_project ON project_prs(user_id, project_id, state);
+CREATE INDEX IF NOT EXISTS idx_mcp_activity_batch ON mcp_activity(user_id, batch_id);
+
+-- GitHub webhook：token 只存雜湊；secret 驗 HMAC 要原文所以存明碼（同 unsub_token 的取捨，見 migration 019）。
+CREATE TABLE IF NOT EXISTS github_hooks (
+  user_id     TEXT PRIMARY KEY,
+  token_hash  TEXT NOT NULL UNIQUE,
+  secret      TEXT NOT NULL,
+  created_at  INTEGER NOT NULL
 );

@@ -12,7 +12,7 @@ import { createSession, getSessionUser } from '../src/session.js';
 import { hashPassword } from '../src/crypto.js';
 import { makeEnv, seedState, unwrap } from './d1.mjs';
 
-const TABLES = ['user_state', 'shares', 'sessions', 'ics_feed', 'reminder_feed', 'password_resets', 'email_codes', 'oauth_identities', 'mcp_requests', 'project_events', 'project_absent', 'mcp_proposals', 'mcp_connections', 'agent_notify_state', 'users'];
+const TABLES = ['user_state', 'shares', 'sessions', 'ics_feed', 'reminder_feed', 'password_resets', 'email_codes', 'oauth_identities', 'mcp_requests', 'project_events', 'project_absent', 'mcp_proposals', 'mcp_connections', 'agent_notify_state', 'project_prs', 'github_hooks', 'users'];
 
 async function setup() {
   const env = makeEnv();
@@ -34,6 +34,9 @@ async function setup() {
     env.DB.prepare("INSERT INTO mcp_proposals (id, user_id, actor, title, ops, status, created_at) VALUES (?, ?, 'Claude', 't', '[]', 'open', 0)").bind('pr-' + id, id).run();
     env.DB.prepare("INSERT INTO mcp_connections (id, user_id, mode, paused, needs_acceptance, created_at, updated_at) VALUES (?, ?, 'review', 1, 1, 0, 0)").bind('cn-' + id, id).run();
     env.DB.prepare("INSERT INTO agent_notify_state (user_id, project_id, last_sent_at, pending, actor) VALUES (?, 'gp1', 5, 2, 'Claude')").bind(id).run();
+    // 第二批：PR 連結與 webhook 密鑰（兩個人各一份，刪 A 不能碰 B 的；同一個 repo＋編號兩個人都有）
+    env.DB.prepare("INSERT INTO project_prs (id, user_id, project_id, repo, number, url, source, updated_at) VALUES (?, ?, 'gp1', 'o/r', 7, 'https://github.com/o/r/pull/7', 'agent', 0)").bind('pp-' + id, id).run();
+    env.DB.prepare("INSERT INTO github_hooks (user_id, token_hash, secret, created_at) VALUES (?, ?, 'sec', 0)").bind(id, 'th-' + id).run();
     env.DB.prepare(`INSERT INTO oauth_identities
       (id, user_id, provider, subject, email, created_at, updated_at)
       VALUES (?, ?, 'google', ?, ?, 0, 0)`).bind('oauth-' + id, id, 'google-' + id, email).run();
@@ -62,6 +65,8 @@ function snapshotOf(env, userId, email) {
     mcpProposals: q('SELECT * FROM mcp_proposals WHERE user_id = ?'),
     mcpConnections: q('SELECT * FROM mcp_connections WHERE user_id = ?'),
     agentNotifyState: q('SELECT * FROM agent_notify_state WHERE user_id = ?'),
+    projectPrs: q('SELECT * FROM project_prs WHERE user_id = ?'),
+    githubHooks: q('SELECT * FROM github_hooks WHERE user_id = ?'),
   };
 }
 

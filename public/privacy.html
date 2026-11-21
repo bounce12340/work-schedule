@@ -43,6 +43,7 @@
       <li><b>網頁版訂閱資料</b>：在網頁版訂閱時，會儲存 Paddle 的訂閱識別碼、客戶識別碼與到期日，用來判斷 Pro 權利。付款資料由 Paddle 處理，我們不會取得信用卡資料。</li>
       <li><b>登入中的裝置</b>：裝置類型（例如「iPhone app」或「Chrome on Windows」）與最後使用時間。<b>不記錄 IP 位址。</b></li>
       <li><b>推播資料</b>：你允許推播後，會儲存 Apple APNs 裝置 token、環境與最後使用時間；你登出、取消註冊或 token 失效時會刪除。</li>
+      <li><b>GitHub PR 的標題與狀態</b>：你把專案連到 GitHub 的 Pull Request（由 AI agent 回報，或由你設定的 GitHub webhook 送來）時，我們會存該 PR 的網址、編號、標題、分支名稱、作者帳號、狀態（草稿／開著／已合併／已關閉）、測試與審核結果，以及最後更新的時間與來源。<b>我們不存你的 GitHub 帳密或 token，也不會主動去讀 GitHub</b>；這些資料只來自 agent 或你設定的 webhook，只用在你自己的專案頁。若你設定 webhook，我們另外存一組只用來驗證「這是 GitHub 送來的」的簽章密鑰；你可以隨時重新產生或移除，刪除帳號時一併刪除。這些資料不在每日備份裡。</li>
       <li><b>agent 通知的節流記錄</b>：agent 向你提問或提案時，我們會寄一封信（有裝 app 也會推播），內容只有連線名稱、專案名稱與件數，<b>不含問題或提案的內容</b>。為了「同一個專案 30 分鐘內最多一封」，會記錄每個專案最後一次通知的時間與還沒通知的件數；刪除帳號時一併刪除。你可以在「我的帳號」關掉這一種通知。</li>
       <li><b>分享記錄</b>：你分享給誰、誰動過你分享的項目，保留 90 天。</li>
     </ul>
@@ -108,6 +109,7 @@
       <li><b>Web subscription data</b>: if you subscribe on the web, we store Paddle’s subscription identifier, customer identifier and expiry date to determine Pro entitlement. Paddle processes payment; we do not receive card details.</li>
       <li><b>Signed-in devices</b>: device type (for example "iPhone app" or "Chrome on Windows") and last-used time. <b>IP addresses are not recorded.</b></li>
       <li><b>Push data</b>: if you allow push notifications, we store Apple's APNs device token, environment and last-used time; it is deleted when you sign out, unregister, or the token becomes invalid.</li>
+      <li><b>GitHub pull request titles and states</b>: when you link a project to a GitHub pull request (reported by an AI agent, or sent by a GitHub webhook you set up), we store the PR's URL, number, title, branch name, author username, state (draft / open / merged / closed), checks and review results, and when and by whom it was last updated. <b>We never store your GitHub password or token and never fetch anything from GitHub ourselves</b>; the data comes only from your agent or your webhook and is used only on your own project page. If you set up a webhook we also store a signing secret used only to verify that a request really came from GitHub; you can regenerate or remove it at any time, and it is deleted with your account. This data is not part of the daily backup.</li>
       <li><b>Agent notification throttle records</b>: when a connected agent asks you a question or proposes changes, we send an email (and a push if you use the app) containing only the connection name, the project name and a count — <b>never the question or proposal itself</b>. To send at most one per project every 30 minutes, we record each project's last notification time and how many are not yet notified; this is deleted with your account. You can turn this notification off in My account.</li>
       <li><b>Sharing log</b>: who you shared with and who changed a shared item, kept for 90 days.</li>
     </ul>

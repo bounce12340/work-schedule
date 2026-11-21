@@ -12,7 +12,8 @@
 import * as S from './schedule.js';
 
 const pick = (o, keys) => Object.fromEntries(keys.filter(k => o && k in o).map(k => [k, o[k]]));
-const one = r => ({ state: r.state, changes: [r.change] });
+// events：要寫進進展日誌的系統紀錄（例如預測改了）；notices：給呼叫的 agent 的提醒。兩者都不是 state 的一部分
+const one = r => ({ state: r.state, changes: [r.change], ...(r.events ? { events: r.events } : {}), ...(r.notices ? { notices: r.notices } : {}) });
 
 /** 會改 user_state 的工具。review 模式下它們不寫入、改成長出提案。 */
 export const STATE_OPS = {
@@ -23,9 +24,13 @@ export const STATE_OPS = {
   create_major_project: (st, a) => one(S.createMajorProject(st, a.name)),
   create_gantt_project: (st, a) => one(S.createGanttProject(st, a.name)),
   add_gantt_task: (st, a) => one(S.addGanttTask(st, a.projectId, pick(a, ['name', 'start', 'end']))),
-  update_gantt_task: (st, a) => one(S.updateGanttTask(st, a.projectId, a.taskId,
-    pick(a, ['name', 'start', 'end', 'progress', 'done', 'status', 'blockedNote']))),
-  upsert_task_todo: (st, a) => one(S.upsertTaskTodo(st, a.projectId, a.taskId, pick(a, ['todoId', 'text', 'done']))),
+  update_gantt_task: (st, a, c) => one(S.updateGanttTask(st, a.projectId, a.taskId,
+    pick(a, ['name', 'start', 'end', 'progress', 'done', 'status', 'blockedNote', 'links']), c)),
+  upsert_task_todo: (st, a, c) => one(S.upsertTaskTodo(st, a.projectId, a.taskId, pick(a, ['todoId', 'text', 'done']), c)),
+  // 第二批。set_task_estimate 的白名單**沒有 start／end**：結構上就碰不到計畫日期
+  set_task_estimate: (st, a, c) => one(S.setTaskEstimate(st, a.projectId, a.taskId, pick(a, ['estimateHours', 'actualHours', 'forecastEnd']), c)),
+  upsert_milestone: (st, a, c) => one(S.upsertMilestone(st, a.projectId, pick(a, ['id', 'name', 'date', 'remove']), c)),
+  claim_task: (st, a, c) => one(S.claimTask(st, a.projectId, a.taskId, pick(a, ['release']), c)),
   write_daily_log: (st, a, c) => one(S.writeDailyLog(st, a.text, c.today)),
 };
 
@@ -42,7 +47,7 @@ export class OpError extends S.ToolError {
 /** 依序在同一份 state 上套 ops；任何一個丟 ToolError 就整批丟出（呼叫端什麼都不寫）。 */
 export function applyOps(state, ops, ctx) {
   let st = state;
-  const changes = [];
+  const changes = [], events = [], notices = [];
   ops.forEach((op, i) => {
     const def = STATE_OPS[op.tool];
     if (!def) throw new OpError(i, op.tool, '不認得這個工具');
@@ -50,10 +55,12 @@ export function applyOps(state, ops, ctx) {
       const r = def(st, op.args || {}, ctx);
       st = r.state;
       for (const c of r.changes) changes.push({ ...c, tool: op.tool });
+      if (r.events) events.push(...r.events);
+      if (r.notices) notices.push(...r.notices);
     } catch (e) {
       if (e instanceof S.ToolError && !(e instanceof OpError)) throw new OpError(i, op.tool, e.message);
       throw e;
     }
   });
-  return { state: st, changes };
+  return { state: st, changes, events, notices };
 }

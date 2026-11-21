@@ -56,6 +56,9 @@ export async function runBackup(env, nowMs = Date.now()) {
     env.DB.prepare('SELECT * FROM project_events').all(),
     // 提案只備還開著的：已經決定的那些，結果已經在 user_state 裡了
     env.DB.prepare("SELECT * FROM mcp_proposals WHERE status = 'open'").all(),
+    // **刻意不備 project_prs 與 github_hooks**：前者是 GitHub 資料的快取（webhook 與 agent 會再送一次，
+    // 備了反而還原出過期的「測試通過」）；後者帶著 webhook 的簽章密鑰，備份檔不該多一份憑證（同「不含密碼雜湊」）。
+    // 還原後到 /account 重新產生 webhook 即可（舊的網址本來就會失效）。
   ]);
 
   const payload = {

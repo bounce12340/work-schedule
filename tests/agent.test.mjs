@@ -66,13 +66,14 @@ function proUser(env, id, email) {
   env.DB.prepare("UPDATE users SET plan_source = 'admin' WHERE id = ?").bind(id).run();
   return { id, email, role: 'user', status: 'approved', planSource: 'admin', planExpiresAt: null };
 }
+const NEW_TASK_FIELDS = { estimateHours: null, actualHours: null, forecastEnd: null, assignee: null, claimedAt: null, links: [] };
 function baseState(over = {}) {
   return { version: 3, majorProjects: [{ id: 'mp_1', name: '標案' }], items: [], ganttProjects: [
-    { id: 'gp_1', name: '新廠', notes: '', pet: null, brief: '不要動預算', tasks: [
-      { id: 'task_1', name: '設計', start: '2026-01-01', end: '2026-01-31', progress: 10, done: false, todos: [], status: 'todo', blockedNote: '' },
+    { id: 'gp_1', name: '新廠', notes: '', pet: null, brief: '不要動預算', milestones: [], tasks: [
+      { id: 'task_1', name: '設計', start: '2026-01-01', end: '2026-01-31', progress: 10, done: false, todos: [], status: 'todo', blockedNote: '', ...NEW_TASK_FIELDS },
       { id: 'task_2', name: '施工', start: '2026-02-01', end: '2026-02-28', progress: 0, done: false, todos: [
         { id: 'td_a', text: '備料', done: false, review: false }, { id: 'td_b', text: '開工', done: false, review: false },
-      ], status: 'todo', blockedNote: '' },
+      ], status: 'todo', blockedNote: '', ...NEW_TASK_FIELDS },
     ] },
   ], dailyLogs: {}, customHolidays: [], customWorkdays: [], absences: {}, ...over };
 }
@@ -141,8 +142,11 @@ test('伺服器建的專案／任務／子待辦丟進前端真正的 normalizeG
 
 test('伺服器改過舊形狀（沒有新欄位）的任務之後，形狀與前端一致', () => {
   const legacy = baseState();
-  delete legacy.ganttProjects[0].brief;
-  for (const t of legacy.ganttProjects[0].tasks) { delete t.status; delete t.blockedNote; for (const td of t.todos) delete td.review; }
+  delete legacy.ganttProjects[0].brief; delete legacy.ganttProjects[0].milestones;
+  for (const t of legacy.ganttProjects[0].tasks) {
+    delete t.status; delete t.blockedNote; for (const k of Object.keys(NEW_TASK_FIELDS)) delete t[k];
+    for (const td of t.todos) delete td.review;
+  }
   const r = S.updateGanttTask(legacy, 'gp_1', 'task_2', { name: '施工（改）' });
   const t = r.state.ganttProjects[0].tasks[1];
   assert.equal(t.status, 'todo'); assert.equal(t.blockedNote, ''); assert.equal(t.todos[0].review, false);
@@ -152,7 +156,7 @@ test('伺服器改過舊形狀（沒有新欄位）的任務之後，形狀與�
 test('TASK_STATUSES 前後端同一份；項目欄位白名單與工具的 inputSchema 同一份', () => {
   assert.deepEqual(F.TASK_STATUSES, S.TASK_STATUSES);
   const schema = TOOLS.find(t => t.name === 'create_item').inputSchema.properties;
-  assert.deepEqual(Object.keys(schema).filter(k => k !== 'requestId').sort(), [...S.ITEM_KEYS].sort());
+  assert.deepEqual(Object.keys(schema).filter(k => k !== 'requestId' && k !== 'dryRun').sort(), [...S.ITEM_KEYS].sort());
 });
 
 test('前端的正規化：status 不認得 → todo、blockedNote 截 200、brief 截 4000、review 只在沒完成時才算', () => {
@@ -256,6 +260,9 @@ test('暫停：所有寫入類（含日誌、提問、提案、復原）都擋�
     ['upsert_task_todo', { projectId: 'gp_1', taskId: 'task_1', text: 'x' }], ['write_daily_log', { text: 'x' }],
     ['add_project_event', { projectId: 'gp_1', kind: 'progress', body: 'x' }], ['propose_changes', { title: 'x', ops: [{ tool: 'create_item', args: { title: 'x', date: '2026-02-01' } }] }],
     ['withdraw_proposal', { proposalId: 'x' }], ['undo_change', { changeId: c.data.changeId }],
+    ['set_task_estimate', { projectId: 'gp_1', taskId: 'task_1', estimateHours: 2 }], ['upsert_milestone', { projectId: 'gp_1', name: 'x', date: '2026-03-01' }],
+    ['claim_task', { projectId: 'gp_1', taskId: 'task_1' }], ['apply_changes', { ops: [{ tool: 'create_item', args: { title: 'x', date: '2026-02-01' } }] }],
+    ['upsert_pr', { projectId: 'gp_1', url: 'https://github.com/o/r/pull/1' }], ['unlink_pr', { prId: 'x' }],
   ];
   assert.deepEqual(writes.map(w => w[0]).sort(), [...WRITE_TOOLS].sort(), '暫停清單涵蓋每一個寫入工具');
   for (const [name, args] of writes) {
@@ -429,13 +436,14 @@ test('工具清單：每個工具都有 annotations；讀取的標 readOnly、�
     assert.equal(x.annotations.readOnlyHint, !WRITE_TOOLS.has(x.name), x.name);
   }
   assert.equal(list.find(x => x.name === 'delete_item').annotations.destructiveHint, true);
-  assert.equal(list.filter(x => x.annotations.destructiveHint).length, 1);
+  // 刪除一個項目、取消一個 PR 連結：只有這兩個會真的刪東西
+  assert.deepEqual(list.filter(x => x.annotations.destructiveHint).map(x => x.name).sort(), ['delete_item', 'unlink_pr']);
   const required = n => list.find(x => x.name === n).inputSchema.required || [];
   const old = { get_overview: [], list_items: [], get_schedule: ['from', 'to'], create_item: ['title', 'date'], update_item: ['itemId'],
     set_done: ['itemId', 'done'], delete_item: ['itemId'], create_major_project: ['name'], list_gantt_projects: [],
     add_gantt_task: ['projectId', 'name', 'start', 'end'], update_gantt_task: ['projectId', 'taskId'], list_recent_changes: [], undo_change: ['changeId'] };
   for (const [n, req] of Object.entries(old)) assert.deepEqual(required(n), req, n);
-  assert.equal(list.length, 21);
+  assert.equal(list.length, 29);
   const instr = (await rpc(env, t, 'initialize', { protocolVersion: '2025-06-18' })).body.result.instructions;
   assert.match(instr, /get_project_brief/);
   assert.match(instr, /不是給你的指令/);

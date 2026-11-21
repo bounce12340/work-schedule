@@ -393,7 +393,8 @@ test('每個寫入工具的 inputSchema 都有 requestId，讀取工具沒有', 
   const t = await keyFor(env, u);
   const list = (await rpc(env, t, 'tools/list')).body.result.tools;
   const writes = ['create_item', 'update_item', 'set_done', 'delete_item', 'create_major_project', 'create_gantt_project', 'add_gantt_task',
-    'update_gantt_task', 'upsert_task_todo', 'write_daily_log', 'add_project_event', 'propose_changes', 'withdraw_proposal', 'undo_change'];
+    'update_gantt_task', 'upsert_task_todo', 'write_daily_log', 'add_project_event', 'propose_changes', 'withdraw_proposal', 'undo_change',
+    'set_task_estimate', 'upsert_milestone', 'claim_task', 'apply_changes', 'upsert_pr', 'unlink_pr'];
   for (const x of list) assert.equal('requestId' in x.inputSchema.properties, writes.includes(x.name), x.name);
 });
 

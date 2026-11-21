@@ -311,6 +311,8 @@ export async function handleDeleteAccount(request, env, user) {
     env.DB.prepare('DELETE FROM mcp_proposals WHERE user_id = ?').bind(id),
     env.DB.prepare('DELETE FROM mcp_connections WHERE user_id = ?').bind(id),
     env.DB.prepare('DELETE FROM agent_notify_state WHERE user_id = ?').bind(id),
+    env.DB.prepare('DELETE FROM project_prs WHERE user_id = ?').bind(id),
+    env.DB.prepare('DELETE FROM github_hooks WHERE user_id = ?').bind(id),
     env.DB.prepare('DELETE FROM users WHERE id = ?').bind(id),
   ]);
   return json({ ok: true });
