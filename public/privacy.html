@@ -43,6 +43,7 @@
       <li><b>網頁版訂閱資料</b>：在網頁版訂閱時，會儲存 Paddle 的訂閱識別碼、客戶識別碼與到期日，用來判斷 Pro 權利。付款資料由 Paddle 處理，我們不會取得信用卡資料。</li>
       <li><b>登入中的裝置</b>：裝置類型（例如「iPhone app」或「Chrome on Windows」）與最後使用時間。<b>不記錄 IP 位址。</b></li>
       <li><b>推播資料</b>：你允許推播後，會儲存 Apple APNs 裝置 token、環境與最後使用時間；你登出、取消註冊或 token 失效時會刪除。</li>
+      <li><b>agent 通知的節流記錄</b>：agent 向你提問或提案時，我們會寄一封信（有裝 app 也會推播），內容只有連線名稱、專案名稱與件數，<b>不含問題或提案的內容</b>。為了「同一個專案 30 分鐘內最多一封」，會記錄每個專案最後一次通知的時間與還沒通知的件數；刪除帳號時一併刪除。你可以在「我的帳號」關掉這一種通知。</li>
       <li><b>分享記錄</b>：你分享給誰、誰動過你分享的項目，保留 90 天。</li>
     </ul>
   </section>
@@ -107,6 +108,7 @@
       <li><b>Web subscription data</b>: if you subscribe on the web, we store Paddle’s subscription identifier, customer identifier and expiry date to determine Pro entitlement. Paddle processes payment; we do not receive card details.</li>
       <li><b>Signed-in devices</b>: device type (for example "iPhone app" or "Chrome on Windows") and last-used time. <b>IP addresses are not recorded.</b></li>
       <li><b>Push data</b>: if you allow push notifications, we store Apple's APNs device token, environment and last-used time; it is deleted when you sign out, unregister, or the token becomes invalid.</li>
+      <li><b>Agent notification throttle records</b>: when a connected agent asks you a question or proposes changes, we send an email (and a push if you use the app) containing only the connection name, the project name and a count — <b>never the question or proposal itself</b>. To send at most one per project every 30 minutes, we record each project's last notification time and how many are not yet notified; this is deleted with your account. You can turn this notification off in My account.</li>
       <li><b>Sharing log</b>: who you shared with and who changed a shared item, kept for 90 days.</li>
     </ul>
   </section>

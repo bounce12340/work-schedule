@@ -205,7 +205,9 @@ APP_URL=<選填>
 - 用 OAuth 登入（agent 會開一個「允許」頁），或在「我的帳號 › 連接 AI agent」建一把個人金鑰
 - agent 改過的每一筆都列在帳號頁，可以一鍵**復原**；那一項你之後自己又改過的話不會被蓋掉
 - agent 還能在專案裡寫**進展日誌、交接筆記、向你提問**；你可以把連線設成「**先審核**」（agent 的修改變成提案，同意才生效）、「勾完成要我驗收」，或隨時暫停
-- 部署前要先跑 `migrations/015-mcp.sql`、`016-mcp-requests.sql` 與 `017-agent-workspace.sql`。設計見 [`docs/superpowers/specs/2026-11-20-mcp-server.md`](docs/superpowers/specs/2026-11-20-mcp-server.md)
+- **專案頁**有可收合的**專案說明書**（純文字，agent 開工先讀的規則）、**最新進展**時間軸（你可以遮蔽、不能改）、任務**狀態**徽章（進行中／卡住／等待中／待驗收），**項目安排頁最上面**有「**等你回覆**」：點一下選項就回答問題、同意或退回提案（畫的是改前→改後，不是 JSON）、驗收或退回 agent 說做完的工作。agent 有新動靜時只在上面出現一條「agent 剛更新了」，不會在你打字時重畫
+- 連線設定（直接改／先審核、勾完成要我驗收、暫停單條或全部）在帳號頁；第六顆通知開關會在 agent 提問時寄信（app 裡也推播）——信裡不放問題內容、同一個專案 30 分鐘內最多一封、休假那天不送
+- 部署前要先跑 `migrations/015-mcp.sql`、`016-mcp-requests.sql`、`017-agent-workspace.sql` 與 `018-agent-notify.sql`。設計見 [`docs/superpowers/specs/2026-11-20-mcp-server.md`](docs/superpowers/specs/2026-11-20-mcp-server.md)
 
 ### 🔗 分享（部署後才啟用）
 

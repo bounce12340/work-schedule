@@ -319,7 +319,8 @@
     ['push',     '推播'],
     ['backup',   '每日備份'],
     ['purge',    '過期資料清理'],
-    ['agent_events', 'agent 日誌清理（專案消失滿 30 天）']
+    ['agent_events', 'agent 日誌清理（專案消失滿 30 天）'],
+    ['agent_notify', 'agent 通知（被節流擋下來的合併補送）']
   ];
 
   // 幾小時內算「新鮮」。與備份那一區的 36 小時一致：cron 一天跑一次，
@@ -392,7 +393,8 @@
     ['reset',    '密碼重設', '交易信'],
     ['verify',   'app 驗證碼', '交易信'],
     ['reminder', '逾期提醒', '訂閱信'],
-    ['streak',   '櫻花樹的信', '訂閱信']
+    ['streak',   '櫻花樹的信', '訂閱信'],
+    ['agent',    'agent 提問通知', '訂閱信']
   ];
 
   async function opsLoadMailLog(){

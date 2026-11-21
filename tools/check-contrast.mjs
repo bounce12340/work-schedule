@@ -21,7 +21,7 @@
 import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { markSignedIn } from './lib/signed-in.mjs';
+import { markSignedIn, skipBootScene } from './lib/signed-in.mjs';
 
 let chromium;
 try {
@@ -491,6 +491,141 @@ for (const [theme, label, fixedTime] of PASSES) {
   }
   await page.close();
 }
+
+// ---------- agent 工作區（1B）：狀態徽章、專案說明書、最新進展、等你回覆、連線設定 ----------
+//
+// 這一整塊要有後端才畫得出來（收件匣、日誌都來自伺服器），而上面那條流程的假伺服器對 /api/* 一律 404。
+// 所以另外起一個**有假後端的伺服器**，並且**主動把每一種狀態造出來**——卡住／等待／待驗收的任務、
+// 一個還開著的提問、一份提案（含一份套不上去的）、一筆被遮蔽的日誌、「agent 剛更新了」那一條、
+// 被自動暫停的連線。等它們自然出現就是「畫面上沒有這個元素，略過」那條永遠不會執行的斷言
+// （CLAUDE.md〈顏色不只要好看，要量得出來〉抓到過兩個已經上線很久的案例）。
+// 這一輪**找不到元素就是錯誤**，不是「略過」。
+//
+// 新增的顏色 token（--st-*）亮暗兩組都在 :root 與 [data-theme="dark"]；blocked 刻意用「深色實心」而不是紅色
+// （紅是逾期專用），所以它的對比要量，不能靠感覺。
+const AGENT_PORT = PORT + 1;
+const plusD = n => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+const AGENT_STATE = {
+  version: 3, majorProjects: [], items: [],
+  ganttProjects: [{ id: 'g1', name: '新廠專案', notes: '', pet: null, brief: '預算上限 200 萬，不要刪任何東西', tasks: [
+    { id: 'tO', name: '逾期又進行中', start: '2026-01-01', end: '2026-02-01', progress: 10, done: false, todos: [], status: 'doing', blockedNote: '' },
+    { id: 'tB', name: '卡住的任務', start: '2026-01-01', end: plusD(90), progress: 10, done: false, todos: [], status: 'blocked', blockedNote: '' },
+    { id: 'tW', name: '等待的任務', start: '2026-01-01', end: plusD(90), progress: 10, done: false, todos: [], status: 'waiting', blockedNote: '等廠商回覆' },
+    { id: 'tR', name: '待驗收的任務', start: '2026-01-01', end: plusD(90), progress: 10, done: false, todos: [], status: 'review', blockedNote: '' },
+    { id: 'tD', name: '進行中的任務', start: '2026-01-01', end: plusD(90), progress: 10, done: false, todos: [], status: 'doing', blockedNote: '' },
+  ] }],
+  dailyLogs: {}, absences: {}, customHolidays: [], customWorkdays: [], selectedGanttProjectId: 'g1', availableYears: [2026, 2027],
+};
+const agentEv = (id, kind, body, over = {}) => ({ id, projectId: 'g1', taskId: null, kind, actor: kind === 'decision' ? 'user' : 'Claude Code',
+  body, refId: null, status: null, options: null, defaultAfter: null, redactedAt: null, createdAt: Date.now() - (over.ago || 60000), ...over });
+const AGENT_DATA = {
+  version: { updatedAt: 1, latestEventAt: 5000 },
+  events: [
+    agentEv('q1', 'question', '要用哪個方案？', { status: 'open', options: ['甲案', '乙案'], taskId: 'tB' }),
+    agentEv('e2', 'progress', '整理完訪談紀錄', { ago: 3600000 }),
+    agentEv('e3', 'handoff', '交接：下一步做視覺', { ago: 7200000, taskId: 'tW' }),
+    agentEv('e4', 'decision', '問題：x\n決定：y', { ago: 8000000 }),
+    agentEv('e5', 'progress', '', { redactedAt: Date.now() - 86400000, ago: 90000000 }),
+  ],
+  questions: [{ ...agentEv('q1', 'question', '要用哪個方案？', { status: 'open', options: ['甲案', '乙案'], taskId: 'tB', defaultAfter: plusD(-1) }),
+    projectName: '新廠專案', taskName: '卡住的任務', pastDeadline: true }],
+  proposals: [
+    { id: 'p1', title: '把施工往後排一週', actor: 'Claude Code', connId: 'c1', createdAt: Date.now() - 30000, ops: 1,
+      preview: { ok: true, rows: [{ entity: '專案「新廠專案」的任務「施工」', field: '結束日', before: '2027-02-10', after: '2027-02-17' }] } },
+    // 套不上去的那一份：卡片上會有紅色的說明（.agent-msg.err）
+    { id: 'p2', title: '刪掉一個已經不在的任務', actor: 'Claude Code', connId: 'c1', createdAt: Date.now() - 20000, ops: 1,
+      preview: { ok: false, error: '找不到這個任務', rows: [] } },
+  ],
+  review: [{ projectId: 'g1', projectName: '新廠專案', taskId: 'tR', taskName: '待驗收的任務', todosInReview: [{ id: 'a', text: '備料' }] }],
+  connections: [
+    { id: 'c1', kind: 'oauth', name: 'Claude Code', createdAt: 1, lastUsedAt: null, mode: 'review', paused: false, needsAcceptance: true, pausedReason: null },
+    { id: 'c2', kind: 'key', name: '自動暫停的金鑰', createdAt: 2, lastUsedAt: null, mode: 'direct', paused: true, needsAcceptance: false, pausedReason: 'auto' },
+  ],
+};
+const agentSrv = createServer((q, r) => {
+  const u = new URL(q.url, 'http://x');
+  const send = (code, body, type = 'application/json') => { r.writeHead(code, { 'content-type': `${type}; charset=utf-8` }); r.end(typeof body === 'string' ? body : JSON.stringify(body)); };
+  if (u.pathname.startsWith('/api/')) {
+    if (u.pathname === '/api/state') return send(200, q.method === 'PUT' ? { ok: true, updatedAt: 1 }
+      : { user: { email: 'c@x.test', role: 'user', status: 'approved', plan: 'pro', planSource: 'admin', planExpiresAt: null }, state: null, updatedAt: null });
+    if (u.pathname === '/api/agent/inbox') return send(200, { questions: AGENT_DATA.questions, proposals: AGENT_DATA.proposals, review: AGENT_DATA.review, agentAvailable: false });
+    if (u.pathname === '/api/state/version') return send(200, AGENT_DATA.version);
+    if (/^\/api\/projects\/[^/]+\/events$/.test(u.pathname)) return send(200, { events: AGENT_DATA.events });
+    if (u.pathname === '/api/mcp/connections') return send(200, { pro: true, connections: AGENT_DATA.connections });
+    if (u.pathname === '/api/mcp/activity') return send(200, { changes: [] });
+    if (u.pathname === '/api/shares') return send(200, { outgoing: [], incoming: [] });
+    if (u.pathname === '/api/activity') return send(200, { activity: [] });
+    return send(200, { ok: true });
+  }
+  const n = u.pathname.slice(1) || 'index.html';
+  let b; try { b = readFileSync(PUBLIC + n); } catch { return send(404, 'x', 'text/plain'); }
+  send(200, b.toString('utf8'), 'text/html');
+});
+agentSrv.listen(AGENT_PORT);
+
+const AGENT_PROJECT = [
+  ['.st-badge.doing', '徽章：進行中'], ['.st-badge.blocked', '徽章：卡住（深色實心）'],
+  ['.st-badge.waiting', '徽章：等待中'], ['.st-badge.review', '徽章：待驗收'],
+  ['.gantt-row-label .st-glyph', '甘特圖左邊標籤的狀態小字'],
+  ['.task-status-note .agent-msg', '卡住沒寫原因的提示'], ['.task-review-bar > .agent-msg', '待驗收那一條的說明'],
+  ['.agent-brief > summary', '專案說明書的標題'], ['.agent-brief-hint', '專案說明書的提示'], ['.agent-brief-foot', '說明書的字數與說明'],
+  ['.agent-timeline .agent-h', '最新進展標題'], ['.agent-ev-actor', '進展：誰'], ['.agent-ev-kind:not(.question):not(.handoff):not(.decision)', '進展：種類（一般）'],
+  ['.agent-ev-kind.question', '進展：提問'], ['.agent-ev-kind.handoff', '進展：交接筆記'], ['.agent-ev-kind.decision', '進展：決定'],
+  ['.agent-ev-when', '進展：時間'], ['.agent-ev-body', '進展：內文'], ['.agent-ev-body.redacted', '進展：被遮蔽的那一筆'],
+  ['.agent-link', '進展：「遮蔽」'], ['.agent-opt', '回答的選項按鈕'], ['.agent-send', '「回覆」按鈕'],
+];
+const AGENT_INBOX = [
+  ['.agent-inbox .agent-h', '等你回覆標題'], ['.agent-inbox .agent-pill', '等你回覆的數字'], ['.agent-inbox > .agent-line', '「agent 連不進來」的說明'],
+  ['.agent-card-ctx', '卡片的來源列'], ['.agent-card-title', '卡片標題（問題／提案）'], ['.agent-deadline', '期限'],
+  ['.agent-opt', '選項按鈕'], ['.agent-send', '主要按鈕（回覆／同意）'], ['.agent-card .qbtn', '次要按鈕（退回）'],
+  ['.agent-diff-ent', '提案對照：東西'], ['.agent-diff-field', '提案對照：欄位'], ['.agent-diff-val .old', '提案對照：改前'], ['.agent-diff-val .new', '提案對照：改後'],
+  ['.agent-card[data-kind=proposal] .agent-msg.err', '提案套不上去的紅字說明'], ['.agent-card .agent-line', '卡片裡的說明'],
+];
+const AGENT_LIVE = [['#agentLive', '「agent 剛更新了」那一條'], ['#btnAgentLive', '「更新畫面」按鈕']];
+const AGENT_ACCOUNT = [
+  ['.agent-caps', '一次性的能力說明'], ['.agent-conn-set .ghost-btn:not(.on)', '連線設定的開關（平常）'], ['.agent-conn-set .ghost-btn.on', '連線設定的開關（開著）'],
+  ['.agent-conn-paused', '暫停原因'], ['#btnAgentNotify', '第六顆通知開關'], ['#btnAgentPauseAll', '「暫停所有 agent」'],
+];
+for (const theme of ['light', 'dark']) {
+  const label = theme === 'light' ? '亮色' : '暗色';
+  const page = await br.newPage({ viewport: { width: 1280, height: 900 }, locale: 'zh-TW' });
+  await page.clock.install();
+  await page.addInitScript(([t, st]) => { try { localStorage.setItem('workSchedule.v1.theme', t); localStorage.setItem('workSchedule.v1', JSON.stringify(st)); } catch (e) {} },
+    [theme, AGENT_STATE]);
+  await skipBootScene(page);
+  await page.goto(`http://localhost:${AGENT_PORT}/`);
+  await page.waitForSelector('#agentInbox:not(.off) .agent-card', { timeout: 8000 });
+  await page.waitForTimeout(300);
+  const rows = [];
+  rows.push(...await page.evaluate(measure, AGENT_INBOX));
+
+  await page.locator('#navGantt').click();
+  await page.waitForSelector('#agentTimeline .agent-ev', { timeout: 8000 });
+  await page.waitForTimeout(300);
+  rows.push(...await page.evaluate(measure, AGENT_PROJECT));
+
+  // 「agent 剛更新了」：版本號變了 → 輪詢一次（假時鐘快轉）→ 那一條出現
+  AGENT_DATA.version = { updatedAt: 1, latestEventAt: 99999 };
+  await page.clock.fastForward(31000);
+  await page.waitForFunction(() => document.getElementById('agentLive').getClientRects().length > 0, null, { timeout: 5000 });
+  rows.push(...await page.evaluate(measure, AGENT_LIVE));
+  AGENT_DATA.version = { updatedAt: 1, latestEventAt: 5000 };
+
+  await page.locator('.nav-item', { hasText: '我的帳號' }).click();
+  await page.waitForSelector('#acctMcpConnList .agent-conn', { timeout: 8000 });
+  await page.waitForTimeout(300);
+  rows.push(...await page.evaluate(measure, AGENT_ACCOUNT));
+
+  console.log(`\n===== agent 工作區・${label} =====`);
+  for (const r of rows) {
+    if (r.missing) { console.log(`  ✗  ${r.label}（找不到 ${r.sel}——假資料沒有把它造出來，這條斷言是空的）`); problems.push(`agent 工作區・${label}｜${r.label}：找不到 ${r.sel}（斷言是空的）`); continue; }
+    const ok = r.ratio >= r.need;
+    console.log(`  ${ok ? '✓' : '✗'}  ${String(r.ratio).padStart(5)}:1  (需要 ${r.need}:1)  ${r.label}  ${r.px}px`);
+    if (!ok) problems.push(`agent 工作區・${label}｜${r.label}：${r.ratio}:1，低於 ${r.need}:1`);
+  }
+  await page.close();
+}
+agentSrv.close();
 
 console.log('');
 if (problems.length) { problems.forEach(p => console.log('  ✗ ' + p)); }

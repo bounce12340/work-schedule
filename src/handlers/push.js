@@ -66,7 +66,7 @@ export async function handlePushUnregister(request, env, user) {
  * 送給某個人的所有裝置，並清掉 APNs 說已經不存在的 token。
  * 回 { sent, failed, errors }。**一支手機送不出去不該讓其他支也不送**（同寄信）。
  */
-async function sendToUser(env, userId, kind, title, body) {
+export async function sendToUser(env, userId, kind, title, body) {
   const rows = await env.DB.prepare(
     'SELECT token, environment FROM device_tokens WHERE user_id = ?'
   ).bind(userId).all();
