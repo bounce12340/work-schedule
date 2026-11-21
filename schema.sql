@@ -459,3 +459,15 @@ CREATE TABLE IF NOT EXISTS mcp_activity (
   undone_at   INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_mcp_activity_user ON mcp_activity(user_id, created_at);
+
+-- MCP 寫入防重複（src/mcp/server.js）：agent 送出寫入、沒收到回應、再送一次，不該寫出兩筆。
+-- 每個寫入工具接受選填的 requestId；(user_id, request_id) 主鍵靠單句 INSERT ... ON CONFLICT DO NOTHING
+-- 搶位子（不是先查再寫）。result 為 NULL 代表第一次還在處理；保留 24 小時，寫入時順手清。
+CREATE TABLE IF NOT EXISTS mcp_requests (
+  user_id     TEXT NOT NULL,
+  request_id  TEXT NOT NULL,
+  fingerprint TEXT NOT NULL,
+  result      TEXT,
+  created_at  INTEGER NOT NULL,
+  PRIMARY KEY (user_id, request_id)
+);

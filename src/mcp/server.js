@@ -13,6 +13,7 @@
  */
 import { json } from '../handlers/auth.js';
 import { planOf, exceedsPlanCap } from '../plan.js';
+import { sha256 } from '../crypto.js';
 import { authenticateMcp, origin } from './auth.js';
 import * as S from './schedule.js';
 
@@ -144,6 +145,15 @@ const TOOLS = [
     inputSchema: { type: 'object', required: ['changeId'], properties: { changeId: { type: 'string' } } },
   },
 ];
+
+// 寫入工具都接受選填的 requestId（防重複，見 withRequestId）。讀取工具不理它。
+const WRITE_TOOLS = new Set(['create_item', 'update_item', 'set_done', 'delete_item', 'create_major_project',
+  'add_gantt_task', 'update_gantt_task', 'undo_change']);
+const REQUEST_ID_SCHEMA = {
+  type: 'string', minLength: 1, maxLength: 100,
+  description: '選填：你自己產生的一次性字串。送出後沒收到回應要重試時帶同一個，伺服器會回上一次的結果、不會再做一次',
+};
+for (const t of TOOLS) if (WRITE_TOOLS.has(t.name)) t.inputSchema.properties = { ...t.inputSchema.properties, requestId: REQUEST_ID_SCHEMA };
 
 const INSTRUCTIONS = [
   '這是使用者的「工作排程確認系統」：項目（工作／會議／作業，可循環）、大項目（分類）、甘特專案。',
@@ -315,6 +325,58 @@ async function callTool(env, ctx, name, args) {
   }
 }
 
+// ------------------------------------------------------------ 寫入防重複（requestId）
+
+const REQUEST_KEEP_MS = 24 * 3600 * 1000;
+
+/**
+ * 帶 requestId 的寫入：同一個 (使用者, requestId) 只做一次。
+ *   1. 單句 INSERT ... ON CONFLICT DO NOTHING 搶位子（不是先查再寫：兩個併發的重送只有一個搶得到）
+ *   2. 沒搶到：指紋（工具＋參數）不同 → 同一個 id 被拿去做別的事，擋；有結果 → 原樣回上一次的；
+ *      沒結果 → 第一次還在處理，叫對方稍後再試
+ *   3. 搶到：執行；成功寫回結果，丟例外就把位子還回去（重試才跑得起來）再往上丟
+ * 結果寫不進去不能讓已經生效的寫入變成錯誤（同 mcp_activity）：只出聲。
+ */
+async function withRequestId(env, user, name, a, run) {
+  const requestId = a.requestId;
+  if (requestId === undefined || requestId === null) return run();
+  if (typeof requestId !== 'string' || requestId.length < 1 || requestId.length > 100) {
+    throw new S.ToolError('requestId 要是 1～100 字的字串');
+  }
+  const { requestId: _omit, ...rest } = a;
+  const fingerprint = await sha256(S.stableStringify({ tool: name, args: rest }));
+  const now = Date.now();
+  // 順手清掉過期的（只碰自己的列）
+  try {
+    await env.DB.prepare('DELETE FROM mcp_requests WHERE user_id = ? AND created_at < ?').bind(user.id, now - REQUEST_KEEP_MS).run();
+  } catch (e) { console.warn('mcp_requests cleanup failed', e?.message || String(e)); }
+
+  const claim = await env.DB.prepare(
+    'INSERT INTO mcp_requests (user_id, request_id, fingerprint, result, created_at) VALUES (?, ?, ?, NULL, ?) ON CONFLICT(user_id, request_id) DO NOTHING'
+  ).bind(user.id, requestId, fingerprint, now).run();
+  if (claim.meta?.changes !== 1) {
+    const row = await env.DB.prepare('SELECT fingerprint, result FROM mcp_requests WHERE user_id = ? AND request_id = ?')
+      .bind(user.id, requestId).first();
+    if (!row) throw new S.ToolError('請稍後再試一次');   // 剛好被清掉或被還回去：讓對方重送
+    if (row.fingerprint !== fingerprint) throw new S.ToolError('這個 requestId 已經用在另一個不同的呼叫上了，請換一個新的');
+    if (row.result == null) throw new S.ToolError('同一個 requestId 的上一次呼叫還在處理中，請稍後再試');
+    return JSON.parse(row.result);
+  }
+  let out;
+  try {
+    out = await run();
+  } catch (e) {
+    try { await env.DB.prepare('DELETE FROM mcp_requests WHERE user_id = ? AND request_id = ?').bind(user.id, requestId).run(); }
+    catch (e2) { console.error('mcp_requests release failed', e2?.message || String(e2)); }
+    throw e;
+  }
+  try {
+    await env.DB.prepare('UPDATE mcp_requests SET result = ? WHERE user_id = ? AND request_id = ?')
+      .bind(JSON.stringify(out), user.id, requestId).run();
+  } catch (e) { console.error('mcp_requests result save failed', e?.message || String(e)); }
+  return out;
+}
+
 // ------------------------------------------------------------ JSON-RPC
 
 const rpcResult = (id, result) => ({ jsonrpc: '2.0', id, result });
@@ -365,7 +427,11 @@ export async function handleMcp(request, env) {
       const name = params?.name;
       if (!TOOLS.some(t => t.name === name)) return json(rpcError(id, -32602, `沒有這個工具：${name}`), 200, CORS);
       try {
-        const out = await callTool(env, { user: auth.user, actor: auth.actor }, name, params?.arguments);
+        const args = params?.arguments;
+        const ctx = { user: auth.user, actor: auth.actor };
+        const out = WRITE_TOOLS.has(name)
+          ? await withRequestId(env, auth.user, name, args || {}, () => callTool(env, ctx, name, args))
+          : await callTool(env, ctx, name, args);
         return json(rpcResult(id, toolText(out, false)), 200, CORS);
       } catch (e) {
         if (e instanceof S.ToolError) return json(rpcResult(id, toolText({ error: e.message }, true)), 200, CORS);

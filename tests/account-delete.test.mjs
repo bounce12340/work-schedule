@@ -12,7 +12,7 @@ import { createSession, getSessionUser } from '../src/session.js';
 import { hashPassword } from '../src/crypto.js';
 import { makeEnv, seedState, unwrap } from './d1.mjs';
 
-const TABLES = ['user_state', 'shares', 'sessions', 'ics_feed', 'reminder_feed', 'password_resets', 'email_codes', 'oauth_identities', 'users'];
+const TABLES = ['user_state', 'shares', 'sessions', 'ics_feed', 'reminder_feed', 'password_resets', 'email_codes', 'oauth_identities', 'mcp_requests', 'users'];
 
 async function setup() {
   const env = makeEnv();
@@ -27,6 +27,7 @@ async function setup() {
     env.DB.prepare('INSERT INTO reminder_feed (user_id, enabled, digest, updated_at) VALUES (?, 1, ?, 0)').bind(id, '[]').run();
     env.DB.prepare('INSERT INTO password_resets (token_hash, user_id, created_at, expires_at) VALUES (?, ?, 0, 1)').bind('r' + id, id).run();
     env.DB.prepare('INSERT INTO email_codes (email, code_hash, expires_at, attempts, created_at) VALUES (?, ?, 1, 0, 0)').bind(email, 'c').run();
+    env.DB.prepare("INSERT INTO mcp_requests (user_id, request_id, fingerprint, result, created_at) VALUES (?, 'req-1', 'f', '{}', 0)").bind(id).run();
     env.DB.prepare(`INSERT INTO oauth_identities
       (id, user_id, provider, subject, email, created_at, updated_at)
       VALUES (?, ?, 'google', ?, ?, 0, 0)`).bind('oauth-' + id, id, 'google-' + id, email).run();
@@ -49,6 +50,7 @@ function snapshotOf(env, userId, email) {
     resets: q('SELECT * FROM password_resets WHERE user_id = ?'),
     codes: env.DB.prepare('SELECT * FROM email_codes WHERE email = ?').bind(email).all().results,
     oauth: env.DB.prepare('SELECT * FROM oauth_identities WHERE user_id = ?').bind(userId).all().results,
+    mcpRequests: q('SELECT * FROM mcp_requests WHERE user_id = ?'),
   };
 }
 

@@ -48,7 +48,7 @@ mobile/                iOS app 外殼（Capacitor；自己的 package.json，見
 | 檔案 | 涵蓋 | 抽取方式 |
 |---|---|---|
 | `tests/occurrence.test.mjs` | occurrence 引擎 | 從 `index.html` 抽真正的原始碼求值 |
-| `tests/merge.test.mjs` | 三方合併 | 同上 |
+| `tests/merge.test.mjs` | 三方合併（**細到欄位**：同一專案不同任務、同一任務不同欄位、地圖型欄位逐 key、子待辦新增＋勾選共存、衍生的 `progress`／`done` 不構成衝突、刪 vs 改仍衝突、**衝突候選帶著不衝突欄位的合併結果**、舊形狀基準、不改動輸入） | 同上 |
 | `tests/state.test.mjs` | `handlePutState` / `handleUpdateShared` 的樂觀鎖 | 直接 import Worker 端模組 |
 | `tests/richtext.test.mjs` | 富文字過濾器的安全決策、v1→v2 遷移 | 從 `index.html` 抽真正的原始碼求值 |
 | `tests/shadow.test.mjs` | 頂層函式被區域變數／參數遮蔽 | 對 `index.html` 做靜態掃描（追大括號深度） |
@@ -68,7 +68,7 @@ mobile/                iOS app 外殼（Capacitor；自己的 package.json，見
 | `tests/state.test.mjs`（下半） | 連續斷掉的信：`dayReport`、三個「不該寄」（沒斷、連續 < 2、開關關著）、同一天只寄一次、寄失敗不記錄、兩個開關互不影響 | 直接 import Worker 端模組，攔 `fetch` 當假信箱 |
 | `tests/pet.test.mjs` | 專案的夥伴：完成度、六個階段的門檻、**199/200 是 `almost` 不是 `adult`**、白名單、舊存檔的形狀、`petRoster` 排序、被分享者改不到 `pet` | 從 `index.html` 抽〈富文字〉〈持久化〉〈專案的夥伴〉求值；`mergeSharedEdit` 直接 import Worker 端模組 |
 | `tests/conflict.test.mjs` | 衝突預覽（〈衝突預覽〉區段，**尚未接上畫面**）：半開區間、沒有結束時間時只比同開始時間（不套預設時長）、只比會議、時區不同不換算只提示、90 天範圍、略過／單次覆寫／假日調整、休假輕量提示、**輸入資料前後逐字相同** | 從 `index.html` 抽〈date helpers〉〈occurrence engine〉〈衝突預覽〉求值；七種突變各自驗過會紅 |
-| `tests/mcp.test.mjs` | MCP：401 帶 `WWW-Authenticate`、非 Pro 擋、金鑰只存雜湊、**伺服器建的項目與前端 `normalizeItems` 逐欄相同**、改頻率清完成、復原（**使用者之後改過就拒絕**）、跨帳號隔離、競態重試、OAuth 全流程（PKCE、code 單次、open redirect、免費帳號 402、refresh 輪替與撤銷） | 直接 import Worker 端模組；前端的 `normalizeItems`／`normalizeRecurrence`／`stableStringify` 從 `index.html` 抽出來比 |
+| `tests/mcp.test.mjs` | MCP：401 帶 `WWW-Authenticate`、非 Pro 擋、金鑰只存雜湊、**伺服器建的項目與前端 `normalizeItems` 逐欄相同**、改頻率清完成、復原（**細到欄位**：同一任務連寫三次可任意順序各自復原、使用者改了別的欄位不擋、**改了同一欄才拒絕**）、**`requestId` 防重複**（同 id 回上一次的結果、指紋不同擋、失敗還位子、處理中、兩個使用者互不影響）、跨帳號隔離、競態重試、OAuth 全流程（PKCE、code 單次、open redirect、免費帳號 402、refresh 輪替與撤銷） | 直接 import Worker 端模組；前端的 `normalizeItems`／`normalizeRecurrence`／`stableStringify` 從 `index.html` 抽出來比 |
 
 前三者的挑選理由：前兩者近乎純函式、零 DOM 依賴；第三者是**競態**——靠併發碰運氣測不到，但可以把空窗做成確定性的。
 
@@ -101,7 +101,7 @@ npm run db:init:local  # 對本機 miniflare D1 建表（--local 的資料庫與
 npm run db:init        # 對遠端 D1 建表
 npm run admin:reset    # 破窗鎚：直接改密碼（見〈破窗鎚〉）
 npm run deploy         # 部署
-npm test               # 全部測試檔（node:test，不需安裝任何東西；目前 531 個測試）
+npm test               # 全部測試檔（node:test，不需安裝任何東西；目前 559 個測試）
 ```
 
 跑單一測試檔或單一測試（`npm test` 沒有轉發參數的管道，直接用 node）：
@@ -129,7 +129,7 @@ node tools/verify-richtext.mjs
 | job | 內容 | 何時跑 |
 |---|---|---|
 | `check` | `npm test`、`tools/check-syntax.mjs`、`tools/check-sw-version.mjs`、`wrangler deploy --dry-run` | 每個 PR 與 main |
-| `smoke` | `smoke.mjs`、`verify-toggle.mjs`、`verify-richtext.mjs`、`check-calendar.mjs`、`check-notes.mjs`、`check-contrast.mjs`、`check-deps.mjs`、`check-ambience.mjs`（要 Chromium） | 每個 PR 與 main |
+| `smoke` | `smoke.mjs`、`verify-toggle.mjs`、`verify-richtext.mjs`、`check-calendar.mjs`、`check-notes.mjs`、`check-contrast.mjs`、`check-deps.mjs`、`check-ambience.mjs`、`check-merge.mjs`（要 Chromium） | 每個 PR 與 main |
 | `deploy` | `npx wrangler deploy`，完成後打一次線上 `/` 確認回 302 | 只有 push 到 `main` |
 
 **`deploy` 是自動的，這件事會咬到 migration。** 合併進 main 之後幾分鐘 Worker 就上線，中間沒有人插得了手——所以**要跑的 migration 必須在合併之前就跑完**，不是合併之後。完整理由與踩過的那一次見〈資料庫結構變更〉。
@@ -186,6 +186,7 @@ Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.Comm
 | `tools/check-migrate.mjs` | **舊備份檔真的匯得回來**：造一份 v1 的 .json 丟進 `#importFile`，走完整條使用者路徑，再讀 localStorage 看實際存進去的東西；順便驗「比目前新的版本被擋下來，而且不動現有資料」 | 動到 `STORAGE_VERSION`、`migrateSnapshot`、`snapshot()`／`applySnapshot()`。在 CI 的 `smoke` job |
 | `tools/check-ambience.mjs` | 時段（早／午／晚）的 `data-daypart` 與光暈、每日記錄的提示語照日期決定、打勾的彈跳只在被點的那一個上、週一的回顧（含 N=0 不出現）、**遊戲化**：完美一天的 toast 只在勾掉最後一件時、升級的光只在升級那一次（看計算後的 `animationName`）、櫻花樹的畫皮（群組 class 與 CSS 對得上、垂下還在）、**開機的載入畫面**（3400ms 的上限**在 JavaScript 關掉時**照樣成立、點一下就收掉、進度條在跑、演到使用者現在那一階、reduced-motion 完全不出現）、**載入畫面的夥伴**（在湖邊走、對岸在樹後前岸在樹前、最多四隻＋「+N」、reduced-motion 時連盒子都沒有）、reduced-motion 關 | 動到 `tick()`、`<head>` 開機腳本、`DAILY_PROMPTS`、`renderLookback()`、`.checkbox` 的 CSS、〈遊戲化畫面〉或 `.boot-sakura`、`.boot-pets` |
 | `tools/check-native-plugin.mjs` | 原生插件的接線，六件事：SceneDelegate → MainViewController → `registerPluginInstance`、storyboard 的 `customClass`、**方法名兩側完全對齊（雙向）**、推播的 AppDelegate 接線與 **`aps-environment` 的值（Debug／Release 各自的環境，並比對 Swift 的 `#if DEBUG`）**、**訂閱 product id 在 Swift 與 Worker 逐字相同**（零相依，在 `check` job） | 動到 `mobile/ios/` 的任何 Swift／storyboard／entitlements，或 `index.html` 的〈原生外殼〉區段；CI 會自動跑 |
+| `tools/check-merge.mjs` | 三方合併在瀏覽器裡走一次：不同任務／同任務不同欄／項目的標題 vs 某一次勾選 → **不跳對話框**、推上去兩邊都在；同一欄改成不同值 → 跳一次、講人話（「任務「X」的名稱」），選本機之後另一個任務的遠端修改仍在。突變驗證過：改回整個實體比對紅 8 條 | 動到〈三方合併〉、`handleConflict` 或啟動時的同步分支。在 CI 的 `smoke` job |
 | `tools/check-sw-version.mjs` | 動到 `public/*.html` 時 `sw.js` 的 `CACHE` 有沒有跟著加（零相依，在 `check` job） | 任何前端改動；CI 會自動跑，本機 `node tools/check-sw-version.mjs origin/main HEAD` |
 | `tools/measure-board.mjs` | 切換檢視／篩選／搜尋卡住主執行緒多久（自己造 64／150／300 項的資料） | 動到 `renderBoard()` 或看板的 CSS。**不在 CI**：數字隨環境浮動，設門檻只會製造沒有人相信的紅燈，用途是改動前後各跑一次自己比對 |
 | `tools/check-mobile.mjs` | 手機（iPhone 13、CPU 降速 4 倍、64 個項目）：五頁都不橫向溢出（日曆的滑動 bar 是固定定位，最容易撐破版面）（**中英文各量一次**——英文字串比中文長，只量中文的話驗不到最容易溢出的那一種）、切換與互動的停頓、**點擊目標大小** | 動到任何版面或 CSS。同樣不在 CI |
@@ -578,9 +579,23 @@ grep -nE '(const|let|var)[[:space:]]+(tr|tf|weekName)\b' public/index.html
 
 **「空＋空」那一格刻意不是 seed。** 啟動時 `loadState()` 失敗會先跑 `seed()`（閘門關著時除外），但等到確認「已登入且雲端沒有資料」時，那份示範資料就必須清掉——否則每個新帳號第一次登入都會拿到一份不屬於自己的假資料，還得逐筆刪。判斷依據是 `localHadData`：它為 false 就代表畫面上這份是 seed 而不是使用者的東西。`seed()` 現在實際上只給 `tools/` 的瀏覽器腳本用（登入過、後端不在）——單檔雙擊開啟的展示價值已隨〈登入閘門〉一起拿掉。
 
-**衝突以三方合併處理**（`threeWayMerge`，「三方合併」區段，純函式、有測試）：以 `baseSnapshot` 為基準逐項比對，只有一邊改過的自動採用、兩邊各自新增的都保留、單邊刪除生效；**只有「兩邊都改到同一個項目」才跳對話框**，且對話框只針對衝突項目二選一，其餘已合併。這是分享功能的必要條件——被分享者每次勾選都會改動擁有者的雲端版本號，若仍是整份二選一，擁有者下一次推送就會被迫在「自己的編輯」與「對方的勾選」之間擇一，選錯就有人的變更無聲消失。
+**衝突以三方合併處理**（`threeWayMerge`，「三方合併」區段，純函式、有測試）：以 `baseSnapshot` 為基準逐項比對，只有一邊改過的自動採用、兩邊各自新增的都保留、單邊刪除生效；**只有「同一個欄位兩邊改成不同的值」才跳對話框**（2026-11-21 起比對單位從「整個項目／專案」細到欄位，見下方〈欄位層級的合併〉），且對話框只針對衝突項目二選一，其餘已合併。這是分享功能的必要條件——被分享者每次勾選都會改動擁有者的雲端版本號，若仍是整份二選一，擁有者下一次推送就會被迫在「自己的編輯」與「對方的勾選」之間擇一，選錯就有人的變更無聲消失。
 
-自動合併**只在能證明「只有一邊改過」時發生**；同一項目兩邊都改仍然交給使用者，這與「衝突絕不能靜默挑邊」並不矛盾——挑邊指的是把「無法判定」的情況擅自決定。Worker 端以 `updated_at` 做樂觀鎖，`baseUpdatedAt` 對不上就回 409 並附上遠端資料。`cloudMeta` 缺 `baseSnapshot`（升級前的舊快取）時退回整份二選一的舊對話框。
+自動合併**只在能證明「只有一邊改過」時發生**；同一欄位兩邊改成不同的值仍然交給使用者，這與「衝突絕不能靜默挑邊」並不矛盾——挑邊指的是把「無法判定」的情況擅自決定。Worker 端以 `updated_at` 做樂觀鎖，`baseUpdatedAt` 對不上就回 409 並附上遠端資料。`cloudMeta` 缺 `baseSnapshot`（升級前的舊快取）時退回整份二選一的舊對話框。
+
+### 欄位層級的合併（2026-11-21，第零批 0-1）
+
+原本的比對單位是**整個項目／整個專案**：agent 改了任務 A、你同時改了同一個專案的任務 B，就判成「兩邊都改了同一個專案」而跳對話框二選一——選哪邊都丟掉另一邊。現在「一邊」的單位是**欄位**，原則（只能證明只有一邊改過才自動合併、衝突絕不靜默挑邊）沒變。
+
+| 決定 | 理由 |
+|---|---|
+| 項目、甘特專案、大項目都逐頂層欄位合併；`doneMap`／`overrides`／`skipped`／`doneAt` 再細到 key；甘特專案的 `tasks` 以 id 配對再逐欄位、任務的 `todos` 同理 | agent 加步驟、你勾步驟是最常見的組合 |
+| 衝突項目的 `local`／`remote` 是**完整候選實體**：不衝突的欄位已合併，只有衝突的欄位各取各的值。衝突項目多一個 `fields`（路徑清單，給對話框顯示） | `resolveConflicts` 整個換成候選，所以選哪一邊都不會丟掉另一邊「不衝突」的修改 |
+| 一邊刪、另一邊改 → **仍是整個實體的衝突**；刪 vs 沒動 → 跟著刪。甘特專案的衝突仍在專案這一層（`kind:'gantt'`） | 判不出來誰對，交給人 |
+| 任務有子待辦時 `progress`／`done` **不當衝突**（取哪邊都行） | 它們是算出來的：合併結果一律經 `applySnapshot()` → `normalizeGanttProjects()` 由 `todos` 重算（`handleConflict` 與 `cloudRefresh` 都走這條）。沒有子待辦時它們是真的使用者欄位，照常比 |
+| 項目的頻率（`recurrence.freq`）有人改過時，四張 occKey 地圖整張跟著「改頻率的那一邊」 | occKey 格式跟頻率綁定，改頻率的那一邊已清空；另一邊在舊頻率下勾的紀錄逐 key 合進來會變成孤兒（同〈變更循環頻率會重置紀錄〉） |
+| 基準缺欄位（舊形狀）＋一邊有 ＝ 那一邊的新增 | 同 `absencesOfSnapshot` 的教訓：不能把「基準沒有」讀成「對方刪掉」 |
+| 結構描述（`TM_SPEC_*`）與合併函式都在〈三方合併〉區段內 | 該區段由 `tests/merge.test.mjs` 抽出求值，必須維持純函式、不碰模組變數 |
 
 ### Worker 端
 
@@ -873,7 +888,7 @@ Turnstile 擋得住「一秒鐘一萬次」的機器人，擋不住「一分鐘�
 
 **改版時要做的事**：`mobile/package.json` 的 `version` 往上加（build 號是 GitHub 的 `run_number`，不用管）→ **合併進 main 就會自動打包上傳**（CI 綠、且動到 `public/index.html` 或 `mobile/`）→ App Store Connect 送審。手動觸發與 `ios-v*` tag 仍然留著，兩者都不看路徑條件。
 
-**部署順序**：`migrations/005-app-purchase.sql`、`006-plan.sql`、`007-streak-mail.sql`、`008-push.sql`、`009-leave-days.sql`、`010-mail-log.sql` 、`011-mail-sender.sql` 、`012-unsub-token.sql` 、`014-paddle.sql` 與 `015-mcp.sql` 都要在部署新 Worker **之前**跑（`010` 是新增資料表，漏跑只會讓寄信多一行警告，不會 500；**`011` 是加欄位，漏跑會讓 `/api/admin/mail-log` 的 SELECT 直接失敗**）（`getSessionUser` 的 SELECT 讀 `plan_source`，欄位不在**每一個**登入請求都會 500；`007`／`008`／`009` 的欄位則是 `/api/reminder` 與 cron 會讀），理由見〈資料庫結構變更〉。006 跑完、Worker 部署完之後，還要到 `/admin` 把既有的兩個帳號設成「Pro（永久）」——漏掉的症狀是他們的第四個專案被擋，當場就會知道。
+**部署順序**：`migrations/005-app-purchase.sql`、`006-plan.sql`、`007-streak-mail.sql`、`008-push.sql`、`009-leave-days.sql`、`010-mail-log.sql` 、`011-mail-sender.sql` 、`012-unsub-token.sql` 、`014-paddle.sql` 與 `015-mcp.sql` 與 `016-mcp-requests.sql` 都要在部署新 Worker **之前**跑（`010` 是新增資料表，漏跑只會讓寄信多一行警告，不會 500；**`011` 是加欄位，漏跑會讓 `/api/admin/mail-log` 的 SELECT 直接失敗**）（`getSessionUser` 的 SELECT 讀 `plan_source`，欄位不在**每一個**登入請求都會 500；`007`／`008`／`009` 的欄位則是 `/api/reminder` 與 cron 會讀），理由見〈資料庫結構變更〉。006 跑完、Worker 部署完之後，還要到 `/admin` 把既有的兩個帳號設成「Pro（永久）」——漏掉的症狀是他們的第四個專案被擋，當場就會知道。
 
 ### 開發者有 Mac 了（2026-09-17）
 
@@ -973,7 +988,8 @@ cd mobile/ios/App && xcodebuild -scheme App -sdk iphonesimulator -configuration 
 | 排程讀前端推上來的 digest（多帶 `i`／`o`），不在 Worker 展開 | 同 ICS／提醒信／AI：occurrence 引擎只有一份 |
 | 伺服器建的項目**與前端 `normalizeItems` 逐欄相同**，測試用真的前端程式碼比 | 欄位集不一致，三方合併會把「沒改過」判成衝突 |
 | 寫入走帶條件的 UPDATE 重試三次，套免費版上限、每天 500 次、1MB | 換一個入口不能少一道擋 |
-| `mcp_activity` 只記那一個東西的前後；**使用者之後又改過就拒絕復原** | 復原不能蓋掉使用者自己的修改 |
+| 寫入工具接受選填 `requestId`：`mcp_requests`（`016`）以單句 `INSERT ... ON CONFLICT DO NOTHING` 搶位子；重送回上一次的結果、指紋（工具＋參數）不同擋、執行失敗就把位子還回去、結果寫不進去只出聲（寫入已生效）、保留 24 小時；沒帶的行為不變 | agent 送出沒收到回應再送一次不該寫出兩筆。靠主鍵擋，不靠先查再寫。**漏跑 016 會讓帶 requestId 的寫入失敗** |
+| `mcp_activity` 只記那一個東西的前後；**復原只看「這一筆改了哪幾欄」**：那幾欄現在仍是改完的值就只還原那幾欄，其餘欄位保持現狀；改過同一欄才拒絕。建立的整個實體比對、刪除的遇到同 id 已存在就拒絕 | 復原不能蓋掉使用者自己的修改；整個實體比對會讓「連寫三次」的前兩筆永遠復原不了 |
 | Pro 在**每一次** `tools/call` 檢查 | 訂閱到期後手上還有 refresh token 的 agent 不該繼續寫 |
 | redirect_uri 對不上**不轉址**，直接 400；PKCE S256 必填；code 單次 | open redirect 與授權碼重放 |
 | CORS `*` 只在 `/mcp`、`/oauth/*`、`/.well-known/*`，不開 credentials | 只認 Bearer |

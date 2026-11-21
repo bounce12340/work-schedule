@@ -264,7 +264,7 @@ For the full architecture and data model see [`工作排程確認系統_專案�
 | Sign-in required | A device that has never signed in only sees the gate; a signed-in device works offline on local data |
 | Free plan caps | Up to 3 major projects and 3 projects, 5 AI requests a day; Pro is unlimited. Pro is US$10 monthly or US$100 yearly, auto-renewing. Lapsing deletes nothing, you just can't add more |
 | Standalone storage scope | Without deployment, data lives in *this browser only* and does not follow you across devices; clearing browser data clears it too |
-| Sync conflicts | Merged item by item against the last synced content; you only choose a side when the same item changed on both |
+| Sync conflicts | Merged item by item against the last synced content; you only choose a side when the same field was changed to different values on both |
 | Holidays | Weekends are automatic. Public holidays are bundled only for years that have been officially published (currently 2026 and 2027); other years can be pasted in bulk |
 | Prerequisites | Display only: they never move a date and never block ticking. At most five prerequisites per item |
 | FYI-only items | A `noticeOnly` item is just a placeholder: no checkbox, **never overdue**, and excluded from the four metric cards, the done section, the scope counts and your tree. It still shows up in the calendar feed; no reminder email and no push |
