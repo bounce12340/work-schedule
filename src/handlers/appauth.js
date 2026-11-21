@@ -306,6 +306,10 @@ export async function handleDeleteAccount(request, env, user) {
     env.DB.prepare('DELETE FROM oauth_codes WHERE user_id = ?').bind(id),
     env.DB.prepare('DELETE FROM mcp_activity WHERE user_id = ?').bind(id),
     env.DB.prepare('DELETE FROM mcp_requests WHERE user_id = ?').bind(id),
+    env.DB.prepare('DELETE FROM project_events WHERE user_id = ?').bind(id),
+    env.DB.prepare('DELETE FROM project_absent WHERE user_id = ?').bind(id),
+    env.DB.prepare('DELETE FROM mcp_proposals WHERE user_id = ?').bind(id),
+    env.DB.prepare('DELETE FROM mcp_connections WHERE user_id = ?').bind(id),
     env.DB.prepare('DELETE FROM users WHERE id = ?').bind(id),
   ]);
   return json({ ok: true });

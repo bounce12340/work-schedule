@@ -392,7 +392,8 @@ test('每個寫入工具的 inputSchema 都有 requestId，讀取工具沒有', 
   const env = makeEnv(); const u = proUser(env, 'u1', 'a@x.test');
   const t = await keyFor(env, u);
   const list = (await rpc(env, t, 'tools/list')).body.result.tools;
-  const writes = ['create_item', 'update_item', 'set_done', 'delete_item', 'create_major_project', 'add_gantt_task', 'update_gantt_task', 'undo_change'];
+  const writes = ['create_item', 'update_item', 'set_done', 'delete_item', 'create_major_project', 'create_gantt_project', 'add_gantt_task',
+    'update_gantt_task', 'upsert_task_todo', 'write_daily_log', 'add_project_event', 'propose_changes', 'withdraw_proposal', 'undo_change'];
   for (const x of list) assert.equal('requestId' in x.inputSchema.properties, writes.includes(x.name), x.name);
 });
 
@@ -505,7 +506,7 @@ test('刪除帳號：金鑰、OAuth 授權碼與修改紀錄一起清掉', async
     method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: 'pw-123456' }),
   }), env, u);
   assert.equal(res.status, 200);
-  for (const tbl of ['mcp_tokens', 'mcp_activity', 'oauth_codes']) {
+  for (const tbl of ['mcp_tokens', 'mcp_activity', 'oauth_codes', 'mcp_connections']) {
     assert.equal(env.DB.prepare(`SELECT COUNT(*) AS n FROM ${tbl}`).first().n, 0, tbl);
   }
 });

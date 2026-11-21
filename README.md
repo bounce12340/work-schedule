@@ -204,7 +204,8 @@ APP_URL=<optional>
 - Claude, ChatGPT and other agents can read and change your schedule through `https://<your-site>/mcp`: list items, see what's due, add items, move dates, tick things done
 - Sign in with OAuth (the agent opens an "Allow" page) or a personal API key from **My account › Connect AI agents**
 - Every change an agent makes is listed on the account page with a one-tap **Undo**; undo refuses if you've edited that item since
-- Run `migrations/015-mcp.sql` before deploying. Design: [`docs/superpowers/specs/2026-11-20-mcp-server.md`](docs/superpowers/specs/2026-11-20-mcp-server.md)
+- Agents can also keep a **project log** (progress, hand-off notes, questions to you), propose changes for you to approve (**review first** mode), and mark work as **awaiting your acceptance** instead of done; you can pause any connection at any time
+- Run `migrations/015-mcp.sql`, `016-mcp-requests.sql` and `017-agent-workspace.sql` before deploying. Design: [`docs/superpowers/specs/2026-11-20-mcp-server.md`](docs/superpowers/specs/2026-11-20-mcp-server.md)
 
 ### 🔗 Sharing (after deployment)
 

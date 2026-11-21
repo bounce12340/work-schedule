@@ -12,6 +12,11 @@ import { handleAppCode, handleAppRegister, handleAppLogin, handleAppOAuth, handl
 import { handlePlanApple, handleAppleNotification } from './handlers/planapple.js';
 import { handleMcp, mcpPreflight, handleActivityList, handleActivityUndo } from './mcp/server.js';
 import {
+  handleConnectionSettings, handlePauseAll, handleListProposals, handleApproveProposal, handleRejectProposal,
+  handleProjectEvents, handleAgentInbox, handleAnswerEvent, handleRedactEvent, handleAcceptTask, handleRejectTask,
+  purgeAgentData,
+} from './handlers/agent.js';
+import {
   handleProtectedResourceMetadata, handleAuthServerMetadata, handleRegister as handleOAuthRegister,
   handleAuthorizeRedirect, handleAuthorizeInfo, handleAuthorizeDecision, handleToken,
   handleListConnections, handleCreateKey, handleRevokeConnection,
@@ -46,6 +51,8 @@ export default {
       await step(env, 'push', () => sendPushes(env));
       await step(env, 'backup', () => runBackup(env));
       await step(env, 'purge', () => purgeExpired(env));
+      // agent 日誌：專案消失超過 30 天才清（見 purgeAgentData）。獨立的一步：它掛了不該連累上面任何一件
+      await step(env, 'agent_events', () => purgeAgentData(env));
     })());
   },
 
@@ -308,6 +315,49 @@ async function route(request, env, ctx) {
   {
     const m = path.match(/^\/api\/mcp\/activity\/([^/]+)\/undo$/);
     if (m) return request.method === 'POST' ? handleActivityUndo(env, user, decodeURIComponent(m[1])) : methodNotAllowed();
+  }
+
+  // agent 工作區的擁有者那一側：連線設定、暫停、提案、進展日誌、提問、驗收（讀與回答不要求 Pro）
+  {
+    const m = path.match(/^\/api\/mcp\/connections\/([^/]+)\/settings$/);
+    if (m) return request.method === 'POST' ? handleConnectionSettings(request, env, user, decodeURIComponent(m[1])) : methodNotAllowed();
+  }
+  if (path === '/api/mcp/pause-all') {
+    return request.method === 'POST' ? handlePauseAll(request, env, user) : methodNotAllowed();
+  }
+  if (path === '/api/mcp/proposals') {
+    return request.method === 'GET' ? handleListProposals(env, user) : methodNotAllowed();
+  }
+  {
+    const m = path.match(/^\/api\/mcp\/proposals\/([^/]+)\/(approve|reject)$/);
+    if (m) {
+      if (request.method !== 'POST') return methodNotAllowed();
+      const id = decodeURIComponent(m[1]);
+      return m[2] === 'approve' ? handleApproveProposal(env, user, id) : handleRejectProposal(request, env, user, id);
+    }
+  }
+  if (path === '/api/agent/inbox') {
+    return request.method === 'GET' ? handleAgentInbox(env, user) : methodNotAllowed();
+  }
+  {
+    const m = path.match(/^\/api\/projects\/events\/([^/]+)\/(answer|redact)$/);
+    if (m) {
+      if (request.method !== 'POST') return methodNotAllowed();
+      const id = decodeURIComponent(m[1]);
+      return m[2] === 'answer' ? handleAnswerEvent(request, env, user, id) : handleRedactEvent(env, user, id);
+    }
+  }
+  {
+    const m = path.match(/^\/api\/projects\/([^/]+)\/events$/);
+    if (m) return request.method === 'GET' ? handleProjectEvents(env, user, decodeURIComponent(m[1]), url) : methodNotAllowed();
+  }
+  {
+    const m = path.match(/^\/api\/projects\/([^/]+)\/tasks\/([^/]+)\/(accept|reject)$/);
+    if (m) {
+      if (request.method !== 'POST') return methodNotAllowed();
+      const [pid, tid] = [decodeURIComponent(m[1]), decodeURIComponent(m[2])];
+      return m[3] === 'accept' ? handleAcceptTask(env, user, pid, tid) : handleRejectTask(request, env, user, pid, tid);
+    }
   }
 
   if (path === '/api/ics/status') {

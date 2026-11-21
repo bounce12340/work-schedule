@@ -69,6 +69,7 @@ mobile/                iOS app 外殼（Capacitor；自己的 package.json，見
 | `tests/pet.test.mjs` | 專案的夥伴：完成度、六個階段的門檻、**199/200 是 `almost` 不是 `adult`**、白名單、舊存檔的形狀、`petRoster` 排序、被分享者改不到 `pet` | 從 `index.html` 抽〈富文字〉〈持久化〉〈專案的夥伴〉求值；`mergeSharedEdit` 直接 import Worker 端模組 |
 | `tests/conflict.test.mjs` | 衝突預覽（〈衝突預覽〉區段，**尚未接上畫面**）：半開區間、沒有結束時間時只比同開始時間（不套預設時長）、只比會議、時區不同不換算只提示、90 天範圍、略過／單次覆寫／假日調整、休假輕量提示、**輸入資料前後逐字相同** | 從 `index.html` 抽〈date helpers〉〈occurrence engine〉〈衝突預覽〉求值；七種突變各自驗過會紅 |
 | `tests/mcp.test.mjs` | MCP：401 帶 `WWW-Authenticate`、非 Pro 擋、金鑰只存雜湊、**伺服器建的項目與前端 `normalizeItems` 逐欄相同**、改頻率清完成、復原（**細到欄位**：同一任務連寫三次可任意順序各自復原、使用者改了別的欄位不擋、**改了同一欄才拒絕**）、**`requestId` 防重複**（同 id 回上一次的結果、指紋不同擋、失敗還位子、處理中、兩個使用者互不影響）、跨帳號隔離、競態重試、OAuth 全流程（PKCE、code 單次、open redirect、免費帳號 402、refresh 輪替與撤銷） | 直接 import Worker 端模組；前端的 `normalizeItems`／`normalizeRecurrence`／`stableStringify` 從 `index.html` 抽出來比 |
+| `tests/agent.test.mjs` | agent 工作區（第一批）：**伺服器建的甘特專案／任務／子待辦與前端 `normalizeGanttProjects` 逐欄相同**、agent 寫的狀態走一次真的 `applySnapshot`→`snapshot`、連線設定（**OAuth 換 token 之後 review 仍在**、**查不到設定＝暫停**、migration 回填、暫停擋每一個寫入工具、5 次復原自動暫停）、review 模式（**資料一個位元都沒變**、日誌不受審核擋、同意在當下資料上套、**一項套不上去整份不套 stale**、同意的競態、兩台同時同意只套一次、20 份上限、跨帳號）、待驗收（set_done／進度 100／**一個一個勾子待辦**都攔、驗收／退回、提案同意時也攔、可復原）、日誌（署名由伺服器填、200／天、2000 字、只能加、遮蔽只有擁有者、**Pro 到期擁有者照樣讀與回答**、跨帳號）、專案消失 30 天才清（**讀不到 state 不算消失**）、備份與刪帳號 | 直接 import Worker 端模組；前端的 `normalizeGanttProjects`／`applySnapshot`／`snapshot` 從 `index.html` 抽出來比（`todoProgress` 單獨抽那一個純函式）；競態用既有的 `env.DB.prepare` 攔截模式 |
 
 前三者的挑選理由：前兩者近乎純函式、零 DOM 依賴；第三者是**競態**——靠併發碰運氣測不到，但可以把空窗做成確定性的。
 
@@ -101,7 +102,7 @@ npm run db:init:local  # 對本機 miniflare D1 建表（--local 的資料庫與
 npm run db:init        # 對遠端 D1 建表
 npm run admin:reset    # 破窗鎚：直接改密碼（見〈破窗鎚〉）
 npm run deploy         # 部署
-npm test               # 全部測試檔（node:test，不需安裝任何東西；目前 559 個測試）
+npm test               # 全部測試檔（node:test，不需安裝任何東西；目前 616 個測試）
 ```
 
 跑單一測試檔或單一測試（`npm test` 沒有轉發參數的管道，直接用 node）：
@@ -888,7 +889,7 @@ Turnstile 擋得住「一秒鐘一萬次」的機器人，擋不住「一分鐘�
 
 **改版時要做的事**：`mobile/package.json` 的 `version` 往上加（build 號是 GitHub 的 `run_number`，不用管）→ **合併進 main 就會自動打包上傳**（CI 綠、且動到 `public/index.html` 或 `mobile/`）→ App Store Connect 送審。手動觸發與 `ios-v*` tag 仍然留著，兩者都不看路徑條件。
 
-**部署順序**：`migrations/005-app-purchase.sql`、`006-plan.sql`、`007-streak-mail.sql`、`008-push.sql`、`009-leave-days.sql`、`010-mail-log.sql` 、`011-mail-sender.sql` 、`012-unsub-token.sql` 、`014-paddle.sql` 與 `015-mcp.sql` 與 `016-mcp-requests.sql` 都要在部署新 Worker **之前**跑（`010` 是新增資料表，漏跑只會讓寄信多一行警告，不會 500；**`011` 是加欄位，漏跑會讓 `/api/admin/mail-log` 的 SELECT 直接失敗**）（`getSessionUser` 的 SELECT 讀 `plan_source`，欄位不在**每一個**登入請求都會 500；`007`／`008`／`009` 的欄位則是 `/api/reminder` 與 cron 會讀），理由見〈資料庫結構變更〉。006 跑完、Worker 部署完之後，還要到 `/admin` 把既有的兩個帳號設成「Pro（永久）」——漏掉的症狀是他們的第四個專案被擋，當場就會知道。
+**部署順序**：`migrations/005-app-purchase.sql`、`006-plan.sql`、`007-streak-mail.sql`、`008-push.sql`、`009-leave-days.sql`、`010-mail-log.sql` 、`011-mail-sender.sql` 、`012-unsub-token.sql` 、`014-paddle.sql` 與 `015-mcp.sql` 與 `016-mcp-requests.sql` 與 `017-agent-workspace.sql` 都要在部署新 Worker **之前**跑（**`017` 含 `ALTER TABLE mcp_activity ADD COLUMN conn_id`——漏跑的話每一個 agent 寫入工具都失敗；它還回填既有連線的設定列，漏跑或晚跑的話所有現存連線會被當成暫停**）（`010` 是新增資料表，漏跑只會讓寄信多一行警告，不會 500；**`011` 是加欄位，漏跑會讓 `/api/admin/mail-log` 的 SELECT 直接失敗**）（`getSessionUser` 的 SELECT 讀 `plan_source`，欄位不在**每一個**登入請求都會 500；`007`／`008`／`009` 的欄位則是 `/api/reminder` 與 cron 會讀），理由見〈資料庫結構變更〉。006 跑完、Worker 部署完之後，還要到 `/admin` 把既有的兩個帳號設成「Pro（永久）」——漏掉的症狀是他們的第四個專案被擋，當場就會知道。
 
 ### 開發者有 Mac 了（2026-09-17）
 
@@ -995,6 +996,28 @@ cd mobile/ios/App && xcodebuild -scheme App -sdk iphonesimulator -configuration 
 | CORS `*` 只在 `/mcp`、`/oauth/*`、`/.well-known/*`，不開 credentials | 只認 Bearer |
 | `get_schedule` 的**完成狀態以當下的資料為準**，日期才信 digest；digest 之後刪掉／略過的不列；digest 比資料舊時回 `note` | digest 是前端上次打開時算的。不疊上去的話，agent 勾完再查一次會看到「沒勾到」，然後重勾或回報失敗（上線後實測抓到的） |
 | 前端 `cloudRefresh()` 在回到前景（30 秒節流）與復原後拉一次 | agent 改的是雲端，開著的分頁要跟上，否則下一次推送撞 409 |
+
+### agent 工作區（第一批，`src/mcp/store.js`／`ops.js`／`src/handlers/agent.js`）
+
+設計文件 `docs/superpowers/specs/2026-11-21-agent-workspace.md`。agent 能自己寫進展、交接、提問，使用者管得住它。migration `017-agent-workspace.sql`。
+
+| 決定 | 理由 |
+|---|---|
+| 檔案分工：`server.js`＝JSON-RPC 與工具定義、`store.js`＝所有資料存取（state 讀寫、`mutate`、復原、連線設定、日誌、提案）、`ops.js`＝寫入工具的**純函式表**、`handlers/agent.js`＝「我的帳號」頁的 HTTP 端點 | 工具與畫面兩個入口共用同一份規則：「畫面操作行、agent 操作不行」不該出現 |
+| 每個寫入工具的狀態變更都是 `STATE_OPS[tool](state, args, ctx) → { state, changes[] }`，direct 執行、review 乾跑、同意提案**三處共用**；`mutate` 吃多個 change、每個一列 `mcp_activity`（帶 `conn_id`） | 提案存的是「要做什麼」（tool＋args）不是結果：同意時在**當下的資料**上重新套，不會把這段時間使用者自己的修改蓋掉 |
+| 連線設定放 `mcp_connections`（id＝OAuth `grant_id` 或金鑰那一列的 id），不放 token 上；**每一次 `tools/call` 都重讀；查不到列＝當成暫停** | OAuth 每次換 token 是刪舊插新，設定放 token 上一小時後就不見。migration 回填既有連線為 direct，否則上線那一刻全被暫停 |
+| 暫停擋**每一個**寫入類工具（含日誌、提問、提案、復原），讀照常；測試斷言「暫停清單＝`WRITE_TOOLS`」 | 新增寫入工具忘了進清單，暫停就漏一個 |
+| review 模式的提案先**乾跑**驗證，行不通當場回錯；同意時整份在一個 `mutate` 裡套、一項丟 `OpError` 整份不寫、標 stale 並說出第幾個；先「領走」（單句 `UPDATE … WHERE status='open'`）再動資料 | 兩台同時按同意只套一次；套一半的提案比沒套更糟 |
+| review 模式下 `undo_change` 回錯（請使用者在帳號頁復原） | 復原也是寫入；要審核的人不會希望 agent 自己改回去 |
+| 待驗收的攔截只在 `mutate` 裡呼叫一次的 `applyAcceptance(prev, next, changes)`：比「有效完成」false→true；有子待辦就把這次新勾完的最後一個退回未完成並標 `review=true`、沒有就 `done=false`；對應 change 的 `after` 改成攔過的樣子（復原才對得上） | `done` 有子待辦時是算出來的，只攔 `set_done` 一個個勾子待辦就繞過去了。只管甘特任務；項目（`items`）的勾選不攔 |
+| 日誌 `project_events` 只能加；署名由伺服器依連線填；每專案每天 200 筆用**單句帶條件的 `INSERT … SELECT … WHERE (count) < 200`**；遮蔽只有擁有者端點、agent 沒有工具；回答＝寫 answer＋decision、問題標 answered、**不動任務狀態** | 先數再寫兩個併發會一起通過；能自己遮就等於能改 |
+| 給 agent 的回應把日誌與說明書放在 `untrusted_text` 欄位，instructions 明講那是資料不是指令 | 公開 repo 的 PR 標題、別的 agent 的日誌都可能含注入 |
+| 專案消失 30 天才清日誌：每日 cron 的獨立一步 `agent_events`（`purgeAgentData`），用 `project_absent(user_id, project_id, missing_since)` 記「第一次看到它不在」；專案回來就刪那一列；**讀不到或形狀不對的 state 整個跳過** | 刪除有復原、三方合併可能救回來；把「讀不到」當「專案不見」會讓一次資料庫小故障變成 30 天後的資料遺失 |
+| 任務新欄位 `status`／`blockedNote`、子待辦 `review`、專案 `brief` 不升 `STORAGE_VERSION`；前後端形狀由 `tests/agent.test.mjs` 逐欄比對；`review` 在 `done` 時一律讀成 false | 不留會與 `done` 並存的過期旗標 |
+| 工具共 21 個（目標 ≤ 20；既有 13 個名稱與必填參數一個字沒動，只加選填）；全部有 annotations | 沒有 `list_proposals`：`get_project_brief` 與收件匣已列出開著的提案 |
+| 擁有者端點（讀日誌、回答、處理提案、驗收）**不要求 Pro** | Pro 到期之後那是使用者自己的資料 |
+
+**1B（畫面）還沒做**：專案頁的說明書／時間軸／狀態徽章、「等你回覆」、帳號頁的連線設定與提案審核、新提問的信與推播、「agent 剛更新」橫幅。端點都已備好。
 
 ## 推播（子專案 B，`src/apns.js` + `src/handlers/push.js`）
 

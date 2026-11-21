@@ -12,7 +12,7 @@ import { createSession, getSessionUser } from '../src/session.js';
 import { hashPassword } from '../src/crypto.js';
 import { makeEnv, seedState, unwrap } from './d1.mjs';
 
-const TABLES = ['user_state', 'shares', 'sessions', 'ics_feed', 'reminder_feed', 'password_resets', 'email_codes', 'oauth_identities', 'mcp_requests', 'users'];
+const TABLES = ['user_state', 'shares', 'sessions', 'ics_feed', 'reminder_feed', 'password_resets', 'email_codes', 'oauth_identities', 'mcp_requests', 'project_events', 'project_absent', 'mcp_proposals', 'mcp_connections', 'users'];
 
 async function setup() {
   const env = makeEnv();
@@ -28,6 +28,11 @@ async function setup() {
     env.DB.prepare('INSERT INTO password_resets (token_hash, user_id, created_at, expires_at) VALUES (?, ?, 0, 1)').bind('r' + id, id).run();
     env.DB.prepare('INSERT INTO email_codes (email, code_hash, expires_at, attempts, created_at) VALUES (?, ?, 1, 0, 0)').bind(email, 'c').run();
     env.DB.prepare("INSERT INTO mcp_requests (user_id, request_id, fingerprint, result, created_at) VALUES (?, 'req-1', 'f', '{}', 0)").bind(id).run();
+    // agent 工作區：日誌、專案消失記錄、提案、連線設定（兩個人各一份，刪 A 不能碰 B 的）
+    env.DB.prepare("INSERT INTO project_events (id, user_id, project_id, kind, actor, body, created_at) VALUES (?, ?, 'gp1', 'progress', 'Claude', '進展', 0)").bind('ev-' + id, id).run();
+    env.DB.prepare("INSERT INTO project_absent (user_id, project_id, missing_since) VALUES (?, 'gp1', 0)").bind(id).run();
+    env.DB.prepare("INSERT INTO mcp_proposals (id, user_id, actor, title, ops, status, created_at) VALUES (?, ?, 'Claude', 't', '[]', 'open', 0)").bind('pr-' + id, id).run();
+    env.DB.prepare("INSERT INTO mcp_connections (id, user_id, mode, paused, needs_acceptance, created_at, updated_at) VALUES (?, ?, 'review', 1, 1, 0, 0)").bind('cn-' + id, id).run();
     env.DB.prepare(`INSERT INTO oauth_identities
       (id, user_id, provider, subject, email, created_at, updated_at)
       VALUES (?, ?, 'google', ?, ?, 0, 0)`).bind('oauth-' + id, id, 'google-' + id, email).run();
@@ -51,6 +56,10 @@ function snapshotOf(env, userId, email) {
     codes: env.DB.prepare('SELECT * FROM email_codes WHERE email = ?').bind(email).all().results,
     oauth: env.DB.prepare('SELECT * FROM oauth_identities WHERE user_id = ?').bind(userId).all().results,
     mcpRequests: q('SELECT * FROM mcp_requests WHERE user_id = ?'),
+    projectEvents: q('SELECT * FROM project_events WHERE user_id = ?'),
+    projectAbsent: q('SELECT * FROM project_absent WHERE user_id = ?'),
+    mcpProposals: q('SELECT * FROM mcp_proposals WHERE user_id = ?'),
+    mcpConnections: q('SELECT * FROM mcp_connections WHERE user_id = ?'),
   };
 }
 

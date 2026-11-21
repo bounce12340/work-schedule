@@ -456,9 +456,11 @@ CREATE TABLE IF NOT EXISTS mcp_activity (
   before      TEXT,
   after       TEXT,
   created_at  INTEGER NOT NULL,
-  undone_at   INTEGER
+  undone_at   INTEGER,
+  conn_id     TEXT                -- 哪一條連線做的（自動暫停：同一條連線一小時內被復原 5 次以上）
 );
 CREATE INDEX IF NOT EXISTS idx_mcp_activity_user ON mcp_activity(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_mcp_activity_conn ON mcp_activity(conn_id, undone_at);
 
 -- MCP 寫入防重複（src/mcp/server.js）：agent 送出寫入、沒收到回應、再送一次，不該寫出兩筆。
 -- 每個寫入工具接受選填的 requestId；(user_id, request_id) 主鍵靠單句 INSERT ... ON CONFLICT DO NOTHING
@@ -471,3 +473,61 @@ CREATE TABLE IF NOT EXISTS mcp_requests (
   created_at  INTEGER NOT NULL,
   PRIMARY KEY (user_id, request_id)
 );
+
+-- 進展日誌、交接筆記、提問與回答、決策、風險。只能加不能改不能刪（owner 只能「遮蔽」：body 清空）。
+CREATE TABLE IF NOT EXISTS project_events (
+  id            TEXT PRIMARY KEY,
+  user_id       TEXT NOT NULL,        -- 擁有者；所有查詢都帶 WHERE user_id = ?
+  project_id    TEXT NOT NULL,        -- 甘特專案的 id（在 JSON 裡，沒有外鍵）
+  task_id       TEXT,
+  kind          TEXT NOT NULL,        -- progress | handoff | question | answer | decision | risk | withdraw
+  actor         TEXT NOT NULL,        -- 'user' 或連線的名稱（由伺服器填）
+  body          TEXT NOT NULL,        -- 純文字，agent 寫的上限 2000 字
+  ref_id        TEXT,                 -- answer／decision／withdraw 指向那一筆 question
+  status        TEXT,                 -- question: open | answered | withdrawn；risk: open | closed
+  options       TEXT,                 -- question 的選項（JSON 陣列，2～4 個）
+  default_after TEXT,                 -- question 的期限 YYYY-MM-DD
+  redacted_at   INTEGER,              -- 擁有者遮蔽的時間；有值代表 body 已清空
+  created_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_project_events_proj ON project_events(user_id, project_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_project_events_open ON project_events(user_id, kind, status);
+
+-- 專案從 state 裡消失的時間：日誌留 30 天才清（刪除有復原、三方合併可能救回來）。
+-- 每日 cron 維護：專案在 state 裡 → 刪掉這一列；不在 → 補一列（只補不覆蓋）。
+CREATE TABLE IF NOT EXISTS project_absent (
+  user_id       TEXT NOT NULL,
+  project_id    TEXT NOT NULL,
+  missing_since INTEGER NOT NULL,
+  PRIMARY KEY (user_id, project_id)
+);
+
+-- 連線的設定放在「連線」上，不是放在 token 那一列：OAuth 每次更新 token 都是刪舊插新，
+-- 放在 token 上設定會每小時自己消失。id＝OAuth 的 grant_id（輪替時不變），或個人金鑰那一列的 id。
+CREATE TABLE IF NOT EXISTS mcp_connections (
+  id                TEXT PRIMARY KEY,
+  user_id           TEXT NOT NULL,
+  mode              TEXT NOT NULL DEFAULT 'direct',   -- direct | review
+  paused            INTEGER NOT NULL DEFAULT 0,
+  needs_acceptance  INTEGER NOT NULL DEFAULT 0,
+  paused_reason     TEXT,                              -- owner | auto
+  created_at        INTEGER NOT NULL,
+  updated_at        INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_mcp_connections_user ON mcp_connections(user_id);
+-- （回填既有連線只在 migration 裡做：新資料庫沒有既有連線。）
+
+-- 修改要先審核（提案）：存的是「要做什麼」（tool＋args），同意時在當下的資料上重新套。
+CREATE TABLE IF NOT EXISTS mcp_proposals (
+  id          TEXT PRIMARY KEY,
+  user_id     TEXT NOT NULL,
+  conn_id     TEXT,
+  actor       TEXT NOT NULL,
+  title       TEXT NOT NULL,
+  ops         TEXT NOT NULL,          -- JSON：[{ tool, args }]
+  status      TEXT NOT NULL,          -- open | approved | rejected | withdrawn | stale
+  note        TEXT,                   -- 退回的理由，或 stale 時說出哪一個操作套不上去
+  created_at  INTEGER NOT NULL,
+  decided_at  INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_mcp_proposals_user ON mcp_proposals(user_id, status);
