@@ -14,8 +14,9 @@ import { handleMcp, mcpPreflight, handleActivityList, handleActivityUndo } from 
 import {
   handleConnectionSettings, handlePauseAll, handleListProposals, handleApproveProposal, handleRejectProposal,
   handleProjectEvents, handleAgentInbox, handleAnswerEvent, handleRedactEvent, handleAcceptTask, handleRejectTask,
-  purgeAgentData,
+  handleStateVersion, handleAgentEventsExport, purgeAgentData,
 } from './handlers/agent.js';
+import { sendAgentNotifyPending } from './handlers/agentnotify.js';
 import {
   handleProtectedResourceMetadata, handleAuthServerMetadata, handleRegister as handleOAuthRegister,
   handleAuthorizeRedirect, handleAuthorizeInfo, handleAuthorizeDecision, handleToken,
@@ -53,6 +54,8 @@ export default {
       await step(env, 'purge', () => purgeExpired(env));
       // agent 日誌：專案消失超過 30 天才清（見 purgeAgentData）。獨立的一步：它掛了不該連累上面任何一件
       await step(env, 'agent_events', () => purgeAgentData(env));
+      // agent 通知：把被 30 分鐘節流／休假擋下來的合併成「還有 N 件」送出。與信、推播各自獨立的一步
+      await step(env, 'agent_notify', () => sendAgentNotifyPending(env));
     })());
   },
 
@@ -135,7 +138,7 @@ async function route(request, env, ctx) {
 
   // MCP 與它的 OAuth：agent 從別的網域直接打進來，憑證是 Bearer token（不是 cookie），
   // 所以這幾條自己回 `Access-Control-Allow-Origin: *`，不走上面只放行 app 的那一套 CORS。
-  if (path === '/mcp') return handleMcp(request, env);
+  if (path === '/mcp') return handleMcp(request, env, ctx);
   if (path === '/.well-known/oauth-protected-resource' || path === '/.well-known/oauth-protected-resource/mcp') {
     return request.method === 'OPTIONS' ? mcpPreflight() : handleProtectedResourceMetadata(request);
   }
@@ -253,6 +256,11 @@ async function route(request, env, ctx) {
     return methodNotAllowed();
   }
 
+  // 開著的頁面要跟上：只回兩個數字（版本號、agent 最新的動靜），前端每 30 秒問一次
+  if (path === '/api/state/version') {
+    return request.method === 'GET' ? handleStateVersion(env, user) : methodNotAllowed();
+  }
+
   // 登入中的裝置。GET 看清單、DELETE 登出其他裝置（保留當下這一台）。
   if (path === '/api/auth/sessions') {
     if (request.method === 'GET') return handleListSessions(request, env, user);
@@ -335,6 +343,9 @@ async function route(request, env, ctx) {
       const id = decodeURIComponent(m[1]);
       return m[2] === 'approve' ? handleApproveProposal(env, user, id) : handleRejectProposal(request, env, user, id);
     }
+  }
+  if (path === '/api/agent/events/export') {
+    return request.method === 'GET' ? handleAgentEventsExport(env, user) : methodNotAllowed();
   }
   if (path === '/api/agent/inbox') {
     return request.method === 'GET' ? handleAgentInbox(env, user) : methodNotAllowed();

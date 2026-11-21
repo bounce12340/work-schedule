@@ -6,6 +6,7 @@
 import { planOf, exceedsPlanCap } from '../plan.js';
 import * as S from './schedule.js';
 import { applyOps, OpError, STATE_OP_NAMES } from './ops.js';
+import { notifyAgentAsk, notifyAgentPaused, runDetached } from '../handlers/agentnotify.js';
 
 export { OpError };
 
@@ -130,7 +131,7 @@ export async function listActivity(env, userId, limit) {
 }
 
 /** 復原一筆紀錄。工具與「我的帳號」頁共用這一支，規則只有一份。 */
-export async function undoChange(env, user, changeId, actor, connId = null) {
+export async function undoChange(env, user, changeId, actor, connId = null, execCtx = null) {
   const row = await env.DB.prepare('SELECT * FROM mcp_activity WHERE id = ? AND user_id = ?').bind(changeId, user.id).first();
   if (!row) throw new S.ToolError('找不到這筆紀錄');
   if (row.undone_at) throw new S.ToolError('這筆已經復原過了');
@@ -156,6 +157,8 @@ export async function undoChange(env, user, changeId, actor, connId = null) {
           "UPDATE mcp_connections SET paused = 1, paused_reason = 'auto', updated_at = ? WHERE id = ? AND user_id = ? AND paused = 0"
         ).bind(Date.now(), row.conn_id, user.id).run();
         autoPaused = p.meta?.changes === 1;
+        // 暫停的那一刻通知（同一個開關）；連線名稱取被復原的那一筆當初的署名
+        if (autoPaused) await runDetached(execCtx, notifyAgentPaused(env, user.id, row.actor));
       }
     } catch (e) { console.error('auto-pause check failed', e?.stack || String(e)); }
   }
@@ -254,6 +257,10 @@ export async function addAgentEvent(env, user, ctx, a) {
   if (ins.meta?.changes !== 1) throw new S.ToolError(`這個專案今天的進展紀錄已達上限（${EVENTS_PER_PROJECT_PER_DAY} 筆）`);
 
   const out = { eventId: id, kind };
+  // 通知使用者有新問題（5-2）：開關、30 分鐘節流、休假都在 notifyAgentAsk 裡判斷；
+  // 它永遠不丟例外——通知寄不出去不該讓已經寫進去的提問變成錯誤（agent 會重送而問兩次）。
+  // 信與推播裡不放問題的全文。
+  if (kind === 'question') await runDetached(ctx, notifyAgentAsk(env, user.id, project.id, ctx.actor));
   if (kind === 'question' && task && !S.effectiveDone(task) && task.status !== 'waiting') {
     try {
       await mutate(env, user, { actor: ctx.actor, connId: ctx.connId, needsAcceptance: ctx.needsAcceptance, tool: 'add_project_event' },
@@ -397,6 +404,9 @@ export async function createProposal(env, user, ctx, { title, ops }) {
     `INSERT INTO mcp_proposals (id, user_id, conn_id, actor, title, ops, status, note, created_at, decided_at)
      VALUES (?, ?, ?, ?, ?, ?, 'open', NULL, ?, NULL)`
   ).bind(id, user.id, ctx.connId ?? null, ctx.actor, t, JSON.stringify(clean), Date.now()).run();
+  // 提案同樣要通知（同提問）。專案取第一個指到「真的存在的專案」的操作；沒有就算在帳號層級（project_id=''）
+  const pid = clean.map(o => o.args && o.args.projectId).find(x => typeof x === 'string' && (state.ganttProjects || []).some(g => g.id === x)) || '';
+  await runDetached(ctx, notifyAgentAsk(env, user.id, pid, ctx.actor));
   return { proposed: true, proposalId: id, note: '已提案，尚未生效：要等使用者同意之後才會寫進排程。你現在讀到的資料仍是還沒套用的樣子。' };
 }
 

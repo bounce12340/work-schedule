@@ -125,6 +125,15 @@
        綠色沒有被任何項目型別或狀態用掉，而且它不像警告。 */
 --leave:#355942;
     --leave-dim: rgba(63,107,79,0.13);
+    /* 任務狀態（agent 工作區，1B）。**刻意不用紅色**：紅色是逾期專用，blocked 若也是紅，
+       會被讀成「逾期了」——而兩者是不同的事（卡住的事照樣會遲交，兩個訊號要同時看得到）。
+       blocked 用「深色實心＋斜線」：它不是警示色，是「這件事現在動不了」。對比由 check-contrast 量。 */
+    --st-doing-fg: var(--violet-ink);  --st-doing-bg: var(--violet-dim);
+    --st-wait-fg: var(--amber-ink);    --st-wait-bg: var(--amber-dim);
+    --st-review-fg: var(--teal-ink);   --st-review-bg: var(--teal-dim);
+    --st-block-fg: #FFFDF7;            --st-block-bg: #2A2A26;
+    /* 甘特長條上的記號：進行中＝亮邊、卡住＝斜線、等待／待驗收＝小圓點 */
+    --st-bar-edge: #FFFFFF;  --st-bar-stripe: rgba(0,0,0,0.30);  --st-bar-mark: #FFFFFF;
     --span-teal: rgba(31,140,104,0.20);
     --span-amber: rgba(201,130,46,0.22);
     --span-violet: rgba(108,92,224,0.20);
@@ -228,6 +237,11 @@
     --notice-dim: rgba(167,165,156,0.13);
     --leave: #93C2A4;
     --leave-dim: rgba(147,194,164,0.16);
+    --st-doing-fg: var(--violet-ink);  --st-doing-bg: var(--violet-dim);
+    --st-wait-fg: var(--amber-ink);    --st-wait-bg: var(--amber-dim);
+    --st-review-fg: var(--teal-ink);   --st-review-bg: var(--teal-dim);
+    --st-block-fg: #1A1917;            --st-block-bg: #E8E5DC;
+    --st-bar-edge: #FFFFFF;  --st-bar-stripe: rgba(0,0,0,0.42);  --st-bar-mark: #FFFFFF;
     --span-teal: rgba(63,191,146,0.24);
     --span-amber: rgba(227,160,82,0.26);
     --span-violet: rgba(155,140,245,0.24);
@@ -1155,6 +1169,114 @@
   .todo-progress{ font-family: var(--mono); font-size:12.5px; color: var(--text-muted); white-space:nowrap; }
   .todo-progress b{ color: var(--teal); font-size:13.5px; }
 
+  /* ===== agent 工作區（第一批 1B）===== 新增的前端函式一律 agent 前綴（遮蔽事故發生過兩次） */
+  /* 任務狀態徽章。todo 不畫（預設狀態不該吵）；有狀態時才出現。 */
+  .st-badge{ font-family:var(--sans); font-size:11.5px; font-weight:700; padding:2px 8px; border-radius:var(--r-s); white-space:nowrap; flex-shrink:0; }
+  .st-badge.doing{ color:var(--st-doing-fg); background:var(--st-doing-bg); }
+  .st-badge.waiting{ color:var(--st-wait-fg); background:var(--st-wait-bg); }
+  .st-badge.review{ color:var(--st-review-fg); background:var(--st-review-bg); }
+  .st-badge.blocked{ color:var(--st-block-fg); background:var(--st-block-bg);
+                     background-image:repeating-linear-gradient(135deg, rgba(255,255,255,0.14) 0 3px, transparent 3px 7px); }
+  .task-status{ font-family:var(--sans); font-size:12.5px; padding:6px 8px; max-width:112px; }
+  .task-status-note{ flex:1 1 100%; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .task-status-note input[type=text]{ flex:1 1 160px; min-width:0; }
+  .task-status-note .qbtn{ flex:0 0 auto; }
+  .task-review-bar{ flex:1 1 100%; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .task-review-bar .agent-msg{ flex:1 1 140px; }
+  /* 長條上的狀態記號。**逾期的紅色優先**：.overdue 的長條不畫任何狀態記號（紅就是紅），
+     狀態改由左邊標籤欄的小字帶出來，所以資訊沒有丟。 */
+  .gantt-bar.st-doing:not(.overdue)::after{ content:''; position:absolute; inset:0; border:2px solid var(--st-bar-edge); border-radius:inherit; pointer-events:none; }
+  .gantt-bar.st-blocked:not(.overdue){ background-image:repeating-linear-gradient(45deg, var(--st-bar-stripe) 0 4px, transparent 4px 8px); }
+  .gantt-bar.st-waiting:not(.overdue)::before, .gantt-bar.st-review:not(.overdue)::before{
+    content:''; position:absolute; right:3px; top:50%; width:8px; height:8px; margin-top:-4px; border-radius:50%; background:var(--st-bar-mark); z-index:1; }
+  .gantt-bar.st-review:not(.overdue)::before{ background:transparent; border:2px solid var(--st-bar-mark); box-sizing:border-box; }
+  .gantt-row-label .st-glyph{ font-family:var(--sans); font-size:10.5px; font-weight:700; margin-left:6px; color:var(--text-muted); flex-shrink:0; }
+  .gantt-row-name{ min-width:0; overflow:hidden; text-overflow:ellipsis; }
+  .task-status-extra{ padding:0 12px 10px; display:flex; flex-direction:column; gap:8px; }
+
+  /* 專案說明書（人寫給 agent 的規則） */
+  .agent-brief{ margin-bottom:12px; background:var(--panel); border:1px solid var(--hairline); border-radius:var(--r-m); }
+  .agent-brief > summary{ cursor:pointer; padding:11px 14px; font-family:var(--serif); font-size:14.5px; font-weight:600; letter-spacing:1px; color:var(--text-muted); list-style:none; display:flex; align-items:center; gap:8px; }
+  .agent-brief > summary::-webkit-details-marker{ display:none; }
+  .agent-brief > summary::before{ content:'▸'; font-size:11px; color:var(--text-dim); transition:transform .15s; }
+  .agent-brief[open] > summary::before{ transform:rotate(90deg); }
+  .agent-brief-hint{ font-family:var(--sans); font-size:12px; font-weight:400; letter-spacing:0; color:var(--text-dim); margin-left:auto; }
+  .agent-brief-body{ padding:0 14px 14px; }
+  .agent-brief-body textarea{ width:100%; min-height:110px; resize:vertical; font-family:var(--sans); line-height:1.7; }
+  .agent-brief-foot{ display:flex; gap:10px; font-family:var(--mono); font-size:11.5px; color:var(--text-dim); margin-top:4px; }
+  .agent-brief-foot .agent-saved{ color:var(--teal-ink); opacity:0; transition:opacity .2s; }
+  .agent-brief-foot .agent-saved.show{ opacity:1; }
+
+  /* 最新進展 */
+  .agent-timeline{ margin-bottom:16px; background:var(--panel); border:1px solid var(--hairline); border-radius:var(--r-m); padding:12px 14px; }
+  .agent-h{ font-family:var(--serif); font-size:14.5px; font-weight:600; letter-spacing:1px; color:var(--text-muted); margin-bottom:8px; display:flex; align-items:center; gap:8px; }
+  .agent-h .qbtn{ margin-left:auto; }
+  .agent-line{ font-size:12.5px; color:var(--text-muted); line-height:1.7; }
+  .agent-ev{ padding:9px 0; border-top:1px solid var(--hairline); }
+  .agent-ev:first-of-type{ border-top:none; }
+  .agent-ev-meta{ display:flex; gap:8px; align-items:baseline; flex-wrap:wrap; font-size:12px; color:var(--text-muted); }
+  .agent-ev-actor{ font-weight:700; color:var(--text); }
+  .agent-ev-kind{ font-family:var(--mono); font-size:11px; padding:1px 7px; border-radius:var(--r-s); background:var(--panel-2); color:var(--text-muted); }
+  .agent-ev-kind.question{ background:var(--st-wait-bg); color:var(--st-wait-fg); }
+  .agent-ev-kind.handoff{ background:var(--st-doing-bg); color:var(--st-doing-fg); }
+  .agent-ev-kind.decision, .agent-ev-kind.answer{ background:var(--st-review-bg); color:var(--st-review-fg); }
+  .agent-ev-when{ font-family:var(--mono); font-size:11px; color:var(--text-dim); }
+  .agent-ev-body{ margin-top:4px; font-size:13.5px; line-height:1.75; white-space:pre-wrap; word-break:break-word; color:var(--text); }
+  .agent-ev-body.redacted{ color:var(--text-muted); font-style:italic; }
+  .agent-ev-act{ margin-left:auto; }
+  .agent-link{ font-family:var(--mono); font-size:11px; color:var(--text-dim); background:transparent; border:none; cursor:pointer; padding:4px 6px; text-decoration:underline; }
+  .agent-link:hover{ color:var(--amber-ink); }
+
+  /* 問題的回答（收件匣與時間軸共用同一個元件） */
+  .agent-answer{ margin-top:8px; display:flex; flex-direction:column; gap:8px; }
+  .agent-opts{ display:flex; gap:8px; flex-wrap:wrap; }
+  .agent-opt{ font-family:var(--sans); font-size:13.5px; font-weight:600; padding:9px 14px; min-height:40px; border-radius:var(--r-s);
+              border:1px solid var(--amber-ink); background:var(--amber-dim); color:var(--amber-ink); cursor:pointer; }
+  .agent-opt:hover{ background:var(--amber); color:var(--on-accent); }
+  .agent-opt:disabled, .agent-send:disabled{ opacity:.55; cursor:not-allowed; }
+  .agent-free{ display:flex; gap:8px; align-items:center; }
+  .agent-free input[type=text]{ flex:1; min-width:0; }
+  .agent-send{ font-family:var(--sans); font-size:13px; font-weight:700; padding:9px 14px; min-height:40px; border-radius:var(--r-s); border:none; background:var(--accent-fill); color:var(--on-accent); cursor:pointer; flex-shrink:0; }
+  .agent-msg{ font-size:12.5px; line-height:1.6; color:var(--text-muted); }
+  .agent-msg.err{ color:var(--red-ink); }
+  .agent-deadline{ font-family:var(--mono); font-size:11.5px; color:var(--amber-ink); }
+
+  /* 等你回覆（項目安排最上面）。沒有東西時整塊不佔位：用 .off，不用 [hidden]
+     （.agent-inbox 若被改成 flex／grid，優先度會壓過 [hidden]{display:none}，同 .metric-strip.off） */
+  .agent-inbox{ margin-bottom:18px; background:var(--panel); border:1px solid var(--amber); border-radius:var(--r-m); padding:14px 16px; box-shadow:0 0 0 3px var(--amber-dim); }
+  .agent-inbox.off{ display:none; }
+  .agent-card{ padding:12px 0; border-top:1px solid var(--hairline); }
+  .agent-card:first-of-type{ border-top:none; padding-top:4px; }
+  .agent-card-title{ font-size:14px; font-weight:700; line-height:1.6; word-break:break-word; }
+  .agent-card-ctx{ font-size:12px; color:var(--text-muted); margin-bottom:3px; }
+  .agent-diff{ margin:8px 0; border:1px solid var(--hairline); border-radius:var(--r-s); overflow:hidden; font-size:12.5px; }
+  .agent-diff-row{ display:grid; grid-template-columns:minmax(0,1.3fr) minmax(0,.7fr) minmax(0,1.5fr); gap:8px; padding:7px 10px; border-top:1px solid var(--hairline); word-break:break-word; }
+  .agent-diff-row:first-child{ border-top:none; }
+  .agent-diff-ent{ font-weight:600; }
+  .agent-diff-field{ color:var(--text-muted); }
+  .agent-diff-val{ font-family:var(--mono); font-size:12px; }
+  .agent-diff-val .old{ color:var(--text-muted); text-decoration:line-through; }
+  .agent-diff-val .new{ color:var(--teal-ink); font-weight:700; }
+  .agent-actions{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:8px; }
+  .agent-pill{ font-family:var(--mono); font-size:11px; padding:1px 8px; border-radius:var(--r-s); background:var(--amber-dim); color:var(--amber-ink); }
+  @media (max-width:640px){ .agent-diff-row{ grid-template-columns:1fr; gap:2px; } }
+
+  /* 「agent 剛更新了 · 更新畫面」：細的一條，不自動重畫（使用者可能正在打字） */
+  .agent-live{ margin-bottom:12px; display:flex; align-items:center; gap:10px; padding:8px 14px; border-radius:var(--r-s);
+               background:var(--st-doing-bg); color:var(--st-doing-fg); font-size:13px; font-weight:600; }
+  .agent-live.off{ display:none; }
+  .agent-live button{ margin-left:auto; font-family:var(--sans); font-size:12.5px; font-weight:700; padding:6px 12px; border-radius:var(--r-s); border:1px solid var(--st-doing-fg); background:transparent; color:var(--st-doing-fg); cursor:pointer; }
+
+  /* 帳號頁：連線設定 */
+  .agent-conn{ padding:10px 0; border-bottom:1px solid var(--hairline); font-size:12.5px; }
+  .agent-conn:last-child{ border-bottom:none; }
+  .agent-conn-head{ display:flex; gap:10px; align-items:baseline; flex-wrap:wrap; }
+  .agent-conn-set{ display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+  .agent-conn-set .ghost-btn.on{ color:var(--amber-ink); border-style:solid; border-color:var(--amber-ink); background:var(--amber-dim); }
+  .agent-conn-paused{ font-size:12px; color:var(--red-ink); margin-top:6px; }
+  .agent-caps{ padding:10px 12px; margin:6px 0 10px; border:1px solid var(--amber-ink); border-radius:var(--r-s); background:var(--amber-dim); font-size:12.5px; line-height:1.7; color:var(--text); }
+  .agent-caps .ghost-btn{ margin-top:6px; }
+
   /* ---- Modal ---- */
   .overlay{ position:fixed; inset:0; background: var(--overlay-bg); backdrop-filter: blur(2px); display:none; align-items:center; justify-content:center; z-index:70; padding:20px; }
   .overlay.show{ display:flex; }
@@ -1547,8 +1669,17 @@
 
     <div class="main-panel">
 
+      <!-- agent 剛更新了：細的一條，只在項目安排與專案頁看得見的時候輪詢（見〈agent 工作區〉）。
+           用 .off 不用 [hidden]：display:flex 的優先度壓過 [hidden]。 -->
+      <div class="agent-live off" id="agentLive">
+        <span id="agentLiveText"></span>
+        <button type="button" id="btnAgentLive">更新畫面</button>
+      </div>
+
       <!-- ================= VIEW 1: 項目安排 ================= -->
       <div class="view active" id="viewSchedule">
+        <!-- 等你回覆：agent 的提問、等你審的提案、等你驗收的任務。有才出現，沒有就不佔位（.off） -->
+        <div class="agent-inbox off" id="agentInbox" aria-live="polite"></div>
         <div class="major-section">
           <div class="major-section-label" data-i18n>大項目（無需日期，可隨時更名）</div>
           <div class="chip-row" id="majorChips"></div>
@@ -1724,6 +1855,11 @@
           <div class="acct-row">
             <button id="btnStreakMail" class="ghost-btn" type="button"></button>
           </div>
+          <!-- 第六顆：agent 問我問題（或提案）時通知我。與上面五顆互不連坐，信與推播都走這一顆。 -->
+          <div class="acct-sub" style="margin:14px 0 10px;" data-i18n>你連接的 AI agent 問你問題、或提了要你審的提案時，系統會寄一封信（有裝 app 也會推播）。信裡只說「誰在哪個專案等你決定幾件事」，不放內容；同一個專案 30 分鐘內最多一封；休假那天不送。</div>
+          <div class="acct-row">
+            <button id="btnAgentNotify" class="ghost-btn" type="button"></button>
+          </div>
           <!-- 推播（子專案 B）。只在 app 裡出現——網頁版沒有 APNs 可以註冊。
                三個開關與上面兩個寄信開關**各自獨立**：關掉信不代表不想要推播。 -->
           <div id="acctPush" style="display:none">
@@ -1786,7 +1922,16 @@
                 <button id="btnMcpCopyKey" class="ghost-btn" type="button" data-i18n>複製金鑰</button>
               </div>
             </div>
+            <div class="agent-caps" id="agentCapsNote" style="display:none">
+              <div data-i18n>連線現在多了：寫進展日誌（不能刪，只能遮）、問你問題並通知你、提案等你同意。</div>
+              <button type="button" class="ghost-btn" id="btnAgentCapsOk" data-i18n>知道了</button>
+            </div>
             <div class="acct-h2" data-i18n>已連接的 agent 與金鑰</div>
+            <div class="acct-row" style="margin-bottom:6px;">
+              <button id="btnAgentPauseAll" class="ghost-btn danger-btn" type="button" data-i18n>⏸ 暫停所有 agent</button>
+              <span class="agent-msg" id="agentPauseMsg"></span>
+            </div>
+            <div class="acct-sub" data-i18n>暫停＝只能讀、不能寫（日誌、提問、提案也不行）。不是撤銷：恢復之後不用重新授權。</div>
             <div id="acctMcpConnList"><div class="acct-sub" data-i18n>載入中…</div></div>
             <div class="acct-h2" data-i18n>agent 最近做的修改</div>
             <div class="acct-sub" data-i18n>每一筆都可以復原。若那一項之後你又改過，為了不蓋掉你的修改，就不會動它。</div>
@@ -3231,6 +3376,98 @@
         'Account, reminders, calendar subscription and device management require signing in. You are in local-only mode — data lives in this browser.',
       '備份、提醒與行事曆訂閱已移到「我的帳號」頁。':
         'Backup, reminders and calendar subscription have moved to the My account tab.',
+      // —— agent 工作區（1B）——
+      '專案說明書':'Project brief',
+      '{0} 字':'{0} chars',
+      '給 agent 看的規則':'Rules for your agent',
+      '給 agent 看的專案背景、硬性規定、不能做的事。例如：預算不能超過 200 萬；只能動下週以後的任務；不要刪任何東西。':'Background, hard rules and things your agent must not do. For example: stay under the 2M budget; only touch tasks after next week; never delete anything.',
+      'agent 只能讀、不能改這一份':'Agents can read this but cannot edit it',
+      '最新進展':'Latest progress',
+      '連線後才看得到 agent 的進展':'Agent progress is only visible when you are online',
+      '還沒有進展。連上 agent 之後，它做了什麼、卡在哪、想問你什麼，都會記在這裡。':'No progress yet. Once an agent is connected, what it did, where it is stuck and what it wants to ask you will be recorded here.',
+      '只看最新 5 筆':'Latest 5 only',
+      '看全部（{0}）':'Show all ({0})',
+      '我':'Me',
+      '已回覆':'Answered',
+      'agent 撤回了':'Withdrawn by the agent',
+      '遮蔽':'Redact',
+      '只有你能遮：內容會被清掉，留下「誰、何時、哪一種」。agent 沒有這個權限。':'Only you can redact: the content is cleared, leaving who, when and what kind. Agents cannot do this.',
+      '遮蔽失敗，請稍後再試。':'Could not redact. Please try again later.',
+      '這一筆在 {0} 被擁有者遮掉':'The owner redacted this entry on {0}',
+      '送出中…':'Sending…',
+      '送出失敗，請稍後再試':'Could not send. Please try again later.',
+      '或自己寫回覆…':'Or write your own reply…',
+      '寫下你的回覆…':'Write your reply…',
+      '回覆':'Reply',
+      '要寫一句理由（agent 要靠它知道哪裡不對）':'Please write a reason (the agent needs it to know what is wrong)',
+      '等你回覆':'Waiting for you',
+      'agent 目前連不進來（Pro 已到期）。你可以先回答，agent 回來之後才讀得到。':'Your agent cannot connect right now (Pro has expired). You can still answer; it will read your answers once it is back.',
+      '提問':'Question',
+      '已過期限（{0}）：agent 下次開工會照預設（第一個選項）做':'Past the deadline ({0}): the agent will go with the default (first option) next time it works',
+      '期限 {0}：到時沒回就照預設（第一個選項）做':'Deadline {0}: if there is no reply by then, the default (first option) applies',
+      '提案（要你同意才會生效）':'Proposal (takes effect only when you approve)',
+      '（這份提案不會改變任何東西）':'(This proposal would not change anything)',
+      '現在套不上去：{0}。可以退回，請 agent 重提。':'It cannot be applied now: {0}. You can reject it and ask the agent to propose again.',
+      '資料已經變了':'the data has changed',
+      '同意':'Approve',
+      '退回':'Reject',
+      '套用中…':'Applying…',
+      '已套用':'Applied',
+      '套不上去，整份都沒有套用：{0}':'Could not apply — nothing from this proposal was applied: {0}',
+      '同意失敗，請稍後再試':'Could not approve. Please try again later.',
+      '退回的理由（選填）':'Reason for rejecting (optional)',
+      '確定退回':'Confirm reject',
+      '退回失敗，請稍後再試':'Could not reject. Please try again later.',
+      '驗收通過':'Accept',
+      '操作失敗，請稍後再試':'That did not work. Please try again later.',
+      '要連線才能驗收':'You need to be online to accept',
+      '要連線才能退回':'You need to be online to reject',
+      '哪裡不對？（必填）':'What is wrong? (required)',
+      '待驗收':'Needs review',
+      '「{0}」agent 說做完了，等你驗收':'“{0}”: the agent says it is done and is waiting for your review',
+      '待驗收的步驟：':'Steps awaiting review: ',
+      '任務狀態（不改變逾期：卡住的事照樣會遲交）':'Task status (does not change overdue: a stuck task is still late)',
+      '任務狀態':'Task status',
+      '確定':'OK',
+      'agent 說做完了，等你驗收':'The agent says it is done and is waiting for your review',
+      '卡在哪？一句話（必填）':'Stuck on what? One line (required)',
+      '在等什麼？（選填）':'Waiting for what? (optional)',
+      '卡住要寫一句原因':'A blocked task needs a one-line reason',
+      '雲端資料剛被更新了':'Cloud data was just updated',
+      'agent 剛更新了':'Your agent just updated things',
+      '更新畫面':'Refresh',
+      '一小時內被復原 5 次，已自動暫停':'Undone 5 times within an hour, so it was paused automatically',
+      '找不到這條連線的設定，先當成暫停。按「恢復」會補上設定。':'The settings for this connection are missing, so it is treated as paused. Press Resume to restore them.',
+      '你已暫停：現在只能讀、不能寫':'Paused by you: it can read but not write',
+      '設定失敗，請稍後再試。':'Could not change the setting. Please try again later.',
+      '寫入：先審核':'Writes: review first',
+      '寫入：直接改':'Writes: apply directly',
+      '直接改：agent 寫入立刻生效（每一筆可復原）。先審核：寫入先變成提案，你同意才生效。':'Apply directly: the agent’s writes take effect immediately (each can be undone). Review first: writes become proposals that take effect only when you approve.',
+      '勾完成要我驗收：開':'Done needs my review: on',
+      '勾完成要我驗收：關':'Done needs my review: off',
+      '開著：agent 說做完了，任務會變成「待驗收」，要你按驗收通過才算完成。':'When on, a task the agent finishes becomes “Needs review” and only counts as done once you accept it.',
+      '▶ 恢復':'▶ Resume',
+      '⏸ 暫停':'⏸ Pause',
+      '▶ 恢復所有 agent':'▶ Resume all agents',
+      '⏸ 暫停所有 agent':'⏸ Pause all agents',
+      '已恢復 {0} 條連線':'Resumed {0} connections',
+      '已暫停 {0} 條連線：現在都只能讀、不能寫':'Paused {0} connections: they can only read now',
+      '🤖 agent 問我問題時通知我：開':'🤖 Notify me when an agent asks: on',
+      '🤖 agent 問我問題時通知我：關':'🤖 Notify me when an agent asks: off',
+      '待辦':'To do',
+      '進行中':'In progress',
+      '卡住':'Blocked',
+      '等待中':'Waiting',
+      '進展':'Progress',
+      '交接筆記':'Handoff note',
+      '回答':'Answer',
+      '決定':'Decision',
+      '風險':'Risk',
+      '撤回':'Withdrawn',
+      '連線現在多了：寫進展日誌（不能刪，只能遮）、問你問題並通知你、提案等你同意。':'Connections can now also: write progress logs (they cannot be deleted, only redacted), ask you questions and notify you, and propose changes for your approval.',
+      '知道了':'Got it',
+      '暫停＝只能讀、不能寫（日誌、提問、提案也不行）。不是撤銷：恢復之後不用重新授權。':'Paused = read-only (no logs, questions or proposals either). It is not a revoke: after resuming there is no need to authorize again.',
+      '你連接的 AI agent 問你問題、或提了要你審的提案時，系統會寄一封信（有裝 app 也會推播）。信裡只說「誰在哪個專案等你決定幾件事」，不放內容；同一個專案 30 分鐘內最多一封；休假那天不送。':'When a connected AI agent asks you a question or proposes changes for your review, we send an email (and a push if you use the app). It only says who is waiting on you in which project, never the content; at most one per project every 30 minutes; none on days you are on leave.',
       // —— 簽名 ——
       '此系統由劉思妤設計、規劃、製作。':'Designed, planned and built by Liu Szu-Yu.'
     }
@@ -4413,9 +4650,10 @@
    * 版本號沒變就什麼都不做——不推、不重繪，回到前景時才不會白白寫一次雲端。
    */
   let cloudRefreshAt = 0;
+  const CLOUD_REFRESH_MIN_MS = 30000;   // 回到前景時的節流；agent 的收件匣與時間軸沿用同一個值
   async function cloudRefresh(force){
     if(!cloudEnabled || pushInFlight) return;
-    if(!force && Date.now() - cloudRefreshAt < 30000) return;
+    if(!force && Date.now() - cloudRefreshAt < CLOUD_REFRESH_MIN_MS) return;
     cloudRefreshAt = Date.now();
     const res = await cloudPull();
     if(res.kind !== 'ok' || !res.data || !res.data.state) return;
@@ -4638,6 +4876,8 @@
   async function initCloudSync(localHadData){
     try{
       await runCloudSync(localHadData);
+      // 同步完成：讀「等你回覆」、建立 agent 動靜的版本基準、啟動輪詢（沒有帳號時什麼都不做）
+      agentOnSynced();
     }catch(e){
       // 同步失敗絕不能連累本機使用：資料仍在 localStorage，僅停用雲端。
       //
@@ -4698,6 +4938,7 @@
       .then(d=>{ if(d){
         reminderEnabled = !!d.enabled;
         if(typeof d.streakMail === 'boolean') streakMailEnabled = d.streakMail;
+        if(typeof d.agentNotify === 'boolean') agentNotifyEnabled = d.agentNotify;
         if(typeof d.leadDays === 'number') reminderLeadDays = d.leadDays;
         // 推播的三個開關同理：讀不回來的話按鈕會一律顯示預設值，即使他早就改過了
         for(const k of ['pushOverdue','pushStreak','pushToday']){
@@ -5911,6 +6152,7 @@
       ? tr('讓 Claude、ChatGPT 這類 AI agent 讀取並修改你的排程：新增項目、改日期、勾完成都可以，每一筆都會記錄下來，可以復原。')
       : tr('這是 Pro 功能：讓 Claude、ChatGPT 這類 AI agent 直接讀取並修改你的排程。');
     box.style.display = pro ? '' : 'none';
+    agentSyncCapsNote(pro);     // 上線那一次：連線多了幾樣能力的說明，看過才收起來
     if(!pro) return;
     document.getElementById('acctMcpUrl').textContent = acctMcpUrl();
     acctLoadMcpConnections();
@@ -5923,11 +6165,15 @@
       if(r.status===401){ sessionExpired(); return; }
       if(!r.ok) throw new Error('HTTP ' + r.status);
       const list = (await r.json()).connections || [];
+      agentSyncPauseAll(list);
       if(!list.length){ el.innerHTML = '<div class="acct-sub">' + escapeHtml(tr('還沒有連接任何 agent。')) + '</div>'; return; }
       el.innerHTML = '';
       for(const c of list){
+        const item = document.createElement('div');
+        item.className = 'agent-conn';
         const row = document.createElement('div');
-        row.className = 'acct-dev';
+        row.className = 'acct-dev agent-conn-head';
+        row.style.border = 'none'; row.style.padding = '0';
         const name = document.createElement('span'); name.className = 'acct-dev-name';
         name.textContent = (c.kind === 'key' ? '🔑 ' : '🔗 ') + c.name;
         const when = document.createElement('span'); when.className = 'acct-dev-when';
@@ -5944,7 +6190,12 @@
           }catch(e){ console.error('mcp revoke failed', e); btn.disabled = false; alert(tr('撤銷失敗，請稍後再試。')); }
         };
         row.append(name, when, btn);
-        el.appendChild(row);
+        item.appendChild(row);
+        // 每條連線自己的設定：直接改／先審核、勾完成要我驗收、暫停（設定放在「連線」上，換 token 不會消失）
+        item.appendChild(agentBuildConnSettings(c));
+        const why = agentPausedText(c);
+        if(why) item.appendChild(agentEl('div', 'agent-conn-paused', why));
+        el.appendChild(item);
       }
     }catch(e){
       console.error('mcp connections failed', e);
@@ -8775,6 +9026,9 @@
     area.appendChild(head);
 
     area.appendChild(petBuildCard(gp));
+    // agent 工作區：專案說明書（人寫給 agent 的規則）與最新進展（agent 寫的日誌，要連線才看得到）
+    area.appendChild(agentBuildBrief(gp));
+    area.appendChild(agentBuildTimeline(gp));
     area.appendChild(buildGanttChart(gp));
     area.appendChild(buildTaskTable(gp));
     area.appendChild(buildProjectNotes(gp));
@@ -9044,7 +9298,8 @@
     const todayX = (now>=minDate && now<=maxDate) ? xOf(now) : null;
 
     gp.tasks.forEach(t=>{
-      const label=document.createElement('div'); label.className='gantt-row-label'; label.textContent=t.name; label.title=t.name;
+      const label=document.createElement('div'); label.className='gantt-row-label';
+      agentFillRowLabel(label, t);   // 名稱＋（有狀態時）一個小字；逾期的長條不畫狀態記號，資訊改靠這裡
       label.dataset.taskId = t.id;   // 供表格改名時就地更新，免整張圖表重畫
       labels.appendChild(label);
 
@@ -9053,6 +9308,8 @@
       const left = xOf(ts);
       const width = Math.max(4, ((te-ts+DAY)/DAY) * zoom.pxPerDay);
       const barEl=document.createElement('div'); barEl.className='gantt-bar'+(t.done?' done':(te<now && !t.done ? ' overdue':''));
+      // 狀態記號（進行中＝亮邊、卡住＝斜線、等待／待驗收＝小圓點）。完成就不畫；逾期的紅色優先（CSS 的 :not(.overdue)）
+      if(!t.done && AGENT_BAR_STATUS.includes(t.status)) barEl.classList.add('st-'+t.status);
       barEl.style.left=left+'px'; barEl.style.width=width+'px';
       barEl.title = t.name+'　'+t.start+' → '+t.end+'　'+(t.progress||0)+'%';
       const fill=document.createElement('div'); fill.className='gantt-bar-fill';
@@ -9104,13 +9361,14 @@
       const cb=document.createElement('span'); cb.className='task-done-cb'+(t.done?' done':''); cb.textContent=t.done?'✓':'';
       cb.title = t.todos.length ? '一次勾選／取消底下所有代辦項目' : '標記完成';
       row.appendChild(cb);
-      const syncCb=()=>{ cb.className='task-done-cb'+(t.done?' done':''); cb.textContent=t.done?'✓':''; };
+      let stx=null;   // 任務狀態的控制項（agent 工作區）；done 變化時要一起更新（完成就只顯示「完成」）
+      const syncCb=()=>{ cb.className='task-done-cb'+(t.done?' done':''); cb.textContent=t.done?'✓':''; if(stx) stx.sync(); };
 
       const nameInp=document.createElement('input'); nameInp.type='text'; nameInp.value=t.name;
       nameInp.oninput=()=>{
         t.name=nameInp.value;
         const lbl=document.querySelector('.gantt-row-label[data-task-id="'+t.id+'"]');
-        if(lbl){ lbl.textContent=t.name; lbl.title=t.name; }
+        if(lbl) agentFillRowLabel(lbl, t);
         persistSoon();
       };
       row.appendChild(nameInp);
@@ -9149,6 +9407,8 @@
         syncCb(); refreshGanttChart(gp); persist();
       };
       row.appendChild(progText); row.appendChild(progInp); row.appendChild(suffix);
+      stx = agentTaskStatusControls(gp, t);
+      row.appendChild(stx.badge); row.appendChild(stx.select);
 
       cb.onclick=()=>{
         if(t.todos.length){
@@ -9169,6 +9429,7 @@
       };
       row.appendChild(delBtn);
       block.appendChild(row);
+      block.appendChild(stx.extra);    // 卡住／等待的原因、待驗收的按鈕（要才出現）
 
       // ---- 子代辦項目 ----
       const todoBox=document.createElement('div'); todoBox.className='todo-list';
@@ -9259,7 +9520,753 @@
     else if(currentView==='shared') renderSharedView();
     else if(currentView==='account') renderAccountView();
     else renderScheduleView();
+    // 等你回覆（只在項目安排顯示，資料沒變不重畫）與「agent 剛更新了」那一條
+    agentRenderInbox(false); agentSyncLive();
   }
+
+  // ================= agent 工作區 =================
+  // 設計文件：docs/superpowers/specs/2026-11-21-agent-workspace.md（第一批 1B）。
+  //
+  // 伺服器端（1A）把 agent 寫的日誌、問題、提案放在獨立的資料表裡——**不在 snapshot() 裡**，
+  // 也不進 localStorage（同〈分享過來的資料不進 snapshot()〉）：它們的權威來源是伺服器，
+  // 離線時看不到，畫面要明說「連線後才看得到」，不能留白。
+  //
+  // 新增的前端函式**一律 `agent` 前綴**：這一段一次加了很多個頂層函式，而「被區域變數遮蔽」
+  // 在這份程式碼裡發生過三次（見〈多語系〉）。也不要在別處用 agentXxx 當區域變數名。
+  //
+  // 所有 agent／使用者寫的文字（問題、進展、提案標題、連線名稱）一律 textContent，絕不 innerHTML——
+  // 那是外部內容（同 AI 小幫手的回覆）。
+  const AGENT_STATUS_LABEL = { todo:'待辦', doing:'進行中', blocked:'卡住', waiting:'等待中', review:'待驗收' };
+  const AGENT_KIND_LABEL = { progress:'進展', handoff:'交接筆記', question:'提問', answer:'回答', decision:'決定', risk:'風險', withdraw:'撤回' };
+  const AGENT_BAR_STATUS = ['doing','blocked','waiting','review'];   // 長條上有記號的狀態（todo 不畫）
+  const AGENT_LIVE_POLL_MS = 30000;
+
+  function agentEl(tag, cls, text){
+    const e = document.createElement(tag);
+    if(cls) e.className = cls;
+    if(text != null) e.textContent = text;
+    return e;
+  }
+  function agentMD(ms){ const d = new Date(ms); return (d.getMonth()+1) + '/' + d.getDate(); }
+
+  /** 打伺服器。401 → 導向登入並丟一個 expired 例外（呼叫端不要把它當成「連線失敗」顯示）。 */
+  async function agentJson(url, opts){
+    const r = await fetch(url, Object.assign({ cache:'no-store' }, opts || {}));
+    if(r.status === 401){ sessionExpired(); const e = new Error('expired'); e.expired = true; throw e; }
+    const d = await r.json().catch(()=>null);
+    if(!r.ok){ const e = new Error((d && d.error) || ('HTTP ' + r.status)); e.status = r.status; e.data = d; throw e; }
+    return d || {};
+  }
+  function agentPost(url, body){
+    return agentJson(url, { method:'POST', headers:{ 'content-type':'application/json' }, body: JSON.stringify(body || {}) });
+  }
+
+  /** 把還沒推上去的本機修改先推掉（伺服器端的驗收／同意是改雲端那一份，先對齊才不會互相蓋） */
+  async function agentSettle(){
+    flushPendingWrites();
+    for(let i = 0; i < 30 && pushInFlight; i++) await new Promise(r => setTimeout(r, 100));
+  }
+
+  /** 改動了雲端的 state（同意提案、驗收、退回）之後：拉下來合併、重讀收件匣與日誌 */
+  async function agentAfterStateWrite(){
+    try{ await agentSettle(); await cloudRefresh(true); }
+    catch(e){ console.error('cloud refresh failed', e); }
+    await Promise.all([agentLoadInbox(), agentReloadVisibleEvents(), agentBaseline()]);
+  }
+  /** 只寫了日誌（回答問題）之後：state 沒變，不必拉 */
+  async function agentAfterAnswer(){
+    await Promise.all([agentLoadInbox(), agentReloadVisibleEvents(), agentBaseline()]);
+  }
+
+  // ---------------- 專案說明書 ----------------
+  // 純文字（不是 HTML——gp.notes 已經是一道要守的安全邊界，不再開第二個）。人寫給 agent 的規則，
+  // agent 只能讀不能改（讓它改等於讓它自己改規則）。高頻輸入走 persistSoon，離開前由 flushPendingWrites 結帳。
+  const agentBriefState = {};     // gpId -> 使用者手動展開(true)／收合(false)；沒動過就依有沒有內容決定
+  function agentBuildBrief(gp){
+    const det = agentEl('details', 'agent-brief');
+    det.dataset.gpId = gp.id;
+    const has = !!(gp.brief || '').trim();
+    det.open = agentBriefState[gp.id] !== undefined ? agentBriefState[gp.id] : !has;
+    det.addEventListener('toggle', ()=>{ agentBriefState[gp.id] = det.open; });
+    const sum = agentEl('summary', null, tr('專案說明書'));
+    const hint = agentEl('span', 'agent-brief-hint', has ? tf('{0} 字', gp.brief.length) : tr('給 agent 看的規則'));
+    sum.appendChild(hint);
+    det.appendChild(sum);
+    const body = agentEl('div', 'agent-brief-body');
+    const ta = document.createElement('textarea');
+    ta.maxLength = 4000;
+    ta.value = gp.brief || '';
+    ta.placeholder = tr('給 agent 看的專案背景、硬性規定、不能做的事。例如：預算不能超過 200 萬；只能動下週以後的任務；不要刪任何東西。');
+    ta.setAttribute('aria-label', tr('專案說明書'));
+    const foot = agentEl('div', 'agent-brief-foot');
+    const count = agentEl('span', null, (gp.brief || '').length + ' / 4000');
+    const saved = agentEl('span', 'agent-saved', tr('已儲存'));
+    foot.append(count, agentEl('span', null, tr('agent 只能讀、不能改這一份')), saved);
+    let t = null;
+    ta.oninput = ()=>{
+      gp.brief = ta.value.slice(0, 4000);
+      count.textContent = gp.brief.length + ' / 4000';
+      hint.textContent = gp.brief.trim() ? tf('{0} 字', gp.brief.length) : tr('給 agent 看的規則');
+      persistSoon();
+      saved.classList.add('show');
+      clearTimeout(t);
+      t = setTimeout(()=> saved.classList.remove('show'), 1200);
+    };
+    // 離開這個欄位時結帳：最後打的那幾個字不該只存在記憶體裡（見〈高頻輸入的 debounce 必須在離開前結帳〉）
+    ta.addEventListener('blur', ()=> flushPendingWrites());
+    body.append(ta, foot);
+    det.appendChild(body);
+    return det;
+  }
+
+  // ---------------- 最新進展 ----------------
+  const agentEv = new Map();      // gpId -> { status:'idle'|'loading'|'ok'|'failed', events, all, at, busy }
+  function agentEvState(id){
+    let s = agentEv.get(id);
+    if(!s){ s = { status:'idle', events:[], all:false, at:0, busy:false }; agentEv.set(id, s); }
+    return s;
+  }
+
+  function agentLoadEvents(gpId, force){
+    const st = agentEvState(gpId);
+    if(!cloudEnabled){ agentRenderTimeline(gpId); return Promise.resolve(); }
+    if(st.busy) return Promise.resolve();
+    // 不是強制的話，60 秒內讀過就沿用：每次 commit 都會重畫專案頁，不能每次都打伺服器
+    if(!force && st.status === 'ok' && Date.now() - st.at < 60000) return Promise.resolve();
+    st.busy = true;
+    if(st.status !== 'ok') st.status = 'loading';
+    return agentJson('/api/projects/' + encodeURIComponent(gpId) + '/events?limit=100')
+      .then(d=>{ st.status = 'ok'; st.events = d.events || []; st.at = Date.now(); })
+      .catch(e=>{
+        if(e.expired) return;
+        // 降級可以，沉默不行：畫面上說得出「連線後才看得到」，console 也要留下原因
+        console.error('agent events failed', e);
+        st.status = 'failed';
+      })
+      .then(()=>{ st.busy = false; agentRenderTimeline(gpId); });
+  }
+  function agentReloadVisibleEvents(){
+    if(currentView === 'gantt' && selectedGanttProjectId) return agentLoadEvents(selectedGanttProjectId, true);
+    return Promise.resolve();
+  }
+
+  function agentBuildTimeline(gp){
+    const box = agentEl('div', 'agent-timeline');
+    box.id = 'agentTimeline';
+    box.dataset.gpId = gp.id;
+    agentFillTimeline(box, gp);
+    agentLoadEvents(gp.id, false);
+    return box;
+  }
+  /** 就地換掉時間軸那一塊（不重畫整頁：使用者可能正在表格裡打字，同〈甘特頁的例外：表格不重建〉） */
+  function agentRenderTimeline(gpId){
+    const box = document.getElementById('agentTimeline');
+    if(!box || box.dataset.gpId !== gpId) return;
+    const gp = ganttProjects.find(g => g.id === gpId);
+    if(gp) agentFillTimeline(box, gp);
+  }
+  function agentFillTimeline(box, gp){
+    const st = agentEvState(gp.id);
+    box.textContent = '';
+    const h = agentEl('div', 'agent-h', tr('最新進展'));
+    box.appendChild(h);
+    if(!cloudEnabled || st.status === 'failed'){
+      box.appendChild(agentEl('div', 'agent-line', tr('連線後才看得到 agent 的進展')));
+      return;
+    }
+    if(st.status !== 'ok'){ box.appendChild(agentEl('div', 'agent-line', tr('載入中…'))); return; }
+    const evs = st.events;
+    if(!evs.length){
+      box.appendChild(agentEl('div', 'agent-line', tr('還沒有進展。連上 agent 之後，它做了什麼、卡在哪、想問你什麼，都會記在這裡。')));
+      return;
+    }
+    const shown = st.all ? evs : evs.slice(0, 5);
+    if(evs.length > 5){
+      const b = agentEl('button', 'qbtn', st.all ? tr('只看最新 5 筆') : tf('看全部（{0}）', evs.length));
+      b.type = 'button';
+      b.onclick = ()=>{ st.all = !st.all; agentFillTimeline(box, gp); };
+      h.appendChild(b);
+    }
+    for(const e of shown) box.appendChild(agentBuildEventRow(gp, e, st));
+  }
+
+  function agentBuildEventRow(gp, e, st){
+    const row = agentEl('div', 'agent-ev');
+    const meta = agentEl('div', 'agent-ev-meta');
+    meta.appendChild(agentEl('span', 'agent-ev-actor', e.actor === 'user' ? tr('我') : e.actor));
+    meta.appendChild(agentEl('span', 'agent-ev-kind ' + e.kind, tr(AGENT_KIND_LABEL[e.kind] || e.kind)));
+    const task = e.taskId ? (gp.tasks || []).find(x => x.id === e.taskId) : null;
+    if(task) meta.appendChild(agentEl('span', 'agent-ev-when', '→ ' + task.name));
+    meta.appendChild(agentEl('span', 'agent-ev-when', acctSince(e.createdAt)));
+    if(e.kind === 'question' && e.status && e.status !== 'open'){
+      meta.appendChild(agentEl('span', 'agent-ev-when', e.status === 'answered' ? tr('已回覆') : tr('agent 撤回了')));
+    }
+    if(!e.redactedAt){
+      const b = agentEl('button', 'agent-link agent-ev-act', tr('遮蔽'));
+      b.type = 'button';
+      b.title = tr('只有你能遮：內容會被清掉，留下「誰、何時、哪一種」。agent 沒有這個權限。');
+      b.onclick = async ()=>{
+        b.disabled = true;
+        try{
+          await agentPost('/api/projects/events/' + encodeURIComponent(e.id) + '/redact');
+          e.redactedAt = Date.now(); e.body = ''; e.options = null;
+          agentRenderTimeline(gp.id);
+          agentLoadInbox();
+        }catch(err){
+          if(err.expired) return;
+          console.error('agent redact failed', err);
+          b.disabled = false;
+          alert(err.message || tr('遮蔽失敗，請稍後再試。'));
+        }
+      };
+      meta.appendChild(b);
+    }
+    row.appendChild(meta);
+    const body = agentEl('div', 'agent-ev-body' + (e.redactedAt ? ' redacted' : ''));
+    body.textContent = e.redactedAt ? tf('這一筆在 {0} 被擁有者遮掉', agentMD(e.redactedAt)) : e.body;
+    row.appendChild(body);
+    if(e.kind === 'question' && e.status === 'open'){
+      row.appendChild(agentBuildAnswer(e, ()=> agentAfterAnswer()));
+    }
+    return row;
+  }
+
+  // ---------------- 回答問題（收件匣與時間軸共用同一個元件） ----------------
+  function agentBuildAnswer(q, onAnswered){
+    const wrap = agentEl('div', 'agent-answer');
+    const msg = agentEl('div', 'agent-msg');
+    const ctls = [];
+    let busy = false;
+    const lock = on => ctls.forEach(c => { c.disabled = on; });
+    async function submit(text){
+      text = String(text || '').trim();
+      if(!text || busy) return;
+      busy = true; lock(true);
+      msg.className = 'agent-msg'; msg.textContent = tr('送出中…');
+      try{
+        await agentPost('/api/projects/events/' + encodeURIComponent(q.id) + '/answer', { body: text });
+        msg.textContent = tr('已回覆');
+        await onAnswered();
+      }catch(e){
+        if(e.expired) return;
+        console.error('agent answer failed', e);
+        busy = false; lock(false);
+        msg.className = 'agent-msg err';
+        msg.textContent = e.message || tr('送出失敗，請稍後再試');
+        if(e.status === 409) agentLoadInbox();     // 已經被回答或撤回了：重讀
+      }
+    }
+    const opts = Array.isArray(q.options) ? q.options : [];
+    if(opts.length){
+      const row = agentEl('div', 'agent-opts');
+      for(const o of opts){
+        const b = agentEl('button', 'agent-opt', o);     // 選項是 agent 寫的：textContent
+        b.type = 'button';
+        b.onclick = ()=> submit(o);
+        ctls.push(b); row.appendChild(b);
+      }
+      wrap.appendChild(row);
+    }
+    const free = agentEl('div', 'agent-free');
+    const inp = document.createElement('input');
+    inp.type = 'text'; inp.maxLength = 2000;
+    inp.placeholder = opts.length ? tr('或自己寫回覆…') : tr('寫下你的回覆…');
+    inp.setAttribute('aria-label', tr('回覆'));
+    const send = agentEl('button', 'agent-send', tr('回覆'));
+    send.type = 'button';
+    send.onclick = ()=> submit(inp.value);
+    inp.addEventListener('keydown', ev=>{ if(ev.key === 'Enter' && !ev.isComposing){ ev.preventDefault(); submit(inp.value); } });
+    ctls.push(inp, send);
+    free.append(inp, send);
+    wrap.append(free, msg);
+    return wrap;
+  }
+
+  /** 一小塊「寫理由」的表單：退回提案（選填）、退回待驗收（必填）共用 */
+  function agentBuildReasonForm(placeholder, required, submitLabel, onSubmit, onCancel){
+    const f = agentEl('div', 'agent-free');
+    const inp = document.createElement('input');
+    inp.type = 'text'; inp.maxLength = 500; inp.placeholder = placeholder;
+    inp.setAttribute('aria-label', placeholder);
+    const ok = agentEl('button', 'agent-send', submitLabel); ok.type = 'button';
+    const no = agentEl('button', 'qbtn', tr('取消')); no.type = 'button';
+    const msg = agentEl('span', 'agent-msg');
+    const go = ()=>{
+      const v = inp.value.trim();
+      if(required && !v){ msg.className = 'agent-msg err'; msg.textContent = tr('要寫一句理由（agent 要靠它知道哪裡不對）'); inp.focus(); return; }
+      onSubmit(v, { ok, no, inp, msg });
+    };
+    ok.onclick = go;
+    no.onclick = onCancel;
+    inp.addEventListener('keydown', ev=>{ if(ev.key === 'Enter' && !ev.isComposing){ ev.preventDefault(); go(); } });
+    f.append(inp, ok, no, msg);
+    setTimeout(()=> inp.focus(), 0);
+    return f;
+  }
+
+  // ---------------- 等你回覆（項目安排最上面） ----------------
+  let agentInbox = null;          // { questions, review, proposals, agentAvailable } | null
+  let agentInboxSig = '';
+
+  async function agentLoadInbox(){
+    if(!cloudEnabled){ agentInbox = null; agentRenderInbox(true); return; }
+    try{
+      const d = await agentJson('/api/agent/inbox');
+      agentInbox = { questions: d.questions || [], review: d.review || [], proposals: d.proposals || [], agentAvailable: d.agentAvailable !== false };
+    }catch(e){
+      if(e.expired) return;
+      // 失敗時沿用上一份（不把「讀不到」當成「沒有事」把收件匣藏起來），但要出聲
+      console.error('agent inbox failed', e);
+      return;
+    }
+    agentRenderInbox(false);
+  }
+
+  /**
+   * 沒有東西時整塊不佔位（.off，不用 [hidden]：display 若被改成 flex 會壓過 [hidden]）。
+   * 資料沒變就不重畫：renderAll 每次 commit 都會叫到這裡，重畫會把正在打的回覆清掉。
+   */
+  function agentRenderInbox(force){
+    const box = document.getElementById('agentInbox');
+    if(!box) return;
+    const d = agentInbox;
+    const n = (cloudEnabled && d) ? d.questions.length + d.proposals.length + d.review.length : 0;
+    if(!n){ box.classList.add('off'); box.textContent = ''; agentInboxSig = ''; return; }
+    const sig = JSON.stringify(d) + '|' + LANG;
+    if(!force && sig === agentInboxSig && !box.classList.contains('off')) return;
+    agentInboxSig = sig;
+    box.classList.remove('off');
+    box.textContent = '';
+    const h = agentEl('div', 'agent-h', tr('等你回覆'));
+    h.appendChild(agentEl('span', 'agent-pill', String(n)));
+    box.appendChild(h);
+    if(!d.agentAvailable){
+      box.appendChild(agentEl('div', 'agent-line', tr('agent 目前連不進來（Pro 已到期）。你可以先回答，agent 回來之後才讀得到。')));
+    }
+    for(const q of d.questions) box.appendChild(agentBuildQuestionCard(q));
+    for(const p of d.proposals) box.appendChild(agentBuildProposalCard(p));
+    for(const r of d.review) box.appendChild(agentBuildReviewCard(r));
+  }
+
+  function agentBuildQuestionCard(q){
+    const card = agentEl('div', 'agent-card');
+    card.dataset.kind = 'question';
+    const ctx = agentEl('div', 'agent-card-ctx');
+    ctx.textContent = q.actor + ' · ' + tr('提問') + ' · ' + q.projectName + (q.taskName ? ' → ' + q.taskName : '') + ' · ' + acctSince(q.createdAt);
+    card.appendChild(ctx);
+    const title = agentEl('div', 'agent-card-title');
+    title.textContent = q.redactedAt ? tf('這一筆在 {0} 被擁有者遮掉', agentMD(q.redactedAt)) : q.body;
+    card.appendChild(title);
+    if(q.defaultAfter){
+      card.appendChild(agentEl('div', 'agent-deadline', q.pastDeadline
+        ? tf('已過期限（{0}）：agent 下次開工會照預設（第一個選項）做', q.defaultAfter.slice(5).replace('-', '/'))
+        : tf('期限 {0}：到時沒回就照預設（第一個選項）做', q.defaultAfter.slice(5).replace('-', '/'))));
+    }
+    card.appendChild(agentBuildAnswer(q, ()=> agentAfterAnswer()));
+    return card;
+  }
+
+  /** 前後對照：哪個東西、哪一欄、從什麼變成什麼。**不是 JSON**——看不懂的審核等於沒有審核 */
+  function agentBuildDiff(rows){
+    const box = agentEl('div', 'agent-diff');
+    for(const r of rows){
+      const row = agentEl('div', 'agent-diff-row');
+      row.appendChild(agentEl('span', 'agent-diff-ent', r.entity));
+      row.appendChild(agentEl('span', 'agent-diff-field', r.field));
+      const val = agentEl('span', 'agent-diff-val');
+      if(r.before != null && r.after != null){
+        val.appendChild(agentEl('span', 'old', r.before));
+        val.appendChild(document.createTextNode(' → '));
+        val.appendChild(agentEl('span', 'new', r.after));
+      }else if(r.after != null){
+        val.appendChild(agentEl('span', 'new', r.after));
+      }else{
+        val.appendChild(agentEl('span', 'old', r.before == null ? '' : r.before));
+      }
+      row.appendChild(val);
+      box.appendChild(row);
+    }
+    return box;
+  }
+
+  function agentBuildProposalCard(p){
+    const card = agentEl('div', 'agent-card');
+    card.dataset.kind = 'proposal';
+    card.appendChild(agentEl('div', 'agent-card-ctx', p.actor + ' · ' + tr('提案（要你同意才會生效）') + ' · ' + acctSince(p.createdAt)));
+    card.appendChild(agentEl('div', 'agent-card-title', p.title));
+    const pv = p.preview || { ok:false, error:'', rows:[] };
+    const msg = agentEl('div', 'agent-msg');
+    if(pv.ok){
+      card.appendChild(pv.rows.length ? agentBuildDiff(pv.rows) : agentEl('div', 'agent-line', tr('（這份提案不會改變任何東西）')));
+    }else{
+      msg.className = 'agent-msg err';
+      msg.textContent = tf('現在套不上去：{0}。可以退回，請 agent 重提。', pv.error || tr('資料已經變了'));
+    }
+    const act = agentEl('div', 'agent-actions');
+    const ok = agentEl('button', 'agent-send', tr('同意')); ok.type = 'button';
+    const no = agentEl('button', 'qbtn', tr('退回')); no.type = 'button';
+    ok.disabled = !pv.ok;
+    act.append(ok, no);
+    card.append(msg, act);
+    let form = null;
+    ok.onclick = async ()=>{
+      ok.disabled = true; no.disabled = true;
+      msg.className = 'agent-msg'; msg.textContent = tr('套用中…');
+      try{
+        await agentPost('/api/mcp/proposals/' + encodeURIComponent(p.id) + '/approve');
+        msg.textContent = tr('已套用');
+        await agentAfterStateWrite();
+      }catch(e){
+        if(e.expired) return;
+        console.error('agent approve failed', e);
+        msg.className = 'agent-msg err';
+        // stale：整份沒有套，伺服器會說出是哪一個操作套不上去
+        msg.textContent = (e.data && e.data.status === 'stale') ? tf('套不上去，整份都沒有套用：{0}', e.message) : (e.message || tr('同意失敗，請稍後再試'));
+        ok.disabled = !!(e.data && e.data.status === 'stale'); no.disabled = false;
+        agentLoadInbox();
+      }
+    };
+    no.onclick = ()=>{
+      if(form){ form.remove(); form = null; return; }
+      // 理由選填（伺服器那一側也是選填）；寫了的話 agent 重提時看得到
+      form = agentBuildReasonForm(tr('退回的理由（選填）'), false, tr('確定退回'), async (v, c)=>{
+        c.ok.disabled = true;
+        try{
+          await agentPost('/api/mcp/proposals/' + encodeURIComponent(p.id) + '/reject', { note: v });
+          await agentLoadInbox();
+        }catch(e){
+          if(e.expired) return;
+          console.error('agent reject proposal failed', e);
+          c.ok.disabled = false; c.msg.className = 'agent-msg err'; c.msg.textContent = e.message || tr('退回失敗，請稍後再試');
+        }
+      }, ()=>{ form.remove(); form = null; });
+      card.appendChild(form);
+    };
+    return card;
+  }
+
+  /** 待驗收的任務：收件匣那一張與專案頁任務列上的那一條共用 */
+  function agentBuildReviewActions(projectId, taskId, taskName){
+    const wrap = agentEl('div', 'agent-actions');
+    const msg = agentEl('div', 'agent-msg');
+    const ok = agentEl('button', 'agent-send', tr('驗收通過')); ok.type = 'button';
+    const no = agentEl('button', 'qbtn', tr('退回')); no.type = 'button';
+    wrap.append(ok, no);
+    const out = agentEl('div', null);
+    out.append(wrap, msg);
+    let form = null;
+    const base = '/api/projects/' + encodeURIComponent(projectId) + '/tasks/' + encodeURIComponent(taskId);
+    const fail = (e, what)=>{
+      if(e.expired) return;
+      console.error('agent review ' + what + ' failed', e);
+      msg.className = 'agent-msg err'; msg.textContent = e.message || tr('操作失敗，請稍後再試');
+      ok.disabled = false; no.disabled = false;
+    };
+    ok.onclick = async ()=>{
+      if(!cloudEnabled){ msg.className = 'agent-msg err'; msg.textContent = tr('要連線才能驗收'); return; }
+      ok.disabled = true; no.disabled = true; msg.className = 'agent-msg'; msg.textContent = tr('處理中…');
+      try{ await agentSettle(); await agentPost(base + '/accept'); await agentAfterStateWrite(); }
+      catch(e){ fail(e, 'accept'); }
+    };
+    no.onclick = ()=>{
+      if(!cloudEnabled){ msg.className = 'agent-msg err'; msg.textContent = tr('要連線才能退回'); return; }
+      if(form){ form.remove(); form = null; return; }
+      form = agentBuildReasonForm(tr('哪裡不對？（必填）'), true, tr('確定退回'), async (v, c)=>{
+        c.ok.disabled = true;
+        try{ await agentSettle(); await agentPost(base + '/reject', { reason: v }); await agentAfterStateWrite(); }
+        catch(e){ c.ok.disabled = false; fail(e, 'reject'); }
+      }, ()=>{ form.remove(); form = null; });
+      out.appendChild(form);
+    };
+    return out;
+  }
+
+  function agentBuildReviewCard(r){
+    const card = agentEl('div', 'agent-card');
+    card.dataset.kind = 'review';
+    card.appendChild(agentEl('div', 'agent-card-ctx', tr('待驗收') + ' · ' + r.projectName));
+    card.appendChild(agentEl('div', 'agent-card-title', tf('「{0}」agent 說做完了，等你驗收', r.taskName)));
+    if(r.todosInReview && r.todosInReview.length){
+      card.appendChild(agentEl('div', 'agent-line', tr('待驗收的步驟：') + r.todosInReview.map(x => x.text).join('、')));
+    }
+    card.appendChild(agentBuildReviewActions(r.projectId, r.taskId, r.taskName));
+    return card;
+  }
+
+  // ---------------- 任務狀態（專案頁的任務列） ----------------
+  /**
+   * 狀態的小控制項。**不改變 done 與進度的任何規則，也不豁免逾期**（設計文件第 3 節）：
+   * 它只是 t.status／t.blockedNote 兩個欄位的編輯器。照〈甘特頁的例外：表格不重建〉：
+   * 改狀態只換掉圖表（refreshGanttChart），表格原地不動，正在輸入的欄位不會被銷毀。
+   *
+   * blocked 一定要帶一句原因：選了 blocked 但還沒寫原因時**不套用**（狀態不動），
+   * 寫好按「確定」才套用——「卡住了」沒有原因等於沒說。
+   * done 為真時整個控制項不顯示（以可驗證的那個為準，同「有子項目時進度由子項目算」）。
+   */
+  function agentTaskStatusControls(gp, t){
+    const badge = agentEl('span', 'st-badge');
+    const sel = agentEl('select', 'task-status');
+    sel.title = tr('任務狀態（不改變逾期：卡住的事照樣會遲交）');
+    sel.setAttribute('aria-label', tr('任務狀態'));
+    TASK_STATUSES.forEach(k=>{ sel.appendChild(Object.assign(agentEl('option', null, tr(AGENT_STATUS_LABEL[k])), { value:k })); });
+    const extra = agentEl('div', 'task-status-extra');
+    const noteRow = agentEl('div', 'task-status-note');
+    const noteInp = document.createElement('input');
+    noteInp.type = 'text'; noteInp.maxLength = 200;
+    const okBtn = agentEl('button', 'qbtn', tr('確定')); okBtn.type = 'button';
+    const noBtn = agentEl('button', 'qbtn', tr('取消')); noBtn.type = 'button';
+    const hint = agentEl('span', 'agent-msg');
+    noteRow.append(noteInp, okBtn, noBtn, hint);
+    const reviewBar = agentEl('div', 'task-review-bar');
+    reviewBar.appendChild(agentEl('span', 'agent-msg', tr('agent 說做完了，等你驗收')));
+    reviewBar.appendChild(agentBuildReviewActions(gp.id, t.id, t.name));
+    extra.append(noteRow, reviewBar);
+    let pending = false;           // 選了 blocked、還在等原因
+
+    function sync(){
+      const done = !!t.done;
+      const st = TASK_STATUSES.includes(t.status) ? t.status : 'todo';
+      sel.style.display = done ? 'none' : '';
+      badge.style.display = (done || st === 'todo') ? 'none' : '';
+      badge.className = 'st-badge ' + st;
+      badge.textContent = tr(AGENT_STATUS_LABEL[st]);
+      badge.title = t.blockedNote || '';
+      if(!pending) sel.value = st;
+      const showNote = !done && (pending || st === 'blocked' || st === 'waiting');
+      noteRow.style.display = showNote ? '' : 'none';
+      okBtn.style.display = noBtn.style.display = pending ? '' : 'none';
+      noteInp.placeholder = (pending || st === 'blocked') ? tr('卡在哪？一句話（必填）') : tr('在等什麼？（選填）');
+      if(!pending && document.activeElement !== noteInp) noteInp.value = t.blockedNote || '';
+      hint.className = 'agent-msg err';
+      hint.textContent = (!pending && st === 'blocked' && !(t.blockedNote || '').trim()) ? tr('卡住要寫一句原因') : '';
+      const showReview = !done && st === 'review';
+      reviewBar.style.display = showReview ? '' : 'none';
+      extra.style.display = (showNote || showReview) ? '' : 'none';
+    }
+    function apply(next, note){
+      t.status = next;
+      if(next === 'blocked' || next === 'waiting'){ if(note !== undefined) t.blockedNote = String(note).slice(0, 200); }
+      else t.blockedNote = '';
+      sync();
+      refreshGanttChart(gp);       // 只換圖表，表格原地不動
+      persistSoon();
+    }
+    sel.onchange = ()=>{
+      const next = sel.value;
+      if(next === 'blocked' && !(t.blockedNote || '').trim()){
+        pending = true; sync(); noteInp.value = ''; noteInp.focus();
+        return;
+      }
+      pending = false;
+      apply(next);
+    };
+    okBtn.onclick = ()=>{
+      const v = noteInp.value.trim();
+      if(!v){ hint.textContent = tr('卡住要寫一句原因'); noteInp.focus(); return; }
+      pending = false;
+      apply('blocked', v);
+    };
+    noBtn.onclick = ()=>{ pending = false; sync(); };
+    noteInp.oninput = ()=>{
+      if(pending) return;
+      t.blockedNote = noteInp.value.slice(0, 200);
+      persistSoon();
+      hint.textContent = (t.status === 'blocked' && !t.blockedNote.trim()) ? tr('卡住要寫一句原因') : '';
+    };
+    noteInp.addEventListener('keydown', ev=>{ if(ev.key === 'Enter' && pending && !ev.isComposing){ ev.preventDefault(); okBtn.click(); } });
+    sync();
+    return { badge, select: sel, extra, sync };
+  }
+
+  /** 甘特圖左邊的標籤：任務名稱＋（有狀態時）一個小字。逾期的長條不畫狀態記號（紅就是紅），資訊改靠這裡帶出來 */
+  function agentFillRowLabel(lbl, t){
+    lbl.textContent = '';
+    lbl.appendChild(agentEl('span', 'gantt-row-name', t.name));
+    if(!t.done && t.status && t.status !== 'todo' && AGENT_STATUS_LABEL[t.status]){
+      lbl.appendChild(agentEl('span', 'st-glyph', tr(AGENT_STATUS_LABEL[t.status])));
+    }
+    lbl.title = t.name;
+  }
+
+  // ---------------- 開著的頁面要跟上（設計文件第二次檢討 15） ----------------
+  // 專案頁／項目安排看得見的時候每 30 秒問一次「版本號變了嗎、有新的 agent 動靜嗎」（一個很小的端點，
+  // 只回兩個數字）。**有新東西時不直接重畫**——使用者可能正在打字（同〈表格不重建〉）；
+  // 只在上面出現一條「agent 剛更新了 · 更新畫面」，按了才拉。分頁在背景、離線、單機模式都不問。
+  let agentSeenEventAt = 0;
+  let agentSeenInit = false;
+  let agentLastVer = null;
+  let agentLiveKind = null;       // null | 'agent'（有新的 agent 動靜）| 'state'（只有資料版本變了）
+  let agentPollTimer = null;
+  let agentPollWarned = false;
+
+  async function agentBaseline(){
+    if(!cloudEnabled) return;
+    try{
+      const v = await agentJson('/api/state/version');
+      agentLastVer = v;
+      agentSeenEventAt = v.latestEventAt || 0;
+      agentSeenInit = true;
+      agentLiveKind = null;
+      agentSyncLive();
+    }catch(e){
+      if(e.expired) return;
+      if(!agentPollWarned){ agentPollWarned = true; console.error('agent version failed', e); }
+    }
+  }
+  async function agentPoll(){
+    if(!cloudEnabled || pushInFlight) return;
+    if(document.visibilityState !== 'visible' || navigator.onLine === false) return;
+    if(!(currentView === 'schedule' || currentView === 'gantt')) return;
+    let v;
+    try{ v = await agentJson('/api/state/version'); }
+    catch(e){
+      if(e.expired) return;
+      if(!agentPollWarned){ agentPollWarned = true; console.error('agent version failed', e); }
+      return;
+    }
+    agentLastVer = v;
+    if(!agentSeenInit){ agentSeenEventAt = v.latestEventAt || 0; agentSeenInit = true; return; }
+    const newEvents = (v.latestEventAt || 0) > agentSeenEventAt;
+    const newState = v.updatedAt != null && v.updatedAt !== cloudUpdatedAt;
+    if(newEvents || newState){ agentLiveKind = newEvents ? 'agent' : 'state'; agentSyncLive(); }
+  }
+  function agentSyncLive(){
+    const el = document.getElementById('agentLive');
+    if(!el) return;
+    const show = !!agentLiveKind && cloudEnabled && (currentView === 'schedule' || currentView === 'gantt');
+    el.classList.toggle('off', !show);
+    document.getElementById('agentLiveText').textContent = agentLiveKind === 'state' ? tr('雲端資料剛被更新了') : tr('agent 剛更新了');
+    document.getElementById('btnAgentLive').textContent = tr('更新畫面');
+  }
+  document.getElementById('btnAgentLive').onclick = async function(){
+    this.disabled = true;
+    try{
+      await agentSettle();
+      await cloudRefresh(true);
+      await Promise.all([agentLoadInbox(), agentReloadVisibleEvents()]);
+      if(agentLastVer) agentSeenEventAt = Math.max(agentSeenEventAt, agentLastVer.latestEventAt || 0);
+      agentLiveKind = null;
+    }catch(e){ console.error('agent live refresh failed', e); }
+    finally{ this.disabled = false; agentSyncLive(); }
+  };
+
+  /** 同步完成之後（啟動）：讀收件匣、建立版本基準、啟動輪詢。 */
+  function agentOnSynced(){
+    if(!cloudEnabled) return;
+    agentLoadInbox();
+    agentBaseline();
+    syncAgentNotifyBtn();
+    if(currentView === 'gantt' && selectedGanttProjectId) agentLoadEvents(selectedGanttProjectId, true);
+    if(!agentPollTimer){
+      agentPollTimer = setInterval(()=>{ agentPoll().catch(e=>console.error('agent poll failed', e)); }, AGENT_LIVE_POLL_MS);
+    }
+  }
+  /** 回到前景：沿用 cloudRefresh 的 30 秒節流（同一個常數） */
+  let agentForegroundAt = 0;
+  function agentOnForeground(){
+    if(!cloudEnabled) return;
+    if(Date.now() - agentForegroundAt < CLOUD_REFRESH_MIN_MS) return;
+    agentForegroundAt = Date.now();
+    agentLoadInbox();
+    agentReloadVisibleEvents();
+    agentBaseline();
+  }
+
+  // ---------------- 帳號頁：連線設定與通知開關 ----------------
+  const AGENT_CAPS_KEY = STORAGE_KEY + '.agentCapsSeen';   // 顯示偏好，不進 snapshot()（同 rtToolbar／activitySeen）
+  function agentCapsSeen(){ try{ return localStorage.getItem(AGENT_CAPS_KEY) === '1'; }catch(e){ return false; } }
+  /** 上線那一次：已經連上的 agent 自動拿到新能力（scope 沒變，不叫你重新授權）——但要讓你知道，看過才收起來 */
+  function agentSyncCapsNote(pro){
+    const el = document.getElementById('agentCapsNote');
+    if(!el) return;
+    el.style.display = (pro && !agentCapsSeen()) ? '' : 'none';
+  }
+  document.getElementById('btnAgentCapsOk').onclick = function(){
+    try{ localStorage.setItem(AGENT_CAPS_KEY, '1'); }catch(e){}
+    agentSyncCapsNote(false);
+  };
+
+  function agentPausedText(c){
+    if(!c.paused) return '';
+    if(c.pausedReason === 'auto') return tr('一小時內被復原 5 次，已自動暫停');
+    if(c.pausedReason === 'missing') return tr('找不到這條連線的設定，先當成暫停。按「恢復」會補上設定。');
+    return tr('你已暫停：現在只能讀、不能寫');
+  }
+  async function agentConnSet(c, body, btn){
+    btn.disabled = true;
+    try{
+      await agentPost('/api/mcp/connections/' + encodeURIComponent(c.id) + '/settings', body);
+      acctLoadMcpConnections();
+    }catch(e){
+      if(e.expired) return;
+      console.error('agent connection settings failed', e);
+      btn.disabled = false;
+      alert(e.message || tr('設定失敗，請稍後再試。'));
+    }
+  }
+  /** 每一條連線底下的三顆開關＋暫停原因。toggle 的文字講「現在是什麼」，按下去換成另一個 */
+  function agentBuildConnSettings(c){
+    const set = agentEl('div', 'agent-conn-set');
+    const modeBtn = agentEl('button', 'ghost-btn' + (c.mode === 'review' ? ' on' : ''),
+      c.mode === 'review' ? tr('寫入：先審核') : tr('寫入：直接改'));
+    modeBtn.type = 'button';
+    modeBtn.title = tr('直接改：agent 寫入立刻生效（每一筆可復原）。先審核：寫入先變成提案，你同意才生效。');
+    modeBtn.onclick = ()=> agentConnSet(c, { mode: c.mode === 'review' ? 'direct' : 'review' }, modeBtn);
+    const accBtn = agentEl('button', 'ghost-btn' + (c.needsAcceptance ? ' on' : ''),
+      c.needsAcceptance ? tr('勾完成要我驗收：開') : tr('勾完成要我驗收：關'));
+    accBtn.type = 'button';
+    accBtn.title = tr('開著：agent 說做完了，任務會變成「待驗收」，要你按驗收通過才算完成。');
+    accBtn.onclick = ()=> agentConnSet(c, { needsAcceptance: !c.needsAcceptance }, accBtn);
+    const pauseBtn = agentEl('button', 'ghost-btn' + (c.paused ? ' on' : ''), c.paused ? tr('▶ 恢復') : tr('⏸ 暫停'));
+    pauseBtn.type = 'button';
+    pauseBtn.onclick = ()=> agentConnSet(c, { paused: !c.paused }, pauseBtn);
+    set.append(modeBtn, accBtn, pauseBtn);
+    return set;
+  }
+  function agentSyncPauseAll(list){
+    const b = document.getElementById('btnAgentPauseAll');
+    if(!b) return;
+    b.dataset.allPaused = (list.length && list.every(c => c.paused)) ? '1' : '';
+    b.style.display = list.length ? '' : 'none';
+    b.textContent = b.dataset.allPaused ? tr('▶ 恢復所有 agent') : tr('⏸ 暫停所有 agent');
+  }
+  document.getElementById('btnAgentPauseAll').onclick = async function(){
+    const resume = !!this.dataset.allPaused;
+    const msg = document.getElementById('agentPauseMsg');
+    this.disabled = true; msg.className = 'agent-msg'; msg.textContent = '';
+    try{
+      const d = await agentPost('/api/mcp/pause-all', { paused: !resume });
+      msg.textContent = resume ? tf('已恢復 {0} 條連線', d.connections) : tf('已暫停 {0} 條連線：現在都只能讀、不能寫', d.connections);
+      acctLoadMcpConnections();
+    }catch(e){
+      if(e.expired) return;
+      console.error('agent pause-all failed', e);
+      msg.className = 'agent-msg err'; msg.textContent = e.message || tr('設定失敗，請稍後再試。');
+    }finally{ this.disabled = false; }
+  };
+
+  // 第六顆通知開關（agent 問我問題時通知我）。與另外五顆互不連坐：每顆各送各的欄位，沒帶的伺服器沿用
+  let agentNotifyEnabled = true;
+  const btnAgentNotify = document.getElementById('btnAgentNotify');
+  function syncAgentNotifyBtn(){
+    if(!btnAgentNotify) return;
+    btnAgentNotify.style.display = cloudEnabled ? '' : 'none';
+    btnAgentNotify.textContent = agentNotifyEnabled ? tr('🤖 agent 問我問題時通知我：開') : tr('🤖 agent 問我問題時通知我：關');
+  }
+  if(btnAgentNotify) btnAgentNotify.onclick = async ()=>{
+    const next = !agentNotifyEnabled;
+    btnAgentNotify.disabled = true;
+    try{
+      // enabled／leadDays／streakMail 一起送：這支端點的 enabled 沒帶會被當成「開」，不能順手把使用者關掉的逾期提醒打開
+      await agentPost('/api/reminder', { enabled: reminderEnabled, leadDays: reminderLeadDays, streakMail: streakMailEnabled, agentNotify: next });
+      agentNotifyEnabled = next;
+      syncAgentNotifyBtn();
+    }catch(e){
+      if(e.expired) return;
+      console.error('agent notify toggle failed', e);
+      alert(tr('目前離線，無法變更通知設定。'));
+    }finally{ btnAgentNotify.disabled = false; }
+  };
 
   // ================= 分享 =================
   // 分享的資源不進 snapshot()，也不寫進 localStorage：它們的權威來源是對方的
@@ -9990,11 +10997,12 @@
     try{
       const r = await fetch('/api/reminder', { method:'POST', headers:{'content-type':'application/json'},
         body: JSON.stringify({ enabled:false, leadDays:reminderLeadDays, streakMail:false,
-                               pushOverdue:false, pushStreak:false, pushToday:false }) });
+                               pushOverdue:false, pushStreak:false, pushToday:false, agentNotify:false }) });
       if(r.status===401){ sessionExpired(); return; }
       if(!r.ok) throw new Error('HTTP '+r.status);
       reminderEnabled = false;
       streakMailEnabled = false;
+      agentNotifyEnabled = false;
       pushPrefs.pushOverdue = false; pushPrefs.pushStreak = false; pushPrefs.pushToday = false;
       syncReminderBtn();
       if(acctUnsubMsg) acctUnsubMsg.textContent = tr('已經全部關掉了。要再打開，按上面那幾顆就可以。');
@@ -10041,6 +11049,7 @@
       : tr('開啟後，有逾期項目時會寄信到你的註冊信箱（沒有逾期就不寄）');
 
     syncStreakMailBtn();
+    syncAgentNotifyBtn();     // 第六顆（agent 問我問題時通知我），同樣放在 return 之前
     // 取消訂閱那一區也要跟著（單機模式下沒有伺服器可以關）。**和下面那一行
     // 一樣要放在 return 之前**——放在後面的話 selReminderLead 不存在時它就
     // 永遠不會跑，而那是靜默的。
@@ -10540,8 +11549,24 @@
   // ================= 匯出／匯入備份 =================
   // 系統沒有其他備份手段，而資料會跨帳號分享、也可能因雲端衝突被覆蓋。
   // 匯出的就是 snapshot()——與雲端同步共用同一個序列化格式，不需要另一套轉換。
-  document.getElementById('btnExport').onclick = ()=>{
-    const blob = new Blob([JSON.stringify(snapshot(), null, 2)], { type:'application/json' });
+  document.getElementById('btnExport').onclick = async ()=>{
+    const data = snapshot();
+    // agent 的進展日誌在伺服器上、不在 snapshot() 裡（只會一直加的東西不放進 user_state，見設計文件第一個決定），
+    // 所以匯出時另外向伺服器要一份，放在獨立的 agentEvents 區塊。
+    // **匯入時不會寫回去**：日誌只能加、不能改，匯入等於讓人能偽造「當時 agent 說過什麼」。
+    // 要不到（離線、單機、伺服器錯誤）就略過這一塊，其餘照常匯出——但要出聲（console.warn）。
+    // 逾時 2 秒：下載的 <a>.click() 要在使用者按下按鈕後不久，等太久瀏覽器會擋。
+    if(cloudEnabled){
+      const ac = new AbortController();
+      const to = setTimeout(()=> ac.abort(), 2000);
+      try{
+        const d = await agentJson('/api/agent/events/export', { signal: ac.signal });
+        data.agentEvents = { exportedAt: new Date().toISOString(), events: d.events || [] };
+      }catch(e){
+        if(!e.expired) console.warn('匯出：略過 agent 進展日誌（取不到）', e);
+      }finally{ clearTimeout(to); }
+    }
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type:'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -10570,11 +11595,14 @@
 
     const n = Array.isArray(parsed.items) ? parsed.items.length : 0;
     const g = Array.isArray(parsed.ganttProjects) ? parsed.ganttProjects.length : 0;
+    const evN = (parsed.agentEvents && Array.isArray(parsed.agentEvents.events)) ? parsed.agentEvents.events.length : 0;
     if(!confirm(
       '匯入會以備份檔的內容「取代」目前的全部資料，無法復原。\n\n' +
       '備份檔內容：' + n + ' 個小項目、' + g + ' 個專案\n' +
       '目前資料：' + items.length + ' 個小項目、' + ganttProjects.length + ' 個專案\n\n' +
       (cloudEnabled ? '匯入後也會同步覆蓋雲端。\n\n' : '') +
+      // 日誌存在伺服器上、只能新增：匯入不會寫回去，講清楚免得以為它被還原了
+      (evN ? tf('備份檔裡的 {0} 筆 agent 進展日誌不會匯入（日誌存在伺服器上，只能新增）。\n\n', evN) : '') +
       '確定要繼續嗎？'
     )) return;
 
@@ -10638,6 +11666,7 @@
     if(document.hidden){ flushPendingWrites(); return; }
     // 回到前景：AI agent（MCP）或別的裝置可能在這段時間改過雲端，拉下來合併
     cloudRefresh(false).catch(e=>console.error('cloud refresh failed', e));
+    agentOnForeground();     // 收件匣與最新進展（同一個 30 秒節流）
     // 回到前景：把目前有效的訂閱權利推一次。這取代了 Transaction.updates 的事件——
     // 家庭共享、在別台裝置續訂、Ask to Buy 核准，三種都會在這一刻被看到。
     // 靜默失敗是刻意的：使用者沒有按任何東西，跳紅字只會嚇到人（見 subPushEntitlements）。

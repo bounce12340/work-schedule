@@ -100,7 +100,10 @@ function seed() {
       tasks: [
         { id: 't1', name: '需求訪談', start: '2026-06-01', end: '2026-08-20', progress: 50, done: false,
           todos: [{ id: 'd1', text: '訪談業務單位', done: true }, { id: 'd2', text: '整理需求', done: false }] },
-        { id: 't2', name: '視覺設計', start: '2026-08-15', end: '2027-02-10', progress: 0, done: false, todos: [] }
+        // t2 的結束日用「今天起算」：agent 工作區那一段要有一個**絕不逾期**的任務才量得到狀態記號
+        // （逾期的長條刻意不畫記號，紅色優先）；t1 的結束日在過去，永遠逾期，兩種都有。
+        // status:'review'＝agent 說做完了，專案頁的任務列要長出「驗收通過／退回」。
+        { id: 't2', name: '視覺設計', start: '2026-08-15', end: plusDays(120), progress: 0, done: false, todos: [], status: 'review' }
       ]
     }],
     dailyLogs: { '2026-07-15': '<p>今天的記錄</p>' },
@@ -130,6 +133,37 @@ async function loadChromium() {
  */
 function makeServer(loggedIn, plan = 'pro') {
   const assets = new Map();
+  // ---- agent 工作區（1B）的假後端：收件匣、日誌、版本號、連線設定 ----
+  // 每個寫入端點都**把請求記下來**（agent.posts）：回 ok 而不看 body 的話，
+  // 「按下去送出的是不是對的東西」就沒有東西可以驗。
+  const T0 = Date.now();
+  const mkEv = (id, kind, body, over = {}) => ({ id, projectId: 'g1', taskId: null, kind, actor: 'Smoke Agent', body,
+    refId: null, status: null, options: null, defaultAfter: null, redactedAt: null, createdAt: T0 - (over.ago || 60000), ...over });
+  const agent = {
+    posts: [], eventsFail: false,
+    version: { updatedAt: 1, latestEventAt: 5000 },
+    events: [
+      mkEv('q1', 'question', '要用哪個方案？', { status: 'open', options: ['甲案', '乙案'], taskId: 't1', ago: 60000 }),
+      mkEv('q2', 'question', '截止日要不要延？', { status: 'open', ago: 120000 }),
+      // **惡意內文**：agent 寫的是外部內容。畫面上不能長出 <img>，onerror 也不能執行
+      mkEv('e3', 'progress', '<img src=x onerror="window.__xss=1">整理完訪談', { ago: 3600000 }),
+      mkEv('e4', 'handoff', '交接：下一步做視覺', { ago: 7200000 }),
+      mkEv('e5', 'progress', '', { redactedAt: T0 - 86400000, ago: 90000000 }),
+      mkEv('e6', 'decision', '問題：x\n決定：y', { actor: 'user', ago: 95000000 }),
+      mkEv('e7', 'progress', '最早的一筆', { ago: 99000000 }),
+    ],
+    questions: [
+      { ...mkEv('q1', 'question', '要用哪個方案？', { status: 'open', options: ['甲案', '乙案'], taskId: 't1', ago: 60000 }), projectName: '官網改版專案', taskName: '需求訪談', pastDeadline: false },
+      { ...mkEv('q2', 'question', '截止日要不要延？', { status: 'open', ago: 120000 }), projectName: '官網改版專案', taskName: null, pastDeadline: false },
+    ],
+    proposals: [{ id: 'p1', title: '把視覺設計往後排一週', actor: 'Smoke Agent', connId: 'c1', createdAt: T0 - 30000, ops: 1,
+      preview: { ok: true, rows: [{ entity: '專案「官網改版專案」的任務「視覺設計」', field: '結束日', before: '2027-02-10', after: '2027-02-17' }] } }],
+    review: [{ projectId: 'g1', projectName: '官網改版專案', taskId: 't2', taskName: '視覺設計', todosInReview: [] }],
+    connections: [
+      { id: 'c1', kind: 'oauth', name: 'Smoke Agent', createdAt: 1, lastUsedAt: null, mode: 'direct', paused: false, needsAcceptance: false, pausedReason: null },
+      { id: 'c2', kind: 'key', name: 'Auto Paused Key', createdAt: 2, lastUsedAt: null, mode: 'direct', paused: true, needsAcceptance: false, pausedReason: 'auto' },
+    ],
+  };
   // 前端推上來的提醒摘要都收在這裡，讓「休假那幾天閉嘴」那條斷言有東西可看。
   // **這是第 0 條（新增的前端函式一定要在瀏覽器裡真的走一次）在這一張卡的形狀**：
   // `buildReminderLeaveDays()` 只在 cloudPush 成功後 3 秒才被呼叫到，
@@ -193,10 +227,46 @@ function makeServer(loggedIn, plan = 'pro') {
         }],
       });
       if (url.pathname === '/api/activity') return send(200, { activity: [] });
-      // MCP（連接 AI agent）：給一筆連線與一筆可復原的修改，讓「Pro 看得到清單與復原鈕」測得到東西
-      if (url.pathname === '/api/mcp/connections') return send(200, { connections: [
-        { id: 'c1', kind: 'oauth', name: 'Smoke Agent', createdAt: 1, lastUsedAt: null },
-      ] });
+      // agent 工作區（1B）
+      if (url.pathname === '/api/agent/inbox') return send(200, { questions: agent.questions, proposals: agent.proposals, review: agent.review, agentAvailable: plan === 'pro' });
+      if (url.pathname === '/api/state/version') return send(200, agent.version);
+      if (url.pathname === '/api/agent/events/export') return send(200, { events: agent.events });
+      {
+        const m = url.pathname.match(/^\/api\/projects\/([^/]+)\/events$/);
+        if (m && req.method === 'GET') return agent.eventsFail ? send(500, { error: 'boom' }) : send(200, { events: agent.events });
+        const post = url.pathname.match(/^\/api\/(?:projects\/events\/([^/]+)\/(answer|redact)|mcp\/proposals\/([^/]+)\/(approve|reject)|projects\/([^/]+)\/tasks\/([^/]+)\/(accept|reject)|mcp\/connections\/([^/]+)\/settings|mcp\/pause-all)$/);
+        if (post && req.method === 'POST') {
+          let raw = '';
+          req.on('data', c => { raw += c; });
+          return req.on('end', () => {
+            let body = {};
+            try { body = JSON.parse(raw || '{}'); } catch {}
+            agent.posts.push({ path: url.pathname, body });
+            if (post[1]) {
+              const ev = agent.events.find(e => e.id === post[1]);
+              if (post[2] === 'answer') {
+                agent.questions = agent.questions.filter(q => q.id !== post[1]);
+                if (ev) ev.status = 'answered';
+              } else if (ev) { ev.redactedAt = Date.now(); ev.body = ''; ev.options = null; }
+            } else if (post[3]) agent.proposals = agent.proposals.filter(x => x.id !== post[3]);
+            else if (post[5]) agent.review = agent.review.filter(x => x.taskId !== post[6]);
+            else if (post[8]) {
+              const c = agent.connections.find(x => x.id === post[8]);
+              if (c) {
+                if ('mode' in body) c.mode = body.mode;
+                if ('needsAcceptance' in body) c.needsAcceptance = body.needsAcceptance;
+                if ('paused' in body) { c.paused = body.paused; c.pausedReason = body.paused ? 'owner' : null; }
+              }
+            } else {
+              agent.connections.forEach(c => { c.paused = body.paused; c.pausedReason = body.paused ? 'owner' : null; });
+              return send(200, { ok: true, paused: body.paused, connections: agent.connections.length });
+            }
+            send(200, { ok: true });
+          });
+        }
+      }
+      // MCP（連接 AI agent）：給兩條連線（一條被自動暫停）與一筆可復原的修改，讓「Pro 看得到清單與復原鈕」測得到東西
+      if (url.pathname === '/api/mcp/connections') return send(200, { pro: plan === 'pro', connections: agent.connections });
       if (url.pathname === '/api/mcp/activity') return send(200, { changes: [
         { changeId: 'a1', tool: 'create_item', summary: '新增項目「agent 加的」', by: 'Smoke Agent', at: '2026-11-20T00:00:00Z', undone: false },
       ] });
@@ -234,6 +304,7 @@ function makeServer(loggedIn, plan = 'pro') {
     if (assets.has(path + '.html')) return send(200, assets.get(path + '.html'), 'text/html');
     return send(404, 'not found', 'text/plain');
   });
+  server.agent = agent;
   server.reminderPuts = reminderPuts;
   server.reminderPosts = reminderPosts;
   server.unsubPosts = unsubPosts;
@@ -286,6 +357,39 @@ async function walk(page, log, plan = 'pro', server = null) {
   await expectStrip(true, '項目安排');
   await page.waitForTimeout(250);
   await need('#viewSchedule.active', '項目安排頁');
+
+  // ---- agent 收件匣（等你回覆）：項目安排最上面。要驗四件事 ----
+  //   1. 有東西時整塊出現；2. 提案畫的是前後對照、不是 JSON；3. 點一下選項就回答完（而且送出去的是那個選項）；
+  //   4. 全部處理完之後**沒有盒子**（getClientRects），不是只有 class——display 被改成 flex 的話 [hidden] 會輸
+  if (!server || !server.agent) throw new Error('walk() 沒有收到 server，agent 收件匣的斷言驗不到');
+  {
+    const A = server.agent;
+    step = 'agent 收件匣：假後端給的四張卡要出現（兩個提問、一份提案、一個待驗收）';
+    await page.waitForFunction(() => document.querySelectorAll('#agentInbox .agent-card').length === 4, null, { timeout: 5000 })
+      .catch(() => { throw new Error('收件匣沒有畫出假後端給的四張卡'); });
+    const box = await page.evaluate(() => { const el = document.getElementById('agentInbox'); return { rects: el.getClientRects().length, off: el.classList.contains('off') }; });
+    if (!box.rects || box.off) throw new Error('收件匣有東西卻沒有盒子');
+    step = 'agent 收件匣：提案是前後對照';
+    const prop = await page.evaluate(() => {
+      const el = document.querySelector('#agentInbox .agent-card[data-kind=proposal]');
+      return { rows: el.querySelectorAll('.agent-diff-row').length, text: el.textContent,
+               old: !!el.querySelector('.agent-diff .old'), nu: !!el.querySelector('.agent-diff .new') };
+    });
+    if (prop.rows < 1 || !prop.old || !prop.nu) throw new Error('提案沒有畫出「改前 → 改後」的對照');
+    if (/[{}]|"tool"|"args"/.test(prop.text)) throw new Error('提案顯示的是 JSON，不是前後對照');
+    step = 'agent 收件匣：點一下選項回答';
+    await page.locator('#agentInbox .agent-card[data-kind=question] .agent-opt').first().click();
+    await page.waitForFunction(() => document.querySelectorAll('#agentInbox .agent-card[data-kind=question]').length === 1, null, { timeout: 4000 })
+      .catch(() => { throw new Error('點了選項之後，那個問題沒有從收件匣消失'); });
+    const ans = A.posts.find(x => /\/events\/q1\/answer$/.test(x.path));
+    if (!ans || ans.body.body !== '甲案') throw new Error('回答送出去的不是被點的那個選項：' + JSON.stringify(ans));
+    step = 'agent 收件匣：同意提案';
+    await page.locator('#agentInbox .agent-card[data-kind=proposal] .agent-send').click();
+    await page.waitForFunction(() => document.querySelectorAll('#agentInbox .agent-card[data-kind=proposal]').length === 0, null, { timeout: 4000 })
+      .catch(() => { throw new Error('同意之後，提案沒有從收件匣消失'); });
+    if (!A.posts.find(x => /\/proposals\/p1\/approve$/.test(x.path))) throw new Error('同意沒有打到 /approve');
+    checked.push('agent 收件匣(四張卡/提案是對照/點選項回答/同意提案)');
+  }
   // 一天一張紙：每一列都要在某一張紙裡，而且沒有只剩頁首的空紙。
   step = '看板：一天一張紙';
   const sheets = await page.evaluate(() => ({
@@ -391,6 +495,9 @@ async function walk(page, log, plan = 'pro', server = null) {
   await clickIfVisible('#calToday', '日曆跳回今天');
 
   // ---- 專案：圖表、任務表、子代辦、時間刻度 ----
+  // 最新進展要先讓日誌載入**失敗**：離線／連不上時要有一行字，不能留白
+  // （console.error 是預期的：collector 在這個旗標開著時放行 'agent events failed'）
+  server.agent.eventsFail = true;
   await click('#navGantt', '切到專案頁');
   await expectStrip(false, '專案');
   await page.waitForTimeout(400);
@@ -406,6 +513,155 @@ async function walk(page, log, plan = 'pro', server = null) {
     await need('.gantt-bar', '甘特長條');
   }
   await clickIfVisible('.add-todo-btn', '新增代辦項目');
+
+  // ---- agent 工作區：最新進展、專案說明書、任務狀態、待驗收 ----
+  {
+    const A = server.agent;
+    const mkNewEvent = () => ({ id: 'e-new', projectId: 'g1', taskId: null, kind: 'progress', actor: 'Smoke Agent', body: '剛寫的新進展 just wrote',
+      refId: null, status: null, options: null, defaultAfter: null, redactedAt: null, createdAt: Date.now() });
+    // 1. 連不上：一行字，沒有任何一列日誌（降級可以，沉默不行）
+    step = '最新進展：載入失敗時要有一行說明';
+    await page.waitForFunction(() => {
+      const el = document.getElementById('agentTimeline');
+      return el && el.querySelector('.agent-line') && !el.querySelector('.agent-ev') && !/載入中|Loading/.test(el.textContent);
+    }, null, { timeout: 5000 }).catch(() => { throw new Error('日誌載入失敗時，時間軸沒有那一行「連線後才看得到」'); });
+    // 2. 恢復連線 + 回到前景 → 重新載入（順便驗「回到前景會重讀」）
+    A.eventsFail = false;
+    step = '最新進展：回到前景後重新載入';
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    await page.waitForFunction(() => document.querySelectorAll('#agentTimeline .agent-ev').length > 0, null, { timeout: 5000 })
+      .catch(() => { throw new Error('回到前景之後，最新進展沒有重新載入'); });
+    const n5 = await page.locator('#agentTimeline .agent-ev').count();
+    if (n5 !== 5) throw new Error(`最新進展預設只列最新 5 筆，實際 ${n5} 筆`);
+    step = '最新進展：看全部';
+    await page.locator('#agentTimeline .agent-h .qbtn').click();
+    const n7 = await page.locator('#agentTimeline .agent-ev').count();
+    if (n7 !== 7) throw new Error(`按「看全部」之後應該是 7 筆，實際 ${n7} 筆`);
+    // 3. 惡意內文：agent 寫的是外部內容。一律 textContent
+    step = '最新進展：惡意內文不能長出元素或執行';
+    const xss = await page.evaluate(() => ({
+      imgs: document.querySelectorAll('#agentTimeline img').length,
+      ran: window.__xss === 1,
+      shown: /<img src=x/.test(document.getElementById('agentTimeline').textContent),
+    }));
+    if (xss.imgs || xss.ran) throw new Error('日誌的內文被當成 HTML 執行了：' + JSON.stringify(xss));
+    if (!xss.shown) throw new Error('惡意內文應該原樣顯示成文字，結果沒看到——斷言會變成空的');
+    // 4. 被遮蔽的那一筆：骨架還在、內容不在
+    step = '最新進展：被遮蔽的那一筆';
+    if (await page.locator('#agentTimeline .agent-ev-body.redacted').count() !== 1) throw new Error('應該剛好有一筆被遮蔽的');
+    // 5. 時間軸裡直接回答（與收件匣同一個元件）：打字 + Enter
+    step = '最新進展：直接在時間軸回答問題';
+    const inp = page.locator('#agentTimeline .agent-answer input');
+    if (await inp.count() !== 1) throw new Error('時間軸裡應該只剩一個還開著的問題（另一個已經在收件匣答過了）');
+    await inp.fill('延一週');
+    await inp.press('Enter');
+    await page.waitForFunction(() => document.querySelectorAll('#agentTimeline .agent-answer').length === 0, null, { timeout: 4000 })
+      .catch(() => { throw new Error('在時間軸回答之後，問題沒有收起來'); });
+    const a2 = A.posts.find(x => /\/events\/q2\/answer$/.test(x.path));
+    if (!a2 || a2.body.body !== '延一週') throw new Error('回答送出去的內容不對：' + JSON.stringify(a2));
+    // 6. 遮蔽：按下去就遮（不用確認），列變成被遮蔽
+    step = '最新進展：遮蔽一筆';
+    await page.locator('#agentTimeline .agent-ev-act').first().click();
+    await page.waitForFunction(() => document.querySelectorAll('#agentTimeline .agent-ev-body.redacted').length === 2, null, { timeout: 4000 })
+      .catch(() => { throw new Error('按了「遮蔽」之後，那一筆沒有變成被遮蔽'); });
+    if (!A.posts.find(x => /\/events\/[^/]+\/redact$/.test(x.path))) throw new Error('遮蔽沒有打到 /redact');
+    checked.push('最新進展(失敗有說明/回前景重讀/5筆+看全部/惡意內文/遮蔽/直接回答)');
+
+    // 7. 專案說明書：純文字、打字走 persistSoon，400ms 後在 localStorage 裡
+    step = '專案說明書';
+    await need('.agent-brief textarea', '說明書輸入框');
+    await page.locator('.agent-brief textarea').fill('預算上限 200 萬，不要刪任何東西');
+    await page.waitForTimeout(700);
+    const stored = await page.evaluate(() => (JSON.parse(localStorage.getItem('workSchedule.v1')).ganttProjects[0] || {}).brief);
+    if (stored !== '預算上限 200 萬，不要刪任何東西') throw new Error('說明書沒有存進本機：' + JSON.stringify(stored));
+    checked.push('專案說明書(存得進去)');
+
+    // 8. 任務狀態。t1 結束日在過去（永遠逾期）、t2 在未來（絕不逾期），兩種都要量
+    const bars = () => page.evaluate(() => [...document.querySelectorAll('.gantt-bar')].map(b => {
+      const cs = getComputedStyle(b), af = getComputedStyle(b, '::after'), bf = getComputedStyle(b, '::before');
+      const probe = document.createElement('i'); probe.style.background = 'var(--red)'; document.body.appendChild(probe);
+      const red = getComputedStyle(probe).backgroundColor; probe.remove();
+      return { cls: b.className, bg: cs.backgroundColor, bgImg: cs.backgroundImage, afterContent: af.content, afterBorder: af.borderTopWidth,
+               beforeContent: bf.content, red };
+    }));
+    const block = i => page.locator('.task-table .task-block').nth(i);
+    // t2：待驗收那一條 + 退回要理由
+    step = '待驗收：任務列上要有「驗收通過／退回」';
+    if (!(await block(1).locator('.task-review-bar').isVisible())) throw new Error('待驗收的任務列上沒有驗收那一條');
+    const rv = block(1).locator('.task-review-bar');
+    await rv.locator('.agent-actions .qbtn').click();                     // 退回 → 長出理由欄
+    await rv.locator('.agent-free .agent-send').click();                  // 沒寫理由就送出
+    if (A.posts.find(x => /\/tasks\/t2\/reject$/.test(x.path))) throw new Error('沒寫理由就退回了——理由是必填');
+    await rv.locator('.agent-free input').fill('標題字太小');
+    await rv.locator('.agent-free .agent-send').click();
+    await page.waitForTimeout(500);
+    const rej = A.posts.find(x => /\/tasks\/t2\/reject$/.test(x.path));
+    if (!rej || rej.body.reason !== '標題字太小') throw new Error('退回送出去的理由不對：' + JSON.stringify(rej));
+    await rv.locator('.agent-actions .agent-send').click();               // 驗收通過
+    await page.waitForTimeout(500);
+    if (!A.posts.find(x => /\/tasks\/t2\/accept$/.test(x.path))) throw new Error('驗收通過沒有打到 /accept');
+    checked.push('待驗收(退回要理由/驗收通過)');
+
+    // t2 的狀態控制：doing → blocked（要原因才套用）→ waiting → todo
+    step = '任務狀態：進行中';
+    await block(1).locator('.task-status').selectOption('doing');
+    if (!(await block(1).locator('.st-badge.doing').isVisible())) throw new Error('選了進行中，徽章沒有出現');
+    let b = (await bars())[1];
+    if (!/st-doing/.test(b.cls) || b.afterBorder !== '2px') throw new Error('進行中的長條沒有亮邊：' + JSON.stringify(b));
+    step = '任務狀態：卡住要原因才套用';
+    await block(1).locator('.task-status').selectOption('blocked');
+    if (await block(1).locator('.st-badge.blocked').isVisible()) throw new Error('還沒寫原因，blocked 就套用了');
+    await block(1).locator('.task-status-note .qbtn').first().click();   // 確定（原因是空的）
+    if (await block(1).locator('.st-badge.blocked').isVisible()) throw new Error('原因是空的，按確定也套用了');
+    await block(1).locator('.task-status-note input').fill('等廠商報價');
+    await block(1).locator('.task-status-note .qbtn').first().click();
+    if (!(await block(1).locator('.st-badge.blocked').isVisible())) throw new Error('寫了原因按確定，blocked 徽章沒出現');
+    b = (await bars())[1];
+    if (!/st-blocked/.test(b.cls) || !/gradient/.test(b.bgImg)) throw new Error('卡住的長條沒有斜線：' + JSON.stringify(b));
+    step = '任務狀態：等待';
+    await block(1).locator('.task-status').selectOption('waiting');
+    b = (await bars())[1];
+    if (!/st-waiting/.test(b.cls) || b.beforeContent === 'none') throw new Error('等待的長條沒有小記號：' + JSON.stringify(b));
+    // **逾期的紅色優先**：t1 結束日在過去。選進行中之後，長條仍是 --red，而且沒有亮邊
+    step = '任務狀態：逾期的紅色優先';
+    await block(0).locator('.task-status').selectOption('doing');
+    b = (await bars())[0];
+    if (!/overdue/.test(b.cls)) throw new Error('t1 應該是逾期的（結束日在過去）——斷言會變成空的');
+    if (b.bg !== b.red) throw new Error(`逾期的長條不是 --red 了（${b.bg} vs ${b.red}）：狀態蓋掉了逾期`);
+    if (b.afterContent !== 'none') throw new Error('逾期的長條還畫了「進行中」的亮邊——紅色要優先');
+    // 狀態改了要存下來（走 persistSoon）
+    await page.waitForTimeout(700);
+    const st = await page.evaluate(() => JSON.parse(localStorage.getItem('workSchedule.v1')).ganttProjects[0].tasks.map(t => [t.status, t.blockedNote]));
+    if (st[0][0] !== 'doing' || st[1][0] !== 'waiting') throw new Error('狀態沒存進本機：' + JSON.stringify(st));
+    await block(1).locator('.task-status').selectOption('todo');
+    if (await block(1).locator('.st-badge').isVisible()) throw new Error('改回 todo 之後徽章還在');
+    checked.push('任務狀態(徽章/卡住要原因/長條記號/逾期紅色優先/存得進去)');
+
+    // 9. 開著的頁面要跟上：agent 剛更新了。**不自動重畫**（使用者可能正在打字）——
+    //    驗的是「bar 出現了、但輸入框還是同一個節點、打到一半的字還在」
+    step = 'agent 剛更新了：沒有新動靜時不顯示';
+    const liveOn = () => page.evaluate(() => document.getElementById('agentLive').getClientRects().length > 0);
+    await page.clock.fastForward(31000);
+    await page.waitForTimeout(300);
+    if (await liveOn()) throw new Error('版本號沒變，「agent 剛更新了」卻出現了');
+    await page.evaluate(() => { document.querySelector('.agent-brief textarea').dataset.keep = '1'; });
+    await page.locator('.agent-brief textarea').fill('預算上限 200 萬，不要刪任何東西（打到一半）');
+    A.version = { updatedAt: 1, latestEventAt: 99999 };
+    step = 'agent 剛更新了：有新動靜時出現';
+    await page.clock.fastForward(31000);
+    await page.waitForFunction(() => document.getElementById('agentLive').getClientRects().length > 0, null, { timeout: 4000 })
+      .catch(() => { throw new Error('agent 有新動靜，輪詢之後那一條沒有出現'); });
+    const kept = await page.evaluate(() => { const t = document.querySelector('.agent-brief textarea'); return t && t.dataset.keep === '1' && /打到一半/.test(t.value); });
+    if (!kept) throw new Error('那一條出現的同時輸入框被重畫了／打到一半的字不見了——不能自動重畫');
+    step = 'agent 剛更新了：按「更新畫面」';
+    A.events.unshift(mkNewEvent());
+    await page.locator('#btnAgentLive').click();
+    await page.waitForFunction(() => document.getElementById('agentLive').getClientRects().length === 0, null, { timeout: 4000 })
+      .catch(() => { throw new Error('按了「更新畫面」之後，那一條沒有收起來'); });
+    await page.waitForFunction(() => /剛寫的新進展|just wrote/.test(document.getElementById('agentTimeline').textContent), null, { timeout: 4000 })
+      .catch(() => { throw new Error('按了「更新畫面」之後，最新進展沒有重新載入'); });
+    checked.push('agent 剛更新了(出現/不自動重畫/按了才更新)');
+  }
 
   // ---- 專案的夥伴：卡片、挑夥伴的面板、真的選得下去 ----
   // 這一段是 CLAUDE.md 第 0 條的具體形狀：petBuildCard / petOpenPanel / petChoose
@@ -469,6 +725,17 @@ async function walk(page, log, plan = 'pro', server = null) {
     }
     await need('.pet-card', '沒夥伴時卡片仍然在');   // 整張卡消失會讓人以為功能不見了
     log(`      「不要夥伴」：圖清掉了，卡片還在`);
+  }
+
+  // ---- 收件匣全部處理完之後：回到項目安排，**整塊沒有盒子**（不是只有 class） ----
+  {
+    step = 'agent 收件匣：處理完之後沒有盒子';
+    await click('#navSchedule', '回到項目安排頁');
+    await page.waitForFunction(() => document.getElementById('agentInbox').getClientRects().length === 0, null, { timeout: 4000 })
+      .catch(() => { throw new Error('收件匣處理完了，卻還有盒子（display 蓋掉了 .off？）'); });
+    const empty = await page.evaluate(() => { const el = document.getElementById('agentInbox'); return { cards: el.querySelectorAll('.agent-card').length, off: el.classList.contains('off') }; });
+    if (empty.cards || !empty.off) throw new Error('收件匣空了，卻還留著卡片或沒有 .off：' + JSON.stringify(empty));
+    checked.push('agent 收件匣(處理完沒有盒子)');
   }
 
   // ---- 共享 ----
@@ -535,6 +802,64 @@ async function walk(page, log, plan = 'pro', server = null) {
   // 連續斷掉的信（F2）：與逾期提醒各自一顆按鈕
   await need('#btnStreakMail', '櫻花樹的信開關');
 
+  // 第六顆通知開關（agent 問我問題時通知我）：看得見、按得動、送出去的是 agentNotify（而且不順手改別的）
+  {
+    step = '第六顆通知開關';
+    if (!(await page.locator('#viewAccount #btnAgentNotify').isVisible())) throw new Error('「agent 問我問題時通知我」不在帳號頁上（或看不見）');
+    const before = server.reminderPosts.length;
+    await page.click('#btnAgentNotify');
+    await page.waitForTimeout(400);
+    const last = server.reminderPosts[server.reminderPosts.length - 1];
+    if (server.reminderPosts.length !== before + 1 || last.agentNotify !== false) throw new Error('第六顆送出去的不對：' + JSON.stringify(last));
+    for (const k of ['pushOverdue', 'pushStreak', 'pushToday']) {
+      if (k in last) throw new Error(`第六顆順手帶了 ${k}——各自獨立的開關不能連坐`);
+    }
+    checked.push('第六顆通知開關(看得見/送出 agentNotify)');
+  }
+
+  // 連線設定（Pro）：每條連線三顆開關、暫停原因、暫停所有 agent、一次性的能力說明
+  if (plan === 'pro') {
+    const A = server.agent;
+    step = '連線設定：兩條連線都要畫出來';
+    await page.waitForFunction(() => document.querySelectorAll('#acctMcpConnList .agent-conn').length === 2, null, { timeout: 4000 })
+      .catch(() => { throw new Error('連線清單應該有兩條連線'); });
+    if (await page.locator('.agent-conn-paused').count() !== 1) throw new Error('自動暫停的那條連線沒有說出原因');
+    const pausedTxt = (await page.locator('.agent-conn-paused').textContent()).trim();
+    if (!/5/.test(pausedTxt)) throw new Error('自動暫停的原因沒有講「被復原 5 次」：' + pausedTxt);
+    const lastPost = re => [...A.posts].reverse().find(x => re.test(x.path));
+    const sb = i => page.locator('#acctMcpConnList .agent-conn').nth(0).locator('.agent-conn-set button').nth(i);
+    const flip = async (i, re, want) => {
+      const n = A.posts.length;
+      await sb(i).click();
+      await page.waitForTimeout(450);
+      const post = lastPost(re);
+      if (A.posts.length <= n || JSON.stringify(post.body) !== JSON.stringify(want)) throw new Error(`連線設定送出去的不對：要 ${JSON.stringify(want)}，實際 ${JSON.stringify(post && post.body)}`);
+    };
+    step = '連線設定：直接改／先審核';
+    await flip(0, /connections\/c1\/settings$/, { mode: 'review' });
+    step = '連線設定：勾完成要我驗收';
+    await flip(1, /connections\/c1\/settings$/, { needsAcceptance: true });
+    step = '連線設定：暫停與恢復';
+    await flip(2, /connections\/c1\/settings$/, { paused: true });
+    await flip(2, /connections\/c1\/settings$/, { paused: false });
+    step = '暫停所有 agent';
+    const n0 = A.posts.length;
+    await page.click('#btnAgentPauseAll');
+    await page.waitForTimeout(450);
+    const pa = lastPost(/pause-all$/);
+    if (A.posts.length <= n0 || !pa || pa.body.paused !== true) throw new Error('「暫停所有 agent」送出去的不是 paused:true：' + JSON.stringify(pa));
+    // 全部都暫停之後，那顆按鈕變成「恢復」
+    if (await page.locator('#btnAgentPauseAll').getAttribute('data-all-paused') !== '1') throw new Error('全部暫停之後，按鈕沒有變成「恢復所有」');
+    // 一次性的能力說明：看得到、按「知道了」就收起來、記在 localStorage（不進 snapshot）
+    step = '一次性的能力說明';
+    if (!(await page.locator('#agentCapsNote').isVisible())) throw new Error('上線那一次的「連線多了這幾樣能力」說明沒有出現');
+    await page.click('#btnAgentCapsOk');
+    if (await page.locator('#agentCapsNote').isVisible()) throw new Error('按了「知道了」，說明還在');
+    const seen = await page.evaluate(() => [localStorage.getItem('workSchedule.v1.agentCapsSeen'), 'agentCapsSeen' in JSON.parse(localStorage.getItem('workSchedule.v1') || '{}')]);
+    if (seen[0] !== '1' || seen[1]) throw new Error('說明看過的記號要在 localStorage、而且不進 snapshot：' + JSON.stringify(seen));
+    checked.push('連線設定(三顆開關/暫停原因/暫停所有/一次性說明)');
+  }
+
   // 網頁版訂閱（Paddle）：免費版看得到兩顆訂閱按鈕、連到 /subscribe.html；
   // 管理者給的 Pro 整塊不顯示（他沒有網頁版的訂閱可以管）。假後端兩輪都回 webBilling: true，
   // 所以「Pro 也看得到訂閱鈕」與「免費版看不到」兩種錯法都會在這裡紅。
@@ -570,7 +895,7 @@ async function walk(page, log, plan = 'pro', server = null) {
     if (!server) throw new Error('walk() 沒有收到 server，「全部都不要了」的 body 驗不到');
     const body = server.reminderPosts[server.reminderPosts.length - 1];
     if (!body) throw new Error('「全部都不要了」沒有打到 /api/reminder');
-    for (const k of ['enabled', 'streakMail', 'pushOverdue', 'pushStreak', 'pushToday']) {
+    for (const k of ['enabled', 'streakMail', 'pushOverdue', 'pushStreak', 'pushToday', 'agentNotify']) {
       if (body[k] !== false) throw new Error(`「全部都不要了」沒有關掉 ${k}：${JSON.stringify(body[k])}`);
     }
   }
@@ -689,9 +1014,13 @@ for (const loggedIn of [false, true]) {
       const t = m.text();
       // 字型／favicon／service worker 的載入噪音與應用程式無關
       if (/favicon|ERR_FAILED|net::ERR|MIME type|Failed to load resource/i.test(t)) return;
+      // 假後端刻意讓「最新進展」載入失敗的那一段，console.error 是預期的（降級可以，沉默不行）
+      if (server.agent && server.agent.eventsFail && /agent events failed/.test(t)) return;
       errors.push(`console.error：${t}`);
     });
     await page.route('**://fonts.*/**', r => r.abort());
+    // 已登入的兩輪裝假時鐘：agent 的輪詢是每 30 秒一次，等真的 30 秒會讓每一輪多等一分鐘
+    if (loggedIn) await page.clock.install();
 
     // 「單檔開啟」那兩輪刻意**不塞** workSchedule.v1：要驗的是閘門關著時沒有 seed。
     // （file:// 的 localStorage 與 http 的各自獨立，這裡塞的是 file:// 那一份。）

@@ -171,6 +171,41 @@ export async function handleRedactEvent(env, user, id) {
   return json({ ok: true });
 }
 
+// ------------------------------------------------------------ 開著的頁面要跟上（設計文件第二次檢討 15）
+
+/**
+ * GET /api/state/version → { updatedAt, latestEventAt }：一個很小的端點，只回兩個數字，
+ * 前端在專案頁／項目安排看得見的時候每 30 秒問一次，變了才真的拉（agent 改了資料、寫了日誌）。
+ *
+ * - updatedAt：user_state 的版本號（前端拿它跟自己知道的 cloudUpdatedAt 比）
+ * - latestEventAt：agent 那一側最新的動靜——**不是使用者自己的**（actor != 'user'：回答、驗收、退回
+ *   是使用者自己做的，用它們觸發「agent 剛更新了」會是自己打自己），而且把新提案也算進去
+ *   （提案不改 state 也不寫日誌，不算進去的話「等你回覆」會等到下次回前景才更新）。
+ * 只回數字，不回任何內容；永遠只看自己的列（WHERE user_id = ?）。
+ */
+export async function handleStateVersion(env, user) {
+  const [st, ev, pr] = await Promise.all([
+    env.DB.prepare('SELECT updated_at FROM user_state WHERE user_id = ?').bind(user.id).first(),
+    env.DB.prepare("SELECT MAX(created_at) AS t FROM project_events WHERE user_id = ? AND actor != 'user'").bind(user.id).first(),
+    env.DB.prepare('SELECT MAX(created_at) AS t FROM mcp_proposals WHERE user_id = ?').bind(user.id).first(),
+  ]);
+  const latest = Math.max(ev?.t || 0, pr?.t || 0);
+  return json({ updatedAt: st ? st.updated_at : null, latestEventAt: latest || null });
+}
+
+/**
+ * GET /api/agent/events/export：「匯出備份檔」那一欄要的——這個帳號全部的進展日誌（擁有者的檢視：
+ * 被遮蔽的內容是空的）。**只讀、只回自己的**。上限 5000 筆（舊→新）：日誌每天每專案 200 筆封頂，
+ * 這個上限只是不讓一個失控的帳號把匯出撐爆。
+ */
+export async function handleAgentEventsExport(env, user) {
+  const rows = await env.DB.prepare(
+    'SELECT * FROM project_events WHERE user_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 5000'
+  ).bind(user.id).all();
+  const events = (rows.results || []).map(ownerEventView).reverse();
+  return json({ events });
+}
+
 // ------------------------------------------------------------ 驗收
 
 /** POST /api/projects/:pid/tasks/:tid/accept：驗收通過，才真的完成。擁有者自己的寫入，不進 agent 的修改紀錄。 */

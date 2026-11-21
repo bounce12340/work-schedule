@@ -121,7 +121,7 @@ export function addDays(ymd, n) {
 
 export async function handleReminderStatus(env, user) {
   const row = await env.DB
-    .prepare(`SELECT enabled, last_sent_ymd, lead_days, streak_mail,
+    .prepare(`SELECT enabled, last_sent_ymd, lead_days, streak_mail, agent_notify,
                      push_overdue, push_streak, push_today, updated_at
                 FROM reminder_feed WHERE user_id = ?`)
     .bind(user.id).first();
@@ -130,6 +130,8 @@ export async function handleReminderStatus(env, user) {
     // 還沒有那一列的人回預設值（開啟），不是 false——否則畫面會先顯示「關著」，
     // 等他第一次同步建立那一列之後才莫名其妙變成開著
     streakMail: row ? !!row.streak_mail : true,
+    // 第六顆（1B）：agent 問我問題時通知我。沒有那一列的人也是開（同 streakMail）
+    agentNotify: row ? !!row.agent_notify : true,
     // 推播的三個開關（子專案 B）。同上，沒有那一列時回 schema 的預設值。
     // 「今天有事要做」預設關：它每天固定時間會響，那種東西預設開是打擾。
     pushOverdue: row ? !!row.push_overdue : true,
@@ -156,11 +158,13 @@ export async function handleReminderEnable(request, env, user) {
   // 理由同 leadDays：這支端點也用於單純開關別的東西，不該順手把沒提到的設定重設掉。
   const flag = v => (v === undefined ? null : (v ? 1 : 0));
   const pOver = flag(body?.pushOverdue), pStreak = flag(body?.pushStreak), pToday = flag(body?.pushToday);
+  // 第六顆（1B）：agent 通知。同樣沒帶就沿用——其他五顆的送出不會順手把它改掉
+  const agentN = flag(body?.agentNotify);
   const now = Date.now();
   await env.DB.prepare(
     `INSERT INTO reminder_feed (user_id, enabled, digest, lead_days, streak_mail,
-                                push_overdue, push_streak, push_today, updated_at)
-     VALUES (?, ?, '[]', ?, ?, ?, ?, ?, ?)
+                                push_overdue, push_streak, push_today, agent_notify, updated_at)
+     VALUES (?, ?, '[]', ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(user_id) DO UPDATE SET
        enabled = excluded.enabled,
        lead_days = COALESCE(?, reminder_feed.lead_days),
@@ -168,11 +172,13 @@ export async function handleReminderEnable(request, env, user) {
        push_overdue = COALESCE(?, reminder_feed.push_overdue),
        push_streak = COALESCE(?, reminder_feed.push_streak),
        push_today = COALESCE(?, reminder_feed.push_today),
+       agent_notify = COALESCE(?, reminder_feed.agent_notify),
        updated_at = excluded.updated_at`
   ).bind(user.id, enabled, lead ?? DEFAULT_LEAD_DAYS, streakMail ?? 1,
-    pOver ?? 1, pStreak ?? 1, pToday ?? 0, now,
-    lead, streakMail, pOver, pStreak, pToday).run();
-  return json({ ok: true, enabled: !!enabled, streakMail: streakMail === null ? undefined : !!streakMail });
+    pOver ?? 1, pStreak ?? 1, pToday ?? 0, agentN ?? 1, now,
+    lead, streakMail, pOver, pStreak, pToday, agentN).run();
+  return json({ ok: true, enabled: !!enabled, streakMail: streakMail === null ? undefined : !!streakMail,
+    agentNotify: agentN === null ? undefined : !!agentN });
 }
 
 /** 前端每次同步後推上來的展開排程 */
@@ -244,7 +250,8 @@ export async function handleReminderPut(request, env, user) {
  * helen 按下 Gmail 的「取消訂閱」時，她要的只是「這種信別再來」，拿到的卻是
  * 「你再也收不到任何東西」。我們自己的連結不可以犯同一個錯。
  */
-export const UNSUB_KINDS = { reminder: 'enabled', streak: 'streak_mail' };
+// agent：agent 問我問題／提案時的通知（1B）。同樣各自獨立，不與另外兩種連坐。
+export const UNSUB_KINDS = { reminder: 'enabled', streak: 'streak_mail', agent: 'agent_notify' };
 
 /**
  * 拿到這個人的退訂 token，沒有就現場產一個。
@@ -469,7 +476,7 @@ ${unsub ? unsubBlock(unsub, appUrl, '不想再收這種提醒信') : ''}
  *   - **停掉這一種**（不用登入）——只想少收一種信的人，一下就完成
  *   - **管全部的通知**（回系統）——想自己調的人，那裡有五個開關
  */
-function unsubBlock(unsub, appUrl, label) {
+export function unsubBlock(unsub, appUrl, label) {
   return `<div style="margin:26px 0 0;padding:16px;border-radius:10px;background:#F1EEE5;border:1px solid #E4E0D3">
 <p style="margin:0 0 12px;font-size:13px;color:#2A2A26">${esc(label)}？</p>
 <a href="${esc(unsub)}" style="display:inline-block;padding:10px 18px;border-radius:8px;background:#2A2A26;color:#FFFDF9;font-size:14px;font-weight:700;text-decoration:none">取消訂閱</a>

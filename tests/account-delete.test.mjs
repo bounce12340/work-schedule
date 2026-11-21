@@ -12,7 +12,7 @@ import { createSession, getSessionUser } from '../src/session.js';
 import { hashPassword } from '../src/crypto.js';
 import { makeEnv, seedState, unwrap } from './d1.mjs';
 
-const TABLES = ['user_state', 'shares', 'sessions', 'ics_feed', 'reminder_feed', 'password_resets', 'email_codes', 'oauth_identities', 'mcp_requests', 'project_events', 'project_absent', 'mcp_proposals', 'mcp_connections', 'users'];
+const TABLES = ['user_state', 'shares', 'sessions', 'ics_feed', 'reminder_feed', 'password_resets', 'email_codes', 'oauth_identities', 'mcp_requests', 'project_events', 'project_absent', 'mcp_proposals', 'mcp_connections', 'agent_notify_state', 'users'];
 
 async function setup() {
   const env = makeEnv();
@@ -33,6 +33,7 @@ async function setup() {
     env.DB.prepare("INSERT INTO project_absent (user_id, project_id, missing_since) VALUES (?, 'gp1', 0)").bind(id).run();
     env.DB.prepare("INSERT INTO mcp_proposals (id, user_id, actor, title, ops, status, created_at) VALUES (?, ?, 'Claude', 't', '[]', 'open', 0)").bind('pr-' + id, id).run();
     env.DB.prepare("INSERT INTO mcp_connections (id, user_id, mode, paused, needs_acceptance, created_at, updated_at) VALUES (?, ?, 'review', 1, 1, 0, 0)").bind('cn-' + id, id).run();
+    env.DB.prepare("INSERT INTO agent_notify_state (user_id, project_id, last_sent_at, pending, actor) VALUES (?, 'gp1', 5, 2, 'Claude')").bind(id).run();
     env.DB.prepare(`INSERT INTO oauth_identities
       (id, user_id, provider, subject, email, created_at, updated_at)
       VALUES (?, ?, 'google', ?, ?, 0, 0)`).bind('oauth-' + id, id, 'google-' + id, email).run();
@@ -60,6 +61,7 @@ function snapshotOf(env, userId, email) {
     projectAbsent: q('SELECT * FROM project_absent WHERE user_id = ?'),
     mcpProposals: q('SELECT * FROM mcp_proposals WHERE user_id = ?'),
     mcpConnections: q('SELECT * FROM mcp_connections WHERE user_id = ?'),
+    agentNotifyState: q('SELECT * FROM agent_notify_state WHERE user_id = ?'),
   };
 }
 

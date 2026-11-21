@@ -20,6 +20,7 @@ src/handlers/          auth / state / admin / share / password-reset / appauth �
 src/apppurchase.js     App Store 購買證明（AppTransaction JWS）的離線驗簽
 src/handlers/planpaddle.js 網頁版訂閱（Paddle）：結帳、客戶頁、webhook 驗簽與寫權利
 src/mcp/               MCP 伺服器：讓外部 AI agent 讀寫排程（schedule.js 純函式／auth.js 金鑰與 OAuth／server.js JSON-RPC）
+src/handlers/agentnotify.js agent 提問／提案時的通知（信與推播，30 分鐘節流、休假不送；cron 補送）
 public/authorize.html  OAuth 授權頁（agent 要連進來時「允許／拒絕」）
 src/mail.js            AgentMail 寄信（逾期提醒與密碼重設共用），並把每一封的結果寫進 mail_log
 src/throttle.js        登入失敗節流（email 與 IP 兩個維度）
@@ -70,6 +71,7 @@ mobile/                iOS app 外殼（Capacitor；自己的 package.json，見
 | `tests/conflict.test.mjs` | 衝突預覽（〈衝突預覽〉區段，**尚未接上畫面**）：半開區間、沒有結束時間時只比同開始時間（不套預設時長）、只比會議、時區不同不換算只提示、90 天範圍、略過／單次覆寫／假日調整、休假輕量提示、**輸入資料前後逐字相同** | 從 `index.html` 抽〈date helpers〉〈occurrence engine〉〈衝突預覽〉求值；七種突變各自驗過會紅 |
 | `tests/mcp.test.mjs` | MCP：401 帶 `WWW-Authenticate`、非 Pro 擋、金鑰只存雜湊、**伺服器建的項目與前端 `normalizeItems` 逐欄相同**、改頻率清完成、復原（**細到欄位**：同一任務連寫三次可任意順序各自復原、使用者改了別的欄位不擋、**改了同一欄才拒絕**）、**`requestId` 防重複**（同 id 回上一次的結果、指紋不同擋、失敗還位子、處理中、兩個使用者互不影響）、跨帳號隔離、競態重試、OAuth 全流程（PKCE、code 單次、open redirect、免費帳號 402、refresh 輪替與撤銷） | 直接 import Worker 端模組；前端的 `normalizeItems`／`normalizeRecurrence`／`stableStringify` 從 `index.html` 抽出來比 |
 | `tests/agent.test.mjs` | agent 工作區（第一批）：**伺服器建的甘特專案／任務／子待辦與前端 `normalizeGanttProjects` 逐欄相同**、agent 寫的狀態走一次真的 `applySnapshot`→`snapshot`、連線設定（**OAuth 換 token 之後 review 仍在**、**查不到設定＝暫停**、migration 回填、暫停擋每一個寫入工具、5 次復原自動暫停）、review 模式（**資料一個位元都沒變**、日誌不受審核擋、同意在當下資料上套、**一項套不上去整份不套 stale**、同意的競態、兩台同時同意只套一次、20 份上限、跨帳號）、待驗收（set_done／進度 100／**一個一個勾子待辦**都攔、驗收／退回、提案同意時也攔、可復原）、日誌（署名由伺服器填、200／天、2000 字、只能加、遮蔽只有擁有者、**Pro 到期擁有者照樣讀與回答**、跨帳號）、專案消失 30 天才清（**讀不到 state 不算消失**）、備份與刪帳號 | 直接 import Worker 端模組；前端的 `normalizeGanttProjects`／`applySnapshot`／`snapshot` 從 `index.html` 抽出來比（`todoProgress` 單獨抽那一個純函式）；競態用既有的 `env.DB.prepare` 攔截模式 |
+| `tests/agent-notify.test.mjs` | agent 問了問題／提了提案要通知到人（1B）：**信、主旨、HTML、推播裡都不出現問題與提案的全文**（連選項也不放）、連線名稱（外部字串）跳脫、**同一專案 30 分鐘內最多一封、多的併進 pending**、cron 補送「還有 N 件」、**兩個併發的提問只有一封**（`last_sent_at` 的 compare-and-swap）、休假只累計不送（cron 當天也不補，隔天補）、**送失敗不寫 `last_sent_at`**、開關關著不送也不累計、**是訂閱信**（不走交易信的寄件帳號、帶 `List-Unsubscribe`）、**退訂 `kind=agent` 只關這一顆**（反方向也不連坐，一鍵退訂同一支）、`/api/reminder` 的 `agentNotify`（其他五顆的送出不會順手改掉它）、自動暫停的那一刻寄信、通知寄不出去**不能讓 agent 的提問變成錯誤**、`/api/state/version`（只回兩個數字、**使用者自己的回答不算「agent 剛更新了」**、新提案算、別人的不算）、匯出用的日誌端點只回自己的 | 直接 import Worker 端模組，攔 `fetch` 當假的 AgentMail 與 APNs（同 `push.test.mjs`）；七種突變各自驗過會紅 |
 
 前三者的挑選理由：前兩者近乎純函式、零 DOM 依賴；第三者是**競態**——靠併發碰運氣測不到，但可以把空窗做成確定性的。
 
@@ -102,7 +104,7 @@ npm run db:init:local  # 對本機 miniflare D1 建表（--local 的資料庫與
 npm run db:init        # 對遠端 D1 建表
 npm run admin:reset    # 破窗鎚：直接改密碼（見〈破窗鎚〉）
 npm run deploy         # 部署
-npm test               # 全部測試檔（node:test，不需安裝任何東西；目前 616 個測試）
+npm test               # 全部測試檔（node:test，不需安裝任何東西；目前 636 個測試）
 ```
 
 跑單一測試檔或單一測試（`npm test` 沒有轉發參數的管道，直接用 node）：
@@ -177,12 +179,12 @@ Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.Comm
 
 | 腳本 | 驗什麼 | 什麼時候一定要跑 |
 |---|---|---|
-| `tools/smoke.mjs` | 七輪：「單檔開啟 × 中英文」（file://，驗登入閘門）、「已登入 × 中英文」（走四個頁籤；中文那輪是免費版、撞上限要開升級說明，英文那輪是 Pro、要開新增表單）、「iOS app 外殼（假 Capacitor）」、「隱私頁與使用條款頁」、「**iOS app 外殼的九個探針**」；專案頁那一段還會走夥伴卡（八格八張圖、換夥伴卡片跟著變、**勾完全部待辦當場長大且不切頁籤**、「不要夥伴」只清圖不清卡）；五個頁籤各斷言一次四張卡**有沒有盒子**（只在項目安排與日曆）：零 pageerror、零 console.error、每頁關鍵錨點存在；app 那一輪還斷言**所有打到線上網址的請求都帶 Bearer**，九個探針各塞一個殘缺（或刻意變慢）的 `window.Capacitor`／後端，驗「安靜地變成單機模式」的各種成因（見〈app 的九個探針〉） | **任何前端改動**。第 0 條的自動化版本 |
+| `tools/smoke.mjs` | 七輪：「單檔開啟 × 中英文」（file://，驗登入閘門）、「已登入 × 中英文」（走四個頁籤；中文那輪是免費版、撞上限要開升級說明，英文那輪是 Pro、要開新增表單）、「iOS app 外殼（假 Capacitor）」、「隱私頁與使用條款頁」、「**iOS app 外殼的九個探針**」；專案頁那一段還會走夥伴卡（八格八張圖、換夥伴卡片跟著變、**勾完全部待辦當場長大且不切頁籤**、「不要夥伴」只清圖不清卡）；五個頁籤各斷言一次四張卡**有沒有盒子**（只在項目安排與日曆）：零 pageerror、零 console.error、每頁關鍵錨點存在；app 那一輪還斷言**所有打到線上網址的請求都帶 Bearer**，九個探針各塞一個殘缺（或刻意變慢）的 `window.Capacitor`／後端，驗「安靜地變成單機模式」的各種成因（見〈app 的九個探針〉）；**agent 工作區（1B）**：假後端給收件匣／日誌／版本號／連線設定並**把每個寫入的 body 記下來**，斷言收件匣四張卡出現、提案是前後對照不是 JSON、點一下選項回答、**處理完沒有盒子**（`getClientRects`）、日誌載入失敗有一行說明、回前景重讀、5 筆＋看全部、**日誌內文 `<img onerror>` 長不出元素**、時間軸直接回答、遮蔽、說明書存得進去、任務狀態徽章與長條記號（卡住要原因才套用）、**逾期的長條仍是 `--red` 且沒畫亮邊**、待驗收（退回要理由）、「agent 剛更新了」出現而**輸入框沒被重畫**（假時鐘快轉 30 秒）、第六顆通知開關、連線三顆開關／暫停／暫停所有／一次性說明 | **任何前端改動**。第 0 條的自動化版本 |
 | `tools/verify-toggle.mjs` | 勾選的就地更新與完整重繪結果完全相同 | 動到 `renderBoard()` 或 `moveOccRowToDone()` |
 | `tools/verify-richtext.mjs` | 富文字過濾器的整條管線（含 DOM 走訪）擋得住 16 種攻擊向量 | 動到富文字 |
 | `tools/check-calendar.mjs` | 日曆的色條軌道對齊、跨月與週界的收邊、每日記錄的 ✎ 記號。**時鐘釘在 2026-09**——假資料是照那個月的週列寫的，而日曆開在「今天」那個月，不釘的話真實日期一過就永遠翻不回去（2026-10-01 實際紅過，紅的是工具不是產品）。**手機輪（390／720px）**：滑動 bar 不准蓋住任何一格或按鈕 | 動到 `renderCalendar()` 或日曆的 CSS |
 | `tools/check-notes.mjs` | 每日記錄／專案筆記的格式（醒目提示、顏色、字級）與內容在離開後仍在 | 動到富文字、`persistSoon()` 或任何 debounce 寫入 |
-| `tools/check-contrast.mjs` | 正文級文字在**兩種主題**下都達到 WCAG 對比（4.5:1／大字 3:1）。夥伴卡與挑夥伴面板也量，而且**主動把待辦勾完**逼出「成年」那個記號——等它自然出現就是〈永遠不會執行的斷言〉。六種小標、大項目的項數、對話框的欄位名；`INPUT_CHECK` 掃每一個輸入框是否套到共用樣式；`TOKEN_CHECK` 直接量 `--text-dim` 本身（過 4.5:1 而且仍比 `--text-muted` 淡） | 動到任何顏色變數或文字顏色 |
+| `tools/check-contrast.mjs` | 正文級文字在**兩種主題**下都達到 WCAG 對比（4.5:1／大字 3:1）。夥伴卡與挑夥伴面板也量，而且**主動把待辦勾完**逼出「成年」那個記號——等它自然出現就是〈永遠不會執行的斷言〉。六種小標、大項目的項數、對話框的欄位名；`INPUT_CHECK` 掃每一個輸入框是否套到共用樣式；`TOKEN_CHECK` 直接量 `--text-dim` 本身（過 4.5:1 而且仍比 `--text-muted` 淡）；**agent 工作區那一輪另起有假後端的伺服器，主動造出**卡住／等待／待驗收的任務、還開著的提問、一份套不上去的提案、被遮蔽的日誌、「agent 剛更新了」、被自動暫停的連線，再量 `--st-*` 徽章、時間軸、收件匣、連線設定（**這一輪找不到元素就是錯誤，不是「略過」**） | 動到任何顏色變數或文字顏色 |
 | `tools/check-deps.mjs` | 前置作業的「待前置」徽章、不阻擋勾選；「不在」的標記**與逾期並存**；逾期的顏色就是 `--red` 且字重比旁邊重；**純告知的八個「不算進去」**；**手機輪**：四張卡是橫向一排、逾期排第一且整張在畫面內、沒有逾期時收起來 | 動到 `dependsOn`、`absences`、`noticeOnly`／`isActionable`、`toggleOccDone`、逾期判斷或任何視覺改版 |
 | `tools/check-migrate.mjs` | **舊備份檔真的匯得回來**：造一份 v1 的 .json 丟進 `#importFile`，走完整條使用者路徑，再讀 localStorage 看實際存進去的東西；順便驗「比目前新的版本被擋下來，而且不動現有資料」 | 動到 `STORAGE_VERSION`、`migrateSnapshot`、`snapshot()`／`applySnapshot()`。在 CI 的 `smoke` job |
 | `tools/check-ambience.mjs` | 時段（早／午／晚）的 `data-daypart` 與光暈、每日記錄的提示語照日期決定、打勾的彈跳只在被點的那一個上、週一的回顧（含 N=0 不出現）、**遊戲化**：完美一天的 toast 只在勾掉最後一件時、升級的光只在升級那一次（看計算後的 `animationName`）、櫻花樹的畫皮（群組 class 與 CSS 對得上、垂下還在）、**開機的載入畫面**（3400ms 的上限**在 JavaScript 關掉時**照樣成立、點一下就收掉、進度條在跑、演到使用者現在那一階、reduced-motion 完全不出現）、**載入畫面的夥伴**（在湖邊走、對岸在樹後前岸在樹前、最多四隻＋「+N」、reduced-motion 時連盒子都沒有）、reduced-motion 關 | 動到 `tick()`、`<head>` 開機腳本、`DAILY_PROMPTS`、`renderLookback()`、`.checkbox` 的 CSS、〈遊戲化畫面〉或 `.boot-sakura`、`.boot-pets` |
@@ -233,7 +235,7 @@ UI 類的改動（版面、行動版、主題）**必須真的用瀏覽器看過
 | 677–1064 | `<body>` 靜態骨架。**所有 modal 都預先寫死在 markup 裡**，靠 `.overlay` 的 class 切換顯示 |
 | 1065–4774 | 單一 `<script>`，整段包在一個 IIFE 內 |
 
-行號會隨改動漂移，別當精確座標用。要定位某個功能請找區段註解（`// ================= 名稱 =================`），`grep -n '^\s*// =\+ .* =\+$' public/index.html` 會列出全部 39 個。
+行號會隨改動漂移，別當精確座標用。要定位某個功能請找區段註解（`// ================= 名稱 =================`），`grep -n '^\s*// =\+ .* =\+$' public/index.html` 會列出全部 40 個。
 
 因為全部包在 IIFE 裡，**沒有任何東西暴露在 global scope**——所以不能用 inline `onclick="..."` 屬性，事件一律在 JS 內用 `.onclick = fn` 綁定。新增 UI 時請沿用此模式。
 
@@ -624,7 +626,7 @@ grep -nE '(const|let|var)[[:space:]]+(tr|tf|weekName)\b' public/index.html
 
 ## 每日 cron：提醒、推播、備份、清理
 
-`wrangler.jsonc` 的 `triggers.crons` 只有一條（00:00 UTC＝台北早上 8 點），`scheduled()` 依序跑五件事（逾期提醒信、櫻花樹的信、**推播**、備份、清理）。**每一件各自獨立 try/catch，不能串在一起**——備份失敗不該連帶讓當天的提醒不寄，APNs 掛掉也不該讓信不寄，反過來都一樣。它們只是剛好在同一個時間點跑，彼此沒有依賴。
+`wrangler.jsonc` 的 `triggers.crons` 只有一條（00:00 UTC＝台北早上 8 點），`scheduled()` 依序跑這幾件事（逾期提醒信、櫻花樹的信、**推播**、備份、清理、agent 日誌清理、**agent 通知補送**）。**每一件各自獨立 try/catch，不能串在一起**——備份失敗不該連帶讓當天的提醒不寄，APNs 掛掉也不該讓信不寄，反過來都一樣。它們只是剛好在同一個時間點跑，彼此沒有依賴。
 
 `step()` 在**成功時也會 `console.log`**。只在失敗時印的話，「備份從三週前就沒在跑了」看起來與「一切正常」一模一樣（log 裡什麼都沒有）——備份最可怕的失敗模式正是這種。
 
@@ -760,7 +762,7 @@ npx wrangler secret put AGENTMAIL_TX_INBOX_ID   # 新帳號的寄件信箱
 | **交易信不帶這個標頭** | 密碼重設信沒有「退訂」這個概念，帶了反而會讓郵件軟體把它當成廣告 |
 | **純文字版也要有那一行** | 有些人就是在純文字模式讀信。只有 HTML 版有出口，等於對那些人來說沒有出口 |
 | 按鈕要**明顯**，這是刻意改過的決定 | 第一版是 12px 的灰色文字連結藏在最下面——那是在「不要鼓勵退訂」與「要讓人找得到出口」之間**選錯了邊**。找不到出口的代價不是少一個訂閱者，是那個人去按信箱軟體的「取消訂閱」，然後整個帳號被封鎖、連密碼重設信都收不到。多幾個人退訂遠比那個便宜 |
-| 信裡給**兩條路**，分工不同 | 「取消訂閱」（不用登入，一下就停掉這一種）與「通知設定 →」（`#notify`，回系統管全部五個開關）。想少收一種信的人不該被逼著去登入 |
+| 信裡給**兩條路**，分工不同 | 「取消訂閱」（不用登入，一下就停掉這一種）與「通知設定 →」（`#notify`，回系統管全部六個開關）。想少收一種信的人不該被逼著去登入 |
 | `#notify` 要**真的走得到底** | 切到帳號頁、捲過去、而且**標示出來**。只切頁籤不捲過去，使用者看到的是一整頁設定還要自己找——那與沒有這條連結差不多，而「差不多」的代價是他回去按 Gmail 那顆。也要接 `hashchange`：已經開著 app 的人再點一次連結，瀏覽器只會改 hash 不會重新載入 |
 | 「全部都不要了」**只關不開** | 一顆會在「全關／全開」之間切換的按鈕，按錯的代價是「我明明想安靜，卻突然全部打開了」——正是這個功能要避免的事。要再打開就回去按上面那幾顆 |
 | 兩種信**各自帶自己的 `kind`，不互相連坐** | 關掉櫻花樹不會連帶關掉逾期提醒，反過來也一樣。**連坐正是 Gmail 那顆按鈕犯的錯**，我們自己的出口不可以犯同一個。頁面上也明說「另一種不受影響」——沒說，使用者就會以為按下去是全部 |
@@ -889,7 +891,7 @@ Turnstile 擋得住「一秒鐘一萬次」的機器人，擋不住「一分鐘�
 
 **改版時要做的事**：`mobile/package.json` 的 `version` 往上加（build 號是 GitHub 的 `run_number`，不用管）→ **合併進 main 就會自動打包上傳**（CI 綠、且動到 `public/index.html` 或 `mobile/`）→ App Store Connect 送審。手動觸發與 `ios-v*` tag 仍然留著，兩者都不看路徑條件。
 
-**部署順序**：`migrations/005-app-purchase.sql`、`006-plan.sql`、`007-streak-mail.sql`、`008-push.sql`、`009-leave-days.sql`、`010-mail-log.sql` 、`011-mail-sender.sql` 、`012-unsub-token.sql` 、`014-paddle.sql` 與 `015-mcp.sql` 與 `016-mcp-requests.sql` 與 `017-agent-workspace.sql` 都要在部署新 Worker **之前**跑（**`017` 含 `ALTER TABLE mcp_activity ADD COLUMN conn_id`——漏跑的話每一個 agent 寫入工具都失敗；它還回填既有連線的設定列，漏跑或晚跑的話所有現存連線會被當成暫停**）（`010` 是新增資料表，漏跑只會讓寄信多一行警告，不會 500；**`011` 是加欄位，漏跑會讓 `/api/admin/mail-log` 的 SELECT 直接失敗**）（`getSessionUser` 的 SELECT 讀 `plan_source`，欄位不在**每一個**登入請求都會 500；`007`／`008`／`009` 的欄位則是 `/api/reminder` 與 cron 會讀），理由見〈資料庫結構變更〉。006 跑完、Worker 部署完之後，還要到 `/admin` 把既有的兩個帳號設成「Pro（永久）」——漏掉的症狀是他們的第四個專案被擋，當場就會知道。
+**部署順序**：`migrations/005-app-purchase.sql`、`006-plan.sql`、`007-streak-mail.sql`、`008-push.sql`、`009-leave-days.sql`、`010-mail-log.sql` 、`011-mail-sender.sql` 、`012-unsub-token.sql` 、`014-paddle.sql` 與 `015-mcp.sql` 與 `016-mcp-requests.sql` 與 `017-agent-workspace.sql` 與 `018-agent-notify.sql` 都要在部署新 Worker **之前**跑（**`018` 是 `ALTER TABLE reminder_feed ADD COLUMN agent_notify`——漏跑的話 `/api/reminder` 的讀寫與逾期提醒的 SELECT 全部失敗，「我的帳號」的通知區整個讀不出來；它也建 `agent_notify_state`，那張是新增資料表，漏跑只讓 agent 通知失敗、不會讓 agent 的提問失敗**）（**`017` 含 `ALTER TABLE mcp_activity ADD COLUMN conn_id`——漏跑的話每一個 agent 寫入工具都失敗；它還回填既有連線的設定列，漏跑或晚跑的話所有現存連線會被當成暫停**）（`010` 是新增資料表，漏跑只會讓寄信多一行警告，不會 500；**`011` 是加欄位，漏跑會讓 `/api/admin/mail-log` 的 SELECT 直接失敗**）（`getSessionUser` 的 SELECT 讀 `plan_source`，欄位不在**每一個**登入請求都會 500；`007`／`008`／`009` 的欄位則是 `/api/reminder` 與 cron 會讀），理由見〈資料庫結構變更〉。006 跑完、Worker 部署完之後，還要到 `/admin` 把既有的兩個帳號設成「Pro（永久）」——漏掉的症狀是他們的第四個專案被擋，當場就會知道。
 
 ### 開發者有 Mac 了（2026-09-17）
 
@@ -1017,7 +1019,40 @@ cd mobile/ios/App && xcodebuild -scheme App -sdk iphonesimulator -configuration 
 | 工具共 21 個（目標 ≤ 20；既有 13 個名稱與必填參數一個字沒動，只加選填）；全部有 annotations | 沒有 `list_proposals`：`get_project_brief` 與收件匣已列出開著的提案 |
 | 擁有者端點（讀日誌、回答、處理提案、驗收）**不要求 Pro** | Pro 到期之後那是使用者自己的資料 |
 
-**1B（畫面）還沒做**：專案頁的說明書／時間軸／狀態徽章、「等你回覆」、帳號頁的連線設定與提案審核、新提問的信與推播、「agent 剛更新」橫幅。端點都已備好。
+**1B（畫面與通知）**見下一節〈agent 工作區的畫面與通知（1B）〉。
+
+### agent 工作區的畫面與通知（第一批 1B，`index.html` 的〈agent 工作區〉區段、`src/handlers/agentnotify.js`）
+
+設計文件同上。migration `018-agent-notify.sql`。**新增的前端函式一律 `agent` 前綴，也不要在別處用 `agentXxx` 當區域變數名**（遮蔽事故發生過三次）。agent 與使用者寫的文字（問題、進展、提案標題、選項、連線名稱）一律 `textContent`，絕不 `innerHTML`——那是外部內容。
+
+| 決定 | 理由 |
+|---|---|
+| 日誌、問題、提案**不進 `snapshot()`、不寫 localStorage**，離線時整塊一行字「連線後才看得到 agent 的進展」；載入失敗同樣是那一行**加 `console.error`** | 權威來源在伺服器（同〈分享過來的資料不進 `snapshot()`〉）；留白會讓人以為沒有進展，降級可以、沉默不行 |
+| 說明書 `gp.brief` 是 `<textarea>`（純文字、4000 字）走 `persistSoon()`，`blur` 與離開時由 `flushPendingWrites()` 結帳；**沒內容時預設展開並邀請寫**、有內容預設收合；展開狀態只記在記憶體 | 不開第二個 HTML 欄位（`gp.notes` 已是一道安全邊界）；agent 只能讀不能改 |
+| 任務狀態是 `t.status`／`t.blockedNote` 兩欄的小編輯器，改動走 `refreshGanttChart(gp)`（只換圖表）＋`persistSoon()`，**表格不重建**；`blocked` **沒寫原因不套用**（選了之後出現原因欄，按「確定」才生效）；`done` 為真整個控制項不顯示 | 〈甘特頁的例外：表格不重建〉；「卡住了」沒有原因等於沒說；以可驗證的 `done` 為準 |
+| **長條上的狀態記號：進行中＝亮邊（`::after`）、卡住＝斜線、等待／待驗收＝小圓點（`::before`），全部寫成 `:not(.overdue)`——逾期的長條不畫任何記號，紅色優先**；狀態改由左邊標籤欄的小字帶出來，資訊沒有丟 | 紅線：狀態不豁免逾期。`tools/smoke.mjs` 量計算後的 `background-color` 與 `::after` 的 `content`；突變驗證：拿掉 `:not(.overdue)` 當場紅 |
+| 狀態徽章的顏色 token（`--st-*`，亮暗兩組都在）：**blocked 用「深色實心＋斜線」，不是紅色** | 紅色是逾期專用；blocked 若也是紅會被讀成逾期，而兩者是不同的事（卡住的事照樣遲交，兩個訊號要同時看得到）。對比由 `check-contrast` 量 |
+| 「等你回覆」（`#agentInbox`）用 `.off` 收起，**不用 `[hidden]`**；沒東西時整塊沒有盒子（smoke 量 `getClientRects`）；資料沒變不重畫（`renderAll` 每次 commit 都會叫到，重畫會清掉正在打的回覆） | 同 `.metric-strip.off`：`display` 會壓過 `[hidden]` |
+| 回答問題的元件（選項按鈕＋自由輸入）收件匣與時間軸**共用同一個** `agentBuildAnswer`；提案畫**前後對照**（伺服器 `describeChanges` 的 `{entity, field, before, after}`），套不上去的提案「同意」鈕停用並說出原因；退回待驗收的**理由必填**、退回提案的理由選填（與伺服器一致） | 看不懂的審核等於沒有審核；兩處各寫一份遲早分歧 |
+| 同意提案／驗收／退回之後走 `agentAfterStateWrite()`：**先 `flushPendingWrites()` 並等推送結束**、再 `cloudRefresh(true)`、再重讀收件匣與日誌；只回答問題（state 沒變）走 `agentAfterAnswer()` | 伺服器端的寫入改的是雲端那一份，本機沒推上去的修改要先對齊，否則下一次推送撞 409 |
+| **開著的頁面要跟上**：`GET /api/state/version`（只回 `updatedAt`、`latestEventAt` 兩個數字）每 30 秒輪詢，**只在專案頁／項目安排、分頁看得見、線上、沒有推送進行中時問**；有新東西**不自動重畫**，只出現一條「agent 剛更新了 · 更新畫面」（`.agent-live.off`），按了才 `cloudRefresh(true)` | 使用者可能正在打字（同〈表格不重建〉）。`latestEventAt` **只算 agent 那一側**（`actor != 'user'`，使用者自己的回答／驗收不能觸發「agent 剛更新了」）並把新提案也算進去（提案不改 state 也不寫日誌）；只有資料版本變、沒有新動靜時文字改成「雲端資料剛被更新了」（被分享者勾選、另一台裝置也會讓版本變） |
+| 回到前景：收件匣與日誌沿用 `cloudRefresh` 的 30 秒節流（同一個常數 `CLOUD_REFRESH_MIN_MS`）；啟動時在 `initCloudSync` 同步完成之後讀收件匣、建立版本基準、啟動輪詢 | 回到前景不該每次都打伺服器 |
+| 連線設定在「連線」那一列上（模式／驗收／暫停三顆 toggle，文字講「現在是什麼」），`paused_reason` 說人話：`auto`＝「一小時內被復原 5 次，已自動暫停」、`missing`＝「找不到設定，先當成暫停」（按恢復會補上設定）；「暫停所有 agent」全部暫停後變成「恢復所有」；**一次性的「連線現在多了…」說明**看過才收起來，記在 `localStorage['workSchedule.v1.agentCapsSeen']`（顯示偏好，不進 `snapshot()`） | 已連上的 agent 自動拿到新工具、不叫人重新授權（那只會訓練人閉著眼睛按同意），但要讓人知道 |
+| 匯出備份多一個 `agentEvents` 區塊（向伺服器要；離線或失敗只 `console.warn` 略過，逾時 2 秒免得下載被瀏覽器擋）；**匯入不會寫回去，確認對話框會講「備份檔裡的 N 筆 agent 進展日誌不會匯入」** | 日誌只能加、不能改：匯入等於讓人能偽造「當時 agent 說過什麼」 |
+
+**通知（5-2）**：agent 提問或提案時寄信（有 device token 也推播），`notifyAgentAsk(env, userId, projectId, actor)`。
+
+| 決定 | 理由 |
+|---|---|
+| **訂閱信**（`kind='agent'`，不在 `TX_KINDS`），帶退訂連結與 `List-Unsubscribe`，退訂 `kind=agent` 只關 `agent_notify` 這一顆；第六顆開關在「我的帳號」通知區，`POST /api/reminder` 的 `agentNotify` 沒帶就沿用，「全部都不要了」會一起關它；沒有 `reminder_feed` 那一列＝開（通知時順手建一列，退訂 token 才有地方存） | 與另外五顆互不連坐（連坐正是 Gmail 那顆按鈕犯的錯） |
+| **信、主旨、推播都不放問題或提案的全文**（連選項也不放），只有「<連線名稱> 在「<專案名>」等你決定 N 件事」＋連結；連線名稱是外部字串，去換行、截 60 字、HTML 跳脫 | agent 寫的外部內容可能含機敏資訊，鎖定畫面別人也看得到 |
+| 同一專案 30 分鐘內最多一封，多的累計在 `agent_notify_state.pending`；**先用 `last_sent_at` 的 compare-and-swap「領走」再送**，送失敗把它還原（等於沒寫）、送成功才扣掉這一批的 pending；兩個管道（信、推播）各自獨立，**至少一個送到才算成功** | agent 一次平行問三題不該是三封信；沒送成功就不算送過（同 `last_sent_ymd`） |
+| 休假那天只累計不送（cron 當天也不補，休假結束後補「還有 N 件」）；開關關著完全不動（cron 會把 pending 清掉，再打開時不該收到過期的信） | 同〈休假那幾天閉嘴〉 |
+| **通知寄不出去永遠只 `console.warn`，不讓 agent 的提問變成錯誤**；有 `waitUntil` 就丟背景（不拖慢工具回應）、沒有（測試）就等它跑完 | 提問已經寫進資料庫了，回錯誤會讓 agent 重送而問兩次 |
+| 自動暫停的那一刻寄一封（同開關、**不套 30 分鐘節流、休假那天照送**）：它一條連線一小時最多一次，而且是「你的 agent 被停住了」的安全事件，不是「又有事要你做」 | 受開關控制；這是少數例外於〈休假那幾天閉嘴〉的地方，改之前先想過 |
+| cron 的獨立一步 `agent_notify`（`sendAgentNotifyPending`），回傳含 `errors[]`，`step()` 因此不會把失敗記成乾淨的成功 | 同 `sendOverdueReminders` |
+
+**驗證**：`tests/agent-notify.test.mjs`；`tools/smoke.mjs` 與 `tools/check-contrast.mjs` 的 agent 工作區那一段（見工具表）。真機／真信箱沒驗：寄出去的信長什麼樣、List-Unsubscribe 在 Gmail 上是否出現「取消訂閱」，要上線後用真的連線問一個問題看。
 
 ## 推播（子專案 B，`src/apns.js` + `src/handlers/push.js`）
 
@@ -1031,7 +1066,7 @@ cd mobile/ios/App && xcodebuild -scheme App -sdk iphonesimulator -configuration 
 | **410／`BadDeviceToken` 當場刪掉那個 token**；5xx 留著 | 不刪的話這張表會慢慢長滿再也送不到的 token，而每天都會為它們各打一次 API。一次 5xx 不代表這支手機不見了 |
 | `device_tokens.token` 是**主鍵**，換人登入 `ON CONFLICT DO UPDATE` 整列搬過去 | 允許一個 token 對兩個 user 的話，前一位使用者的排程會推到現在這個人的鎖定畫面上——那是資料外洩，不是重複資料 |
 | **沒事就完全不推**（三種都是） | 一封沒事的信只是多一列未讀；一則沒事的推播會震動手機，然後人會把通知整個關掉，真的有事時什麼都收不到 |
-| 三個開關**各自獨立**，且與 email 的兩個也獨立 | 畫面上就是五顆按鈕。關掉逾期信不代表不想要逾期推播 |
+| 三個開關**各自獨立**，且與 email 的兩個也獨立 | 畫面上是六顆按鈕（兩封信、三種推播、agent 通知）。關掉逾期信不代表不想要逾期推播 |
 | **送失敗刻意不寫 `push_*_ymd`** | 沒送成功就不算推過，下一次排程要能補。同 `last_sent_ymd` |
 | APNs JWT **快取 50 分鐘** | Apple 要求同一把金鑰至少 20 分鐘才換一次、上限 60 分鐘，換太勤會被擋（`TooManyProviderTokenUpdates`） |
 | 失敗時**一定要把 APNs 的 `reason` 讀出來** | 只記狀態碼的話「金鑰不對」與「token 不對」看起來一模一樣。同 AgentMail 那條 |

@@ -228,6 +228,8 @@ CREATE TABLE IF NOT EXISTS reminder_feed (
   --
   -- 可為 NULL：既有的列不必回填，第一次要寄信時才產生。
   unsub_token   TEXT,
+  -- 第六顆通知開關（1B）：agent 問我問題（或提案）時通知我。與另外五顆互不連坐，預設開。
+  agent_notify  INTEGER NOT NULL DEFAULT 1,
   updated_at    INTEGER NOT NULL
 );
 
@@ -531,3 +533,14 @@ CREATE TABLE IF NOT EXISTS mcp_proposals (
   decided_at  INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_mcp_proposals_user ON mcp_proposals(user_id, status);
+
+-- agent 通知的節流（1B）：同一個專案 30 分鐘內最多一封，多的併進 pending。
+-- last_sent_at 只在送成功時寫；project_id 為 '' 代表不屬於任何專案的提案。
+CREATE TABLE IF NOT EXISTS agent_notify_state (
+  user_id      TEXT NOT NULL,
+  project_id   TEXT NOT NULL,
+  last_sent_at INTEGER,
+  pending      INTEGER NOT NULL DEFAULT 0,
+  actor        TEXT,
+  PRIMARY KEY (user_id, project_id)
+);

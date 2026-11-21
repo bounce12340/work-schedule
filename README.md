@@ -205,7 +205,9 @@ APP_URL=<optional>
 - Sign in with OAuth (the agent opens an "Allow" page) or a personal API key from **My account › Connect AI agents**
 - Every change an agent makes is listed on the account page with a one-tap **Undo**; undo refuses if you've edited that item since
 - Agents can also keep a **project log** (progress, hand-off notes, questions to you), propose changes for you to approve (**review first** mode), and mark work as **awaiting your acceptance** instead of done; you can pause any connection at any time
-- Run `migrations/015-mcp.sql`, `016-mcp-requests.sql` and `017-agent-workspace.sql` before deploying. Design: [`docs/superpowers/specs/2026-11-20-mcp-server.md`](docs/superpowers/specs/2026-11-20-mcp-server.md)
+- On the **project page** you get a collapsible **project brief** (plain-text rules your agent reads first), a **latest progress** timeline (you can redact an entry, never edit it), per-task **status** badges (in progress / blocked / waiting / awaiting review) and a **Waiting for you** inbox at the top of the schedule tab: tap an option to answer a question, approve or reject a proposal (shown as before → after, never raw JSON), accept or send back finished work. A slim bar says "your agent just updated things" instead of redrawing under your cursor
+- Connection settings (direct vs review-first, "done needs my review", pause one / pause all) live on the account page; a sixth notification switch emails you (and pushes, in the app) when an agent asks something — the message never contains the question itself, at most one per project every 30 minutes, none on leave days
+- Run `migrations/015-mcp.sql`, `016-mcp-requests.sql`, `017-agent-workspace.sql` and `018-agent-notify.sql` before deploying. Design: [`docs/superpowers/specs/2026-11-20-mcp-server.md`](docs/superpowers/specs/2026-11-20-mcp-server.md)
 
 ### 🔗 Sharing (after deployment)
 

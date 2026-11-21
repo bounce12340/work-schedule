@@ -320,7 +320,7 @@ async function callTool(env, ctx, name, args) {
     case 'undo_change': {
       // review 模式：復原也是寫入。連線設成要審核的人不會希望 agent 自己改回去——請他在「我的帳號」操作
       if (ctx.mode === 'review') throw new S.ToolError('這條連線設成「先審核」：不能自己復原，請使用者在「我的帳號」裡操作');
-      const r = await undoChange(env, user, String(a.changeId || ''), actor, ctx.connId);
+      const r = await undoChange(env, user, String(a.changeId || ''), actor, ctx.connId, ctx);
       return { changeId: r.changeId, summary: r.change.summary, ...(r.autoPaused ? { note: '這條連線一小時內被復原太多次，已自動暫停寫入' } : {}) };
     }
     default:
@@ -393,7 +393,7 @@ function unauthorized(request, message) {
 }
 
 /** POST /mcp（GET 回 405：這個伺服器不推送事件，沒有 SSE 串流可開）。 */
-export async function handleMcp(request, env) {
+export async function handleMcp(request, env, execCtx = null) {
   if (request.method === 'OPTIONS') return mcpPreflight();
   if (request.method !== 'POST') return json({ error: 'Method Not Allowed' }, 405, { ...CORS, Allow: 'POST' });
 
@@ -437,7 +437,9 @@ export async function handleMcp(request, env) {
         if (WRITE_TOOLS.has(name) && conn.paused) {
           return json(rpcResult(id, toolText({ error: '擁有者暫停了這條連線：現在只能讀、不能寫（日誌、提問、提案也一樣）。' }, true)), 200, CORS);
         }
-        const ctx = { user: auth.user, actor: auth.actor, connId: auth.connId, mode: conn.mode, needsAcceptance: conn.needsAcceptance };
+        // waitUntil：通知（信、推播）丟到背景跑，不拖慢工具的回應；沒有（測試）就等它跑完
+        const ctx = { user: auth.user, actor: auth.actor, connId: auth.connId, mode: conn.mode, needsAcceptance: conn.needsAcceptance,
+          waitUntil: execCtx && typeof execCtx.waitUntil === 'function' ? p => execCtx.waitUntil(p) : null };
         const out = WRITE_TOOLS.has(name)
           ? await withRequestId(env, auth.user, name, args || {}, () => callTool(env, ctx, name, args))
           : await callTool(env, ctx, name, args);
