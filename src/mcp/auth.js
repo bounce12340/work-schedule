@@ -11,6 +11,7 @@ import { sha256, generateToken } from '../crypto.js';
 import { getSessionUser } from '../session.js';
 import { json } from '../handlers/auth.js';
 import { planOf } from '../plan.js';
+import { createConnection } from './store.js';
 
 export const ACCESS_TTL_MS = 60 * 60 * 1000;          // OAuth access token：1 小時
 export const REFRESH_TTL_MS = 60 * 24 * 3600 * 1000;  // refresh token：60 天
@@ -27,7 +28,7 @@ export async function authenticateMcp(request, env) {
   if (!m) return null;
   const hash = await sha256(m[1]);
   const row = await env.DB.prepare(
-    `SELECT t.id AS token_id, t.kind, t.name, t.expires_at, t.last_used_at,
+    `SELECT t.id AS token_id, t.grant_id, t.kind, t.name, t.expires_at, t.last_used_at,
             u.id, u.email, u.role, u.status, u.created_at, u.plan_source, u.plan_expires_at
        FROM mcp_tokens t JOIN users u ON u.id = t.user_id
       WHERE t.token_hash = ? AND t.kind IN ('key', 'oauth_access')`
@@ -45,6 +46,8 @@ export async function authenticateMcp(request, env) {
   return {
     actor: row.name || (row.kind === 'key' ? '個人金鑰' : 'OAuth'),
     tokenId: row.token_id,
+    // 連線 id：OAuth 是 grant_id（refresh 輪替時不變）、個人金鑰是那一列自己的 id。設定放在連線上，不放 token 上
+    connId: row.grant_id || row.token_id,
     user: {
       id: row.id, email: row.email, role: row.role, status: row.status, createdAt: row.created_at,
       planSource: row.plan_source ?? null, planExpiresAt: row.plan_expires_at ?? null,
@@ -57,15 +60,22 @@ export async function authenticateMcp(request, env) {
 /** GET /api/mcp/connections：我的金鑰與 OAuth 連線。**不回 token 也不回雜湊。** */
 export async function handleListConnections(env, user) {
   const rows = await env.DB.prepare(
-    `SELECT id, kind, name, client_id, created_at, expires_at, last_used_at
-       FROM mcp_tokens WHERE user_id = ? AND kind IN ('key', 'oauth_refresh')
-      ORDER BY created_at DESC`
+    `SELECT t.id, t.kind, t.name, t.client_id, t.created_at, t.expires_at, t.last_used_at, t.grant_id,
+            c.id AS conn_row, c.mode, c.paused, c.needs_acceptance, c.paused_reason
+       FROM mcp_tokens t LEFT JOIN mcp_connections c ON c.id = COALESCE(t.grant_id, t.id) AND c.user_id = t.user_id
+      WHERE t.user_id = ? AND t.kind IN ('key', 'oauth_refresh')
+      ORDER BY t.created_at DESC`
   ).bind(user.id).all();
   return json({
     pro: planOf(user) === 'pro',
     connections: (rows.results || []).map(r => ({
       id: r.id, kind: r.kind === 'key' ? 'key' : 'oauth', name: r.name,
       createdAt: r.created_at, lastUsedAt: r.last_used_at, expiresAt: r.expires_at,
+      // 查不到設定列的連線（理論上 migration 已回填）：agent 那一側被當成暫停，這裡照實說出來
+      mode: r.conn_row ? (r.mode === 'direct' ? 'direct' : 'review') : 'review',
+      paused: r.conn_row ? !!r.paused : true,
+      needsAcceptance: r.conn_row ? !!r.needs_acceptance : true,
+      pausedReason: r.conn_row ? (r.paused_reason || null) : 'missing',
     })),
   });
 }
@@ -85,6 +95,7 @@ export async function handleCreateKey(request, env, user) {
   await env.DB.prepare(
     `INSERT INTO mcp_tokens (id, user_id, kind, token_hash, name, created_at) VALUES (?, ?, 'key', ?, ?, ?)`
   ).bind(id, user.id, await sha256(token), name, now()).run();
+  await createConnection(env, user.id, id);   // 預設 direct、沒暫停；沒有這一列的連線會被當成暫停
   return json({ id, name, token });
 }
 
@@ -102,6 +113,7 @@ export async function handleRevokeConnection(env, user, id) {
   } else {
     await env.DB.prepare('DELETE FROM mcp_tokens WHERE id = ? AND user_id = ?').bind(id, user.id).run();
   }
+  await env.DB.prepare('DELETE FROM mcp_connections WHERE id = ? AND user_id = ?').bind(row.grant_id || row.id, user.id).run();
   return json({ ok: true });
 }
 
@@ -305,8 +317,11 @@ export async function handleToken(request, env) {
     if (row.redirect_uri !== p.get('redirect_uri')) return tokenError('invalid_grant', 'redirect_uri 不符');
     if (await s256(verifier) !== row.code_challenge) return tokenError('invalid_grant', 'PKCE 驗證失敗');
     const client = await loadClient(env, row.client_id);
+    const grantId = crypto.randomUUID();
+    // 授權成功的這一刻建連線的設定列（grant_id 輪替時不變，所以 refresh 那條路不必再建）
+    await createConnection(env, row.user_id, grantId);
     return json(await issueTokens(env, {
-      userId: row.user_id, clientId: row.client_id, clientName: client?.name || 'AI agent', grantId: crypto.randomUUID(),
+      userId: row.user_id, clientId: row.client_id, clientName: client?.name || 'AI agent', grantId,
     }), 200, { ...corsAny, 'Cache-Control': 'no-store' });
   }
 

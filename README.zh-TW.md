@@ -204,7 +204,8 @@ APP_URL=<選填>
 - Claude、ChatGPT 這類 agent 可以透過 `https://<你的網址>/mcp` 讀取並修改排程：列出項目、看到期、新增項目、改日期、勾完成
 - 用 OAuth 登入（agent 會開一個「允許」頁），或在「我的帳號 › 連接 AI agent」建一把個人金鑰
 - agent 改過的每一筆都列在帳號頁，可以一鍵**復原**；那一項你之後自己又改過的話不會被蓋掉
-- 部署前要先跑 `migrations/015-mcp.sql`。設計見 [`docs/superpowers/specs/2026-11-20-mcp-server.md`](docs/superpowers/specs/2026-11-20-mcp-server.md)
+- agent 還能在專案裡寫**進展日誌、交接筆記、向你提問**；你可以把連線設成「**先審核**」（agent 的修改變成提案，同意才生效）、「勾完成要我驗收」，或隨時暫停
+- 部署前要先跑 `migrations/015-mcp.sql`、`016-mcp-requests.sql` 與 `017-agent-workspace.sql`。設計見 [`docs/superpowers/specs/2026-11-20-mcp-server.md`](docs/superpowers/specs/2026-11-20-mcp-server.md)
 
 ### 🔗 分享（部署後才啟用）
 

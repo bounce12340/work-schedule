@@ -20,7 +20,7 @@
  * 備的是什麼
  * ---------------------------------------------------------------------------
  * user_state（排程本體）、users 的帳號欄位（不含 password_hash）、shares（分享
- * 關係）。session、重設連結、登入失敗計數都是短命的執行期資料，還原它們沒有意義。
+ * 關係）、project_events（agent 的進展日誌與提問）、還開著的 mcp_proposals。session、重設連結、登入失敗計數都是短命的執行期資料，還原它們沒有意義。
  *
  * ics_feed 與 reminder_feed 也不備：兩者的內容都是前端每次同步時重新推上來的
  * 衍生資料，還原 user_state 之後使用者一開 app 就會自己補回去。
@@ -44,7 +44,7 @@ function taipeiYmd(nowMs) {
 export async function runBackup(env, nowMs = Date.now()) {
   if (!env.BACKUPS) throw new Error('BACKUPS（R2 bucket）未綁定');
 
-  const [users, states, shares] = await Promise.all([
+  const [users, states, shares, events, proposals] = await Promise.all([
     // 明確列出欄位而不是 SELECT *：日後有人在 users 加了敏感欄位，
     // 不會因為「反正是備份」就悄悄跟著被複製出去
     env.DB.prepare(
@@ -52,6 +52,10 @@ export async function runBackup(env, nowMs = Date.now()) {
     ).all(),
     env.DB.prepare('SELECT user_id, state, updated_at, created_at FROM user_state').all(),
     env.DB.prepare('SELECT * FROM shares').all(),
+    // agent 的進展日誌、提問、決策：只會一直加、而且不在 user_state 裡，不備的話資料庫壞掉就是真的沒了
+    env.DB.prepare('SELECT * FROM project_events').all(),
+    // 提案只備還開著的：已經決定的那些，結果已經在 user_state 裡了
+    env.DB.prepare("SELECT * FROM mcp_proposals WHERE status = 'open'").all(),
   ]);
 
   const payload = {
@@ -63,6 +67,8 @@ export async function runBackup(env, nowMs = Date.now()) {
     users: users.results || [],
     userState: states.results || [],
     shares: shares.results || [],
+    projectEvents: events.results || [],
+    mcpProposals: proposals.results || [],
   };
 
   // 空的備份一定是出了問題（至少要有建立備份的那個管理者）。與其存下一份空檔案
@@ -86,6 +92,8 @@ export async function runBackup(env, nowMs = Date.now()) {
     users: payload.users.length,
     states: payload.userState.length,
     shares: payload.shares.length,
+    projectEvents: payload.projectEvents.length,
+    openProposals: payload.mcpProposals.length,
     pruned,
   };
 }

@@ -11,6 +11,11 @@
  */
 
 export const TYPES = ['work', 'meeting', 'assignment'];
+/** 與 index.html 的 TASK_STATUSES 同一份清單（測試比對兩邊）。 */
+export const TASK_STATUSES = ['todo', 'doing', 'blocked', 'waiting', 'review'];
+/** 項目欄位的白名單（server.js 的 itemFields 是同一份 key，測試比對）。 */
+export const ITEM_KEYS = ['title', 'date', 'type', 'endDate', 'meetingTime', 'majorProjectId', 'link', 'noticeOnly', 'tags', 'recurrence'];
+const MAX_NOTE = 200, MAX_TODO_TEXT = 500, MAX_TODOS = 200, MAX_LOG = 2000;
 const FREQS = ['monthly', 'quarterly', 'weekly', 'biweekly', 'yearly'];
 const MAX_TITLE = 200;
 const MAX_TAGS = 12, MAX_TAG_LEN = 24;
@@ -269,7 +274,8 @@ export function listGantt(state) {
     id: gp.id, name: gp.name,
     tasks: (gp.tasks || []).map(t => ({
       id: t.id, name: t.name, start: t.start, end: t.end, progress: t.progress, done: !!t.done,
-      todos: (t.todos || []).map(td => ({ id: td.id, text: td.text, done: !!td.done })),
+      status: TASK_STATUSES.includes(t.status) ? t.status : 'todo', blockedNote: t.blockedNote || '',
+      todos: (t.todos || []).map(td => ({ id: td.id, text: td.text, done: !!td.done, review: !!td.review && !td.done })),
     })),
   }));
 }
@@ -289,22 +295,45 @@ export function addGanttTask(state, projectId, f) {
   const gp = findGantt(s, projectId);
   if (!isYmd(f.start) || !isYmd(f.end)) fail('start 與 end 要是 YYYY-MM-DD');
   if (f.end < f.start) fail('end 不可以早於 start');
-  const t = { id: uid('task'), name: cleanTitle(f.name), start: f.start, end: f.end, progress: 0, done: false, todos: [] };
+  const t = { id: uid('task'), name: cleanTitle(f.name), start: f.start, end: f.end, progress: 0, done: false, todos: [], status: 'todo', blockedNote: '' };
   gp.tasks.push(t);
   return { state: s, change: { kind: 'ganttTask', id: taskRef(gp.id, t.id), before: null, after: clone(t), summary: `在「${gp.name}」新增任務「${t.name}」` } };
 }
+
+/** 舊存檔的任務沒有新欄位：改它之前先補齊（補在 before 快照之前，復原時不會把補的欄位當成「這一筆改的」）。 */
+function ensureTaskShape(t) {
+  if (!TASK_STATUSES.includes(t.status)) t.status = 'todo';
+  if (typeof t.blockedNote !== 'string') t.blockedNote = '';
+  t.todos = Array.isArray(t.todos) ? t.todos : [];
+  for (const td of t.todos) td.review = !!td.review && !td.done;
+}
+
+function cleanNote(v) {
+  return String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, MAX_NOTE);
+}
+
+/** 與 index.html 的 todoProgress／syncTaskFromTodos 同一個算法。 */
+const todoProgress = todos => (todos.length ? Math.round(todos.filter(td => td.done).length / todos.length * 100) : 0);
+function syncTaskFromTodos(t) {
+  if (!t.todos.length) return;
+  t.progress = todoProgress(t.todos);
+  t.done = t.todos.every(td => td.done);
+}
+/** 有效的完成：有子待辦時由子待辦算（同前端），否則看 done。 */
+export const effectiveDone = t => (Array.isArray(t.todos) && t.todos.length ? t.todos.every(td => td.done) : !!t.done);
 
 export function updateGanttTask(state, projectId, taskId, f) {
   const s = ensureState(clone(state));
   const gp = findGantt(s, projectId);
   const t = gp.tasks.find(x => x.id === taskId);
   if (!t) fail('找不到這個 taskId');
+  ensureTaskShape(t);
   const before = clone(t);
   if ('name' in f) t.name = cleanTitle(f.name);
   if ('start' in f) { if (!isYmd(f.start)) fail('start 要是 YYYY-MM-DD'); t.start = f.start; }
   if ('end' in f) { if (!isYmd(f.end)) fail('end 要是 YYYY-MM-DD'); t.end = f.end; }
   if (t.end < t.start) fail('end 不可以早於 start');
-  const hasTodos = Array.isArray(t.todos) && t.todos.length > 0;
+  const hasTodos = t.todos.length > 0;
   // 有子項目時進度由子項目算出（同 normalizeGanttProjects），兩個來源並存必定不一致
   if (('progress' in f || 'done' in f) && hasTodos) fail('這個任務有子項目：進度由子項目決定，不能直接改');
   if ('progress' in f) {
@@ -312,7 +341,205 @@ export function updateGanttTask(state, projectId, taskId, f) {
     t.progress = p; t.done = p === 100;
   }
   if ('done' in f) { t.done = !!f.done; if (t.done) t.progress = 100; }
+  // 狀態只是另一欄：不動 done 與進度，也**不豁免逾期**（卡住的事照樣會遲交）
+  if ('status' in f) {
+    if (!TASK_STATUSES.includes(f.status)) fail(`status 只能是 ${TASK_STATUSES.join(' / ')}`);
+    t.status = f.status;
+    // 換成別的狀態時，上一個狀態留下的原因不該留著（blocked／waiting 才有原因）
+    if (!('blockedNote' in f) && f.status !== 'blocked' && f.status !== 'waiting') t.blockedNote = '';
+  }
+  if ('blockedNote' in f) t.blockedNote = cleanNote(f.blockedNote);
+  if (t.status === 'blocked' && !t.blockedNote) fail('blocked 一定要帶一句原因（blockedNote）：「卡住了」沒有原因等於沒說');
   return { state: s, change: { kind: 'ganttTask', id: taskRef(gp.id, t.id), before, after: clone(t), summary: `修改任務「${t.name}」` } };
+}
+
+/** 新增或修改任務底下的一個子待辦；有子待辦時任務的進度與完成由它們算出（同前端）。 */
+export function upsertTaskTodo(state, projectId, taskId, f) {
+  const s = ensureState(clone(state));
+  const gp = findGantt(s, projectId);
+  const t = gp.tasks.find(x => x.id === taskId);
+  if (!t) fail('找不到這個 taskId');
+  ensureTaskShape(t);
+  const before = clone(t);
+  const cleanText = v => {
+    const x = String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, MAX_TODO_TEXT);
+    if (!x) fail('text 不可以是空的');
+    return x;
+  };
+  let todo;
+  if (f.todoId) {
+    todo = t.todos.find(x => x.id === f.todoId);
+    if (!todo) fail('找不到這個 todoId');
+    if ('text' in f) todo.text = cleanText(f.text);
+    if ('done' in f) todo.done = !!f.done;
+  } else {
+    if (!('text' in f)) fail('新增子待辦要帶 text');
+    if (t.todos.length >= MAX_TODOS) fail(`一個任務最多 ${MAX_TODOS} 個子待辦`);
+    todo = { id: uid('todo'), text: cleanText(f.text), done: !!f.done, review: false };
+    t.todos.push(todo);
+  }
+  if (todo.done) todo.review = false;
+  syncTaskFromTodos(t);
+  return { state: s, change: { kind: 'ganttTask', id: taskRef(gp.id, t.id), before, after: clone(t), summary: `${f.todoId ? '修改' : '新增'}任務「${t.name}」的子待辦「${todo.text}」` } };
+}
+
+export function createGanttProject(state, name) {
+  const s = ensureState(clone(state));
+  const gp = { id: uid('gp'), name: cleanTitle(name), notes: '', pet: null, brief: '', tasks: [] };
+  s.ganttProjects.push(gp);
+  return { state: s, change: { kind: 'ganttProject', id: gp.id, before: null, after: clone(gp), summary: `新增專案「${gp.name}」` } };
+}
+
+const escHtml = v => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+/** 每日記錄：**只能附加**在當天既有內容後面，不能蓋掉使用者寫的（內容是 HTML，所以逐行跳脫後包成 <p>）。 */
+export function writeDailyLog(state, text, todayYmd) {
+  const s = ensureState(clone(state));
+  const lines = String(text == null ? '' : text).replace(/\r\n?/g, '\n').replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, ' ')
+    .split('\n').map(x => x.trim()).filter(Boolean);
+  const joined = lines.join('\n');
+  if (!joined) fail('text 不可以是空的');
+  if (joined.length > MAX_LOG) fail(`text 最多 ${MAX_LOG} 字`);
+  s.dailyLogs = (s.dailyLogs && typeof s.dailyLogs === 'object') ? s.dailyLogs : {};
+  const before = typeof s.dailyLogs[todayYmd] === 'string' ? s.dailyLogs[todayYmd] : null;
+  const after = (before || '') + lines.map(l => `<p>${escHtml(l)}</p>`).join('');
+  s.dailyLogs[todayYmd] = after;
+  return { state: s, change: { kind: 'dailyLog', id: todayYmd, before, after, summary: `在 ${todayYmd} 的每日記錄後面附加一段` } };
+}
+
+// ------------------------------------------------------------ 待驗收（連線開著「勾完成要我驗收」）
+
+/**
+ * 寫入**之後、存檔之前**比一次：這次寫入讓哪些甘特任務的「有效完成」從假變成真？
+ * 那些任務一律不准變成完成，改標 status='review'：
+ *   - 沒有子待辦：done 維持 false（進度最多 99，免得進度條滿了卻沒完成）
+ *   - 有子待辦：done 是由子待辦算出來的，所以只攔 set_done 沒用——把這次寫入新勾完的子待辦裡
+ *     最後一個退回未完成、標 review=true（畫面上是一個半勾），任務才不會算成完成
+ * 判斷只寫在這一個地方、掛在共用的寫入路徑上，不在每個工具各寫一次（同 isActionable）。
+ * 回 { state, changes, events }：changes 裡對應那個任務的 after 改成最終的樣子（復原才對得上），
+ * events 是要寫進進展日誌的「請驗收」。
+ */
+export function applyAcceptance(prevState, nextState, changes) {
+  const s = clone(nextState);
+  const prevProjects = new Map(((prevState && prevState.ganttProjects) || []).map(g => [g.id, g]));
+  const out = changes.map(c => ({ ...c }));
+  const events = [];
+  for (const gp of s.ganttProjects || []) {
+    const prevGp = prevProjects.get(gp.id);
+    const prevTasks = new Map(((prevGp && prevGp.tasks) || []).map(t => [t.id, t]));
+    for (const t of gp.tasks || []) {
+      const prev = prevTasks.get(t.id);
+      if (!(!(prev && effectiveDone(prev)) && effectiveDone(t))) continue;
+      t.todos = Array.isArray(t.todos) ? t.todos : [];
+      if (t.todos.length) {
+        const prevDone = new Set(((prev && prev.todos) || []).filter(td => td.done).map(td => td.id));
+        const newly = t.todos.filter(td => td.done && !prevDone.has(td.id));
+        const hold = newly.length ? newly[newly.length - 1] : t.todos[t.todos.length - 1];
+        hold.done = false; hold.review = true;
+        t.progress = todoProgress(t.todos);
+        t.done = false;
+      } else {
+        t.done = false;
+        t.progress = Math.min(parseInt(t.progress) || 0, 99);
+      }
+      t.status = 'review';
+      const id = taskRef(gp.id, t.id);
+      let idx = -1;
+      out.forEach((c, i) => { if (c.kind === 'ganttTask' && c.id === id) idx = i; });
+      if (idx >= 0) out[idx].after = clone(t);
+      else out.push({ kind: 'ganttTask', id, before: prev ? clone(prev) : null, after: clone(t), summary: `待驗收「${t.name}」` });
+      events.push({ projectId: gp.id, taskId: t.id, body: `請驗收：「${t.name}」（agent 說做完了，要你確認才算數）` });
+    }
+  }
+  return { state: s, changes: out, events };
+}
+
+/** 擁有者按「驗收通過」：真的完成。待驗收的子待辦勾起來；沒有被標記的（agent 手動標 review）就整個任務完成。 */
+export function acceptTask(state, projectId, taskId) {
+  const s = ensureState(clone(state));
+  const gp = findGantt(s, projectId);
+  const t = gp.tasks.find(x => x.id === taskId);
+  if (!t) fail('找不到這個任務');
+  ensureTaskShape(t);
+  if (t.status !== 'review') fail('這個任務不在待驗收');
+  if (t.todos.length) {
+    const flagged = t.todos.filter(td => td.review);
+    for (const td of (flagged.length ? flagged : t.todos)) { td.done = true; td.review = false; }
+    syncTaskFromTodos(t);
+  } else { t.done = true; t.progress = 100; }
+  t.status = 'todo';
+  return { state: s, taskName: t.name };
+}
+
+/** 退回：變回進行中，待驗收的旗標清掉（子待辦維持未完成）。 */
+export function rejectTask(state, projectId, taskId) {
+  const s = ensureState(clone(state));
+  const gp = findGantt(s, projectId);
+  const t = gp.tasks.find(x => x.id === taskId);
+  if (!t) fail('找不到這個任務');
+  ensureTaskShape(t);
+  if (t.status !== 'review') fail('這個任務不在待驗收');
+  for (const td of t.todos) td.review = false;
+  t.status = 'doing';
+  return { state: s, taskName: t.name };
+}
+
+/** 專案與任務存不存在（寫進展日誌前的檢查：沒有外鍵可擋，不檢查會留下永遠解析不到的孤兒）。 */
+export function lookupProject(state, projectId, taskId) {
+  const gp = state && Array.isArray(state.ganttProjects) ? state.ganttProjects.find(g => g.id === projectId) : null;
+  if (!gp) fail('找不到這個 projectId（先用 list_gantt_projects 查）');
+  let task = null;
+  if (taskId != null && taskId !== '') {
+    task = (gp.tasks || []).find(t => t.id === taskId);
+    if (!task) fail('這個專案裡找不到這個 taskId');
+  }
+  return { project: gp, task };
+}
+
+// ------------------------------------------------------------ 提案的前後對照
+
+const FIELD_LABELS = {
+  title: '標題', date: '日期', type: '類型', endDate: '結束日', meetingTime: '時間', parentId: '大項目', link: '連結',
+  noticeOnly: '純告知', tags: '標籤', recurrence: '循環', done: '完成', name: '名稱', start: '開始', end: '結束',
+  progress: '進度', status: '狀態', blockedNote: '原因', todos: '子待辦',
+};
+const shortVal = v => {
+  if (v === undefined || v === null) return null;
+  const t = typeof v === 'string' ? v : JSON.stringify(v);
+  return t.length > 200 ? t.slice(0, 200) + '…' : t;
+};
+
+function entityLabel(change, ...states) {
+  const e = change.after || change.before || {};
+  if (change.kind === 'item') return `項目「${e.title}」`;
+  if (change.kind === 'majorProject') return `大項目「${e.name}」`;
+  if (change.kind === 'ganttProject') return `專案「${e.name}」`;
+  if (change.kind === 'dailyLog') return `每日記錄 ${change.id}`;
+  if (change.kind === 'ganttTask') {
+    const gpId = String(change.id).split('/')[0];
+    for (const st of states) {
+      const gp = st && (st.ganttProjects || []).find(g => g.id === gpId);
+      if (gp) return `專案「${gp.name}」的任務「${e.name}」`;
+    }
+    return `任務「${e.name}」`;
+  }
+  return String(change.id);
+}
+
+/** 把一批 change 攤成使用者看得懂的對照：{ entity, field, before, after }（不是 JSON 整包）。 */
+export function describeChanges(changes, ...states) {
+  const rows = [];
+  for (const c of changes) {
+    const entity = entityLabel(c, ...states);
+    if (c.before == null && c.after == null) continue;
+    if (c.kind === 'dailyLog') { rows.push({ entity, field: '內容', before: shortVal(c.before), after: shortVal(c.after) }); continue; }
+    if (c.before == null) { rows.push({ entity, field: '新增', before: null, after: c.summary }); continue; }
+    if (c.after == null) { rows.push({ entity, field: '刪除', before: c.summary, after: null }); continue; }
+    const keys = [...new Set([...Object.keys(c.before), ...Object.keys(c.after)])]
+      .filter(k => stableStringify(c.before[k]) !== stableStringify(c.after[k]));
+    for (const k of keys) rows.push({ entity, field: FIELD_LABELS[k] || k, before: shortVal(c.before[k]), after: shortVal(c.after[k]) });
+  }
+  return rows;
 }
 
 // ------------------------------------------------------------ 復原
@@ -327,6 +554,7 @@ export function stableStringify(v) {
 function locate(s, change) {
   if (change.kind === 'item') return { list: s.items, id: change.id };
   if (change.kind === 'majorProject') return { list: s.majorProjects, id: change.id };
+  if (change.kind === 'ganttProject') return { list: s.ganttProjects, id: change.id };
   if (change.kind === 'ganttTask') {
     const [gpId, taskId] = change.id.split('/');
     const gp = s.ganttProjects.find(g => g.id === gpId);
@@ -354,6 +582,13 @@ function locate(s, change) {
  */
 export function revertChange(state, change) {
   const s = ensureState(clone(state));
+  if (change.kind === 'dailyLog') {                      // 每日記錄是一個 ymd → HTML 的地圖，不是清單
+    s.dailyLogs = (s.dailyLogs && typeof s.dailyLogs === 'object') ? s.dailyLogs : {};
+    const cur = typeof s.dailyLogs[change.id] === 'string' ? s.dailyLogs[change.id] : null;
+    if (cur !== change.after) fail('這一天的每日記錄之後又被改過了，自動復原會蓋掉後來的修改，所以沒有動它');
+    if (change.before == null) delete s.dailyLogs[change.id]; else s.dailyLogs[change.id] = change.before;
+    return s;
+  }
   const { list, id } = locate(s, change);
   const idx = list.findIndex(x => x.id === id);
   const current = idx >= 0 ? list[idx] : null;
