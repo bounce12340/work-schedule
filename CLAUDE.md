@@ -74,6 +74,7 @@ mobile/                iOS app 外殼（Capacitor；自己的 package.json，見
 | `tests/mcp.test.mjs` | MCP：401 帶 `WWW-Authenticate`、非 Pro 擋、金鑰只存雜湊、**伺服器建的項目與前端 `normalizeItems` 逐欄相同**、改頻率清完成、復原（**細到欄位**：同一任務連寫三次可任意順序各自復原、使用者改了別的欄位不擋、**改了同一欄才拒絕**）、**`requestId` 防重複**（同 id 回上一次的結果、指紋不同擋、失敗還位子、處理中、兩個使用者互不影響）、跨帳號隔離、競態重試、OAuth 全流程（PKCE、code 單次、open redirect、免費帳號 402、refresh 輪替與撤銷） | 直接 import Worker 端模組；前端的 `normalizeItems`／`normalizeRecurrence`／`stableStringify` 從 `index.html` 抽出來比 |
 | `tests/agent.test.mjs` | agent 工作區（第一批）：**伺服器建的甘特專案／任務／子待辦與前端 `normalizeGanttProjects` 逐欄相同**、agent 寫的狀態走一次真的 `applySnapshot`→`snapshot`、連線設定（**OAuth 換 token 之後 review 仍在**、**查不到設定＝暫停**、migration 回填、暫停擋每一個寫入工具、5 次復原自動暫停）、review 模式（**資料一個位元都沒變**、日誌不受審核擋、同意在當下資料上套、**一項套不上去整份不套 stale**、同意的競態、兩台同時同意只套一次、20 份上限、跨帳號）、待驗收（set_done／進度 100／**一個一個勾子待辦**都攔、驗收／退回、提案同意時也攔、可復原）、日誌（署名由伺服器填、200／天、2000 字、只能加、遮蔽只有擁有者、**Pro 到期擁有者照樣讀與回答**、跨帳號）、專案消失 30 天才清（**讀不到 state 不算消失**）、備份與刪帳號 | 直接 import Worker 端模組；前端的 `normalizeGanttProjects`／`applySnapshot`／`snapshot` 從 `index.html` 抽出來比（`todoProgress` 單獨抽那一個純函式）；競態用既有的 `env.DB.prepare` 攔截模式 |
 | `tests/agent2.test.mjs` | agent 工作區（第二批 2A）：**新欄位（預估／預測／認領／連結／里程碑）與前端 `normalizeGanttProjects` 逐欄相同**（含舊形狀、壞資料靜靜濾掉、常數兩邊相同、走一次真的 `applySnapshot`→`snapshot`、三方合併里程碑不衝突）、`set_task_estimate`（**`end`／進度／完成一個位元都不動**、預測改了自動寫進展、落在週末／假日清單／休假日只提醒不拒絕）、里程碑（`atRisk` 是算出來的）、**`claim_task`（四種成功／拒絕、24 小時、人手動指派搶不走、注入別人的認領的確定性競態）**、`links`、**`apply_changes`（只寫一次 user_state、全部成功或全部不做、整批復原也全有全無、整批只算一次復原）**、**`dryRun`（state／紀錄／日誌／requestId 一個位元都不動、暫停中可預演）**、`get_changes_since`、**PR（網址白名單、合併不動任務、`source`／時間、300 筆上限、跨帳號）**、**webhook（測試裡自己算真的 HMAC：未知 token 404、簽章錯 401、沒連過的 PR 只忽略不新增、別人的密鑰動不到我的列、`check_run` 不會把單一個通過當整體通過）**、備份不帶 PR 與密鑰 | 直接 import Worker 端模組；前端的正規化從 `index.html` 抽出來比；競態用 `withRaceBeforeFirstUpdate`（同 `state.test.mjs`）；十七種突變各自驗過會紅 |
+| `tests/agent3.test.mjs` | agent 工作區（第二批 2B）前端那一半的規則：**里程碑的顏色規則前端 `agentMilestoneStatus` 與 `src/mcp/schedule.js` 的 `milestoneStatus` 在兩千多個組合上逐欄相同**（同 `PLAN_LIMITS` 前後端逐字相同那一條）、`lateDays`／`effectiveDone`／認領的 24 小時門檻相同（剛好 24 小時還算新）、證據連結只收 http(s) 且經過 `normalizeGanttProjects` 原樣還在、PR 看板的順序（失敗最前、等你審第二、不改動輸入）、「PR 已合併，要標成完成嗎？」只在已合併／連到任務／任務沒完成時問 | 從 `index.html` 抽〈預測與里程碑（純函式）〉等區段求值；突變驗證過（`>` 改 `>=`、排序權重對調各自會紅） |
 | `tests/agent-notify.test.mjs` | agent 問了問題／提了提案要通知到人（1B）：**信、主旨、HTML、推播裡都不出現問題與提案的全文**（連選項也不放）、連線名稱（外部字串）跳脫、**同一專案 30 分鐘內最多一封、多的併進 pending**、cron 補送「還有 N 件」、**兩個併發的提問只有一封**（`last_sent_at` 的 compare-and-swap）、休假只累計不送（cron 當天也不補，隔天補）、**送失敗不寫 `last_sent_at`**、開關關著不送也不累計、**是訂閱信**（不走交易信的寄件帳號、帶 `List-Unsubscribe`）、**退訂 `kind=agent` 只關這一顆**（反方向也不連坐，一鍵退訂同一支）、`/api/reminder` 的 `agentNotify`（其他五顆的送出不會順手改掉它）、自動暫停的那一刻寄信、通知寄不出去**不能讓 agent 的提問變成錯誤**、`/api/state/version`（只回兩個數字、**使用者自己的回答不算「agent 剛更新了」**、新提案算、別人的不算）、匯出用的日誌端點只回自己的 | 直接 import Worker 端模組，攔 `fetch` 當假的 AgentMail 與 APNs（同 `push.test.mjs`）；七種突變各自驗過會紅 |
 
 前三者的挑選理由：前兩者近乎純函式、零 DOM 依賴；第三者是**競態**——靠併發碰運氣測不到，但可以把空窗做成確定性的。
@@ -107,7 +108,7 @@ npm run db:init:local  # 對本機 miniflare D1 建表（--local 的資料庫與
 npm run db:init        # 對遠端 D1 建表
 npm run admin:reset    # 破窗鎚：直接改密碼（見〈破窗鎚〉）
 npm run deploy         # 部署
-npm test               # 全部測試檔（node:test，不需安裝任何東西；目前 672 個測試）
+npm test               # 全部測試檔（node:test，不需安裝任何東西；目前 682 個測試）
 ```
 
 跑單一測試檔或單一測試（`npm test` 沒有轉發參數的管道，直接用 node）：
@@ -1043,7 +1044,26 @@ cd mobile/ios/App && xcodebuild -scheme App -sdk iphonesimulator -configuration 
 | `project_prs`、`github_hooks` **不進每日備份**；刪帳號清掉兩張表（`tests/account-delete.test.mjs` 兩個人各一份） | 前者是快取（還原出過期的「測試通過」比沒有更糟）；後者是憑證 |
 | 不存 GitHub 的 token、不主動問 GitHub | 兩條路都是對方把資料送過來 |
 
-**驗證**：`tests/agent2.test.mjs`；突變驗證過十七種改法（`end` 被改、claim 條件／stale 判斷拿掉、`casWrite` 不帶版本條件、`apply_changes` 吞掉失敗的操作、dryRun 照樣寫、webhook 簽章不驗／未知 token 不 404／不限 `user_id`／沒連過的也新增、`check_run` 通過算整體通過、`unlink_pr` 不限 `user_id`、批次復原不是全有全無、PR 網址放寬、`claimedAt` 不更新、預測改了不寫進展、備份帶了 `github_hooks`）。真的 GitHub 打進來沒驗（要使用者設一次 webhook 看 `ping`）。**2B 要做的畫面**：預測虛線與「晚 N 天」、里程碑菱形（顏色用 `S.milestoneStatus` 同一條規則）、認領標記與「N 天沒動靜」、證據連結、PR 看板、webhook 設定區。
+**驗證**：`tests/agent2.test.mjs`；突變驗證過十七種改法（`end` 被改、claim 條件／stale 判斷拿掉、`casWrite` 不帶版本條件、`apply_changes` 吞掉失敗的操作、dryRun 照樣寫、webhook 簽章不驗／未知 token 不 404／不限 `user_id`／沒連過的也新增、`check_run` 通過算整體通過、`unlink_pr` 不限 `user_id`、批次復原不是全有全無、PR 網址放寬、`claimedAt` 不更新、預測改了不寫進展、備份帶了 `github_hooks`）。真的 GitHub 打進來沒驗（要使用者設一次 webhook 看 `ping`）。**2B 的畫面已做**（見下一節）。
+
+### agent 工作區的第二批畫面（2B，`index.html` 的〈預測與里程碑（純函式）〉與〈agent 工作區〉區段）
+
+設計文件同上（第二批 6～9、乙 2）。**沒有新的 migration、沒有新的端點**（`GET /api/projects/:pid/prs` 與 `/api/github/hooks` 都是 2A 做好的擁有者端點）。新增的前端函式一律 `agent` 前綴。**所有 agent／GitHub 寫的字（PR 標題、作者、連結標籤、認領署名）一律 `textContent`**；PR 的那一列是 `<a target=_blank rel="noopener noreferrer">`，而且只有 `https://github.com/` 開頭才當連結。
+
+| 決定 | 理由 |
+|---|---|
+| 規則寫成一段**純函式**〈預測與里程碑（純函式）〉（`agentMilestoneStatus`／`agentLateDays`／`agentClaimIdleDays`／`agentCleanLinkUrl`／`agentOrderPrs`／`agentMergedHints`），`tests/agent3.test.mjs` 抽出來與伺服器那一份逐欄比 | 「伺服器說有風險、菱形是灰的」畫面看起來完全正常，只有比對才抓得到；同 `PLAN_LIMITS` |
+| 預測比計畫晚：長條後面接一段**虛線**（`.gantt-forecast`）＋「晚 N 天」；比計畫早：只畫一個細記號；完成的任務不畫。**計畫的長條一個字都沒動**，逾期的長條仍是 `--red`（虛線只是多出來的一段，顏色是 `--forecast-line`，刻意不是紅） | 紅色是逾期專用；預測會晚是另一件事。`smoke` 量逾期長條的計算後背景仍是 `--red`，而且那一列有虛線（先斷言「有虛線」，否則是空斷言） |
+| 時間軸範圍把 `forecastEnd` 與里程碑日也算進去 | 否則虛線與菱形畫到範圍外、捲不到 |
+| 「採用預測」是**人按的**，走 `withUndo`（commit＋六秒內可復原）；預測日早於開始日就不顯示；不打任何伺服器端點 | agent 永遠不改 `end`；同刪除一律可復原 |
+| 里程碑菱形放在專屬的一列（顏色：有風險＝`--ms-risk`＝`--red`、把關的任務都完成＝`--ms-done`、其餘＝`--ms-fill`），名稱的寬度不超過下一顆菱形（擠在一起就省略名稱、`title` 還在） | 疊字比沒有名稱更糟 |
+| 里程碑編輯器（`<details class="agent-brief agent-ms">`，預設收合、摘要列說「N 個，M 個有風險」）：改名稱／日期走**就地更新**（`refreshGanttChart` ＋ `persistSoon`，表格不重建）；新增走 `commit`、刪除走 `deleteWithUndo` | 同〈甘特頁的例外：表格不重建〉。**表格裡既有的 `persist()` 只寫本機、不推雲端**（下一次 commit 才推），新欄位不要沿用，一律 `persistSoon` |
+| 任務卡片底下多一條 `.task-meta`：預估／實際（number，`HOURS_MAX` 界線）、預測那一行（晚／早幾天＋採用預測）、認領徽章（超過 24 小時標「N 天沒動靜」，琥珀色；沒有 `claimedAt` 的人手動指派不標）、證據連結（≤10、只收 http(s)、`＋ 連結` 的小表單、移除走 `deleteWithUndo`） | 主列已經夠擠；`buildTaskTable` 的 `mx.sync()` 在 done／開始／結束日變時更新預測那一行 |
+| PR 看板（`#agentPrs`，專案頁、最新進展下面）：開著的（open＋draft）預設列出，**測試失敗最前（`--red` 左線與字）、「等你審」第二**；已合併／已關閉收著；每列標 `agent 回報／GitHub 通知 · 多久前更新`；**沒有任何合併、留言、關閉的按鈕**（那要存 GitHub token）；離線或失敗只有一行「連線後才看得到」＋ `console.error('agent prs failed')` | 同進展日誌的降級；PR 資料不進 snapshot／localStorage |
+| 「PR 已合併，要標成完成嗎？」放在看板**最上面、不隨已合併區收起**；按「標成完成」才標（`withUndo`）；`refreshGanttChart` 會就地重畫看板，勾掉任務後提示跟著消失 | 合併不等於做完，所以只問；已合併區預設收著，提示若跟著藏起來就看不到 |
+| 帳號頁 `#acctGithub`（雲端模式才顯示，不要求 Pro，因為到期後仍要能移除）：建立／重新產生時網址與密鑰**只存在畫面上**（不進 localStorage／sessionStorage），按「我已複製，收起來」才清掉；重新產生與移除都先 `confirm` | `smoke` 在建立之後傾印兩種儲存，斷言找不到密鑰與網址 token；密鑰框不會被帳號頁的重畫吃掉 |
+
+**驗證**：`tests/agent3.test.mjs`（10 條）；`tools/smoke.mjs`（假後端多了 `/api/projects/:pid/prs`、`/api/github/hooks`，示範資料的 t1 逾期且有預測、t2 晚 5 天、t3 早 4 天、兩個里程碑）斷言：失敗最前／等你審第二／`--red`、新分頁＋noopener、惡意標題不長出 `<img>` 也不執行、已合併區收著、沒有合併／留言按鈕、虛線＋「晚 N 天」＋早的細記號、逾期長條仍是 `--red`、虛線與長條同一個每日像素寬、只有「算出來會趕不上」的菱形是紅的、改里程碑日期不重建表格、認領「3 天沒動靜」、預估存得進去、連結拒絕 `javascript:`、「採用預測」改 `end` 並可復原且不打伺服器、「要標成完成嗎？」只問不自動勾、webhook 設定只顯示一次且不進儲存；`tools/check-contrast.mjs` 主動造出每一種狀態量兩種主題（菱形與虛線另量非文字的 3:1）。量出來改過兩處：暗色下淡紅底上的紅字 4.39:1 → 風險小標改實心紅；暗色琥珀淡底上的 `--text-dim` 3.98:1 → `.acct-gh-secret .ghost-btn` 改 `--text-muted`。突變驗證過：里程碑 `>` 改 `>=`、PR 排序權重對調、PR 標題改 `innerHTML`、逾期長條遇到預測就不畫紅，各自會紅。**沒驗**：真的 GitHub 打進來（要使用者設一次 webhook 看 `ping`）；人沒有編輯認領的入口（過期的認領靠別的 agent 接手，或之後再加「放掉」）。
 
 ### agent 工作區的畫面與通知（第一批 1B，`index.html` 的〈agent 工作區〉區段、`src/handlers/agentnotify.js`）
 

@@ -98,13 +98,23 @@ function seed() {
       // 夥伴那一段只測得到「還沒選」那條分支（兩個任務都沒完成 → baby）
       id: 'g1', name: '官網改版專案', notes: '<p>會議紀要：<b>第一次</b>討論</p>', pet: 'deer',
       tasks: [
+        // 2B：t1 結束日在過去（永遠逾期）而且有預測（forecastEnd 在未來）——「逾期的長條仍然是紅的、虛線只是多出來的一段」
+        // 要靠這個才量得到。認領是剛剛的（不標「沒動靜」）。
         { id: 't1', name: '需求訪談', start: '2026-06-01', end: '2026-08-20', progress: 50, done: false,
-          todos: [{ id: 'd1', text: '訪談業務單位', done: true }, { id: 'd2', text: '整理需求', done: false }] },
+          todos: [{ id: 'd1', text: '訪談業務單位', done: true }, { id: 'd2', text: '整理需求', done: false }],
+          forecastEnd: plusDays(14), assignee: 'Smoke Agent', claimedAt: Date.now() - 3600e3 },
         // t2 的結束日用「今天起算」：agent 工作區那一段要有一個**絕不逾期**的任務才量得到狀態記號
         // （逾期的長條刻意不畫記號，紅色優先）；t1 的結束日在過去，永遠逾期，兩種都有。
         // status:'review'＝agent 說做完了，專案頁的任務列要長出「驗收通過／退回」。
-        { id: 't2', name: '視覺設計', start: '2026-08-15', end: plusDays(120), progress: 0, done: false, todos: [], status: 'review' }
-      ]
+        // 2B：t2 預測比計畫晚 5 天（「晚 5 天」與「採用預測」）、認領了三天沒動靜、帶預估與兩個證據連結
+        { id: 't2', name: '視覺設計', start: '2026-08-15', end: plusDays(120), progress: 0, done: false, todos: [], status: 'review',
+          estimateHours: 8, actualHours: 3, forecastEnd: plusDays(125), assignee: 'Smoke Agent', claimedAt: Date.now() - 3 * 86400e3 - 5000,
+          links: [{ url: 'https://example.com/design', label: '設計稿' }, { url: 'https://example.com/spec', label: '' }] },
+        // 2B：t3 預測比計畫早 4 天（只畫一個細記號，不畫虛線也不標「晚」）
+        { id: 't3', name: '內容撰寫', start: plusDays(1), end: plusDays(30), progress: 0, done: false, todos: [], forecastEnd: plusDays(26) }
+      ],
+      // 2B：「上線」日有 t1 把關而 t1 的預測超過它 → 有風險（紅）；「驗收」遠在後面、預測都趕得上 → 不紅
+      milestones: [{ id: 'm1', name: '上線', date: plusDays(10) }, { id: 'm2', name: '驗收', date: plusDays(200) }]
     }],
     dailyLogs: { '2026-07-15': '<p>今天的記錄</p>' },
     absences: {
@@ -142,6 +152,22 @@ function makeServer(loggedIn, plan = 'pro') {
   const agent = {
     posts: [], eventsFail: false,
     version: { updatedAt: 1, latestEventAt: 5000 },
+    // ---- 2B：PR 看板與 GitHub 通知設定 ----
+    // 開著的三個：測試失敗（78）、等你審（77）、一般的（79，標題是**惡意內文**：外部內容一律 textContent）；
+    // 已合併的（76）連到 t1（還沒完成 → 要問「要標成完成嗎？」）；已關閉的一個。故意打亂順序，驗排序
+    prsFail: false, hookPosts: [], hook: { configured: false, createdAt: null },
+    prs: [
+      { id: 'pr79', number: 79, repo: 'o/r', url: 'https://github.com/o/r/pull/79', projectId: 'g1', taskId: null, branch: 'x', author: 'a',
+        title: '<img src=x onerror="window.__xss2=1">一般的 PR', state: 'open', checks: 'passing', review: 'none', source: 'webhook', updatedAt: T0 - 60000 },
+      { id: 'pr76', number: 76, repo: 'o/r', url: 'https://github.com/o/r/pull/76', projectId: 'g1', taskId: 't1', branch: 'y', author: 'a',
+        title: '已合併的那個 PR', state: 'merged', checks: 'passing', review: 'approved', source: 'agent', updatedAt: T0 - 86400000 },
+      { id: 'pr77', number: 77, repo: 'o/r', url: 'https://github.com/o/r/pull/77', projectId: 'g1', taskId: null, branch: 'z', author: 'a',
+        title: '等審的 PR', state: 'open', checks: 'pending', review: 'pending', source: 'agent', updatedAt: T0 - 3600000 },
+      { id: 'pr78', number: 78, repo: 'o/r', url: 'https://github.com/o/r/pull/78', projectId: 'g1', taskId: 't2', branch: 'w', author: 'a',
+        title: '測試失敗的 PR', state: 'open', checks: 'failing', review: 'none', source: 'webhook', updatedAt: T0 - 7200000 },
+      { id: 'pr70', number: 70, repo: 'o/r', url: 'https://github.com/o/r/pull/70', projectId: 'g1', taskId: null, branch: 'v', author: 'a',
+        title: '關掉的 PR', state: 'closed', checks: 'none', review: 'none', source: 'agent', updatedAt: T0 - 172800000 },
+    ],
     events: [
       mkEv('q1', 'question', '要用哪個方案？', { status: 'open', options: ['甲案', '乙案'], taskId: 't1', ago: 60000 }),
       mkEv('q2', 'question', '截止日要不要延？', { status: 'open', ago: 120000 }),
@@ -230,6 +256,24 @@ function makeServer(loggedIn, plan = 'pro') {
       // agent 工作區（1B）
       if (url.pathname === '/api/agent/inbox') return send(200, { questions: agent.questions, proposals: agent.proposals, review: agent.review, agentAvailable: plan === 'pro' });
       if (url.pathname === '/api/state/version') return send(200, agent.version);
+      {
+        const pm = url.pathname.match(/^\/api\/projects\/([^/]+)\/prs$/);
+        if (pm && req.method === 'GET') {
+          if (agent.prsFail) return send(500, { error: 'boom' });
+          const rows = agent.prs.filter(x => x.projectId === pm[1]);
+          const n = f => rows.filter(f).length;
+          return send(200, { prs: rows, counts: { open: n(r => r.state === 'open' || r.state === 'draft'), merged: n(r => r.state === 'merged'), closed: n(r => r.state === 'closed') } });
+        }
+      }
+      if (url.pathname === '/api/github/hooks') {
+        agent.hookPosts.push(req.method);
+        if (req.method === 'POST') {
+          agent.hook = { configured: true, createdAt: Date.now() };
+          return send(200, { url: 'https://smoke.example/api/github/hook/HOOKTOKEN_SMOKE_0123456789', secret: 'HOOKSECRET_SMOKE_abcdef0123456789', note: '' });
+        }
+        if (req.method === 'DELETE') { agent.hook = { configured: false, createdAt: null }; return send(200, { ok: true }); }
+        return send(200, agent.hook);
+      }
       if (url.pathname === '/api/agent/events/export') return send(200, { events: agent.events });
       {
         const m = url.pathname.match(/^\/api\/projects\/([^/]+)\/events$/);
@@ -498,6 +542,7 @@ async function walk(page, log, plan = 'pro', server = null) {
   // 最新進展要先讓日誌載入**失敗**：離線／連不上時要有一行字，不能留白
   // （console.error 是預期的：collector 在這個旗標開著時放行 'agent events failed'）
   server.agent.eventsFail = true;
+  server.agent.prsFail = true;     // PR 看板同樣要先看過「連不上」的樣子
   await click('#navGantt', '切到專案頁');
   await expectStrip(false, '專案');
   await page.waitForTimeout(400);
@@ -526,7 +571,14 @@ async function walk(page, log, plan = 'pro', server = null) {
       return el && el.querySelector('.agent-line') && !el.querySelector('.agent-ev') && !/載入中|Loading/.test(el.textContent);
     }, null, { timeout: 5000 }).catch(() => { throw new Error('日誌載入失敗時，時間軸沒有那一行「連線後才看得到」'); });
     // 2. 恢復連線 + 回到前景 → 重新載入（順便驗「回到前景會重讀」）
+    // PR 看板連不上：同樣是一行字、沒有任何一列 PR（console.error 是預期的）
+    step = 'PR 看板：載入失敗時要有一行說明';
+    await page.waitForFunction(() => {
+      const el = document.getElementById('agentPrs');
+      return el && el.querySelector('.agent-line') && !el.querySelector('.agent-pr') && !/載入中|Loading/.test(el.textContent);
+    }, null, { timeout: 5000 }).catch(() => { throw new Error('PR 載入失敗時，看板沒有那一行「連線後才看得到」'); });
     A.eventsFail = false;
+    A.prsFail = false;
     step = '最新進展：回到前景後重新載入';
     await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
     await page.waitForFunction(() => document.querySelectorAll('#agentTimeline .agent-ev').length > 0, null, { timeout: 5000 })
@@ -661,6 +713,218 @@ async function walk(page, log, plan = 'pro', server = null) {
     await page.waitForFunction(() => /剛寫的新進展|just wrote/.test(document.getElementById('agentTimeline').textContent), null, { timeout: 4000 })
       .catch(() => { throw new Error('按了「更新畫面」之後，最新進展沒有重新載入'); });
     checked.push('agent 剛更新了(出現/不自動重畫/按了才更新)');
+  }
+
+  // ---- agent 工作區 2B：預測線、里程碑、任務的預估／認領／連結、PR 看板 ----
+  // 這一段是 CLAUDE.md 第 0 條的具體形狀：新的前端函式（agentBuildPrBoard、agentBuildTaskMeta、
+  // agentBuildMilestones…）「函式根本沒被定義」npm test 與 node --check 都抓不到。
+  // 量的都是計算後的樣式與真的 DOM，不看 class；每一條都先斷言「那個東西真的在」，否則斷言會變成空的。
+  {
+    const A = server.agent;
+    const red = () => page.evaluate(() => { const p = document.createElement('i'); p.style.background = 'var(--red)'; document.body.appendChild(p);
+      const c = getComputedStyle(p).backgroundColor; p.remove(); return c; });
+    const redRgb = await red();
+
+    // ===== PR 看板 =====
+    step = 'PR 看板：開著的三個，失敗的最前面、等你審第二';
+    await page.waitForFunction(() => document.querySelectorAll('#agentPrs .agent-pr').length >= 3, null, { timeout: 5000 })
+      .catch(() => { throw new Error('PR 看板沒有畫出開著的 PR（載入失敗之後回到前景沒有重新載入？）'); });
+    const rows = await page.evaluate(() => [...document.querySelectorAll('#agentPrs .agent-pr')].map(r => ({
+      title: r.querySelector('.agent-pr-title').textContent, tag: r.tagName, href: r.getAttribute('href'), target: r.getAttribute('target'),
+      rel: r.getAttribute('rel'), fail: r.classList.contains('fail'), borderLeft: getComputedStyle(r).borderLeftColor,
+      badColor: r.querySelector('.bad') ? getComputedStyle(r.querySelector('.bad')).color : null,
+      meta: r.querySelector('.agent-pr-meta').textContent })));
+    if (rows.length !== 3) throw new Error(`預設只列開著的 3 個，實際 ${rows.length} 個（已合併／已關閉的要收著）`);
+    if (!/測試失敗的 PR/.test(rows[0].title)) throw new Error('測試失敗的 PR 沒有排最前面：' + rows.map(r => r.title).join(' | '));
+    if (!/等審的 PR/.test(rows[1].title)) throw new Error('「等你審」的 PR 沒有排第二：' + rows.map(r => r.title).join(' | '));
+    // 失敗的那一列用 --red（左邊的線與「測試失敗」那幾個字）
+    if (!rows[0].fail || rows[0].borderLeft !== redRgb) throw new Error(`測試失敗的 PR 左邊那條線不是 --red（${rows[0].borderLeft} vs ${redRgb}）`);
+    if (rows[0].badColor !== redRgb) throw new Error(`「測試失敗」不是 --red（${rows[0].badColor} vs ${redRgb}）`);
+    if (rows[1].fail || rows[2].fail) throw new Error('沒失敗的 PR 也畫成了失敗的樣子');
+    // 點一列開 GitHub：新分頁、noopener、只有 github.com
+    for (const r of rows) {
+      if (r.tag !== 'A' || !/^https:\/\/github\.com\//.test(r.href) || r.target !== '_blank' || !/noopener/.test(r.rel || '')) {
+        throw new Error('PR 的那一列不是「開新分頁、noopener、github.com」的連結：' + JSON.stringify(r));
+      }
+    }
+    if (!/更新|updated/.test(rows[0].meta)) throw new Error('PR 沒有標「多久前更新」：' + rows[0].meta);
+    if (!/GitHub/.test(rows[0].meta)) throw new Error('webhook 來的那一列沒有標來源：' + rows[0].meta);
+    if (!/→/.test(rows[0].meta)) throw new Error('連到任務的 PR 沒有標任務：' + rows[0].meta);
+    // 惡意標題：外部內容一律 textContent
+    step = 'PR 看板：惡意標題不能長出元素或執行';
+    const xss = await page.evaluate(() => ({ imgs: document.querySelectorAll('#agentPrs img').length, ran: window.__xss2 === 1,
+      shown: /<img src=x/.test(document.getElementById('agentPrs').textContent) }));
+    if (xss.imgs || xss.ran) throw new Error('PR 的標題被當成 HTML 執行了：' + JSON.stringify(xss));
+    if (!xss.shown) throw new Error('惡意標題應該原樣顯示成文字，結果沒看到——斷言會變成空的');
+    // 已合併／已關閉預設收著；展開之後才看得到
+    step = 'PR 看板：已合併與已關閉預設收著';
+    if (/已合併的那個 PR|關掉的 PR/.test(await page.locator('#agentPrs').textContent())) throw new Error('已合併／已關閉的 PR 預設就展開了');
+    const counts = (await page.locator('#agentPrs .agent-pr-counts').textContent()).replace(/\s+/g, ' ');
+    if (!/3/.test(counts) || !/12|1/.test(counts)) throw new Error('計數列不對：' + counts);
+    await page.locator('#agentPrs .agent-pr-more').click();
+    if (!/已合併的那個 PR/.test(await page.locator('#agentPrs').textContent())) throw new Error('展開之後看不到已合併的 PR');
+    if (await page.locator('#agentPrs .agent-pr').count() !== 5) throw new Error('展開之後應該列出全部 5 個 PR');
+    await page.locator('#agentPrs .agent-pr-more').click();
+    // 這個看板是看的：沒有任何會寫回 GitHub 的按鈕（合併、留言、關閉）
+    step = 'PR 看板：沒有合併／留言的按鈕';
+    const bad = await page.evaluate(() => [...document.querySelectorAll('#agentPrs button')].map(b => b.textContent.trim())
+      .filter(t => /合併$|merge|留言|comment|close|關閉$/i.test(t) && !/已合併|已關閉|Merged|Closed|merged|closed/.test(t)));
+    if (bad.length) throw new Error('PR 看板上出現了會寫回 GitHub 的按鈕：' + bad.join('、'));
+    checked.push('PR 看板(失敗最前/等你審第二/紅色/新分頁+noopener/惡意標題/收著的已合併/不能合併)');
+
+    // ===== 預測線 =====
+    step = '預測線：t1（逾期）、t2（晚 5 天）各一段虛線，t3（早 4 天）一個細記號';
+    const fc = await page.evaluate(() => ({
+      ext: [...document.querySelectorAll('.gantt-forecast')].map(e => ({ style: getComputedStyle(e).borderTopStyle, w: e.getBoundingClientRect().width, h: e.getBoundingClientRect().height })),
+      labels: [...document.querySelectorAll('.gantt-forecast-label')].map(e => e.textContent.trim()),
+      early: document.querySelectorAll('.gantt-forecast-early').length,
+      tracks: [...document.querySelectorAll('.gantt-row-track')].map(t => ({ bar: t.querySelector('.gantt-bar') ? t.querySelector('.gantt-bar').className : null,
+        ext: !!t.querySelector('.gantt-forecast'), early: !!t.querySelector('.gantt-forecast-early') })),
+    }));
+    if (fc.ext.length !== 2) throw new Error(`虛線應該有 2 段（t1、t2），實際 ${fc.ext.length}`);
+    if (fc.ext.some(e => e.style !== 'dashed')) throw new Error('預測的延伸不是虛線：' + JSON.stringify(fc.ext));
+    if (fc.early !== 1) throw new Error(`比計畫早的預測應該有 1 個細記號，實際 ${fc.early}`);
+    if (!fc.labels.some(t => /^(晚 5 天|5 d late)$/.test(t))) throw new Error('t2 沒有「晚 5 天」的標示：' + JSON.stringify(fc.labels));
+    if (fc.labels.length !== 2) throw new Error('比計畫早的預測不該有「晚 N 天」的標示：' + JSON.stringify(fc.labels));
+    if (!fc.tracks.some(t => t.bar && /overdue/.test(t.bar) && t.ext)) throw new Error('逾期的任務沒有畫預測的延伸——斷言會變成空的');
+    // **逾期的紅色優先**：虛線只是多出來的一段，不取代紅色（t1 結束日在過去、而且有預測）
+    step = '預測線：逾期的長條仍然是紅的';
+    const b0 = (await page.evaluate(() => { const b = document.querySelector('.gantt-bar.overdue'); return { bg: getComputedStyle(b).backgroundColor }; }));
+    if (b0.bg !== redRgb) throw new Error(`有預測的逾期長條不是 --red 了（${b0.bg} vs ${redRgb}）：預測蓋掉了逾期`);
+    // 虛線的尺度與長條相同（同一個每日像素寬）：計畫的長條沒有被預測動到
+    step = '預測線：虛線的尺度與計畫的長條相同';
+    const scale = await page.evaluate(() => {
+      const st = JSON.parse(localStorage.getItem('workSchedule.v1')).ganttProjects[0].tasks;
+      const d = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 86400000);
+      const t2 = st[1];
+      const bars = [...document.querySelectorAll('.gantt-bar')];
+      const ext2 = [...document.querySelectorAll('.gantt-forecast')].map(e => e.getBoundingClientRect().width)[1];
+      const barW = bars[1].getBoundingClientRect().width;
+      return { perDayBar: barW / (d(t2.start, t2.end) + 1), perDayExt: ext2 / d(t2.end, t2.forecastEnd) };
+    });
+    if (Math.abs(scale.perDayBar - scale.perDayExt) > 0.05) throw new Error('虛線與長條的每日寬度不同：' + JSON.stringify(scale));
+    checked.push('預測線(虛線/晚 N 天/早的細記號/逾期仍是紅色/尺度相同)');
+
+    // ===== 里程碑 =====
+    step = '里程碑：兩顆菱形，只有「算出來會趕不上」的那顆是紅的';
+    const ms = await page.evaluate(() => [...document.querySelectorAll('.gantt-ms')].map(e => ({ cls: e.className, bg: getComputedStyle(e).backgroundColor, title: e.title })));
+    if (ms.length !== 2) throw new Error(`甘特圖上應該有 2 顆菱形，實際 ${ms.length}`);
+    const risky = ms.filter(m => /risk/.test(m.cls));
+    if (risky.length !== 1 || !/上線/.test(risky[0].title)) throw new Error('只有「上線」（t1 的預測超過它）該是有風險的：' + JSON.stringify(ms));
+    if (risky[0].bg !== redRgb) throw new Error(`有風險的菱形不是 --red（${risky[0].bg} vs ${redRgb}）`);
+    const calm = ms.find(m => !/risk/.test(m.cls));
+    if (calm.bg === redRgb) throw new Error('趕得上的菱形也是紅色的——紅色只留給有風險的');
+    // 編輯器：展開看得到兩列與狀態小標；改日期就地更新（表格不重建、輸入框還是同一個節點）
+    step = '里程碑編輯器：改日期就地更新，不重建表格';
+    await page.locator('.agent-ms > summary').click();
+    if (await page.locator('.agent-ms-row').count() !== 2) throw new Error('里程碑編輯器應該有 2 列');
+    if (await page.locator('.agent-ms-chip.risk').count() !== 1) throw new Error('編輯器裡應該剛好 1 個「有風險」的小標');
+    await page.evaluate(() => { document.querySelector('.task-row input[type=text]').dataset.keep = '1'; });
+    const newDate = await page.evaluate(() => new Date(Date.now() + 60 * 86400000).toISOString().slice(0, 10));
+    await page.locator('.agent-ms-row input[type=date]').first().fill(newDate);
+    await page.waitForTimeout(200);
+    if (await page.locator('.gantt-ms.risk').count() !== 0 || await page.locator('.agent-ms-chip.risk').count() !== 0) {
+      throw new Error('把「上線」往後挪之後，菱形與小標都該不再是有風險（預測已經趕得上）');
+    }
+    if (!(await page.evaluate(() => document.querySelector('.task-row input[type=text]').dataset.keep === '1'))) {
+      throw new Error('改里程碑日期重建了任務表格（輸入框被銷毀）——只該換掉圖表');
+    }
+    await page.waitForTimeout(600);
+    const msStored = await page.evaluate(() => JSON.parse(localStorage.getItem('workSchedule.v1')).ganttProjects[0].milestones.map(m => m.date));
+    if (msStored[0] !== newDate) throw new Error('里程碑日期沒存進本機：' + JSON.stringify(msStored));
+    // 新增與刪除（行數改變，走 commit／deleteWithUndo）
+    step = '里程碑編輯器：新增與刪除';
+    await page.locator('.agent-ms-add').click();
+    if (await page.locator('.agent-ms-row').count() !== 3) throw new Error('按「新增里程碑」之後應該有 3 列');
+    if (!(await page.evaluate(() => !!document.activeElement && !!document.activeElement.closest('.agent-ms')))) throw new Error('新增之後游標沒有落在新的那一列');
+    await page.locator('.agent-ms-row').nth(2).locator('button').click();
+    await page.waitForTimeout(250);
+    if (await page.locator('.agent-ms-row').count() !== 2) throw new Error('刪除之後應該回到 2 列');
+    checked.push('里程碑(菱形/只有有風險的紅/編輯器就地更新/新增刪除)');
+
+    // ===== 任務列：預估、認領、連結 =====
+    const block = i => page.locator('.task-table .task-block').nth(i);
+    step = '認領：三天沒動靜的標出來，剛認領的不標';
+    const claims = await page.evaluate(() => [...document.querySelectorAll('.task-block')].map(b => {
+      const c = b.querySelector('.agent-claim'); return c && getComputedStyle(c).display !== 'none' ? { text: c.textContent, stale: c.classList.contains('stale') } : null; }));
+    if (!claims[0] || claims[0].stale || /沒動靜|idle/.test(claims[0].text)) throw new Error('剛認領的任務不該標「沒動靜」：' + JSON.stringify(claims[0]));
+    if (!claims[1] || !claims[1].stale || !/3 天沒動靜|idle for 3 d/.test(claims[1].text)) throw new Error('認領三天的任務該標「3 天沒動靜」：' + JSON.stringify(claims[1]));
+    if (claims[2]) throw new Error('沒人認領的任務不該有認領的標示');
+    step = '預估與實際：改了存得進去，而且不重建表格';
+    // 上面新增／刪除里程碑走了完整的 commit()（行數改變，該重建）——所以要重新做一次記號
+    await page.evaluate(() => { document.querySelector('.task-row input[type=text]').dataset.keep = '1'; });
+    const est = block(1).locator('.tm-hours input').first();
+    if (await est.inputValue() !== '8') throw new Error('預估沒有顯示存檔裡的 8');
+    await est.fill('12'); await est.blur();
+    await page.waitForTimeout(800);
+    const hrs = await page.evaluate(() => { const t = JSON.parse(localStorage.getItem('workSchedule.v1')).ganttProjects[0].tasks[1]; return [t.estimateHours, t.actualHours]; });
+    if (hrs[0] !== 12 || hrs[1] !== 3) throw new Error('預估／實際沒存進本機：' + JSON.stringify(hrs));
+    if (!(await page.evaluate(() => document.querySelector('.task-row input[type=text]').dataset.keep === '1'))) throw new Error('改預估重建了任務表格');
+    // 證據連結
+    step = '證據連結：小連結、新分頁、noopener；只收 http(s)';
+    const lk = await block(1).locator('.agent-linkchip a').evaluateAll(as => as.map(a => ({ t: a.textContent, href: a.getAttribute('href'), target: a.target, rel: a.rel })));
+    if (lk.length !== 2) throw new Error(`t2 應該有 2 個連結，實際 ${lk.length}`);
+    if (lk[0].t !== '設計稿' || lk[1].t !== 'example.com') throw new Error('連結的標籤不對（沒有標籤時顯示網域）：' + JSON.stringify(lk));
+    if (lk.some(l => l.target !== '_blank' || !/noopener/.test(l.rel) || !/^https:\/\//.test(l.href))) throw new Error('連結不是「新分頁、noopener、https」：' + JSON.stringify(lk));
+    await block(1).locator('.agent-links .qbtn').click();
+    await block(1).locator('.agent-linkform input').first().fill('javascript:alert(1)');
+    await block(1).locator('.agent-linkform .agent-send').click();
+    if (await block(1).locator('.agent-linkchip').count() !== 2) throw new Error('javascript: 的網址被加進去了');
+    if (!(await block(1).locator('.agent-linkform .agent-msg.err').textContent()).trim()) throw new Error('被拒絕的網址沒有說明原因');
+    await block(1).locator('.agent-linkform input').first().fill('https://example.com/new');
+    await block(1).locator('.agent-linkform input').nth(1).fill('新連結');
+    await block(1).locator('.agent-linkform .agent-send').click();
+    await page.waitForTimeout(300);
+    if (await block(1).locator('.agent-linkchip').count() !== 3) throw new Error('合法的連結沒有加進去');
+    await page.waitForTimeout(600);
+    const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('workSchedule.v1')).ganttProjects[0].tasks[1].links);
+    if (stored.length !== 3 || stored[2].url !== 'https://example.com/new') throw new Error('連結沒存進本機：' + JSON.stringify(stored));
+    await block(1).locator('.agent-linkchip button').nth(2).click();
+    await page.waitForTimeout(250);
+    if (await block(1).locator('.agent-linkchip').count() !== 2) throw new Error('移除連結之後應該回到 2 個');
+    checked.push('任務列(認領沒動靜/預估存得進去不重建表格/連結新分頁+noopener/拒絕 javascript:/加入移除)');
+
+    // ===== 採用預測：人按的，走 commit，可以復原 =====
+    step = '採用預測：改 end、可以復原、agent 沒有被叫到';
+    const adopt = block(1).locator('.agent-fc .qbtn');
+    if (!(await adopt.isVisible())) throw new Error('t2 的預測比計畫晚，任務列上卻沒有「採用預測」');
+    const before = await page.evaluate(() => { const t = JSON.parse(localStorage.getItem('workSchedule.v1')).ganttProjects[0].tasks[1]; return { end: t.end, fc: t.forecastEnd }; });
+    const postsBefore = A.posts.length;
+    await adopt.click();
+    await page.waitForTimeout(400);
+    const endVal = await block(1).locator('input[type=date]').nth(1).inputValue();
+    if (endVal !== before.fc) throw new Error(`按了「採用預測」之後結束日不是預測日（${endVal} vs ${before.fc}）`);
+    if (await page.locator('.gantt-forecast').count() !== 1) throw new Error('採用之後，t2 的虛線應該消失（只剩 t1 的）');
+    // 預測日與計畫相同了：「採用預測」要收起來（沒有東西可採用），預測那一行改說「與計畫相同」
+    if (await adopt.isVisible()) throw new Error('採用之後「採用預測」還在（預測與計畫已經相同，沒有東西可採用）');
+    if (!/與計畫相同|same as planned/.test(await block(1).locator('.agent-fc').textContent())) throw new Error('採用之後預測那一行沒有改說「與計畫相同」');
+    if (!(await page.locator('#undoToast.show').count())) throw new Error('採用預測之後沒有「復原」的提示');
+    await page.locator('#undoBtn').click();
+    await page.waitForTimeout(400);
+    const back = await block(1).locator('input[type=date]').nth(1).inputValue();
+    if (back !== before.end) throw new Error(`按了復原，結束日沒有回到 ${before.end}（${back}）`);
+    if (A.posts.length !== postsBefore) throw new Error('採用預測不該呼叫任何伺服器端點（這是人在前端改自己的資料）');
+    checked.push('採用預測(改 end/虛線消失/可復原)');
+
+    // ===== 已合併的 PR：問一句「要標成完成嗎？」，按了才標 =====
+    step = '已合併的 PR：「要標成完成嗎？」只問、不自動勾';
+    await page.waitForFunction(() => document.querySelectorAll('#agentPrs .agent-pr-hint').length === 1, null, { timeout: 4000 })
+      .catch(() => { throw new Error('已合併的 PR 連到的任務還沒完成，看板上卻沒有那一句提示'); });
+    if (!/PR 已合併，要標成完成嗎？|The PR is merged\. Mark the task as done\?/.test(await page.locator('#agentPrs .agent-pr-hint').textContent())) throw new Error('提示的字不對');
+    const notDone = await page.evaluate(() => JSON.parse(localStorage.getItem('workSchedule.v1')).ganttProjects[0].tasks[0].done);
+    if (notDone) throw new Error('PR 合併了，任務就被自動勾成完成——合併不等於做完，只能問');
+    await page.locator('#agentPrs .agent-pr-hint .agent-send').click();
+    await page.waitForFunction(() => document.querySelectorAll('#agentPrs .agent-pr-hint').length === 0, null, { timeout: 4000 })
+      .catch(() => { throw new Error('按了「標成完成」之後，提示沒有消失'); });
+    await page.waitForTimeout(500);
+    const nowDone = await page.evaluate(() => JSON.parse(localStorage.getItem('workSchedule.v1')).ganttProjects[0].tasks[0].done);
+    if (!nowDone) throw new Error('按了「標成完成」，任務沒有完成');
+    // 走 withUndo：六秒內可以復原（順便讓後面夥伴那一段的起點與原本相同——完成度會改變夥伴的階段名稱）
+    await page.locator('#undoBtn').click();
+    await page.waitForTimeout(500);
+    const undone = await page.evaluate(() => JSON.parse(localStorage.getItem('workSchedule.v1')).ganttProjects[0].tasks[0].done);
+    if (undone) throw new Error('標成完成之後按復原，任務沒有回到未完成');
+    checked.push('已合併的 PR(只問不自動勾/按了才標)');
   }
 
   // ---- 專案的夥伴：卡片、挑夥伴的面板、真的選得下去 ----
@@ -815,6 +1079,43 @@ async function walk(page, log, plan = 'pro', server = null) {
       if (k in last) throw new Error(`第六顆順手帶了 ${k}——各自獨立的開關不能連坐`);
     }
     checked.push('第六顆通知開關(看得見/送出 agentNotify)');
+  }
+
+  // GitHub 通知（webhook）設定：建立時網址與密鑰只出現這一次、**不進 localStorage**、移除會清掉畫面上的密鑰
+  {
+    step = 'GitHub 通知設定';
+    const A = server.agent;
+    if (!(await page.locator('#viewAccount #acctGithub').isVisible())) throw new Error('帳號頁上沒有「GitHub 通知」那一區（或看不見）');
+    await page.waitForFunction(() => document.getElementById('acctGhStatus').textContent.trim().length > 0, null, { timeout: 3000 })
+      .catch(() => { throw new Error('GitHub 通知那一區沒有顯示目前的狀態'); });
+    if (await page.locator('#acctGhSecret').isVisible()) throw new Error('還沒建立，密鑰框就出現了');
+    await page.click('#btnGhCreate');
+    await page.waitForSelector('#acctGhSecret', { state: 'visible', timeout: 4000 })
+      .catch(() => { throw new Error('建立之後沒有顯示網址與密鑰'); });
+    const urlTxt = (await page.locator('#acctGhUrl').textContent()).trim();
+    const secTxt = (await page.locator('#acctGhSecretText').textContent()).trim();
+    if (!/\/api\/github\/hook\/HOOKTOKEN_SMOKE/.test(urlTxt) || secTxt !== 'HOOKSECRET_SMOKE_abcdef0123456789') throw new Error('顯示的網址或密鑰不是伺服器給的：' + urlTxt + ' / ' + secTxt);
+    for (const id of ['btnGhCopyUrl', 'btnGhCopySecret']) await need('#' + id, id);
+    if (!/Webhooks/.test(await page.locator('#acctGhSecret').textContent())) throw new Error('沒有「到 repo → Settings → Webhooks」的說明');
+    // **密鑰不進任何瀏覽器儲存**（只在畫面上）
+    const leaked = await page.evaluate(() => {
+      const dump = JSON.stringify(Object.assign({}, localStorage)) + JSON.stringify(Object.assign({}, sessionStorage));
+      return /HOOKSECRET_SMOKE|HOOKTOKEN_SMOKE/.test(dump);
+    });
+    if (leaked) throw new Error('webhook 的密鑰或網址被存進了 localStorage／sessionStorage');
+    // 其他區塊重畫（切頁籤再回來）不該把還沒複製的密鑰吃掉
+    await page.waitForTimeout(100);
+    if (!(await page.locator('#acctGhSecret').isVisible())) throw new Error('密鑰框自己消失了（使用者還沒按「我已複製」）');
+    await page.click('#btnGhHide');
+    if ((await page.locator('#acctGhSecretText').textContent()).trim() !== '') throw new Error('收起來之後密鑰還留在畫面的文字裡');
+    // 已設定：按鈕變成「重新產生」，而且有「移除」
+    if (!(await page.locator('#btnGhDelete').isVisible())) throw new Error('已設定卻沒有「移除」');
+    page.once('dialog', d => d.accept());
+    await page.click('#btnGhDelete');
+    await page.waitForFunction(() => document.getElementById('btnGhDelete').style.display === 'none', null, { timeout: 3000 })
+      .catch(() => { throw new Error('移除之後「移除」按鈕沒有收起來'); });
+    if (JSON.stringify(A.hookPosts.filter(m => m !== 'GET')) !== JSON.stringify(['POST', 'DELETE'])) throw new Error('打到伺服器的方法不對：' + A.hookPosts.join(','));
+    checked.push('GitHub 通知設定(只顯示一次/不進 localStorage/收起來清掉/移除)');
   }
 
   // 連線設定（Pro）：每條連線三顆開關、暫停原因、暫停所有 agent、一次性的能力說明
@@ -1016,6 +1317,7 @@ for (const loggedIn of [false, true]) {
       if (/favicon|ERR_FAILED|net::ERR|MIME type|Failed to load resource/i.test(t)) return;
       // 假後端刻意讓「最新進展」載入失敗的那一段，console.error 是預期的（降級可以，沉默不行）
       if (server.agent && server.agent.eventsFail && /agent events failed/.test(t)) return;
+      if (server.agent && server.agent.prsFail && /agent prs failed/.test(t)) return;
       errors.push(`console.error：${t}`);
     });
     await page.route('**://fonts.*/**', r => r.abort());
