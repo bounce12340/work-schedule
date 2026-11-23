@@ -25,7 +25,7 @@
  * （PWA 的某些啟動路徑、iOS 的返回上一頁、預抓）。少了版本號的話，舊的那一份
  * 沒有任何時機會被清掉。
  */
-const CACHE = 'work-schedule-v51';
+const CACHE = 'work-schedule-v52';
 
 // 這幾個不需要登入就取得，install 階段預先抓下來
 const PRECACHE = [
@@ -63,6 +63,8 @@ self.addEventListener('fetch', event => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;      // 字型等跨網域資源交給瀏覽器自己處理
   if (url.pathname.startsWith('/api/')) return;         // 規則 1
+  // 專案的公開分享頁：網址本身就是憑證（token），不讓它進任何快取，也不離線端出
+  if (url.pathname.startsWith('/p/')) return;
 
   // 規則 2：導覽（開啟頁面）走 network-first
   if (req.mode === 'navigate') {

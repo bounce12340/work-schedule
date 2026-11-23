@@ -23,7 +23,8 @@ src/mcp/               MCP 伺服器：讓外部 AI agent 讀寫排程（schedul
 src/handlers/agentnotify.js agent 提問／提案時的通知（信與推播，30 分鐘節流、休假不送；cron 補送）
 src/mcp/prs.js         任務連到 GitHub 的 PR（upsert_pr／unlink_pr／list_project_prs，agent 回報與 webhook 共用同一張 project_prs）
 src/handlers/github.js GitHub 那一側：擁有者看 PR、建立／重新產生 webhook、公開的 webhook 接收端（驗 HMAC）
-public/authorize.html  OAuth 授權頁（agent 要連進來時「允許／拒絕」）
+public/authorize.html  OAuth 授權頁（agent 要連進來時「允許／拒絕」；3B 起可選「只能讀」與「只限這個專案」）
+public/p.html          專案的唯讀分享頁（`/p/<token>`，不用登入；Worker 直接供應，見〈agent 工作區的第三批畫面（3B）〉）
 src/mail.js            AgentMail 寄信（逾期提醒與密碼重設共用），並把每一封的結果寫進 mail_log
 src/throttle.js        登入失敗節流（email 與 IP 兩個維度）
 migrations/            既有資料庫的欄位變更（schema.sql 的 IF NOT EXISTS 補不了欄位）
@@ -76,6 +77,7 @@ mobile/                iOS app 外殼（Capacitor；自己的 package.json，見
 | `tests/agent2.test.mjs` | agent 工作區（第二批 2A）：**新欄位（預估／預測／認領／連結／里程碑）與前端 `normalizeGanttProjects` 逐欄相同**（含舊形狀、壞資料靜靜濾掉、常數兩邊相同、走一次真的 `applySnapshot`→`snapshot`、三方合併里程碑不衝突）、`set_task_estimate`（**`end`／進度／完成一個位元都不動**、預測改了自動寫進展、落在週末／假日清單／休假日只提醒不拒絕）、里程碑（`atRisk` 是算出來的）、**`claim_task`（四種成功／拒絕、24 小時、人手動指派搶不走、注入別人的認領的確定性競態）**、`links`、**`apply_changes`（只寫一次 user_state、全部成功或全部不做、整批復原也全有全無、整批只算一次復原）**、**`dryRun`（state／紀錄／日誌／requestId 一個位元都不動、暫停中可預演）**、`get_changes_since`、**PR（網址白名單、合併不動任務、`source`／時間、300 筆上限、跨帳號）**、**webhook（測試裡自己算真的 HMAC：未知 token 404、簽章錯 401、沒連過的 PR 只忽略不新增、別人的密鑰動不到我的列、`check_run` 不會把單一個通過當整體通過）**、備份不帶 PR 與密鑰 | 直接 import Worker 端模組；前端的正規化從 `index.html` 抽出來比；競態用 `withRaceBeforeFirstUpdate`（同 `state.test.mjs`）；十七種突變各自驗過會紅 |
 | `tests/agent3.test.mjs` | agent 工作區（第二批 2B）前端那一半的規則：**里程碑的顏色規則前端 `agentMilestoneStatus` 與 `src/mcp/schedule.js` 的 `milestoneStatus` 在兩千多個組合上逐欄相同**（同 `PLAN_LIMITS` 前後端逐字相同那一條）、`lateDays`／`effectiveDone`／認領的 24 小時門檻相同（剛好 24 小時還算新）、證據連結只收 http(s) 且經過 `normalizeGanttProjects` 原樣還在、PR 看板的順序（失敗最前、等你審第二、不改動輸入）、「PR 已合併，要標成完成嗎？」只在已合併／連到任務／任務沒完成時問 | 從 `index.html` 抽〈預測與里程碑（純函式）〉等區段求值；突變驗證過（`>` 改 `>=`、排序權重對調各自會紅） |
 | `tests/agent-notify.test.mjs` | agent 問了問題／提了提案要通知到人（1B）：**信、主旨、HTML、推播裡都不出現問題與提案的全文**（連選項也不放）、連線名稱（外部字串）跳脫、**同一專案 30 分鐘內最多一封、多的併進 pending**、cron 補送「還有 N 件」、**兩個併發的提問只有一封**（`last_sent_at` 的 compare-and-swap）、休假只累計不送（cron 當天也不補，隔天補）、**送失敗不寫 `last_sent_at`**、開關關著不送也不累計、**是訂閱信**（不走交易信的寄件帳號、帶 `List-Unsubscribe`）、**退訂 `kind=agent` 只關這一顆**（反方向也不連坐，一鍵退訂同一支）、`/api/reminder` 的 `agentNotify`（其他五顆的送出不會順手改掉它）、自動暫停的那一刻寄信、通知寄不出去**不能讓 agent 的提問變成錯誤**、`/api/state/version`（只回兩個數字、**使用者自己的回答不算「agent 剛更新了」**、新提案算、別人的不算）、匯出用的日誌端點只回自己的 | 直接 import Worker 端模組，攔 `fetch` 當假的 AgentMail 與 APNs（同 `push.test.mjs`）；七種突變各自驗過會紅 |
+| `tests/publicpage.test.mjs` | 公開分享頁的路由（3B）：`/p/<token>` 沒登入也回 p.html（不是 302）、`noindex`／`no-referrer`／`no-store`、token 不帶進資產請求、格式不對的 token 也回這一頁、只收 GET、**`wrangler.jsonc` 的 `run_worker_first` 有 `/p/*`** | 直接打 Worker 的 `fetch` 入口，`ASSETS` 用假的 |
 | `tests/agent4.test.mjs` | agent 工作區（第三批 3A，伺服器端）：**版本歷史**（agent 每種寫入之前留一版、留的是寫入前原文、ToolError 不留、R2 失敗不擋寫入、只有 Pro、同內容不重複、自己的修改每小時一版、每日一版、30 天與 300 版上限且 R2 與索引一起清、比較以東西為單位、**退回再退回回到原樣**、退回的樂觀鎖競態、**別人的版本 id 404**、內容不在回 410、刪帳號清 R2 prefix、備份不碰它）、**權限分級的鑰匙**（**唯讀鑰匙擋掉的集合剛好等於 `WRITE_TOOLS`**、每次呼叫都檢查、舊鑰匙行為不變、專案範圍擋掉別的專案與批次／提案裡的任何一個操作、專案清單只剩它、建立與 OAuth 的範圍驗證與帶過 refresh）、**風險**（開、agent 與擁有者關、不能關別專案／別帳號的、上限時還原）、**分享連結**（預設只有專案名／里程碑／任務狀態，機敏字串一個都不在、勾選才多帶、被遮蔽的與已關的風險絕不出現、重新產生撤銷舊的、專案消失 404、跨帳號）、**每週摘要**（沒事不寄、休假不寄也不記成送過、失敗不記成送過、一週一封、星期四不寄、沒有歷史就不寫 0、退訂只關自己那一顆兩個方向、`/api/reminder` 不連坐）、**成績單**（只有數字、被復原的不算、跨帳號） | 直接 import Worker 端模組；`tests/fake-r2.mjs` 當 R2、攔 `fetch` 當假的 AgentMail；二十八種突變各自驗過會紅（含 `tests/account-delete.test.mjs` 擴充的刪帳號那一格） |
 
 前三者的挑選理由：前兩者近乎純函式、零 DOM 依賴；第三者是**競態**——靠併發碰運氣測不到，但可以把空窗做成確定性的。
@@ -109,7 +111,7 @@ npm run db:init:local  # 對本機 miniflare D1 建表（--local 的資料庫與
 npm run db:init        # 對遠端 D1 建表
 npm run admin:reset    # 破窗鎚：直接改密碼（見〈破窗鎚〉）
 npm run deploy         # 部署
-npm test               # 全部測試檔（node:test，不需安裝任何東西；目前 725 個測試）
+npm test               # 全部測試檔（node:test，不需安裝任何東西；目前 729 個測試）
 ```
 
 跑單一測試檔或單一測試（`npm test` 沒有轉發參數的管道，直接用 node）：
@@ -184,12 +186,12 @@ Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.Comm
 
 | 腳本 | 驗什麼 | 什麼時候一定要跑 |
 |---|---|---|
-| `tools/smoke.mjs` | 七輪：「單檔開啟 × 中英文」（file://，驗登入閘門）、「已登入 × 中英文」（走四個頁籤；中文那輪是免費版、撞上限要開升級說明，英文那輪是 Pro、要開新增表單）、「iOS app 外殼（假 Capacitor）」、「隱私頁與使用條款頁」、「**iOS app 外殼的九個探針**」；專案頁那一段還會走夥伴卡（八格八張圖、換夥伴卡片跟著變、**勾完全部待辦當場長大且不切頁籤**、「不要夥伴」只清圖不清卡）；五個頁籤各斷言一次四張卡**有沒有盒子**（只在項目安排與日曆）：零 pageerror、零 console.error、每頁關鍵錨點存在；app 那一輪還斷言**所有打到線上網址的請求都帶 Bearer**，九個探針各塞一個殘缺（或刻意變慢）的 `window.Capacitor`／後端，驗「安靜地變成單機模式」的各種成因（見〈app 的九個探針〉）；**agent 工作區（1B）**：假後端給收件匣／日誌／版本號／連線設定並**把每個寫入的 body 記下來**，斷言收件匣四張卡出現、提案是前後對照不是 JSON、點一下選項回答、**處理完沒有盒子**（`getClientRects`）、日誌載入失敗有一行說明、回前景重讀、5 筆＋看全部、**日誌內文 `<img onerror>` 長不出元素**、時間軸直接回答、遮蔽、說明書存得進去、任務狀態徽章與長條記號（卡住要原因才套用）、**逾期的長條仍是 `--red` 且沒畫亮邊**、待驗收（退回要理由）、「agent 剛更新了」出現而**輸入框沒被重畫**（假時鐘快轉 30 秒）、第六顆通知開關、連線三顆開關／暫停／暫停所有／一次性說明 | **任何前端改動**。第 0 條的自動化版本 |
+| `tools/smoke.mjs` | 七輪：「單檔開啟 × 中英文」（file://，驗登入閘門）、「已登入 × 中英文」（走四個頁籤；中文那輪是免費版、撞上限要開升級說明，英文那輪是 Pro、要開新增表單）、「iOS app 外殼（假 Capacitor）」、「隱私頁與使用條款頁」、「**iOS app 外殼的九個探針**」；專案頁那一段還會走夥伴卡（八格八張圖、換夥伴卡片跟著變、**勾完全部待辦當場長大且不切頁籤**、「不要夥伴」只清圖不清卡）；五個頁籤各斷言一次四張卡**有沒有盒子**（只在項目安排與日曆）：零 pageerror、零 console.error、每頁關鍵錨點存在；app 那一輪還斷言**所有打到線上網址的請求都帶 Bearer**，九個探針各塞一個殘缺（或刻意變慢）的 `window.Capacitor`／後端，驗「安靜地變成單機模式」的各種成因（見〈app 的九個探針〉）；**agent 工作區（1B）**：假後端給收件匣／日誌／版本號／連線設定並**把每個寫入的 body 記下來**，斷言收件匣四張卡出現、提案是前後對照不是 JSON、點一下選項回答、**處理完沒有盒子**（`getClientRects`）、日誌載入失敗有一行說明、回前景重讀、5 筆＋看全部、**日誌內文 `<img onerror>` 長不出元素**、時間軸直接回答、遮蔽、說明書存得進去、任務狀態徽章與長條記號（卡住要原因才套用）、**逾期的長條仍是 `--red` 且沒畫亮邊**、待驗收（退回要理由）、「agent 剛更新了」出現而**輸入框沒被重畫**（假時鐘快轉 30 秒）、第六顆通知開關、連線三顆開關／暫停／暫停所有／一次性說明；**3B**：風險（只列開著的、惡意內文長不出元素、關閉打到 close-risk）、分享連結（預設五格全不勾、說明寫清楚公開什麼、`include` 送對、**網址不進 localStorage／sessionStorage**、切頁籤重畫不吃掉還沒複製的網址、收起來之後畫面文字裡也沒有、重新產生與撤銷要確認）、版本歷史（惡意摘要長不出元素、差異是對照不是 JSON、410 說出原因、退回要確認才打 restore）、連線的範圍與建立金鑰送出的範圍（沒選時 body 與以前相同）、成績單只有數字、第七顆通知開關（預設關、不連坐）；第八輪「**專案的公開分享頁與授權頁**」（真瀏覽器、亮暗兩色、390px 不溢出、逾期長條是 `--red`、預測虛線與較早的細記號、惡意專案名／日誌長不出元素、失效連結的說明、授權頁預設不帶 `access`／`projectId`、選了才帶）、退訂頁多驗 `weekly` | **任何前端改動**。第 0 條的自動化版本 |
 | `tools/verify-toggle.mjs` | 勾選的就地更新與完整重繪結果完全相同 | 動到 `renderBoard()` 或 `moveOccRowToDone()` |
 | `tools/verify-richtext.mjs` | 富文字過濾器的整條管線（含 DOM 走訪）擋得住 16 種攻擊向量 | 動到富文字 |
 | `tools/check-calendar.mjs` | 日曆的色條軌道對齊、跨月與週界的收邊、每日記錄的 ✎ 記號。**時鐘釘在 2026-09**——假資料是照那個月的週列寫的，而日曆開在「今天」那個月，不釘的話真實日期一過就永遠翻不回去（2026-10-01 實際紅過，紅的是工具不是產品）。**手機輪（390／720px）**：滑動 bar 不准蓋住任何一格或按鈕 | 動到 `renderCalendar()` 或日曆的 CSS |
 | `tools/check-notes.mjs` | 每日記錄／專案筆記的格式（醒目提示、顏色、字級）與內容在離開後仍在 | 動到富文字、`persistSoon()` 或任何 debounce 寫入 |
-| `tools/check-contrast.mjs` | 正文級文字在**兩種主題**下都達到 WCAG 對比（4.5:1／大字 3:1）。夥伴卡與挑夥伴面板也量，而且**主動把待辦勾完**逼出「成年」那個記號——等它自然出現就是〈永遠不會執行的斷言〉。六種小標、大項目的項數、對話框的欄位名；`INPUT_CHECK` 掃每一個輸入框是否套到共用樣式；`TOKEN_CHECK` 直接量 `--text-dim` 本身（過 4.5:1 而且仍比 `--text-muted` 淡）；**agent 工作區那一輪另起有假後端的伺服器，主動造出**卡住／等待／待驗收的任務、還開著的提問、一份套不上去的提案、被遮蔽的日誌、「agent 剛更新了」、被自動暫停的連線，再量 `--st-*` 徽章、時間軸、收件匣、連線設定（**這一輪找不到元素就是錯誤，不是「略過」**） | 動到任何顏色變數或文字顏色 |
+| `tools/check-contrast.mjs` | 正文級文字在**兩種主題**下都達到 WCAG 對比（4.5:1／大字 3:1）。夥伴卡與挑夥伴面板也量，而且**主動把待辦勾完**逼出「成年」那個記號——等它自然出現就是〈永遠不會執行的斷言〉。六種小標、大項目的項數、對話框的欄位名；`INPUT_CHECK` 掃每一個輸入框是否套到共用樣式；`TOKEN_CHECK` 直接量 `--text-dim` 本身（過 4.5:1 而且仍比 `--text-muted` 淡）；**agent 工作區那一輪另起有假後端的伺服器，主動造出**卡住／等待／待驗收的任務、還開著的提問、一份套不上去的提案、被遮蔽的日誌、「agent 剛更新了」、被自動暫停的連線，再量 `--st-*` 徽章、時間軸、收件匣、連線設定（**這一輪找不到元素就是錯誤，不是「略過」**）；**3B**：風險、分享連結（先按「產生連結」才造得出撤銷鈕與只顯示一次那塊）、版本歷史（先打開一版的差異）、範圍、成績單、每週開關，以及**公開分享頁 `p.html` 的兩種主題**（文字 4.5:1，長條／虛線／菱形與底 3:1，失效連結那一頁） | 動到任何顏色變數或文字顏色 |
 | `tools/check-deps.mjs` | 前置作業的「待前置」徽章、不阻擋勾選；「不在」的標記**與逾期並存**；逾期的顏色就是 `--red` 且字重比旁邊重；**純告知的八個「不算進去」**；**手機輪**：四張卡是橫向一排、逾期排第一且整張在畫面內、沒有逾期時收起來 | 動到 `dependsOn`、`absences`、`noticeOnly`／`isActionable`、`toggleOccDone`、逾期判斷或任何視覺改版 |
 | `tools/check-migrate.mjs` | **舊備份檔真的匯得回來**：造一份 v1 的 .json 丟進 `#importFile`，走完整條使用者路徑，再讀 localStorage 看實際存進去的東西；順便驗「比目前新的版本被擋下來，而且不動現有資料」 | 動到 `STORAGE_VERSION`、`migrateSnapshot`、`snapshot()`／`applySnapshot()`。在 CI 的 `smoke` job |
 | `tools/check-ambience.mjs` | 時段（早／午／晚）的 `data-daypart` 與光暈、每日記錄的提示語照日期決定、打勾的彈跳只在被點的那一個上、週一的回顧（含 N=0 不出現）、**遊戲化**：完美一天的 toast 只在勾掉最後一件時、升級的光只在升級那一次（看計算後的 `animationName`）、櫻花樹的畫皮（群組 class 與 CSS 對得上、垂下還在）、**開機的載入畫面**（3400ms 的上限**在 JavaScript 關掉時**照樣成立、點一下就收掉、進度條在跑、演到使用者現在那一階、reduced-motion 完全不出現）、**載入畫面的夥伴**（在湖邊走、對岸在樹後前岸在樹前、最多四隻＋「+N」、reduced-motion 時連盒子都沒有）、reduced-motion 關 | 動到 `tick()`、`<head>` 開機腳本、`DAILY_PROMPTS`、`renderLookback()`、`.checkbox` 的 CSS、〈遊戲化畫面〉或 `.boot-sakura`、`.boot-pets` |
@@ -1135,6 +1137,31 @@ cd mobile/ios/App && xcodebuild -scheme App -sdk iphonesimulator -configuration 
 **部署順序**：`020-history-scope-share.sql` 要在合併之前跑。**六句 `ALTER` 漏跑就會壞**：`mcp_tokens.scope／project_id`（`authenticateMcp` 的 SELECT 讀它們，**每一個 MCP 呼叫都失敗**）、`oauth_codes.scope／project_id`（**OAuth 授權整個失敗**）、`reminder_feed.weekly_mail／weekly_mail_week`（**`/api/reminder` 讀寫與「我的帳號」通知區整個讀不出來**）。`state_versions`、`project_shares` 是新增資料表，漏跑只讓版本歷史與分享連結那幾條路失敗（留版本失敗只 `console.warn`）。
 
 **驗證**：`tests/agent4.test.mjs`（版本、鑰匙範圍、風險、分享連結、每週摘要、成績單）與擴充的 `tests/account-delete.test.mjs`（兩個人各一份索引、R2 檔案與分享連結，刪 A 之後 B 的每一列原樣）；`tests/fake-r2.mjs` 是記憶體版的 R2（`get`、分頁的 `list`、可注入失敗）。突變驗證過的清單見 PR 說明。**沒驗**：真的 R2（`get().text()` 的形狀、`list` 的 `cursor`／`truncated` 欄位是照官方文件寫的，上線後用 `/admin` 的「版本歷史」那一步與一次真的退回確認）、真的信箱（List-Unsubscribe 在 Gmail 是否出現）。
+
+### agent 工作區的第三批畫面（3B，`index.html` 的〈agent 工作區：第三批畫面（3B）〉、`public/p.html`、`public/authorize.html`）
+
+設計文件同上（第三批、甲 2、第 21 件）。**沒有新的 migration、沒有新的端點**（全是 3A 做好的）；Worker 只多了一條路由。新增的前端函式一律用 `hist`／`score`／`weekly`／`risk`／`pshare` 前綴。版本摘要、風險內文、任務名、專案名、日誌、PR 標題全是外部字串，一律 `textContent`。
+
+| 決定 | 理由 |
+|---|---|
+| 版本歷史放在**帳號頁**（`#acctHistory`，在 `ACCT_CLOUD_SECTIONS` 裡）；清單**不要求 Pro**，非 Pro 只多一句「只替 Pro 留存新的版本，已留下的 30 天內仍可看與退回」 | 同伺服器端：到期後那是使用者自己的資料 |
+| 差異直接重用提案的 `agentBuildDiff`（前後對照），把伺服器的 `{entity,name,field,before,after}` 轉成「種類「名稱」／欄位／舊→新」；**畫面上明寫「刪除線是那一版的值、綠色是現在的值」** | 版本差異的方向是「那一版 → 現在」，與提案的「現在 → 之後」相反；不講的話「退回」會被讀反。看不懂的對照等於沒有 |
+| 410（那一版的檔案不在了）把伺服器的原話顯示在那一列並 `console.error`；讀取失敗整區一行說明＋`console.error` | 降級可以，沉默不行 |
+| 退回要 `confirm`，先 `agentSettle()`（把還沒推的本機修改推掉）、打 `restore`、再走 `agentAfterStateWrite()`（`cloudRefresh(true)`） | 退回是改雲端那一份；本機沒推上去的修改先對齊，否則下一次推送撞 409 |
+| 鑰匙的範圍：建立金鑰多「只能讀」勾選與「只限這個專案」選單，**沒勾、沒選時 body 與以前完全相同**（只有 `name`）；每條連線列多一行範圍（可讀寫／只能讀 · 全部專案／只限「X」，收窄的用琥珀字），放在連線**標題列之外**，不進 `.agent-conn-set`（smoke 用位置點那三顆開關） | 預設就是以前的行為；範圍建立後不能改（要改就撤銷重建） |
+| `authorize.html`：多「只能讀」與「只限這個專案」，**預設不帶 `access`／`projectId`**；專案清單用同源的 `/api/state` 取，失敗只剩「全部專案」（`console.error`，不擋授權）；僅 Pro 看得到 | 同上；OAuth 連線的範圍只能在授權當下決定 |
+| 成績單：連線區下面一塊，**每條連線一行、只有數字**；以名稱列出，不貼到每條連線列上 | 連線列的 `id` 是 token 列 id，OAuth 的成績單 `connId` 是 grant id，兩者對不起來；硬貼會貼錯人 |
+| 第七顆通知開關：預設關、送 `{enabled, leadDays, streakMail, weeklyMail}`（不帶 push／agentNotify）；「全部都不要了」也把本機的 `weeklyMailEnabled` 清掉 | 同第六顆：`enabled` 沒帶會被當成開；各自獨立不連坐 |
+| 風險（專案頁，最新進展下面）：資料取自**已經讀下來的那批日誌**（`kind=risk && status=open`），不另打端點；只能「關閉」（打 `close-risk`），關完重讀日誌；被遮蔽的仍列出（內文寫「已被遮蔽」）讓擁有者還能關；左邊的線是 `--red`、文字不變色 | 逾期專用的紅色只借線條。**限制**：日誌一次讀最新 100 筆，更舊的開著的風險看不到（要真的堆到 100 筆以上才會發生） |
+| 關閉風險**沒有「備註」欄**：設計文件原寫「可附說明」，但 3A 的端點固定寫「擁有者關閉了這個風險」、不收 body | 畫面不提供伺服器會丟掉的欄位；要加得先改端點 |
+| 分享連結（專案頁，PR 看板下面）：五種可多公開的勾選框**預設全不勾**；狀態那一句寫「不用登入就看得到：專案名稱、里程碑、每個任務的…；永遠不含：專案說明書、筆記、每日記錄、其他專案」，有連結時列出伺服器記的實際 `include`；重新產生與撤銷都要 `confirm` | 第 21 件：公開了哪些東西要明寫 |
+| **網址只在記憶體與畫面上**（`pshareReveal`），按「我已複製，收起來」才清；**不進 localStorage／sessionStorage／snapshot**；放在記憶體而不是只放 DOM，因為專案頁會在 `commit` 時整頁重建，只放 DOM 的話還沒複製就被重畫吃掉 | 同 GitHub 通知的密鑰（只顯示一次）；smoke 切頁籤再回來斷言它還在、收起來後畫面文字裡也沒有 |
+| 公開頁 `p.html`：零相依、自己的小 CSS 與亮暗兩組 token、`noindex`＋`no-referrer`、`credentials:'omit'`；位置全用百分比（390px 不溢出）；逾期（沒完成且結束日已過）的長條是 `--red`，預測比計畫晚＝長條後面接虛線、比計畫早＝一個細記號，**計畫長條不動**；頁面上明寫這個連結公開了什麼；失效連結只說「這個連結失效了」，不分原因 | 與 app 內的甘特圖同一套語意；讀者沒有帳號，頁面不能打任何要登入的端點 |
+| **路由**：`wrangler.jsonc` 的 `run_worker_first` 加 `/p/*`；`src/index.js` 在 `servePage` **之前**對 `GET /p/<任何>` 取 `/p`（資產層解析成 `p.html`）並加 `x-robots-tag`／`referrer-policy`／`no-store`；格式不對的 token 也回這一頁（頁面自己說失效） | 沒列 `/p/*`，資產層先回 404；掉進 `servePage` 會把沒登入的人 302 到登入頁，看起來像連結壞了。`tests/publicpage.test.mjs` 守著三件事 |
+| `sw.js` 對 `/p/` 直接放行（不快取、不離線端出），`CACHE` 升 v52 | 網址就是憑證，不該進任何快取 |
+| 新公開頁面的三份清單已補：`tools/check-syntax.mjs` 的 `FILES`、`tools/check-sw-version.mjs` 的 `WATCHED`、`tools/smoke.mjs` 的 assets（假後端對 `/p/<任何>` 回 p.html、`/api/p/` 排在登入檢查之前） | 漏補的症狀都是「檢查綠、其實沒看那個檔案」 |
+
+**驗證**：`tests/publicpage.test.mjs`；`tools/smoke.mjs`（八輪；3B 的斷言見工具表）；`tools/check-contrast.mjs`（3B 各元素與公開頁兩種主題，量出一處：暗色琥珀淡底上的 ghost 按鈕 3.98:1，改 `--text-muted`，同 GitHub 通知那一處）；`tools/check-mobile.mjs` 無橫向溢出。突變驗證過（各自會紅）：分享勾選預設全勾、網址存進 localStorage、差異顯示成 JSON、退回不確認、每週開關連坐 agentNotify、風險內文改 innerHTML、金鑰唯讀送成 write、公開頁逾期長條不紅、公開頁專案名改 innerHTML。**沒驗**：真的 Worker＋Cloudflare 資產層對 `/p/<token>` 的解析（`/p` → `p.html` 照 `/unsub` 的行為推，上線後開一次真的連結確認）、真機。
 
 ## 推播（子專案 B，`src/apns.js` + `src/handlers/push.js`）
 

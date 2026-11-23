@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light dark">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<script>
+  // 與其他頁共用同一個偏好鍵；沒有偏好（這一頁的讀者多半沒有帳號）就跟著系統。
+  (function(){
+    var pref = null;
+    try{ pref = localStorage.getItem('workSchedule.v1.theme'); }catch(e){}
+    var dark = (pref === 'dark') || (pref !== 'light' &&
+      window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  })();
+</script>
+<title>專案現況 — 工作排程確認系統</title>
+<style>
+  /* 零相依、不載外部字型：這一頁給不用登入的人看，越簡單越不會壞。顏色一律走變數，亮暗兩組都有。 */
+  :root{
+    --bg:#F6F4EE; --panel:#FFFFFF; --panel-2:#F1EEE5; --hairline:#E4E0D3;
+    --text:#2A2A26; --text-muted:#5F5E58; --text-dim:#6B6A63;
+    --amber-ink:#8A5716; --accent-fill:#A4651C; --on-accent:#FFFDF9;
+    --teal:#1F8C68; --teal-ink:#176B4F;
+    --red:#C74B43; --red-ink:#A83A33; --red-dim:rgba(199,75,67,0.10);
+    --forecast:#6B6A63; --today:#2A2A26;
+    --sans:system-ui,-apple-system,'Noto Sans TC','PingFang TC','Microsoft JhengHei',sans-serif;
+    --mono:ui-monospace,'JetBrains Mono',Menlo,Consolas,monospace;
+  }
+  :root[data-theme="dark"]{
+    --bg:#1A1917; --panel:#232220; --panel-2:#2B2A27; --hairline:#3A3833;
+    --text:#E8E5DC; --text-muted:#A8A49A; --text-dim:#9A968C;
+    --amber-ink:#E3A052; --accent-fill:#E3A052; --on-accent:#17160F;
+    --teal:#4FBE98; --teal-ink:#4FBE98;
+    --red:#E8756B; --red-ink:#F08C83; --red-dim:rgba(232,117,107,0.14);
+    --forecast:#A8A49A; --today:#E8E5DC;
+  }
+  *{ box-sizing:border-box; }
+  html{ background:var(--bg); }
+  body{ margin:0; background:var(--bg); color:var(--text); font-family:var(--sans); line-height:1.6; }
+  .wrap{ max-width:860px; margin:0 auto; padding:24px 16px 48px; }
+  h1{ margin:0 0 4px; font-size:22px; font-weight:700; word-break:break-word; }
+  h2{ margin:26px 0 10px; font-size:15px; font-weight:700; letter-spacing:.5px; color:var(--text-muted); }
+  .sub{ font-size:12.5px; color:var(--text-muted); }
+  .card{ background:var(--panel); border:1px solid var(--hairline); border-radius:14px; padding:14px 16px; }
+  .expose{ margin-top:14px; font-size:12.5px; line-height:1.75; color:var(--text-muted); border-left:3px solid var(--hairline); padding:2px 0 2px 12px; }
+  .expose b{ color:var(--text); }
+  .msg{ margin:40px auto; max-width:420px; text-align:center; }
+  .msg .big{ font-size:18px; font-weight:700; margin-bottom:8px; }
+
+  /* 里程碑 */
+  .ms{ display:flex; flex-direction:column; gap:6px; }
+  .ms-row{ display:flex; align-items:center; gap:10px; font-size:14px; }
+  .dia{ width:12px; height:12px; transform:rotate(45deg); background:var(--text-dim); flex-shrink:0; margin:0 2px; }
+  .dia.risk{ background:var(--red); }
+  .ms-date{ font-family:var(--mono); font-size:12px; color:var(--text-muted); }
+  .ms-risk{ font-size:12px; font-weight:700; color:var(--red-ink); }
+
+  /* 甘特：位置一律用百分比，窄螢幕不橫向捲動。每一列＝名稱一行＋軌道一行 */
+  .gantt{ position:relative; }
+  .g-axis{ display:flex; justify-content:space-between; font-family:var(--mono); font-size:11px; color:var(--text-dim); margin-bottom:6px; }
+  .g-row{ padding:7px 0; border-top:1px solid var(--hairline); }
+  .g-row:first-of-type{ border-top:none; }
+  .g-name{ display:flex; gap:8px; align-items:baseline; font-size:13.5px; min-width:0; }
+  .g-name .n{ min-width:0; overflow-wrap:anywhere; }
+  .g-st{ font-size:11.5px; font-weight:700; color:var(--text-muted); flex-shrink:0; }
+  .g-track{ position:relative; height:16px; margin-top:5px; background:var(--panel-2); border-radius:5px; }
+  .g-bar{ position:absolute; top:2px; bottom:2px; border-radius:4px; background:var(--accent-fill); min-width:3px; overflow:hidden; }
+  .g-bar .fill{ position:absolute; left:0; top:0; bottom:0; background:rgba(0,0,0,.28); }
+  .g-bar.done{ background:var(--teal); }
+  .g-bar.overdue{ background:var(--red); }      /* 逾期就是紅，狀態與預測都不豁免 */
+  .g-fc{ position:absolute; top:7px; height:0; border-top:2px dashed var(--forecast); }
+  .g-fc-early{ position:absolute; top:3px; bottom:3px; width:2px; background:var(--forecast); }
+  .g-today{ position:absolute; top:0; bottom:0; width:2px; background:var(--today); opacity:.55; pointer-events:none; }
+  .g-meta{ font-family:var(--mono); font-size:11px; color:var(--text-dim); margin-top:3px; }
+  .g-late{ color:var(--red-ink); font-weight:700; }
+
+  /* 日誌、風險、PR */
+  .ev{ padding:9px 0; border-top:1px solid var(--hairline); }
+  .ev:first-of-type{ border-top:none; }
+  .ev-meta{ font-size:12px; color:var(--text-muted); display:flex; gap:8px; flex-wrap:wrap; }
+  .ev-meta b{ color:var(--text); }
+  .ev-body{ margin-top:3px; font-size:14px; white-space:pre-wrap; overflow-wrap:anywhere; }
+  .risk-item{ border-left:3px solid var(--red); padding-left:10px; }
+  .pr{ display:flex; gap:10px; align-items:baseline; padding:7px 0; border-top:1px solid var(--hairline); font-size:13.5px; flex-wrap:wrap; }
+  .pr:first-of-type{ border-top:none; }
+  .pr a{ color:var(--amber-ink); overflow-wrap:anywhere; }
+  .pr .s{ font-size:12px; color:var(--text-muted); }
+  .pr .s.bad{ color:var(--red-ink); font-weight:700; }
+  .empty{ font-size:13px; color:var(--text-muted); }
+  .foot{ margin-top:30px; font-size:12px; color:var(--text-dim); text-align:center; }
+</style>
+</head>
+<body>
+<div class="wrap" id="root">
+  <div class="msg"><div class="sub" id="loading">讀取中…</div></div>
+</div>
+<script>
+(function(){
+  // 這一頁給不用登入的人看。**所有來自伺服器的字（專案名、任務名、日誌、PR 標題）一律 textContent**——
+  // 那是使用者與 agent 寫的外部內容，絕不 innerHTML。
+  var root = document.getElementById('root');
+  var STATUS = { todo:'待辦', doing:'進行中', blocked:'卡住', waiting:'等待中', review:'待驗收' };
+  var PR_STATE = { draft:'草稿', open:'開著', merged:'已合併', closed:'已關閉' };
+  var KIND = { progress:'進展', handoff:'交接筆記', question:'提問', answer:'回答', decision:'決定', withdraw:'撤回' };
+  var DAY = 86400000;
+
+  function el(tag, cls, text){
+    var e = document.createElement(tag);
+    if(cls) e.className = cls;
+    if(text != null) e.textContent = text;
+    return e;
+  }
+  function ms(ymd){ var p = String(ymd).split('-'); return Date.UTC(+p[0], +p[1]-1, +p[2]); }
+  function isYmd(s){ return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s); }
+  function md(ymd){ return ymd.slice(5).replace('-', '/'); }
+  function say(big, small){
+    root.textContent = '';
+    var box = el('div', 'msg');
+    box.appendChild(el('div', 'big', big));
+    if(small) box.appendChild(el('div', 'sub', small));
+    root.appendChild(box);
+  }
+
+  var m = location.pathname.match(/^\/p\/([^/]+)\/?$/);
+  var token = m ? decodeURIComponent(m[1]) : '';
+  if(!token){ say('這個連結失效了', '可能已經被撤銷，或網址不完整。請向分享給你的人確認。'); return; }
+
+  fetch('/api/p/' + encodeURIComponent(token), { cache:'no-store', credentials:'omit', referrerPolicy:'no-referrer' })
+    .then(function(r){
+      if(r.status === 404){ say('這個連結失效了', '可能已經被撤銷，或專案已經不存在。請向分享給你的人確認。'); return null; }
+      if(!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
+    .then(function(d){ if(d) render(d); })
+    .catch(function(e){ console.error('public project failed', e); say('現在讀不到這個專案', '可能是網路問題，稍後再重新整理一次。'); });
+
+  function range(d){
+    var pts = [ms(d.today)];
+    d.tasks.forEach(function(t){
+      [t.start, t.end, t.forecastEnd].forEach(function(x){ if(isYmd(x)) pts.push(ms(x)); });
+    });
+    d.milestones.forEach(function(x){ if(isYmd(x.date)) pts.push(ms(x.date)); });
+    var lo = Math.min.apply(null, pts), hi = Math.max.apply(null, pts);
+    if(hi - lo < 7 * DAY) hi = lo + 7 * DAY;
+    return { lo: lo, hi: hi };
+  }
+  function pct(r, t){ return Math.max(0, Math.min(100, (t - r.lo) / (r.hi - r.lo) * 100)); }
+
+  function render(d){
+    document.title = d.project.name + ' — 專案現況';
+    root.textContent = '';
+    root.appendChild(el('h1', null, d.project.name));
+    root.appendChild(el('div', 'sub', '唯讀的專案現況 · 資料截至 ' + d.today));
+
+    // 這個連結公開了哪些東西：寫在頁面上，不是只寫在擁有者那一側
+    var inc = d.includes || [];
+    var LABEL = { events:'進展與交接', questions:'提問與回答', decisions:'決策', risks:'還開著的風險', prs:'PR（標題與狀態）' };
+    var extra = inc.filter(function(k){ return LABEL[k]; }).map(function(k){ return LABEL[k]; });
+    var ex = el('div', 'expose');
+    ex.appendChild(el('b', null, '這個連結公開了：'));
+    ex.appendChild(document.createTextNode('專案名稱、里程碑、每個任務的名稱、起訖日、狀態、進度與預測完成日' + (extra.length ? '；另外還有 ' + extra.join('、') : '') + '。'));
+    ex.appendChild(document.createElement('br'));
+    ex.appendChild(document.createTextNode('不含：專案說明書、筆記、每日記錄、其他專案。知道網址的人都看得到，擁有者隨時可以撤銷。'));
+    root.appendChild(ex);
+
+    // 里程碑
+    root.appendChild(el('h2', null, '里程碑'));
+    var msBox = el('div', 'card ms');
+    if(!d.milestones.length) msBox.appendChild(el('div', 'empty', '還沒有里程碑。'));
+    d.milestones.slice().sort(function(a, b){ return String(a.date) < String(b.date) ? -1 : 1; }).forEach(function(x){
+      var row = el('div', 'ms-row');
+      row.appendChild(el('span', 'dia' + (x.atRisk ? ' risk' : '')));
+      row.appendChild(el('span', null, x.name));
+      row.appendChild(el('span', 'ms-date', String(x.date || '')));
+      if(x.atRisk) row.appendChild(el('span', 'ms-risk', '有風險' + (x.reason ? '：' + x.reason : '')));
+      msBox.appendChild(row);
+    });
+    root.appendChild(msBox);
+
+    // 甘特圖
+    root.appendChild(el('h2', null, '甘特圖'));
+    var gBox = el('div', 'card gantt');
+    if(!d.tasks.length){ gBox.appendChild(el('div', 'empty', '還沒有任務。')); }
+    else{
+      var r = range(d);
+      var axis = el('div', 'g-axis');
+      axis.appendChild(el('span', null, new Date(r.lo).toISOString().slice(0, 10)));
+      axis.appendChild(el('span', null, new Date(r.hi).toISOString().slice(0, 10)));
+      gBox.appendChild(axis);
+      var todayMs = ms(d.today);
+      d.tasks.forEach(function(t){
+        var row = el('div', 'g-row');
+        var nm = el('div', 'g-name');
+        nm.appendChild(el('span', 'n', t.name));
+        if(!t.done && t.status && t.status !== 'todo' && STATUS[t.status]) nm.appendChild(el('span', 'g-st', STATUS[t.status]));
+        if(t.done) nm.appendChild(el('span', 'g-st', '已完成'));
+        row.appendChild(nm);
+        var tr_ = el('div', 'g-track');
+        if(isYmd(t.start) && isYmd(t.end)){
+          var s = ms(t.start), e = ms(t.end);
+          var overdue = !t.done && e < todayMs;
+          var bar = el('div', 'g-bar' + (t.done ? ' done' : '') + (overdue ? ' overdue' : ''));
+          bar.style.left = pct(r, s) + '%';
+          bar.style.width = Math.max(0.6, pct(r, e + DAY) - pct(r, s)) + '%';
+          if(!t.done && t.progress > 0){ var f = el('div', 'fill'); f.style.width = Math.min(100, t.progress) + '%'; bar.appendChild(f); }
+          tr_.appendChild(bar);
+          // 預測比計畫晚：長條後面接一段虛線（計畫的長條一個字都不動）；比計畫早：只畫一個細記號
+          if(!t.done && isYmd(t.forecastEnd)){
+            var fe = ms(t.forecastEnd);
+            if(fe > e){
+              var fc = el('div', 'g-fc');
+              fc.style.left = pct(r, e + DAY) + '%';
+              fc.style.width = Math.max(0.4, pct(r, fe + DAY) - pct(r, e + DAY)) + '%';
+              tr_.appendChild(fc);
+            }else if(fe < e){
+              var fm = el('div', 'g-fc-early'); fm.style.left = pct(r, fe + DAY) + '%'; tr_.appendChild(fm);
+            }
+          }
+        }
+        var tl = el('div', 'g-today'); tl.style.left = pct(r, todayMs) + '%'; tr_.appendChild(tl);
+        row.appendChild(tr_);
+        var meta = el('div', 'g-meta', md(String(t.start || '')) + ' → ' + md(String(t.end || '')) + (t.done ? '' : ' · ' + (t.progress || 0) + '%'));
+        if(!t.done && isYmd(t.forecastEnd) && isYmd(t.end) && ms(t.forecastEnd) > ms(t.end)){
+          var late = Math.round((ms(t.forecastEnd) - ms(t.end)) / DAY);
+          meta.appendChild(el('span', 'g-late', ' · 預測晚 ' + late + ' 天（' + md(t.forecastEnd) + '）'));
+        }
+        row.appendChild(meta);
+        gBox.appendChild(row);
+      });
+    }
+    root.appendChild(gBox);
+
+    // 勾選才多帶的幾種：各自一塊，沒勾就根本不會出現
+    function section(title, list, build){
+      root.appendChild(el('h2', null, title));
+      var box = el('div', 'card');
+      if(!list.length) box.appendChild(el('div', 'empty', '沒有。'));
+      list.forEach(function(x){ box.appendChild(build(x)); });
+      root.appendChild(box);
+    }
+    function evRow(x){
+      var row = el('div', 'ev');
+      var meta = el('div', 'ev-meta');
+      meta.appendChild(el('b', null, x.by === 'user' ? '擁有者' : String(x.by || '')));
+      if(KIND[x.kind]) meta.appendChild(el('span', null, KIND[x.kind]));
+      meta.appendChild(el('span', null, String(x.at || '').slice(0, 10)));
+      row.appendChild(meta);
+      row.appendChild(el('div', 'ev-body', String(x.text || '')));
+      return row;
+    }
+    var evs = d.events || [];
+    if(inc.indexOf('events') >= 0) section('進展與交接', evs.filter(function(x){ return x.kind === 'progress' || x.kind === 'handoff'; }), evRow);
+    if(inc.indexOf('questions') >= 0) section('提問與回答', evs.filter(function(x){ return x.kind === 'question' || x.kind === 'answer' || x.kind === 'withdraw'; }), evRow);
+    if(inc.indexOf('decisions') >= 0) section('決策', evs.filter(function(x){ return x.kind === 'decision'; }), evRow);
+    if(inc.indexOf('risks') >= 0) section('還開著的風險', d.risks || [], function(x){
+      var row = evRow(x); row.className += ' risk-item'; return row;
+    });
+    if(inc.indexOf('prs') >= 0) section('PR', d.prs || [], function(p){
+      var row = el('div', 'pr');
+      var label = (p.number != null ? '#' + p.number + ' ' : '') + (p.title || '（沒有標題）');
+      // 只有 https://github.com/ 開頭才當連結（伺服器那一側也只收這一種）
+      if(typeof p.url === 'string' && /^https:\/\/github\.com\//.test(p.url)){
+        var a = el('a', null, label); a.href = p.url; a.target = '_blank'; a.rel = 'noopener noreferrer'; row.appendChild(a);
+      }else row.appendChild(el('span', null, label));
+      row.appendChild(el('span', 's', PR_STATE[p.state] || String(p.state || '')));
+      if(p.checks === 'failing') row.appendChild(el('span', 's bad', '測試失敗'));
+      else if(p.checks === 'passing') row.appendChild(el('span', 's', '測試通過'));
+      return row;
+    });
+
+    root.appendChild(el('div', 'foot', '工作排程確認系統 · 這是唯讀頁面'));
+  }
+})();
+</script>
+</body>
+</html>

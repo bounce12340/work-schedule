@@ -177,7 +177,20 @@ function makeServer(loggedIn, plan = 'pro') {
       mkEv('e5', 'progress', '', { redactedAt: T0 - 86400000, ago: 90000000 }),
       mkEv('e6', 'decision', '問題：x\n決定：y', { actor: 'user', ago: 95000000 }),
       mkEv('e7', 'progress', '最早的一筆', { ago: 99000000 }),
+      // 3B：風險。一個還開著（內文是**惡意內文**：外部內容一律 textContent）、一個已經關了（不該出現在「風險」清單）
+      mkEv('r1', 'risk', '<img src=x onerror="window.__xss4=1">廠商可能來不及交件', { status: 'open', taskId: 't2', ago: 100000000 }),
+      mkEv('r2', 'risk', '已經排除的舊風險', { status: 'closed', ago: 101000000 }),
     ],
+    // ---- 3B：版本歷史、分享連結、成績單、建立金鑰 ----
+    // v1：有差異（含一筆惡意摘要）；v2：那一版的檔案已經不在（410）；v3：和現在一樣
+    versions: [
+      { id: 'v1', createdAt: T0 - 3600e3, actor: 'Smoke Agent', summary: '<img src=x onerror="window.__xss6=1">改了任務日期', bytes: 1234 },
+      { id: 'v2', createdAt: T0 - 7200e3, actor: 'system', summary: '每日留存', bytes: 1200 },
+      { id: 'v3', createdAt: T0 - 9000e3, actor: 'user', summary: '自動留存（每小時）', bytes: 1100 },
+    ],
+    share: null, sharePosts: [],
+    keyPosts: [],
+    scorecard: [{ connId: 'c1', name: 'Smoke Agent', active: true, changes: 12, undone: 2, tasksCompleted: 3, estimateHours: 10, actualHours: 12, comparedTasks: 2 }],
     questions: [
       { ...mkEv('q1', 'question', '要用哪個方案？', { status: 'open', options: ['甲案', '乙案'], taskId: 't1', ago: 60000 }), projectName: '官網改版專案', taskName: '需求訪談', pastDeadline: false },
       { ...mkEv('q2', 'question', '截止日要不要延？', { status: 'open', ago: 120000 }), projectName: '官網改版專案', taskName: null, pastDeadline: false },
@@ -186,8 +199,8 @@ function makeServer(loggedIn, plan = 'pro') {
       preview: { ok: true, rows: [{ entity: '專案「官網改版專案」的任務「視覺設計」', field: '結束日', before: '2027-02-10', after: '2027-02-17' }] } }],
     review: [{ projectId: 'g1', projectName: '官網改版專案', taskId: 't2', taskName: '視覺設計', todosInReview: [] }],
     connections: [
-      { id: 'c1', kind: 'oauth', name: 'Smoke Agent', createdAt: 1, lastUsedAt: null, mode: 'direct', paused: false, needsAcceptance: false, pausedReason: null },
-      { id: 'c2', kind: 'key', name: 'Auto Paused Key', createdAt: 2, lastUsedAt: null, mode: 'direct', paused: true, needsAcceptance: false, pausedReason: 'auto' },
+      { id: 'c1', kind: 'oauth', name: 'Smoke Agent', access: 'write', projectId: null, createdAt: 1, lastUsedAt: null, mode: 'direct', paused: false, needsAcceptance: false, pausedReason: null },
+      { id: 'c2', kind: 'key', name: 'Auto Paused Key', access: 'read', projectId: 'g1', createdAt: 2, lastUsedAt: null, mode: 'direct', paused: true, needsAcceptance: false, pausedReason: 'auto' },
     ],
   };
   // 前端推上來的提醒摘要都收在這裡，讓「休假那幾天閉嘴」那條斷言有東西可看。
@@ -197,13 +210,29 @@ function makeServer(loggedIn, plan = 'pro') {
   const reminderPuts = [];
   const reminderPosts = [];
   const unsubPosts = [];
-  for (const f of ['index.html', 'login.html', 'reset.html', 'admin.html', 'privacy.html', 'terms.html', 'support.html', 'unsub.html', 'subscribe.html', 'authorize.html']) {
+  const oauthDecisions = [];
+  for (const f of ['index.html', 'login.html', 'reset.html', 'admin.html', 'privacy.html', 'terms.html', 'support.html', 'unsub.html', 'subscribe.html', 'authorize.html', 'p.html']) {
     assets.set('/' + f, readFileSync(PUBLIC + f, 'utf8'));
   }
   // sw.js 一定要真的供應。擋掉它會讓註冊失敗噴一行 console.error，而把
   // navigator.serviceWorker 偽造成 undefined 更糟——`'serviceWorker' in navigator`
   // 仍然為真，於是 .register 就丟 TypeError。真實瀏覽器不會有那種狀態。
   const SW = readFileSync(PUBLIC + 'sw.js', 'utf8');
+  // 公開分享頁讀到的內容（伺服器 handlePublicProject 的形狀）。名稱與日誌都放**惡意內文**：外部內容一律 textContent
+  const publicProject = {
+    project: { name: '<img src=x onerror="window.__xss5=1">公開的專案' },
+    today: plusDays(0),
+    milestones: [{ name: '上線', date: plusDays(10), atRisk: true, reason: '把關的任務預測會晚' }, { name: '驗收', date: plusDays(200), atRisk: false }],
+    tasks: [
+      { name: '逾期又預測更晚的任務', start: plusDays(-60), end: plusDays(-5), status: 'doing', progress: 40, done: false, forecastEnd: plusDays(14) },
+      { name: '已完成的任務', start: plusDays(-80), end: plusDays(-70), status: 'todo', progress: 100, done: true, forecastEnd: null },
+      { name: '進行中的任務', start: plusDays(-3), end: plusDays(40), status: 'blocked', progress: 10, done: false, forecastEnd: plusDays(36) },
+    ],
+    includes: ['events', 'risks', 'prs'],
+    events: [{ kind: 'progress', by: 'Smoke Agent', at: new Date().toISOString(), text: '<img src=x onerror="window.__xss7=1">這是公開的進展' }],
+    risks: [{ by: 'Smoke Agent', at: new Date().toISOString(), text: '公開的風險' }],
+    prs: [{ repo: 'o/r', number: 5, title: '公開的 PR', url: 'https://github.com/o/r/pull/5', state: 'open', checks: 'failing', review: 'none' }],
+  };
   const server = createServer((req, res) => {
     const url = new URL(req.url, 'http://x');
     const send = (code, body, type = 'application/json') => {
@@ -229,7 +258,25 @@ function makeServer(loggedIn, plan = 'pro') {
           send(200, { ok: true, kind: body.kind });
         });
       }
+      // 專案的公開分享頁：**公開端點**（沒有 session 的人看的），真的 Worker 排在登入檢查之前
+      {
+        const pm = url.pathname.match(/^\/api\/p\/([^/]+)$/);
+        if (pm) {
+          if (pm[1] !== 'SHARETOKEN_SMOKE_0123456789ab') return send(404, { error: '找不到這個連結' });
+          return send(200, publicProject);
+        }
+      }
       if (!loggedIn) return send(404, { error: 'not found' });
+      // 授權頁（authorize.html）從 /api/state 拿專案清單；一般的 app 同步仍然拿到 state:null
+      if (url.pathname === '/api/state' && req.method === 'GET' && /\/authorize/.test(req.headers.referer || '')) {
+        return send(200, { user: ME, state: { ganttProjects: [{ id: 'g1', name: '官網改版專案' }, { id: 'g9', name: '<b>第二個專案</b>' }] }, updatedAt: 1 });
+      }
+      if (url.pathname === '/api/oauth/info') return send(200, { clientName: 'Smoke Client', email: ME.email, pro: true });
+      if (url.pathname === '/api/oauth/decision') {
+        let raw = '';
+        req.on('data', c => { raw += c; });
+        return req.on('end', () => { try { oauthDecisions.push(JSON.parse(raw)); } catch { oauthDecisions.push(null); } send(200, { redirect: 'http://127.0.0.1:' + PORT + '/authorized-ok' }); });
+      }
       if (url.pathname === '/api/state') {
         if (req.method === 'PUT') {
           // 收下來：表格裡改日期／進度要真的推上雲端（見「表格的編輯要推上雲端」那一段）
@@ -283,7 +330,7 @@ function makeServer(loggedIn, plan = 'pro') {
       {
         const m = url.pathname.match(/^\/api\/projects\/([^/]+)\/events$/);
         if (m && req.method === 'GET') return agent.eventsFail ? send(500, { error: 'boom' }) : send(200, { events: agent.events });
-        const post = url.pathname.match(/^\/api\/(?:projects\/events\/([^/]+)\/(answer|redact)|mcp\/proposals\/([^/]+)\/(approve|reject)|projects\/([^/]+)\/tasks\/([^/]+)\/(accept|reject)|mcp\/connections\/([^/]+)\/settings|mcp\/pause-all)$/);
+        const post = url.pathname.match(/^\/api\/(?:projects\/events\/([^/]+)\/(answer|redact|close-risk)|mcp\/proposals\/([^/]+)\/(approve|reject)|projects\/([^/]+)\/tasks\/([^/]+)\/(accept|reject)|mcp\/connections\/([^/]+)\/settings|mcp\/pause-all)$/);
         if (post && req.method === 'POST') {
           let raw = '';
           req.on('data', c => { raw += c; });
@@ -296,7 +343,8 @@ function makeServer(loggedIn, plan = 'pro') {
               if (post[2] === 'answer') {
                 agent.questions = agent.questions.filter(q => q.id !== post[1]);
                 if (ev) ev.status = 'answered';
-              } else if (ev) { ev.redactedAt = Date.now(); ev.body = ''; ev.options = null; }
+              } else if (post[2] === 'close-risk') { if (ev) ev.status = 'closed'; }
+              else if (ev) { ev.redactedAt = Date.now(); ev.body = ''; ev.options = null; }
             } else if (post[3]) agent.proposals = agent.proposals.filter(x => x.id !== post[3]);
             else if (post[5]) agent.review = agent.review.filter(x => x.taskId !== post[6]);
             else if (post[8]) {
@@ -311,6 +359,49 @@ function makeServer(loggedIn, plan = 'pro') {
               return send(200, { ok: true, paused: body.paused, connections: agent.connections.length });
             }
             send(200, { ok: true });
+          });
+        }
+      }
+      // 3B：版本歷史、成績單、建立金鑰、分享連結、關閉風險
+      if (url.pathname === '/api/history/versions') return send(200, { configured: true, versions: agent.versions });
+      {
+        const hm = url.pathname.match(/^\/api\/history\/versions\/([^/]+)\/(diff|restore)$/);
+        if (hm) {
+          const v = agent.versions.find(x => x.id === hm[1]);
+          if (!v) return send(404, { error: '找不到這個版本' });
+          if (hm[2] === 'restore') { agent.posts.push({ path: url.pathname, body: {} }); return send(200, { ok: true }); }
+          if (v.id === 'v2') return send(410, { error: '這個版本的內容已經不在了（可能已過期被清掉）' });
+          const rows = v.id === 'v3' ? [] : [
+            { entity: 'ganttTask', id: 'g1/t2', name: '官網改版專案／視覺設計', field: 'end', before: '2027-02-10', after: '2027-02-17' },
+            { entity: 'item', id: 'i1', name: '某個項目', field: '（新增）', before: null, after: '某個項目' },
+          ];
+          return send(200, { version: { id: v.id }, rows, total: rows.length, truncated: false });
+        }
+      }
+      if (url.pathname === '/api/agent/scorecard') return send(200, { windowDays: 90, connections: agent.scorecard });
+      if (url.pathname === '/api/mcp/keys' && req.method === 'POST') {
+        let raw = '';
+        req.on('data', c => { raw += c; });
+        return req.on('end', () => {
+          let body = {};
+          try { body = JSON.parse(raw || '{}'); } catch {}
+          agent.keyPosts.push(body);
+          send(200, { id: 'k-new', name: body.name || 'key', token: 'wsk_SMOKE_KEY', scope: body.scope || 'write', projectId: body.projectId || null });
+        });
+      }
+      {
+        const sm = url.pathname.match(/^\/api\/projects\/([^/]+)\/share$/);
+        if (sm) {
+          if (req.method === 'GET') return send(200, { active: agent.share });
+          if (req.method === 'DELETE') { agent.sharePosts.push({ method: 'DELETE' }); agent.share = null; return send(200, { ok: true, revoked: 1 }); }
+          let raw = '';
+          req.on('data', c => { raw += c; });
+          return req.on('end', () => {
+            let body = {};
+            try { body = JSON.parse(raw || '{}'); } catch {}
+            agent.sharePosts.push({ method: 'POST', body });
+            agent.share = { id: 's1', projectId: sm[1], createdAt: Date.now(), include: body.include || [] };
+            send(200, { id: 's1', token: 'SHARETOKEN_SMOKE_0123456789ab', url: 'https://smoke.example/p/SHARETOKEN_SMOKE_0123456789ab', include: agent.share.include, note: '' });
           });
         }
       }
@@ -343,6 +434,8 @@ function makeServer(loggedIn, plan = 'pro') {
       }
       return send(200, { ok: true });
     }
+    // 專案的公開分享頁：真的 Worker 對 /p/<任何東西> 都回同一頁 p.html（頁面自己從網址讀 token）
+    if (/^\/p\/[^/]+$/.test(url.pathname)) return send(200, assets.get('/p.html'), 'text/html');
     const path = url.pathname === '/' ? '/index.html' : url.pathname;
     if (path === '/sw.js') return send(200, SW, 'text/javascript');
     if (assets.has(path)) return send(200, assets.get(path), 'text/html');
@@ -357,6 +450,7 @@ function makeServer(loggedIn, plan = 'pro') {
   server.reminderPuts = reminderPuts;
   server.reminderPosts = reminderPosts;
   server.unsubPosts = unsubPosts;
+  server.oauthDecisions = oauthDecisions;
   return server;
 }
 
@@ -582,6 +676,11 @@ async function walk(page, log, plan = 'pro', server = null) {
       const el = document.getElementById('agentPrs');
       return el && el.querySelector('.agent-line') && !el.querySelector('.agent-pr') && !/載入中|Loading/.test(el.textContent);
     }, null, { timeout: 5000 }).catch(() => { throw new Error('PR 載入失敗時，看板沒有那一行「連線後才看得到」'); });
+    step = '風險：載入失敗時要有一行說明';
+    await page.waitForFunction(() => {
+      const el = document.getElementById('agentRisks');
+      return el && el.querySelector('.agent-line') && !el.querySelector('.agent-risk') && !/載入中|Loading/.test(el.textContent);
+    }, null, { timeout: 5000 }).catch(() => { throw new Error('日誌載入失敗時，風險那一塊沒有那一行「連線後才看得到」'); });
     A.eventsFail = false;
     A.prsFail = false;
     step = '最新進展：回到前景後重新載入';
@@ -593,7 +692,7 @@ async function walk(page, log, plan = 'pro', server = null) {
     step = '最新進展：看全部';
     await page.locator('#agentTimeline .agent-h .qbtn').click();
     const n7 = await page.locator('#agentTimeline .agent-ev').count();
-    if (n7 !== 7) throw new Error(`按「看全部」之後應該是 7 筆，實際 ${n7} 筆`);
+    if (n7 !== 9) throw new Error(`按「看全部」之後應該是 9 筆，實際 ${n7} 筆`);
     // 3. 惡意內文：agent 寫的是外部內容。一律 textContent
     step = '最新進展：惡意內文不能長出元素或執行';
     const xss = await page.evaluate(() => ({
@@ -952,6 +1051,81 @@ async function walk(page, log, plan = 'pro', server = null) {
     checked.push('已合併的 PR(只問不自動勾/按了才標)');
   }
 
+  // ---- agent 工作區 3B：專案頁的風險與公開的分享連結 ----
+  // 新的前端函式（riskBuild、pshareBuild…）「函式根本沒被定義」npm test 與 node --check 都抓不到（第 0 條）。
+  {
+    const A = server.agent;
+    step = '風險：只列還開著的，惡意內文不能長出元素';
+    await page.waitForFunction(() => document.querySelectorAll('#agentRisks .agent-risk').length === 1, null, { timeout: 5000 })
+      .catch(() => { throw new Error('風險那一塊應該剛好有一筆還開著的風險（已關閉的不列）'); });
+    const rk = await page.evaluate(() => ({
+      imgs: document.querySelectorAll('#agentRisks img').length, ran: window.__xss4 === 1,
+      text: document.getElementById('agentRisks').textContent,
+      leftBorder: getComputedStyle(document.querySelector('#agentRisks .agent-risk')).borderLeftWidth,
+    }));
+    if (rk.imgs || rk.ran) throw new Error('風險的內文被當成 HTML 執行了：' + JSON.stringify(rk));
+    if (!/<img src=x/.test(rk.text) || !/廠商可能來不及交件/.test(rk.text)) throw new Error('惡意內文應該原樣顯示成文字——斷言會變成空的');
+    if (/已經排除的舊風險/.test(rk.text)) throw new Error('已經關閉的風險還在清單裡');
+    step = '風險：擁有者關閉';
+    await page.locator('#agentRisks .agent-risk .qbtn').click();
+    await page.waitForFunction(() => document.querySelectorAll('#agentRisks .agent-risk').length === 0, null, { timeout: 5000 })
+      .catch(() => { throw new Error('按了「關閉這個風險」，風險沒有從清單拿掉'); });
+    if (!A.posts.find(x => /\/projects\/events\/r1\/close-risk$/.test(x.path))) throw new Error('關閉風險沒有打到 close-risk 端點');
+    checked.push('風險(只列開著的/惡意內文/關閉)');
+
+    // ===== 公開的分享連結 =====
+    step = '分享連結：預設一種都不勾，而且寫清楚公開什麼';
+    await page.waitForFunction(() => document.querySelectorAll('#agentShare input[type=checkbox]').length === 5, null, { timeout: 5000 })
+      .catch(() => { throw new Error('分享連結那一塊沒有畫出五種可多公開的勾選框'); });
+    if (await page.locator('#agentShare input[type=checkbox]:checked').count() !== 0) throw new Error('勾選框預設不是全部不勾——預設要什麼都不多公開');
+    const st0 = await page.locator('#agentShare [data-role=share-state]').textContent();
+    if (!/不用登入|without signing in/.test(st0) || !/專案說明書|project brief/.test(st0)) throw new Error('沒有寫清楚這個連結公開什麼、不含什麼：' + st0);
+    step = '分享連結：勾兩種、產生';
+    await page.locator('#agentShare input[type=checkbox][value=prs]').check();
+    await page.locator('#agentShare input[type=checkbox][value=risks]').check();
+    await page.locator('#agentShare .agent-send').click();
+    await page.waitForSelector('#agentShareUrl', { timeout: 5000 }).catch(() => { throw new Error('產生之後沒有顯示網址'); });
+    const shp = A.sharePosts.filter(x => x.method === 'POST');
+    if (shp.length !== 1 || JSON.stringify(shp[0].body) !== JSON.stringify({ include: ['risks', 'prs'] })) throw new Error('產生送出去的 include 不對：' + JSON.stringify(shp));
+    const urlTxt = (await page.locator('#agentShareUrl').textContent()).trim();
+    if (urlTxt !== 'https://smoke.example/p/SHARETOKEN_SMOKE_0123456789ab') throw new Error('顯示的網址不是伺服器給的：' + urlTxt);
+    // 有連結之後，狀態那一句要列出「實際公開了」哪幾種
+    const st1 = await page.locator('#agentShare [data-role=share-state]').textContent();
+    if (!/目前有一個公開連結|There is one public link/.test(st1) || !/風險|risks/i.test(st1)) throw new Error('有連結之後，狀態沒有說出公開了哪幾種：' + st1);
+    // 網址不進任何瀏覽器儲存（只在畫面與記憶體）
+    const leaked1 = await page.evaluate(() => /SHARETOKEN_SMOKE/.test(JSON.stringify(Object.assign({}, localStorage)) + JSON.stringify(Object.assign({}, sessionStorage))));
+    if (leaked1) throw new Error('分享連結的網址被存進了 localStorage／sessionStorage');
+    // 專案頁在 commit 時會整頁重建：還沒複製的網址不能被重畫吃掉
+    await page.click('#navSchedule');
+    await page.click('#navGantt');
+    await page.waitForSelector('#agentShareUrl', { timeout: 4000 }).catch(() => { throw new Error('切頁籤再回來，還沒複製的網址消失了'); });
+    step = '分享連結：我已複製，收起來';
+    await page.click('#btnShareHide');
+    if (await page.locator('#agentShareUrl').count() || await page.locator('#agentShareReveal').count()) throw new Error('按了「我已複製，收起來」，網址還在畫面上');
+    if (/SHARETOKEN_SMOKE/.test(await page.locator('#agentShare').textContent())) throw new Error('收起來之後，網址還留在畫面的文字裡');
+    await page.click('#navSchedule');
+    await page.click('#navGantt');
+    await page.waitForSelector('#agentShare input[type=checkbox]', { timeout: 4000 });
+    if (await page.locator('#agentShareUrl').count()) throw new Error('收起來之後切頁籤，網址又出現了');
+    // 重新產生（要確認）、撤銷（要確認）
+    step = '分享連結：重新產生與撤銷';
+    page.once('dialog', d => d.dismiss());
+    await page.locator('#agentShare .agent-send').click();
+    await page.waitForTimeout(300);
+    if (A.sharePosts.filter(x => x.method === 'POST').length !== 1) throw new Error('按了取消，重新產生還是送出去了');
+    page.once('dialog', d => d.accept());
+    await page.locator('#agentShare .agent-send').click();
+    await page.waitForFunction(() => !!document.getElementById('agentShareUrl'), null, { timeout: 4000 });
+    if (A.sharePosts.filter(x => x.method === 'POST').length !== 2) throw new Error('確認之後重新產生沒有送出去');
+    page.once('dialog', d => d.accept());
+    await page.locator('#agentShare .qbtn').click();
+    await page.waitForFunction(() => /目前沒有公開連結|There is no public link/.test(document.querySelector('#agentShare [data-role=share-state]').textContent), null, { timeout: 4000 })
+      .catch(() => { throw new Error('撤銷之後，狀態沒有變成「目前沒有公開連結」'); });
+    if (!A.sharePosts.find(x => x.method === 'DELETE')) throw new Error('撤銷沒有打到 DELETE');
+    if (await page.locator('#agentShareUrl').count()) throw new Error('撤銷之後網址還在畫面上');
+    checked.push('分享連結(預設不勾/寫清楚/include 送對/網址不進儲存/重畫不吃掉/收起來清掉/重新產生與撤銷要確認)');
+  }
+
   // ---- 專案的夥伴：卡片、挑夥伴的面板、真的選得下去 ----
   // 這一段是 CLAUDE.md 第 0 條的具體形狀：petBuildCard / petOpenPanel / petChoose
   // 都是新的頂層函式，而「函式根本沒被定義」npm test 與 node --check 都抓不到。
@@ -1106,6 +1280,66 @@ async function walk(page, log, plan = 'pro', server = null) {
     checked.push('第六顆通知開關(看得見/送出 agentNotify)');
   }
 
+  // 第七顆通知開關（每週摘要信）：預設關、看得見、按得動，送出去的是 weeklyMail 而且不順手改別的
+  {
+    step = '第七顆通知開關（每週摘要）';
+    if (!(await page.locator('#viewAccount #btnWeeklyMail').isVisible())) throw new Error('「每週摘要信」不在帳號頁上（或看不見）');
+    if (!/關|off/i.test(await page.locator('#btnWeeklyMail').textContent())) throw new Error('每週摘要信預設不是關的');
+    const before = server.reminderPosts.length;
+    await page.click('#btnWeeklyMail');
+    await page.waitForTimeout(400);
+    const last = server.reminderPosts[server.reminderPosts.length - 1];
+    if (server.reminderPosts.length !== before + 1 || last.weeklyMail !== true) throw new Error('第七顆送出去的不對：' + JSON.stringify(last));
+    for (const k of ['pushOverdue', 'pushStreak', 'pushToday', 'agentNotify']) {
+      if (k in last) throw new Error(`第七顆順手帶了 ${k}——各自獨立的開關不能連坐`);
+    }
+    if (!/開|on/i.test(await page.locator('#btnWeeklyMail').textContent())) throw new Error('按下去之後，按鈕沒有變成「開」');
+    checked.push('第七顆通知開關(預設關/送出 weeklyMail/不連坐)');
+  }
+
+  // 排程的版本歷史：看得到清單、差異是前後對照不是 JSON、讀不到的那一版說得出原因、退回要確認並打到 restore
+  {
+    const A = server.agent;
+    step = '版本歷史';
+    await page.waitForFunction(() => document.querySelectorAll('#histList .hist-row').length === 3, null, { timeout: 5000 })
+      .catch(() => { throw new Error('版本歷史沒有畫出假後端給的三個版本'); });
+    const sub = (await page.locator('#acctHistorySub').textContent());
+    if (plan === 'free' && !/只替 Pro|only kept for Pro/.test(sub)) throw new Error('免費版的版本歷史沒有說「只替 Pro 留存」：' + sub);
+    if (plan === 'pro' && !/30/.test(sub)) throw new Error('Pro 的版本歷史沒有說保留多久：' + sub);
+    const hx = await page.evaluate(() => ({ imgs: document.querySelectorAll('#histList img').length, ran: window.__xss6 === 1, text: document.getElementById('histList').textContent }));
+    if (hx.imgs || hx.ran) throw new Error('版本的摘要被當成 HTML 執行了');
+    if (!/<img src=x/.test(hx.text)) throw new Error('惡意摘要應該原樣顯示成文字——斷言會變成空的');
+    const row = i => page.locator('#histList .hist-row').nth(i);
+    // 看差異：前後對照的列（不是 JSON）
+    await row(0).locator('.hist-btns .ghost-btn').first().click();
+    await page.waitForFunction(() => document.querySelectorAll('#histList .agent-diff-row').length === 2, null, { timeout: 4000 })
+      .catch(() => { throw new Error('看差異沒有畫出兩列前後對照'); });
+    const dtxt = await row(0).locator('.hist-diff').textContent();
+    if (!/2027-02-17/.test(dtxt) || !/視覺設計/.test(dtxt)) throw new Error('差異沒有顯示那一格改了什麼：' + dtxt);
+    if (/\{\s*"|"entity"|"before"/.test(dtxt)) throw new Error('差異顯示成了 JSON');
+    if (!(await row(0).locator('.agent-diff-val .old').count()) || !(await row(0).locator('.agent-diff-val .new').count())) throw new Error('差異沒有「舊值（刪除線）→ 新值」的結構');
+    // 那一版的檔案不在了（410）：伺服器的原話要說出來
+    await row(1).locator('.hist-btns .ghost-btn').first().click();
+    await page.waitForFunction(() => /已經不在了/.test(document.querySelectorAll('#histList .hist-row')[1].textContent), null, { timeout: 4000 })
+      .catch(() => { throw new Error('讀不到的那一版沒有說出原因'); });
+    // 和現在一樣
+    await row(2).locator('.hist-btns .ghost-btn').first().click();
+    await page.waitForFunction(() => /沒有差異|same as now/.test(document.querySelectorAll('#histList .hist-row')[2].textContent), null, { timeout: 4000 })
+      .catch(() => { throw new Error('沒有差異的那一版沒有說「沒有差異」'); });
+    // 退回：先取消（不能送出）、再確認（打到 restore）
+    step = '版本歷史：退回要確認';
+    page.once('dialog', d => d.dismiss());
+    await row(0).locator('.hist-btns .ghost-btn').nth(1).click();
+    await page.waitForTimeout(300);
+    if (A.posts.find(x => /\/history\/versions\/v1\/restore$/.test(x.path))) throw new Error('按了取消，退回還是送出去了');
+    page.once('dialog', d => d.accept());
+    await row(0).locator('.hist-btns .ghost-btn').nth(1).click();
+    await page.waitForFunction(() => !!document.querySelector('#histList .hist-row .agent-msg') && /已退回|Restored/.test(document.querySelector('#histList').textContent), null, { timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(500);
+    if (!A.posts.find(x => /\/history\/versions\/v1\/restore$/.test(x.path))) throw new Error('確認之後，退回沒有打到 restore 端點');
+    checked.push('版本歷史(清單/惡意摘要/差異是對照不是JSON/410 說原因/退回要確認)');
+  }
+
   // GitHub 通知（webhook）設定：建立時網址與密鑰只出現這一次、**不進 localStorage**、移除會清掉畫面上的密鑰
   {
     step = 'GitHub 通知設定';
@@ -1146,6 +1380,37 @@ async function walk(page, log, plan = 'pro', server = null) {
   // 連線設定（Pro）：每條連線三顆開關、暫停原因、暫停所有 agent、一次性的能力說明
   if (plan === 'pro') {
     const A = server.agent;
+    // 鑰匙與連線的權限範圍：每條連線寫出範圍、建立金鑰時送出選的範圍（沒選＝跟以前一樣）、成績單只有數字
+    step = '連線的權限範圍';
+    await page.waitForFunction(() => document.querySelectorAll('#acctMcpConnList .agent-scope').length === 2, null, { timeout: 4000 })
+      .catch(() => { throw new Error('每條連線都要寫出它的權限範圍'); });
+    const scopes = await page.evaluate(() => [...document.querySelectorAll('#acctMcpConnList .agent-scope')].map(e => ({ t: e.textContent, narrow: e.classList.contains('narrow'), a: e.dataset.access })));
+    if (scopes[0].a !== 'write' || !/可讀寫|Read and write/.test(scopes[0].t) || !/全部專案|All projects/.test(scopes[0].t)) throw new Error('第一條連線的範圍不對：' + JSON.stringify(scopes[0]));
+    if (scopes[1].a !== 'read' || !/只能讀|Read-only/.test(scopes[1].t) || !/官網改版專案/.test(scopes[1].t) || !scopes[1].narrow) throw new Error('第二條連線（唯讀、限專案）的範圍不對：' + JSON.stringify(scopes[1]));
+    step = '建立金鑰：送出選的範圍';
+    if (await page.locator('#selMcpKeyProject option').count() !== 2) throw new Error('「只限這個專案」的選單應該有「全部專案」加一個專案');
+    await page.locator('#inputMcpKeyName').fill('唯讀金鑰');
+    await page.locator('#chkMcpKeyRead').check();
+    await page.locator('#selMcpKeyProject').selectOption('g1');
+    await page.click('#btnMcpCreateKey');
+    await page.waitForFunction(() => document.getElementById('acctMcpKeyText').textContent === 'wsk_SMOKE_KEY', null, { timeout: 4000 })
+      .catch(() => { throw new Error('建立金鑰之後沒有顯示金鑰'); });
+    const kb = server.agent.keyPosts;
+    if (JSON.stringify(kb[kb.length - 1]) !== JSON.stringify({ name: '唯讀金鑰', scope: 'read', projectId: 'g1' })) throw new Error('建立金鑰送出去的不對：' + JSON.stringify(kb));
+    await page.locator('#chkMcpKeyRead').uncheck();
+    await page.locator('#selMcpKeyProject').selectOption('');
+    await page.locator('#inputMcpKeyName').fill('一般金鑰');
+    await page.click('#btnMcpCreateKey');
+    await page.waitForTimeout(400);
+    if (JSON.stringify(kb[kb.length - 1]) !== JSON.stringify({ name: '一般金鑰' })) throw new Error('沒勾、沒選的時候，body 應該跟以前一樣只有名稱：' + JSON.stringify(kb[kb.length - 1]));
+    step = '成績單';
+    await page.waitForFunction(() => document.querySelectorAll('#acctMcpScore .agent-score').length === 1, null, { timeout: 4000 })
+      .catch(() => { throw new Error('成績單沒有畫出假後端給的那一條'); });
+    const sc = await page.locator('#acctMcpScore .agent-score').textContent();
+    if (!/改了 12 筆（被你復原 2 筆）|12 changes \(2 undone by you\)/.test(sc) || !/讓 3 個任務完成|completed 3 tasks/.test(sc)
+        || !/預估 10 小時、實際 12 小時（2 個任務）|estimated 10 h, actual 12 h \(2 tasks\)/.test(sc)) throw new Error('成績單的數字不對：' + sc);
+    checked.push('連線範圍(每條都寫出/建立金鑰送對/沒選時跟以前一樣)與成績單(只有數字)');
+
     step = '連線設定：兩條連線都要畫出來';
     await page.waitForFunction(() => document.querySelectorAll('#acctMcpConnList .agent-conn').length === 2, null, { timeout: 4000 })
       .catch(() => { throw new Error('連線清單應該有兩條連線'); });
@@ -1343,6 +1608,8 @@ for (const loggedIn of [false, true]) {
       // 假後端刻意讓「最新進展」載入失敗的那一段，console.error 是預期的（降級可以，沉默不行）
       if (server.agent && server.agent.eventsFail && /agent events failed/.test(t)) return;
       if (server.agent && server.agent.prsFail && /agent prs failed/.test(t)) return;
+      // 版本歷史：那一版的檔案已經不在（410）是**預期**的（驗「讀不到的那一版說得出原因」），console.error 是它該留下的線索
+      if (/history diff failed/.test(t)) return;
       errors.push(`console.error：${t}`);
     });
     await page.route('**://fonts.*/**', r => r.abort());
@@ -1670,7 +1937,7 @@ async function walkNative(page, log, seen) {
     // 驗的是「真的按得動、而且送出去的是對的那一種」，不是「畫得出按鈕」——
     // onclick 沒接上時後者照樣是綠的（同〈眼睛〉那條斷言的理由）。
     const TOK = 'tok_smoke_0123456789abcdef';
-    for (const [kind, other] of [['reminder', '櫻花樹'], ['streak', '逾期提醒']]) {
+    for (const [kind, other] of [['reminder', '櫻花樹'], ['streak', '逾期提醒'], ['weekly', '其他的提醒信']]) {
       await page.goto(`http://127.0.0.1:${PORT}/unsub?t=${TOK}&k=${kind}`,
         { waitUntil: 'domcontentloaded' });
       const btn = page.locator('#btn');
@@ -1684,8 +1951,8 @@ async function walkNative(page, log, seen) {
       if (await btn.isVisible()) throw new Error(`unsub（${kind}）關掉之後按鈕還在`);
     }
     const posts = server.unsubPosts;
-    if (posts.length !== 2) throw new Error(`unsub 應該送出 2 次，實際 ${posts.length} 次`);
-    if (posts[0].kind !== 'reminder' || posts[1].kind !== 'streak') {
+    if (posts.length !== 3) throw new Error(`unsub 應該送出 3 次，實際 ${posts.length} 次`);
+    if (posts[0].kind !== 'reminder' || posts[1].kind !== 'streak' || posts[2].kind !== 'weekly') {
       throw new Error('unsub 送出的 kind 不對：' + JSON.stringify(posts.map(p => p && p.kind)));
     }
     if (posts.some(p => p.token !== TOK)) throw new Error('unsub 沒有把網址上的 token 原樣送出去');
@@ -1697,7 +1964,7 @@ async function walkNative(page, log, seen) {
       if (await page.locator('#btn').isVisible()) throw new Error(`${bad} 不該出現按鈕`);
       if (!(await page.locator('.msg.err').count())) throw new Error(`${bad} 沒有說明哪裡不對`);
     }
-    if (server.unsubPosts.length !== 2) throw new Error('連結不完整時不該打到伺服器');
+    if (server.unsubPosts.length !== 3) throw new Error('連結不完整時不該打到伺服器');
   } catch (e) { errors.push(e.message); }
   if (errors.length) { failures.push({ label, errors }); console.log(`   ✗ ${errors.length} 個錯誤`); errors.forEach(e => console.log(`      - ${e}`)); }
   else console.log('   ✓ 零錯誤');
@@ -1964,7 +2231,121 @@ async function walkNative(page, log, seen) {
   await new Promise(r => server.close(r));
 }
 
-const TOTAL = 7;
+/**
+ * 第八輪：專案的公開分享頁（/p/<token>）與授權頁的範圍選擇。
+ *
+ * 這兩頁都是**獨立的 HTML**（各自的 <style> 與 <script>），index.html 那一份綠了不代表它們也對。
+ * 公開頁是給**沒有帳號的人**看的，所以假後端把 /api/p/:token 放在登入檢查之前（真的 Worker 也是），
+ * 而且頁面上所有來自伺服器的字（專案名、任務名、日誌）都放了 <img onerror>：長出元素或執行就是紅。
+ */
+{
+  const label = '專案的公開分享頁與授權頁';
+  const server = makeServer(true);           // 公開頁不帶 cookie（credentials:'omit'）；/api/p 在假後端也排在登入檢查之前
+  await new Promise(r => server.listen(PORT, r));
+  const launch = process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {};
+  const browser = await chromium.launch(launch);
+  const errors = [];
+  const checked = [];
+  console.log(`\n▸ ${label}`);
+  const newPage = async (scheme, width = 1100) => {
+    const ctx = await browser.newContext({ viewport: { width, height: 900 }, colorScheme: scheme, locale: 'zh-TW' });
+    const page = await ctx.newPage();
+    page.on('pageerror', e => errors.push(`未捕捉的例外：${e.message}`));
+    page.on('console', m => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) errors.push(`console.error：${m.text()}`); });
+    await page.route('**://fonts.*/**', r => r.abort());
+    return { ctx, page };
+  };
+  try {
+    const TOKEN = 'SHARETOKEN_SMOKE_0123456789ab';
+    for (const scheme of ['light', 'dark']) {
+      const { ctx, page } = await newPage(scheme, scheme === 'dark' ? 390 : 1100);
+      await page.goto(`http://127.0.0.1:${PORT}/p/${TOKEN}`, { waitUntil: 'domcontentloaded' });
+      await page.waitForSelector('h1', { timeout: 5000 }).catch(() => { throw new Error(`公開頁（${scheme}）沒有畫出專案名稱`); });
+      const info = await page.evaluate(() => ({
+        title: document.title,
+        robots: document.querySelector('meta[name=robots]')?.content,
+        imgs: document.querySelectorAll('img').length,
+        xss: [window.__xss5, window.__xss7].filter(Boolean).length,
+        h1: document.querySelector('h1').textContent,
+        text: document.body.innerText,
+        overflowX: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+        diamonds: [...document.querySelectorAll('.dia')].map(d => d.classList.contains('risk')),
+        bars: [...document.querySelectorAll('.g-bar')].map(b => ({ cls: b.className, bg: getComputedStyle(b).backgroundColor })),
+        forecasts: document.querySelectorAll('.g-fc').length,
+        earlies: document.querySelectorAll('.g-fc-early').length,
+        forecastBorder: document.querySelector('.g-fc') ? getComputedStyle(document.querySelector('.g-fc')).borderTopStyle : null,
+        red: (() => { const i = document.createElement('i'); i.style.background = 'var(--red)'; document.body.appendChild(i); const c = getComputedStyle(i).backgroundColor; i.remove(); return c; })(),
+        pr: document.querySelector('.pr a') ? [document.querySelector('.pr a').getAttribute('href'), document.querySelector('.pr a').rel, document.querySelector('.pr a').target] : null,
+      }));
+      if (!/noindex/.test(info.robots || '')) throw new Error('公開頁沒有 noindex');
+      if (info.imgs || info.xss) throw new Error('公開頁把伺服器給的字當成 HTML 執行了：' + JSON.stringify({ imgs: info.imgs, xss: info.xss }));
+      if (!/<img src=x/.test(info.h1)) throw new Error('惡意專案名應該原樣顯示成文字——斷言會變成空的');
+      // 寫清楚這個連結公開了什麼（含勾選才多帶的）
+      if (!/這個連結公開了/.test(info.text) || !/進展與交接/.test(info.text) || !/還開著的風險/.test(info.text) || !/專案說明書/.test(info.text)) throw new Error('公開頁沒有寫清楚這個連結公開了什麼、不含什麼');
+      if (!/這是公開的進展/.test(info.text) || !/公開的風險/.test(info.text) || !/公開的 PR/.test(info.text)) throw new Error('勾選公開的進展／風險／PR 沒有畫出來');
+      // 里程碑：有風險的菱形是紅的那一種
+      if (JSON.stringify(info.diamonds) !== JSON.stringify([true, false])) throw new Error('里程碑的風險記號不對：' + JSON.stringify(info.diamonds));
+      // 甘特：逾期而且沒完成的長條是 --red；完成的不是；預測比計畫晚有虛線、比計畫早只有一個細記號
+      if (!/overdue/.test(info.bars[0].cls) || info.bars[0].bg !== info.red) throw new Error('逾期的長條不是 --red：' + JSON.stringify(info.bars[0]) + ' vs ' + info.red);
+      if (/overdue/.test(info.bars[1].cls) || !/done/.test(info.bars[1].cls)) throw new Error('已完成的任務不該是逾期：' + info.bars[1].cls);
+      if (info.forecasts !== 1 || info.forecastBorder !== 'dashed') throw new Error(`預測比計畫晚的任務應該有一條虛線（${info.forecasts} 條，${info.forecastBorder}）`);
+      if (info.earlies !== 1) throw new Error(`預測比計畫早的任務應該只有一個細記號（${info.earlies} 個）`);
+      if (!/預測晚 19 天/.test(info.text)) throw new Error('逾期任務的「預測晚 N 天」沒有寫出來');
+      if (!info.pr || !/^https:\/\/github\.com\//.test(info.pr[0]) || !/noopener/.test(info.pr[1]) || info.pr[2] !== '_blank') throw new Error('PR 連結不是「github.com、noopener、新分頁」：' + JSON.stringify(info.pr));
+      if (info.overflowX) throw new Error(`公開頁（${scheme}，${scheme === 'dark' ? 390 : 1100}px）橫向溢出`);
+      // 沒有登入的人看得到：頁面不能打任何需要登入的端點（假後端對那些回 404，會留下 console 紅字——上面已經收集）
+      checked.push(`公開頁（${scheme}）`);
+      await ctx.close();
+    }
+    // 失效的連結：說人話，不洩漏原因，也不長出專案內容
+    {
+      const { ctx, page } = await newPage('light');
+      await page.goto(`http://127.0.0.1:${PORT}/p/NOT_A_REAL_TOKEN_0123456789`, { waitUntil: 'domcontentloaded' });
+      await page.waitForSelector('.msg .big', { timeout: 5000 });
+      const t = await page.locator('.msg').textContent();
+      if (!/這個連結失效了/.test(t)) throw new Error('失效的連結沒有說「這個連結失效了」：' + t);
+      if (await page.locator('h1').count()) throw new Error('失效的連結不該畫出專案內容');
+      checked.push('失效連結的說明');
+      await ctx.close();
+    }
+
+    // 授權頁：預設不帶 access／projectId（以前的行為），選了才帶
+    {
+      const { ctx, page } = await newPage('light', 420);
+      const url = `http://127.0.0.1:${PORT}/authorize?client_id=c&redirect_uri=http://x/cb&code_challenge=abc&state=s`;
+      await page.route('**/authorized-ok', r => r.fulfill({ status: 200, body: 'ok', contentType: 'text/plain' }));
+      await page.goto(url, { waitUntil: 'domcontentloaded' });
+      await page.waitForSelector('#opts:not([hidden])', { timeout: 5000 }).catch(() => { throw new Error('授權頁沒有出現「只能讀／只限這個專案」的選擇'); });
+      await page.waitForFunction(() => document.querySelectorAll('#selProject option').length === 3, null, { timeout: 4000 })
+        .catch(() => { throw new Error('授權頁的專案選單應該有「全部專案」加兩個專案'); });
+      const optText = await page.locator('#selProject option').nth(2).textContent();
+      if (optText !== '<b>第二個專案</b>') throw new Error('專案名應該原樣顯示成文字：' + optText);
+      if (await page.locator('#chkRead').isChecked() || (await page.locator('#selProject').inputValue()) !== '') throw new Error('預設要是「可寫、全部專案」');
+      await page.click('#btnAllow');
+      await page.waitForFunction(() => true);
+      await page.waitForTimeout(500);
+      const d0 = server.oauthDecisions[0];
+      if (!d0 || d0.approve !== true || 'access' in d0 || 'projectId' in d0) throw new Error('預設授權不該帶 access／projectId：' + JSON.stringify(d0));
+      await page.goto(url, { waitUntil: 'domcontentloaded' });
+      await page.waitForFunction(() => document.querySelectorAll('#selProject option').length === 3, null, { timeout: 4000 });
+      await page.check('#chkRead');
+      await page.selectOption('#selProject', 'g1');
+      await page.click('#btnAllow');
+      await page.waitForTimeout(500);
+      const d1 = server.oauthDecisions[1];
+      if (!d1 || d1.access !== 'read' || d1.projectId !== 'g1') throw new Error('選了範圍卻沒有送出去：' + JSON.stringify(d1));
+      checked.push('授權頁(預設不帶範圍/選了才帶 access 與 projectId)');
+      await ctx.close();
+    }
+  } catch (e) { errors.push(e.message.split('\n')[0]); }
+  if (checked.length) console.log(`      驗過：${checked.join('、')}`);
+  if (errors.length) { failures.push({ label, errors }); console.log(`   ✗ ${errors.length} 個錯誤`); errors.forEach(e => console.log(`      - ${e}`)); }
+  else console.log('   ✓ 零錯誤');
+  await browser.close();
+  await new Promise(r => server.close(r));
+}
+
+const TOTAL = 8;
 console.log('');
 if (failures.length) {
   console.error(`✗ 冒煙測試失敗：${failures.length}/${TOTAL} 個情境有問題`);

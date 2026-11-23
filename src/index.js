@@ -168,6 +168,14 @@ async function route(request, env, ctx) {
   // 要登入的 servePage：那會把 agent 的探測請求 302 到登入頁，看起來像「伺服器壞了」
   if (path.startsWith('/.well-known/') || path.startsWith('/oauth/')) return json({ error: 'Not Found' }, 404);
 
+  // 專案的唯讀分享頁（3B）：`/p/<token>` 不用登入，頁面本身是靜態的 p.html，token 由頁面自己從網址讀、
+  // 打 /api/p/:token 取內容。**這一條要排在 servePage 前面**：servePage 會把沒登入的人 302 到登入頁，
+  // 而這一頁的讀者定義上就是沒有帳號的人。格式不對的 token 也回這一頁（頁面會說「連結失效」），不回 404 純文字
+  if (/^\/p\/[^/]+$/.test(path)) {
+    if (request.method !== 'GET') return methodNotAllowed();
+    return servePublicProjectPage(request, env);
+  }
+
   if (!path.startsWith('/api/')) return servePage(request, env, url, path);
 
   if (path === '/api/health') return json({ ok: true });
@@ -591,6 +599,17 @@ export async function step(env, name, fn) {
  * 導向只是體驗，不是防線——真正的安全邊界在 API。就算有人直接取得 admin.html，
  * 那也只是一個沒有資料的空殼，/api/admin/* 仍會擋下他。
  */
+async function servePublicProjectPage(request, env) {
+  // 取的是 /p（Cloudflare 的靜態資產會解析成 p.html，同 /unsub、/reset）；網址上的 token 一個字都不帶進資產請求
+  const res = await env.ASSETS.fetch(new Request(new URL('/p', request.url), { method: 'GET', headers: request.headers }));
+  const out = new Response(res.body, res);
+  // 不讓搜尋引擎收、不把網址（含 token）當 Referer 送給頁面裡的任何連結
+  out.headers.set('x-robots-tag', 'noindex, nofollow');
+  out.headers.set('referrer-policy', 'no-referrer');
+  out.headers.set('cache-control', 'no-store');
+  return out;
+}
+
 async function servePage(request, env, url, path) {
   // 隱私權政策不用登入就要看得到：App Store 的審查員與還沒註冊的人都會來看
   if (path === '/privacy' || path === '/privacy.html') return env.ASSETS.fetch(request);
