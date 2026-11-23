@@ -1221,7 +1221,7 @@ async function walk(page, log, plan = 'pro', server = null) {
     if (!server) throw new Error('walk() 沒有收到 server，「全部都不要了」的 body 驗不到');
     const body = server.reminderPosts[server.reminderPosts.length - 1];
     if (!body) throw new Error('「全部都不要了」沒有打到 /api/reminder');
-    for (const k of ['enabled', 'streakMail', 'pushOverdue', 'pushStreak', 'pushToday', 'agentNotify']) {
+    for (const k of ['enabled', 'streakMail', 'pushOverdue', 'pushStreak', 'pushToday', 'agentNotify', 'weeklyMail']) {
       if (body[k] !== false) throw new Error(`「全部都不要了」沒有關掉 ${k}：${JSON.stringify(body[k])}`);
     }
   }

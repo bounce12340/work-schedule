@@ -22,6 +22,7 @@ import { verifyAppTransaction } from '../apppurchase.js';
 import { verifyAppOAuth, linkOAuthIdentity, revokeAppleCredential } from '../oauth.js';
 import { json, adminEmails } from './auth.js';
 import { logAdminAction } from './backup.js';
+import { deleteAllVersions } from '../mcp/history.js';
 
 /** 上架用的 Bundle ID。一旦上架就不能改，所以寫死在這裡而不是環境變數。 */
 export const APP_BUNDLE_ID = 'com.bounceto.workschedule';
@@ -292,6 +293,8 @@ export async function handleDeleteAccount(request, env, user) {
       );
     }
   }
+  // 版本歷史含這個人**全部的排程**：R2 的整個 prefix 與索引都清掉（失敗只出聲，不擋刪帳號）
+  await deleteAllVersions(env, id);
   await env.DB.batch([
     env.DB.prepare('DELETE FROM user_state WHERE user_id = ?').bind(id),
     env.DB.prepare('DELETE FROM shares WHERE owner_id = ? OR target_id = ?').bind(id, id),
@@ -313,6 +316,7 @@ export async function handleDeleteAccount(request, env, user) {
     env.DB.prepare('DELETE FROM agent_notify_state WHERE user_id = ?').bind(id),
     env.DB.prepare('DELETE FROM project_prs WHERE user_id = ?').bind(id),
     env.DB.prepare('DELETE FROM github_hooks WHERE user_id = ?').bind(id),
+    env.DB.prepare('DELETE FROM project_shares WHERE user_id = ?').bind(id),
     env.DB.prepare('DELETE FROM users WHERE id = ?').bind(id),
   ]);
   return json({ ok: true });

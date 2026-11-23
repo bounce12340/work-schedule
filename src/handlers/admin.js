@@ -2,6 +2,7 @@ import { json, adminEmails } from './auth.js';
 import { hashPassword, generateToken } from '../crypto.js';
 import { destroyAllSessions } from '../session.js';
 import { logAdminAction } from './backup.js';
+import { deleteAllVersions } from '../mcp/history.js';
 import { planInfo } from '../plan.js';
 
 const VALID_STATUS = ['pending', 'approved', 'rejected', 'suspended'];
@@ -187,6 +188,9 @@ export async function handleDeleteUser(env, actingUser, targetId) {
   await logAdminAction(env, actingUser, target, '刪除帳號（含其雲端排程資料）');
 
   await destroyAllSessions(env, targetId);
+  // 版本歷史含這個人全部的排程（R2 prefix＋索引），分享連結是公開憑證：兩者都不能留著
+  await deleteAllVersions(env, targetId);
+  await env.DB.prepare('DELETE FROM project_shares WHERE user_id = ?').bind(targetId).run();
   await env.DB.prepare('DELETE FROM user_state WHERE user_id = ?').bind(targetId).run();
   await env.DB.prepare('DELETE FROM users WHERE id = ?').bind(targetId).run();
   return json({ ok: true });

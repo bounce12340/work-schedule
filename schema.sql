@@ -230,6 +230,11 @@ CREATE TABLE IF NOT EXISTS reminder_feed (
   unsub_token   TEXT,
   -- 第六顆通知開關（1B）：agent 問我問題（或提案）時通知我。與另外五顆互不連坐，預設開。
   agent_notify  INTEGER NOT NULL DEFAULT 1,
+  -- 每週摘要信（第三批 3A）：第七顆開關。**預設關**（opt-in）：它是所有既有使用者都沒同意過的新一種信，
+  -- 突然每週寄一封會讓人去按 Gmail 的「取消訂閱」，而那會把整個帳號送進寄信商的退訂名單。
+  -- weekly_mail_week 是最後一次寄成功的那一週（該週星期一的日期）；寄失敗不寫，同 last_sent_ymd。
+  weekly_mail      INTEGER NOT NULL DEFAULT 0,
+  weekly_mail_week TEXT,
   updated_at    INTEGER NOT NULL
 );
 
@@ -424,7 +429,11 @@ CREATE TABLE IF NOT EXISTS mcp_tokens (
   grant_id     TEXT,
   created_at   INTEGER NOT NULL,
   expires_at   INTEGER,
-  last_used_at INTEGER
+  last_used_at INTEGER,
+  -- 權限分級的鑰匙（第三批 3A）：scope 'read' 只能讀（WRITE_TOOLS 全擋）、'write' 照舊；
+  -- project_id 不為空＝只能碰那一個甘特專案。每一次 tools/call 都檢查（同 Pro 檢查）。
+  scope        TEXT NOT NULL DEFAULT 'write',
+  project_id   TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_mcp_tokens_user ON mcp_tokens(user_id);
 CREATE INDEX IF NOT EXISTS idx_mcp_tokens_grant ON mcp_tokens(grant_id);
@@ -444,7 +453,10 @@ CREATE TABLE IF NOT EXISTS oauth_codes (
   code_challenge TEXT NOT NULL,
   expires_at     INTEGER NOT NULL,
   used_at        INTEGER,
-  created_at     INTEGER NOT NULL
+  created_at     INTEGER NOT NULL,
+  -- 授權時選的權限（第三批 3A），換 token 時原樣帶過去
+  scope          TEXT NOT NULL DEFAULT 'write',
+  project_id     TEXT
 );
 
 CREATE TABLE IF NOT EXISTS mcp_activity (
@@ -575,3 +587,31 @@ CREATE TABLE IF NOT EXISTS github_hooks (
   secret      TEXT NOT NULL,
   created_at  INTEGER NOT NULL
 );
+
+-- 排程的版本歷史（第三批 3A）。整份 state 放 R2（BACKUPS 儲存桶的 history/<user_id>/<id>.json），
+-- D1 只存索引：整份 state 放這裡會讓它變成最大的一張表。保留 30 天、每個帳號最多 300 版，寫入時順手清。
+-- sha 是 state 原文的 SHA-256：與最新一版相同就不再留（agent 的空寫入、每日留存都不該灌版本數）。
+-- 每日備份不含它（它自己就是歷史），刪帳號時連 R2 的 prefix 一起清。
+CREATE TABLE IF NOT EXISTS state_versions (
+  id         TEXT PRIMARY KEY,
+  user_id    TEXT NOT NULL,       -- 所有查詢都帶 WHERE user_id = ?
+  created_at INTEGER NOT NULL,
+  actor      TEXT NOT NULL,       -- 'user' | 'system' | 連線名稱：這一版是誰的寫入「之前」留下的
+  summary    TEXT NOT NULL DEFAULT '',
+  bytes      INTEGER NOT NULL,
+  sha        TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_state_versions_user ON state_versions(user_id, created_at);
+
+-- 唯讀分享連結（第三批 3A）：/api/p/:token（不用登入）。token 只存雜湊、只在產生當下回傳一次，
+-- 重新產生＝舊的撤銷。include_json 是擁有者勾選要多公開的種類（預設全空：只有專案名、里程碑、任務狀態）。
+CREATE TABLE IF NOT EXISTS project_shares (
+  id           TEXT PRIMARY KEY,
+  user_id      TEXT NOT NULL,
+  project_id   TEXT NOT NULL,
+  token_hash   TEXT NOT NULL UNIQUE,
+  include_json TEXT NOT NULL DEFAULT '[]',
+  created_at   INTEGER NOT NULL,
+  revoked_at   INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_project_shares_project ON project_shares(user_id, project_id);

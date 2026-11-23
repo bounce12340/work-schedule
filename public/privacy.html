@@ -45,6 +45,9 @@
       <li><b>推播資料</b>：你允許推播後，會儲存 Apple APNs 裝置 token、環境與最後使用時間；你登出、取消註冊或 token 失效時會刪除。</li>
       <li><b>GitHub PR 的標題與狀態</b>：你把專案連到 GitHub 的 Pull Request（由 AI agent 回報，或由你設定的 GitHub webhook 送來）時，我們會存該 PR 的網址、編號、標題、分支名稱、作者帳號、狀態（草稿／開著／已合併／已關閉）、測試與審核結果，以及最後更新的時間與來源。<b>我們不存你的 GitHub 帳密或 token，也不會主動去讀 GitHub</b>；這些資料只來自 agent 或你設定的 webhook，只用在你自己的專案頁。若你設定 webhook，我們另外存一組只用來驗證「這是 GitHub 送來的」的簽章密鑰；你可以隨時重新產生或移除，刪除帳號時一併刪除。這些資料不在每日備份裡。</li>
       <li><b>agent 通知的節流記錄</b>：agent 向你提問或提案時，我們會寄一封信（有裝 app 也會推播），內容只有連線名稱、專案名稱與件數，<b>不含問題或提案的內容</b>。為了「同一個專案 30 分鐘內最多一封」，會記錄每個專案最後一次通知的時間與還沒通知的件數；刪除帳號時一併刪除。你可以在「我的帳號」關掉這一種通知。</li>
+      <li><b>排程的版本歷史</b>：Pro 帳號會在 AI agent 修改排程之前、你自己修改時（最多每小時一次）與每天一次，留下<b>整份排程的副本</b>，讓你可以比較差異或退回到過去的樣子。副本存在 Cloudflare R2，保留 30 天、每個帳號最多 300 份，之後自動刪除；刪除帳號時一併刪除，也不在每日備份裡。</li>
+      <li><b>專案的唯讀分享連結</b>：只有你主動產生連結時才會有。知道連結的人<b>不用登入</b>就能看到那一個專案的名稱、里程碑與任務狀態，以及你勾選要多公開的種類（進展日誌、提問、決策、風險、PR）；被你遮蔽的內容永遠不會出現。連結只存雜湊，你可以隨時重新產生或撤銷，刪除帳號時一併刪除。</li>
+      <li><b>每週摘要信</b>：預設關閉，只有你在「我的帳號」打開才會寄；內容只有專案名稱與件數，不含日誌或提問的內容，信裡有一鍵取消訂閱。</li>
       <li><b>分享記錄</b>：你分享給誰、誰動過你分享的項目，保留 90 天。</li>
     </ul>
   </section>
@@ -111,6 +114,9 @@
       <li><b>Push data</b>: if you allow push notifications, we store Apple's APNs device token, environment and last-used time; it is deleted when you sign out, unregister, or the token becomes invalid.</li>
       <li><b>GitHub pull request titles and states</b>: when you link a project to a GitHub pull request (reported by an AI agent, or sent by a GitHub webhook you set up), we store the PR's URL, number, title, branch name, author username, state (draft / open / merged / closed), checks and review results, and when and by whom it was last updated. <b>We never store your GitHub password or token and never fetch anything from GitHub ourselves</b>; the data comes only from your agent or your webhook and is used only on your own project page. If you set up a webhook we also store a signing secret used only to verify that a request really came from GitHub; you can regenerate or remove it at any time, and it is deleted with your account. This data is not part of the daily backup.</li>
       <li><b>Agent notification throttle records</b>: when a connected agent asks you a question or proposes changes, we send an email (and a push if you use the app) containing only the connection name, the project name and a count — <b>never the question or proposal itself</b>. To send at most one per project every 30 minutes, we record each project's last notification time and how many are not yet notified; this is deleted with your account. You can turn this notification off in My account.</li>
+      <li><b>Schedule version history</b>: for Pro accounts we keep a <b>copy of your whole schedule</b> before an AI agent changes it, when you change it yourself (at most once an hour) and once a day, so you can compare differences or go back. The copies are stored in Cloudflare R2, kept for 30 days and at most 300 per account, then deleted automatically; they are deleted with your account and are not part of the daily backup.</li>
+      <li><b>Read-only project share links</b>: only created when you generate one. Anyone with the link can view, <b>without signing in</b>, that one project's name, milestones and task statuses, plus the kinds you tick (progress log, questions, decisions, risks, PRs); entries you redacted never appear. Only a hash of the link is stored; you can regenerate or revoke it at any time, and it is deleted with your account.</li>
+      <li><b>Weekly summary email</b>: off by default and sent only if you turn it on in My account; it contains only project names and counts, never log or question content, and every email has a one-click unsubscribe.</li>
       <li><b>Sharing log</b>: who you shared with and who changed a shared item, kept for 90 days.</li>
     </ul>
   </section>

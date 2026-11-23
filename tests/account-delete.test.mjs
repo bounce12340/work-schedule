@@ -11,11 +11,13 @@ import { handleDeleteAccount } from '../src/handlers/appauth.js';
 import { createSession, getSessionUser } from '../src/session.js';
 import { hashPassword } from '../src/crypto.js';
 import { makeEnv, seedState, unwrap } from './d1.mjs';
+import { fakeR2 } from './fake-r2.mjs';
 
-const TABLES = ['user_state', 'shares', 'sessions', 'ics_feed', 'reminder_feed', 'password_resets', 'email_codes', 'oauth_identities', 'mcp_requests', 'project_events', 'project_absent', 'mcp_proposals', 'mcp_connections', 'agent_notify_state', 'project_prs', 'github_hooks', 'users'];
+const TABLES = ['user_state', 'shares', 'sessions', 'ics_feed', 'reminder_feed', 'password_resets', 'email_codes', 'oauth_identities', 'mcp_requests', 'project_events', 'project_absent', 'mcp_proposals', 'mcp_connections', 'agent_notify_state', 'project_prs', 'github_hooks', 'state_versions', 'project_shares', 'users'];
 
 async function setup() {
   const env = makeEnv();
+  env.BACKUPS = fakeR2();
   const hash = await hashPassword('correct-horse');
   for (const [id, email] of [['A', 'a@x.test'], ['B', 'b@x.test']]) {
     env.DB.prepare('INSERT INTO users (id, email, password_hash, role, status, created_at) VALUES (?, ?, ?, ?, ?, ?)')
@@ -37,6 +39,12 @@ async function setup() {
     // 第二批：PR 連結與 webhook 密鑰（兩個人各一份，刪 A 不能碰 B 的；同一個 repo＋編號兩個人都有）
     env.DB.prepare("INSERT INTO project_prs (id, user_id, project_id, repo, number, url, source, updated_at) VALUES (?, ?, 'gp1', 'o/r', 7, 'https://github.com/o/r/pull/7', 'agent', 0)").bind('pp-' + id, id).run();
     env.DB.prepare("INSERT INTO github_hooks (user_id, token_hash, secret, created_at) VALUES (?, ?, 'sec', 0)").bind(id, 'th-' + id).run();
+    // 第三批 3A：版本歷史（索引＋R2 的檔案）與唯讀分享連結——兩個人各一份，刪 A 不能碰 B 的
+    for (const n of [1, 2]) {
+      env.DB.prepare("INSERT INTO state_versions (id, user_id, created_at, actor, summary, bytes, sha) VALUES (?, ?, ?, 'x', 's', 2, ?)").bind(`v${n}-${id}`, id, n, `sha${n}${id}`).run();
+      await env.BACKUPS.put(`history/${id}/v${n}-${id}.json`, '{}');
+    }
+    env.DB.prepare("INSERT INTO project_shares (id, user_id, project_id, token_hash, include_json, created_at) VALUES (?, ?, 'gp1', ?, '[]', 0)").bind('ps-' + id, id, 'tok-' + id).run();
     env.DB.prepare(`INSERT INTO oauth_identities
       (id, user_id, provider, subject, email, created_at, updated_at)
       VALUES (?, ?, 'google', ?, ?, 0, 0)`).bind('oauth-' + id, id, 'google-' + id, email).run();
@@ -67,6 +75,9 @@ function snapshotOf(env, userId, email) {
     agentNotifyState: q('SELECT * FROM agent_notify_state WHERE user_id = ?'),
     projectPrs: q('SELECT * FROM project_prs WHERE user_id = ?'),
     githubHooks: q('SELECT * FROM github_hooks WHERE user_id = ?'),
+    stateVersions: q('SELECT * FROM state_versions WHERE user_id = ?'),
+    projectShares: q('SELECT * FROM project_shares WHERE user_id = ?'),
+    historyFiles: [...env.BACKUPS.store.keys()].filter(k => k.startsWith(`history/${userId}/`)),
   };
 }
 

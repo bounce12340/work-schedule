@@ -277,11 +277,11 @@ agent 可以自己勾完成——夥伴會長大、進度條會滿，但東西�
 | 功能 | 重點 |
 |---|---|
 | **專案現況頁** | 一頁：里程碑、甘特圖（含預測線）、最新進展、等你決定、風險 |
-| **唯讀分享連結** | `/p/:token`，token 只存雜湊、可撤銷（同 ICS）。**只給這一個專案**、不含每日記錄與其他專案。內容由伺服器從 state＋events 組出來（甘特任務是固定日期，不需要 occurrence 引擎） |
-| **每週摘要信** | 走既有的 cron 與 `mail_log`；自己一個開關、沒事不寄、休假那天不寄、帶退訂連結（訂閱信的規則全部適用） |
-| **風險清單** | `kind='risk'`，`open`／`closed`；現況頁列出還開著的 |
-| **agent 成績單** | 預估 vs 實際、完成數、被復原的次數。**要累積資料才有意義**，最後做 |
-| **權限分級的鑰匙** | `mcp_tokens` 加 `scope`（`read`｜`write`）與 `project_id`（選填）。每次 `tools/call` 檢查，同現有的 Pro 檢查 |
+| **唯讀分享連結**（✅ 3A 伺服器端） | `/p/:token`，token 只存雜湊、可撤銷（同 ICS）。**只給這一個專案**、不含每日記錄與其他專案。內容由伺服器從 state＋events 組出來（甘特任務是固定日期，不需要 occurrence 引擎） |
+| **每週摘要信**（✅ 3A：`kind='weekly'`、第七顆開關 `weekly_mail` **預設關**、星期一～三寄、一週一封、沒事／休假／失敗都不記成送過、退訂只關自己） | 走既有的 cron 與 `mail_log`；自己一個開關、沒事不寄、休假那天不寄、帶退訂連結（訂閱信的規則全部適用） |
+| **風險清單**（✅ 3A：agent 用 `add_project_event(kind=risk)` 開、`closesEventId` 關，擁有者 `close-risk` 端點，`get_project_brief` 的 `openRisks`；現況頁的畫面留給 3B） | `kind='risk'`，`open`／`closed`；現況頁列出還開著的 |
+| **agent 成績單**（✅ 3A：`GET /api/agent/scorecard`，只有數字） | 預估 vs 實際、完成數、被復原的次數。**要累積資料才有意義**，最後做 |
+| **權限分級的鑰匙**（✅ 3A：連 OAuth 授權也帶得過去；專案範圍的鑰匙整個擋掉項目、每日記錄、修改紀錄與復原） | `mcp_tokens` 加 `scope`（`read`｜`write`）與 `project_id`（選填）。每次 `tools/call` 檢查，同現有的 Pro 檢查 |
 
 ---
 
@@ -337,7 +337,7 @@ CREATE TABLE mcp_proposals (
 
 工具：`propose_changes(title, ops[])`、`list_proposals`、`withdraw_proposal`。
 
-### 甲 2. 排程的版本歷史（第三批）
+### 甲 2. 排程的版本歷史（第三批）（✅ 伺服器端已實作 3A：`state_versions`＋R2 `history/<userId>/`、`casWrite` 的 `opts.version`、列／比較／退回端點、每日 cron；實作時的差異：`state_versions` 多一欄 `sha`（同內容不重複留）、只有 Pro 留版本、自己的修改留的是「剛寫進去的那一份」、退回再退回測過；畫面留給 3B）
 
 「某一天的排程長什麼樣」「這兩個版本差在哪」「整份退回到那個時間點」。
 
@@ -565,7 +565,7 @@ MCP 只給 Pro。到期之後：
 | 通知信 | 不會再有新的（agent 寫不進來） |
 | 版本歷史 | 停止留新版，舊的照 30 天規則自然過期 |
 
-### 21. 公開的分享連結預設不帶日誌
+### 21. 公開的分享連結預設不帶日誌（✅ 伺服器端已實作 3A：`project_shares`、`GET /api/p/:token`（JSON）、擁有者的產生／撤銷端點，`include`：`events`／`questions`／`decisions`／`risks`／`prs`；`/p/:token` 的 HTML 頁與勾選畫面留給 3B）
 
 `/p/:token` 是給**不用登入的人**看的。日誌是 agent 寫的外部內容，可能有內部網址、人名、甚至金鑰（5-1 就是為了這個）。
 
@@ -600,7 +600,7 @@ MCP 只給 Pro。到期之後：
 - 第零批：`016-mcp-requests.sql`（防重複的表）。
 - 第一批：（✅ 1A 實作為單一檔案 `017-agent-workspace.sql`：`project_events`、`project_absent`、`mcp_connections`（含回填）、`mcp_proposals`、`mcp_activity.conn_id`；**`reminder_feed` 的 agent 通知開關留給 1B → ✅ 1B 做在 `018-agent-notify.sql`：`reminder_feed.agent_notify`（**加欄位，漏跑會 500**）與 `agent_notify_state`（節流）**）原規劃：`017-project-events.sql`、`mcp_proposals`、**新的表 `mcp_connections`**（模式／暫停／要驗收——**不是**加在 `mcp_tokens` 上，見第 11 件）、`reminder_feed` 加 agent 通知的開關（**加欄位，漏跑會 500**）。
 - 第二批：（✅ 2A 實作為單一檔案 `019-project-prs.sql`：`mcp_activity.batch_id`（**加欄位，漏跑每個寫入工具都失敗**）、`project_prs`、`github_hooks`）
-- 第三批：`mcp_tokens` 加兩欄、分享連結一張表。**都要在合併之前跑**（CI 合併後自動部署）。
+- 第三批：（✅ 3A 實作為單一檔案 `020-history-scope-share.sql`：`mcp_tokens` 與 `oauth_codes` 各加 `scope`／`project_id`、`reminder_feed` 加 `weekly_mail`／`weekly_mail_week`（**六句 ALTER，漏跑 MCP 全部連不進來、OAuth 授權失敗、`/api/reminder` 讀不出來**）、新表 `state_versions`、`project_shares`）原規劃：`mcp_tokens` 加兩欄、分享連結一張表。**都要在合併之前跑**（CI 合併後自動部署）。
 
 ## 每一批怎麼驗
 

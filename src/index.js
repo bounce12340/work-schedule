@@ -14,8 +14,11 @@ import { handleMcp, mcpPreflight, handleActivityList, handleActivityUndo } from 
 import {
   handleConnectionSettings, handlePauseAll, handleListProposals, handleApproveProposal, handleRejectProposal,
   handleProjectEvents, handleAgentInbox, handleAnswerEvent, handleRedactEvent, handleAcceptTask, handleRejectTask,
-  handleStateVersion, handleAgentEventsExport, purgeAgentData,
+  handleStateVersion, handleAgentEventsExport, purgeAgentData, handleCloseRisk, handleAgentScorecard,
 } from './handlers/agent.js';
+import { handleListVersions, handleDiffVersion, handleRestoreVersion, snapshotDaily } from './handlers/history.js';
+import { handleShareStatus, handleShareCreate, handleShareRevoke, handlePublicProject } from './handlers/projectshare.js';
+import { sendWeeklyDigest } from './handlers/weekly.js';
 import { sendAgentNotifyPending } from './handlers/agentnotify.js';
 import { handleProjectPrs, handleHookStatus, handleHookCreate, handleHookDelete, handleGithubHook } from './handlers/github.js';
 import {
@@ -57,6 +60,10 @@ export default {
       await step(env, 'agent_events', () => purgeAgentData(env));
       // agent 通知：把被 30 分鐘節流／休假擋下來的合併成「還有 N 件」送出。與信、推播各自獨立的一步
       await step(env, 'agent_notify', () => sendAgentNotifyPending(env));
+      // 每週摘要信（3A）：星期一～三才會真的寄（見 handlers/weekly.js），其餘天很快回來。獨立的一步
+      await step(env, 'weekly', () => sendWeeklyDigest(env));
+      // 版本歷史（3A）：每個 Pro 帳號每天至少一版，並清掉過期與超量的。獨立的一步：R2 出事不該連累上面任何一件
+      await step(env, 'history', () => snapshotDaily(env));
     })());
   },
 
@@ -246,6 +253,13 @@ async function route(request, env, ctx) {
     if (m) return request.method === 'POST' ? handleGithubHook(request, env, m[1]) : methodNotAllowed();
   }
 
+  // 專案的唯讀分享連結：**公開端點**，不用登入。token 即憑證（只存雜湊、可撤銷），內容預設只有專案名、
+  // 里程碑與任務狀態——日誌、說明書、其他專案一律不帶（見 handlers/projectshare.js）
+  {
+    const m = path.match(/^\/api\/p\/([A-Za-z0-9_-]{20,64})$/);
+    if (m) return request.method === 'GET' ? handlePublicProject(env, m[1]) : methodNotAllowed();
+  }
+
   // 以下都需要有效 session
   const user = await getSessionUser(request, env);
   if (!user) return json({ error: '尚未登入' }, 401);
@@ -359,11 +373,38 @@ async function route(request, env, ctx) {
     return request.method === 'GET' ? handleAgentInbox(env, user) : methodNotAllowed();
   }
   {
-    const m = path.match(/^\/api\/projects\/events\/([^/]+)\/(answer|redact)$/);
+    const m = path.match(/^\/api\/projects\/events\/([^/]+)\/(answer|redact|close-risk)$/);
     if (m) {
       if (request.method !== 'POST') return methodNotAllowed();
       const id = decodeURIComponent(m[1]);
+      if (m[2] === 'close-risk') return handleCloseRisk(env, user, id);
       return m[2] === 'answer' ? handleAnswerEvent(request, env, user, id) : handleRedactEvent(env, user, id);
+    }
+  }
+  // 版本歷史（擁有者；不要求 Pro）：列版本、跟現在比、退回
+  if (path === '/api/history/versions') {
+    return request.method === 'GET' ? handleListVersions(env, user) : methodNotAllowed();
+  }
+  {
+    const m = path.match(/^\/api\/history\/versions\/([^/]+)\/(diff|restore)$/);
+    if (m) {
+      const id = decodeURIComponent(m[1]);
+      if (m[2] === 'diff') return request.method === 'GET' ? handleDiffVersion(env, user, id) : methodNotAllowed();
+      return request.method === 'POST' ? handleRestoreVersion(env, user, id) : methodNotAllowed();
+    }
+  }
+  if (path === '/api/agent/scorecard') {
+    return request.method === 'GET' ? handleAgentScorecard(env, user) : methodNotAllowed();
+  }
+  // 專案的唯讀分享連結（擁有者那一側）：看目前有沒有、產生／重新產生、撤銷
+  {
+    const m = path.match(/^\/api\/projects\/([^/]+)\/share$/);
+    if (m) {
+      const pid = decodeURIComponent(m[1]);
+      if (request.method === 'GET') return handleShareStatus(env, user, pid);
+      if (request.method === 'POST') return handleShareCreate(request, env, user, pid);
+      if (request.method === 'DELETE') return handleShareRevoke(env, user, pid);
+      return methodNotAllowed();
     }
   }
   // GitHub：專案連到的 PR（讀不要求 Pro）與 webhook 的建立／重新產生／移除
