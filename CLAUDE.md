@@ -109,7 +109,7 @@ npm run db:init:local  # 對本機 miniflare D1 建表（--local 的資料庫與
 npm run db:init        # 對遠端 D1 建表
 npm run admin:reset    # 破窗鎚：直接改密碼（見〈破窗鎚〉）
 npm run deploy         # 部署
-npm test               # 全部測試檔（node:test，不需安裝任何東西；目前 724 個測試）
+npm test               # 全部測試檔（node:test，不需安裝任何東西；目前 725 個測試）
 ```
 
 跑單一測試檔或單一測試（`npm test` 沒有轉發參數的管道，直接用 node）：
@@ -1122,7 +1122,7 @@ cd mobile/ios/App && xcodebuild -scheme App -sdk iphonesimulator -configuration 
 | 專案範圍：帶 `projectId` 的工具必須就是它；`apply_changes`／`propose_changes` **每一個**操作都檢查；`unlink_pr` 以 prId 查那一列屬於哪個專案（查不到放行，走原本的「找不到」，不洩漏別人的 PR 存不存在）；`get_overview`／`list_gantt_projects` 回應只剩那個專案 | 「不確定就擋」 |
 | 專案範圍的鑰匙**整個擋掉**：項目與大項目（`list_items`／`get_schedule`／`create_item`…）、每日記錄、建立專案、`list_recent_changes`／`get_changes_since`／`undo_change` | 項目不屬於任何甘特專案；修改紀錄與復原跨專案（summary 裡有別的專案的名字）。放行就等於讓「只能碰這個專案」的鑰匙讀到別的東西 |
 | **風險**：`add_project_event(kind='risk')` 開（`status='open'`）、帶 **`closesEventId`** 關閉；`get_project_brief` 多一個 `openRisks`；擁有者用 `POST /api/projects/events/:id/close-risk` 關 | 重用既有工具而不是新增（工具數不增加）。關閉＝單句帶條件的 `UPDATE … WHERE status='open'` 領走，再寫一筆 `status='closed'`、`ref_id` 指向原風險的結案說明；結案說明寫不進去（每日上限）就把風險還原成開著，不留「關了卻沒有說明」。`kind` 欄位在 SQL 裡沒有 CHECK，migration 不必動它 |
-| **唯讀分享連結**：`GET /api/p/:token`（公開，JSON；`/p/:token` 的 HTML 頁留給 3B）；擁有者 `GET／POST／DELETE /api/projects/:pid/share` | token 只存雜湊、只回一次、同一個專案同時只有一個有效連結（撤銷舊的與建立新的在同一個 `DB.batch`）。未知／撤銷／專案已不在／資料壞掉**一律 404**，不分原因（不讓人探測） |
+| **唯讀分享連結**：`GET /api/p/:token`（公開，JSON；`/p/:token` 的 HTML 頁留給 3B）；擁有者 `GET／POST／DELETE /api/projects/:pid/share` | token 只存雜湊、只回一次、同一個專案同時只有一個有效連結（撤銷舊的與建立新的在同一個 `DB.batch`）。未知／撤銷／專案已不在／資料壞掉／**擁有者被停用****一律 404**，不分原因（不讓人探測）；停用要立即生效，公開頁不是例外 |
 | 預設內容**逐欄挑出來**：專案名、里程碑（`atRisk` 用 `S.milestoneStatus` 算）、任務的名稱／起訖／狀態／進度／完成／預測完成日；**不是整個物件複製再刪** | 日後任務多了新欄位（認領、連結、卡住的原因…）預設不會跟著公開出去。說明書、筆記、連結、認領、卡住的原因、每日記錄、其他專案：這個檔案裡沒有任何一行讀它們 |
 | 多帶的種類由擁有者勾選（`include`：`events`＝進展與交接、`questions`、`decisions`、`risks`＝只有還開著的、`prs`＝標題與狀態不含作者）；**被遮蔽的（`redacted_at`）在 SQL 就濾掉**；每種最多 50 筆 | 公開頁是給不用登入的人看的，日誌是 agent 寫的外部內容。回應帶 `private, max-age=60`（與 ICS 同量級）、`X-Robots-Tag: noindex`、`Referrer-Policy: no-referrer` |
 | **每週摘要信**：`kind='weekly'` 訂閱信（不在 `TX_KINDS`），第七顆開關 `reminder_feed.weekly_mail`，**預設關**；`weekly_mail_week` 記最後寄成功的那一週（星期一的日期） | 預設關的理由：這是所有既有使用者都沒同意過的新一種信，突然每週寄一封換來的是有人去按 Gmail 的「取消訂閱」，整個帳號進寄信商的退訂名單（helen 2026-09-09）。沒有 `reminder_feed` 那一列的人也是關 |

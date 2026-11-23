@@ -82,8 +82,11 @@ const notFound = () => new Response(JSON.stringify({ error: '找不到這個連�
 
 /** 公開端點：以 token 取得那一個專案的唯讀內容。token 即憑證，不看 session。 */
 export async function handlePublicProject(env, token) {
-  const share = await env.DB.prepare('SELECT * FROM project_shares WHERE token_hash = ? AND revoked_at IS NULL')
-    .bind(await sha256(token)).first();
+  // 擁有者被停用（status 不是 approved）時連結一起失效：停用要立即生效（同 session 銷毀），公開頁不是例外
+  const share = await env.DB.prepare(
+    `SELECT p.* FROM project_shares p JOIN users u ON u.id = p.user_id
+      WHERE p.token_hash = ? AND p.revoked_at IS NULL AND u.status = 'approved'`
+  ).bind(await sha256(token)).first();
   if (!share) return notFound();
   let state = null;
   try { state = (await readState(env, share.user_id)).state; } catch { /* 讀不到就當專案不在：404，不是 500 */ }

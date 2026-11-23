@@ -993,3 +993,13 @@ test('成績單：每條連線只有數字——改了幾筆、被復原幾筆�
   for (const word of ['設計', '施工', '新廠', SECRET]) assert.ok(!txt.includes(word), '只有數字，沒有任務／專案的文字：' + word);
   assert.deepEqual(Object.keys(A).sort(), ['active', 'actualHours', 'changes', 'comparedTasks', 'connId', 'estimateHours', 'name', 'tasksCompleted', 'undone']);
 });
+
+test('分享連結：擁有者被停用之後，公開頁立刻 404（停用要立即生效，公開頁不是例外）', async () => {
+  const { env, u } = setup();
+  const { body } = await createShare(env, u);
+  assert.equal((await pub(env, body.token)).status, 200);
+  env.DB.prepare("UPDATE users SET status = 'disabled' WHERE id = ?").bind(u.id).run();
+  assert.equal((await pub(env, body.token)).status, 404);
+  env.DB.prepare("UPDATE users SET status = 'approved' WHERE id = ?").bind(u.id).run();
+  assert.equal((await pub(env, body.token)).status, 200, '恢復之後連結照常（沒有被撤銷）');
+});
