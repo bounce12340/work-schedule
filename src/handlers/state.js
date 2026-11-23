@@ -1,6 +1,7 @@
 import { json } from './auth.js';
 import { planOf, planInfo, capViolations, exceedsPlanCap } from '../plan.js';
 import { paddleConfig } from './planpaddle.js';
+import { maybeUserVersion } from './history.js';
 
 const MAX_STATE_BYTES = 1_000_000;   // 遠高於實際用量（示範資料約 1.8 KB）
 
@@ -90,7 +91,11 @@ export async function handlePutState(request, env, user) {
         .bind(serialized, now, userId, base)
         .run();
 
-  if (written.meta.changes === 1) return json({ ok: true, updatedAt: now });
+  if (written.meta.changes === 1) {
+    // 版本歷史（第三批 3A）：自己的修改最多每小時留一版（Pro）。失敗只出聲，不影響這次同步
+    await maybeUserVersion(env, user, serialized, now);
+    return json({ ok: true, updatedAt: now });
+  }
 
   // 一列都沒動：版本對不上，或前端以為是首次寫入但雲端已有資料。
   // 兩者都要把遠端內容回給前端做三方合併，此時才需要多讀一次。

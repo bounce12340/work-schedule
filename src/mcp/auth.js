@@ -11,7 +11,7 @@ import { sha256, generateToken } from '../crypto.js';
 import { getSessionUser } from '../session.js';
 import { json } from '../handlers/auth.js';
 import { planOf } from '../plan.js';
-import { createConnection } from './store.js';
+import { createConnection, readState } from './store.js';
 
 export const ACCESS_TTL_MS = 60 * 60 * 1000;          // OAuth access token：1 小時
 export const REFRESH_TTL_MS = 60 * 24 * 3600 * 1000;  // refresh token：60 天
@@ -28,7 +28,7 @@ export async function authenticateMcp(request, env) {
   if (!m) return null;
   const hash = await sha256(m[1]);
   const row = await env.DB.prepare(
-    `SELECT t.id AS token_id, t.grant_id, t.kind, t.name, t.expires_at, t.last_used_at,
+    `SELECT t.id AS token_id, t.grant_id, t.kind, t.name, t.expires_at, t.last_used_at, t.scope, t.project_id,
             u.id, u.email, u.role, u.status, u.created_at, u.plan_source, u.plan_expires_at
        FROM mcp_tokens t JOIN users u ON u.id = t.user_id
       WHERE t.token_hash = ? AND t.kind IN ('key', 'oauth_access')`
@@ -48,6 +48,9 @@ export async function authenticateMcp(request, env) {
     tokenId: row.token_id,
     // 連線 id：OAuth 是 grant_id（refresh 輪替時不變）、個人金鑰是那一列自己的 id。設定放在連線上，不放 token 上
     connId: row.grant_id || row.token_id,
+    // 權限範圍（第三批 3A）：每一次 tools/call 都用它檢查（scope.js）。預設 write、沒有專案限制
+    scope: row.scope === 'read' ? 'read' : 'write',
+    projectId: row.project_id || null,
     user: {
       id: row.id, email: row.email, role: row.role, status: row.status, createdAt: row.created_at,
       planSource: row.plan_source ?? null, planExpiresAt: row.plan_expires_at ?? null,
@@ -60,7 +63,7 @@ export async function authenticateMcp(request, env) {
 /** GET /api/mcp/connections：我的金鑰與 OAuth 連線。**不回 token 也不回雜湊。** */
 export async function handleListConnections(env, user) {
   const rows = await env.DB.prepare(
-    `SELECT t.id, t.kind, t.name, t.client_id, t.created_at, t.expires_at, t.last_used_at, t.grant_id,
+    `SELECT t.id, t.kind, t.name, t.client_id, t.created_at, t.expires_at, t.last_used_at, t.grant_id, t.scope, t.project_id,
             c.id AS conn_row, c.mode, c.paused, c.needs_acceptance, c.paused_reason
        FROM mcp_tokens t LEFT JOIN mcp_connections c ON c.id = COALESCE(t.grant_id, t.id) AND c.user_id = t.user_id
       WHERE t.user_id = ? AND t.kind IN ('key', 'oauth_refresh')
@@ -71,6 +74,7 @@ export async function handleListConnections(env, user) {
     connections: (rows.results || []).map(r => ({
       id: r.id, kind: r.kind === 'key' ? 'key' : 'oauth', name: r.name,
       createdAt: r.created_at, lastUsedAt: r.last_used_at, expiresAt: r.expires_at,
+      access: r.scope === 'read' ? 'read' : 'write', projectId: r.project_id || null,
       // 查不到設定列的連線（理論上 migration 已回填）：agent 那一側被當成暫停，這裡照實說出來
       mode: r.conn_row ? (r.mode === 'direct' ? 'direct' : 'review') : 'review',
       paused: r.conn_row ? !!r.paused : true,
@@ -80,12 +84,30 @@ export async function handleListConnections(env, user) {
   });
 }
 
+/**
+ * 權限範圍（第三批 3A）：scope 只能是 read／write（沒給＝write，與以前相同）；projectId 給了就必須是
+ * 這個使用者現在真的有的甘特專案（寫一個不存在的 id 進去，鑰匙就變成什麼都碰不到卻看似正常）。
+ */
+export async function parseAccess(env, user, scope, projectId) {
+  if (scope != null && scope !== 'read' && scope !== 'write') return { error: 'scope 只能是 read 或 write' };
+  let pid = null;
+  if (projectId != null && projectId !== '') {
+    if (typeof projectId !== 'string') return { error: 'projectId 要是字串' };
+    const { state } = await readState(env, user.id);
+    if (!state || !(state.ganttProjects || []).some(g => g && g.id === projectId)) return { error: '找不到這個專案（projectId 要是你現在有的甘特專案）' };
+    pid = projectId;
+  }
+  return { scope: scope === 'read' ? 'read' : 'write', projectId: pid };
+}
+
 /** POST /api/mcp/keys：產生一把金鑰，原文只回這一次。 */
 export async function handleCreateKey(request, env, user) {
   if (planOf(user) !== 'pro') return json({ error: '連接 AI agent 是 Pro 功能' }, 402);
   let body = {};
   try { body = await request.json(); } catch { /* 名稱可省略 */ }
   const name = String(body?.name || '').trim().slice(0, 60) || '個人金鑰';
+  const access = await parseAccess(env, user, body?.scope, body?.projectId);
+  if (access.error) return json({ error: access.error }, 400);
   const count = await env.DB.prepare(
     "SELECT COUNT(*) AS n FROM mcp_tokens WHERE user_id = ? AND kind = 'key'"
   ).bind(user.id).first();
@@ -93,10 +115,10 @@ export async function handleCreateKey(request, env, user) {
   const token = 'wsk_' + generateToken();
   const id = crypto.randomUUID();
   await env.DB.prepare(
-    `INSERT INTO mcp_tokens (id, user_id, kind, token_hash, name, created_at) VALUES (?, ?, 'key', ?, ?, ?)`
-  ).bind(id, user.id, await sha256(token), name, now()).run();
+    `INSERT INTO mcp_tokens (id, user_id, kind, token_hash, name, created_at, scope, project_id) VALUES (?, ?, 'key', ?, ?, ?, ?, ?)`
+  ).bind(id, user.id, await sha256(token), name, now(), access.scope, access.projectId).run();
   await createConnection(env, user.id, id);   // 預設 direct、沒暫停；沒有這一列的連線會被當成暫停
-  return json({ id, name, token });
+  return json({ id, name, token, scope: access.scope, projectId: access.projectId });
 }
 
 /**
@@ -251,12 +273,15 @@ export async function handleAuthorizeDecision(request, env, user) {
   if (planOf(user) !== 'pro') return json({ error: '連接 AI agent 是 Pro 功能' }, 402);
   const challenge = String(body?.code_challenge || '');
   if (!/^[A-Za-z0-9_-]{43,128}$/.test(challenge)) return json({ error: 'code_challenge 格式不對' }, 400);
+  // 授權時可以選「只能讀」與「只能碰某個專案」（第三批 3A）；沒選就是原本的樣子
+  const access = await parseAccess(env, user, body?.access, body?.projectId);
+  if (access.error) return json({ error: access.error }, 400);
 
   const code = generateToken();
   await env.DB.prepare(
-    `INSERT INTO oauth_codes (code_hash, client_id, user_id, redirect_uri, code_challenge, expires_at, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).bind(await sha256(code), client.id, user.id, redirectUri, challenge, now() + CODE_TTL_MS, now()).run();
+    `INSERT INTO oauth_codes (code_hash, client_id, user_id, redirect_uri, code_challenge, expires_at, created_at, scope, project_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(await sha256(code), client.id, user.id, redirectUri, challenge, now() + CODE_TTL_MS, now(), access.scope, access.projectId).run();
   return json({ redirect: withQuery(redirectUri, { code, state }) });
 }
 
@@ -267,19 +292,19 @@ async function s256(verifier) {
   return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-async function issueTokens(env, { userId, clientId, clientName, grantId }) {
+async function issueTokens(env, { userId, clientId, clientName, grantId, scope = 'write', projectId = null }) {
   const access = 'wsa_' + generateToken();
   const refresh = 'wsr_' + generateToken();
   const t = now();
   await env.DB.batch([
     env.DB.prepare(
-      `INSERT INTO mcp_tokens (id, user_id, kind, token_hash, name, client_id, grant_id, created_at, expires_at)
-       VALUES (?, ?, 'oauth_access', ?, ?, ?, ?, ?, ?)`
-    ).bind(crypto.randomUUID(), userId, await sha256(access), clientName, clientId, grantId, t, t + ACCESS_TTL_MS),
+      `INSERT INTO mcp_tokens (id, user_id, kind, token_hash, name, client_id, grant_id, created_at, expires_at, scope, project_id)
+       VALUES (?, ?, 'oauth_access', ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(crypto.randomUUID(), userId, await sha256(access), clientName, clientId, grantId, t, t + ACCESS_TTL_MS, scope, projectId),
     env.DB.prepare(
-      `INSERT INTO mcp_tokens (id, user_id, kind, token_hash, name, client_id, grant_id, created_at, expires_at)
-       VALUES (?, ?, 'oauth_refresh', ?, ?, ?, ?, ?, ?)`
-    ).bind(crypto.randomUUID(), userId, await sha256(refresh), clientName, clientId, grantId, t, t + REFRESH_TTL_MS),
+      `INSERT INTO mcp_tokens (id, user_id, kind, token_hash, name, client_id, grant_id, created_at, expires_at, scope, project_id)
+       VALUES (?, ?, 'oauth_refresh', ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(crypto.randomUUID(), userId, await sha256(refresh), clientName, clientId, grantId, t, t + REFRESH_TTL_MS, scope, projectId),
   ]);
   return {
     access_token: access, token_type: 'Bearer', expires_in: ACCESS_TTL_MS / 1000,
@@ -322,6 +347,7 @@ export async function handleToken(request, env) {
     await createConnection(env, row.user_id, grantId);
     return json(await issueTokens(env, {
       userId: row.user_id, clientId: row.client_id, clientName: client?.name || 'AI agent', grantId,
+      scope: row.scope === 'read' ? 'read' : 'write', projectId: row.project_id || null,
     }), 200, { ...corsAny, 'Cache-Control': 'no-store' });
   }
 
@@ -329,7 +355,7 @@ export async function handleToken(request, env) {
     const rt = p.get('refresh_token');
     if (!rt) return tokenError('invalid_request', '缺 refresh_token');
     const row = await env.DB.prepare(
-      "SELECT id, user_id, name, client_id, grant_id, expires_at FROM mcp_tokens WHERE token_hash = ? AND kind = 'oauth_refresh'"
+      "SELECT id, user_id, name, client_id, grant_id, expires_at, scope, project_id FROM mcp_tokens WHERE token_hash = ? AND kind = 'oauth_refresh'"
     ).bind(await sha256(rt)).first();
     if (!row || row.expires_at < now()) return tokenError('invalid_grant', 'refresh token 無效或已過期');
     if (p.get('client_id') && p.get('client_id') !== row.client_id) return tokenError('invalid_grant', 'client_id 不符');
@@ -340,6 +366,7 @@ export async function handleToken(request, env) {
     await env.DB.prepare("DELETE FROM mcp_tokens WHERE grant_id = ? AND kind = 'oauth_access'").bind(row.grant_id).run();
     return json(await issueTokens(env, {
       userId: row.user_id, clientId: row.client_id, clientName: row.name, grantId: row.grant_id,
+      scope: row.scope === 'read' ? 'read' : 'write', projectId: row.project_id || null,
     }), 200, { ...corsAny, 'Cache-Control': 'no-store' });
   }
 

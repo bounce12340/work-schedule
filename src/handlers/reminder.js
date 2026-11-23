@@ -121,7 +121,7 @@ export function addDays(ymd, n) {
 
 export async function handleReminderStatus(env, user) {
   const row = await env.DB
-    .prepare(`SELECT enabled, last_sent_ymd, lead_days, streak_mail, agent_notify,
+    .prepare(`SELECT enabled, last_sent_ymd, lead_days, streak_mail, agent_notify, weekly_mail,
                      push_overdue, push_streak, push_today, updated_at
                 FROM reminder_feed WHERE user_id = ?`)
     .bind(user.id).first();
@@ -132,6 +132,8 @@ export async function handleReminderStatus(env, user) {
     streakMail: row ? !!row.streak_mail : true,
     // 第六顆（1B）：agent 問我問題時通知我。沒有那一列的人也是開（同 streakMail）
     agentNotify: row ? !!row.agent_notify : true,
+    // 第七顆（3A）：每週摘要信。**預設關**（沒有那一列的人也是關），理由見 handlers/weekly.js
+    weeklyMail: row ? !!row.weekly_mail : false,
     // 推播的三個開關（子專案 B）。同上，沒有那一列時回 schema 的預設值。
     // 「今天有事要做」預設關：它每天固定時間會響，那種東西預設開是打擾。
     pushOverdue: row ? !!row.push_overdue : true,
@@ -160,11 +162,13 @@ export async function handleReminderEnable(request, env, user) {
   const pOver = flag(body?.pushOverdue), pStreak = flag(body?.pushStreak), pToday = flag(body?.pushToday);
   // 第六顆（1B）：agent 通知。同樣沒帶就沿用——其他五顆的送出不會順手把它改掉
   const agentN = flag(body?.agentNotify);
+  // 第七顆（3A）：每週摘要信。沒帶就沿用，與前面幾顆互不連坐
+  const weeklyM = flag(body?.weeklyMail);
   const now = Date.now();
   await env.DB.prepare(
     `INSERT INTO reminder_feed (user_id, enabled, digest, lead_days, streak_mail,
-                                push_overdue, push_streak, push_today, agent_notify, updated_at)
-     VALUES (?, ?, '[]', ?, ?, ?, ?, ?, ?, ?)
+                                push_overdue, push_streak, push_today, agent_notify, weekly_mail, updated_at)
+     VALUES (?, ?, '[]', ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(user_id) DO UPDATE SET
        enabled = excluded.enabled,
        lead_days = COALESCE(?, reminder_feed.lead_days),
@@ -173,12 +177,14 @@ export async function handleReminderEnable(request, env, user) {
        push_streak = COALESCE(?, reminder_feed.push_streak),
        push_today = COALESCE(?, reminder_feed.push_today),
        agent_notify = COALESCE(?, reminder_feed.agent_notify),
+       weekly_mail = COALESCE(?, reminder_feed.weekly_mail),
        updated_at = excluded.updated_at`
   ).bind(user.id, enabled, lead ?? DEFAULT_LEAD_DAYS, streakMail ?? 1,
-    pOver ?? 1, pStreak ?? 1, pToday ?? 0, agentN ?? 1, now,
-    lead, streakMail, pOver, pStreak, pToday, agentN).run();
+    pOver ?? 1, pStreak ?? 1, pToday ?? 0, agentN ?? 1, weeklyM ?? 0, now,
+    lead, streakMail, pOver, pStreak, pToday, agentN, weeklyM).run();
   return json({ ok: true, enabled: !!enabled, streakMail: streakMail === null ? undefined : !!streakMail,
-    agentNotify: agentN === null ? undefined : !!agentN });
+    agentNotify: agentN === null ? undefined : !!agentN,
+    weeklyMail: weeklyM === null ? undefined : !!weeklyM });
 }
 
 /** 前端每次同步後推上來的展開排程 */
@@ -251,7 +257,8 @@ export async function handleReminderPut(request, env, user) {
  * 「你再也收不到任何東西」。我們自己的連結不可以犯同一個錯。
  */
 // agent：agent 問我問題／提案時的通知（1B）。同樣各自獨立，不與另外兩種連坐。
-export const UNSUB_KINDS = { reminder: 'enabled', streak: 'streak_mail', agent: 'agent_notify' };
+// weekly：每週摘要信（第三批 3A）。同樣各自獨立。
+export const UNSUB_KINDS = { reminder: 'enabled', streak: 'streak_mail', agent: 'agent_notify', weekly: 'weekly_mail' };
 
 /**
  * 拿到這個人的退訂 token，沒有就現場產一個。

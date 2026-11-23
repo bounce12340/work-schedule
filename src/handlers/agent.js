@@ -171,6 +171,71 @@ export async function handleRedactEvent(env, user, id) {
   return json({ ok: true });
 }
 
+/**
+ * POST /api/projects/events/:id/close-risk：擁有者關閉一個還開著的風險（第三批 3A）。
+ * 與 agent 用 add_project_event(kind=risk, closesEventId) 關閉走同一個規則：單句帶條件的 UPDATE 領走、
+ * 再寫一筆 status=closed 的結案說明（ref_id 指向被關的那一筆）。
+ */
+export async function handleCloseRisk(env, user, id) {
+  const r = await env.DB.prepare("SELECT id, project_id, task_id FROM project_events WHERE id = ? AND user_id = ? AND kind = 'risk'").bind(id, user.id).first();
+  if (!r) return json({ error: '找不到這個風險' }, 404);
+  const claim = await env.DB.prepare("UPDATE project_events SET status = 'closed' WHERE id = ? AND user_id = ? AND kind = 'risk' AND status = 'open'").bind(id, user.id).run();
+  if (claim.meta?.changes !== 1) return json({ error: '這個風險已經不是「還開著」的狀態了' }, 409);
+  await insertEvent(env, { userId: user.id, projectId: r.project_id, taskId: r.task_id, kind: 'risk', actor: 'user', body: '擁有者關閉了這個風險', refId: r.id, status: 'closed' })
+    .catch(e => console.warn('close risk event write failed', e?.message || String(e)));
+  return json({ ok: true });
+}
+
+// ------------------------------------------------------------ agent 成績單（第三批 3A）
+
+/**
+ * GET /api/agent/scorecard：每一條連線的數字——**只有數字，沒有任何日誌或任務的文字**。
+ * 來源是 mcp_activity（保留 90 天，所以這是「近 90 天」）：
+ *   - changes：做了幾筆修改；undone：其中被復原了幾筆（被復原的不算完成）
+ *   - tasksCompleted：agent 讓「任務有效完成」從假變真的次數（被復原的、被攔成待驗收的不算）
+ *   - estimateHours／actualHours／comparedTasks：這條連線寫過預估的任務裡，目前**兩個數字都有**的那些的總和
+ *     （只有預估沒有實際的任務放進去只會讓「預估 vs 實際」永遠對不上）
+ * 帳號之間隔離：每一句查詢都帶 user_id。
+ */
+export async function handleAgentScorecard(env, user) {
+  const [{ state }, rows] = await Promise.all([
+    readState(env, user.id),
+    env.DB.prepare(
+      `SELECT conn_id, actor, tool, entity_kind, entity_id, before, after, undone_at, created_at
+         FROM mcp_activity WHERE user_id = ? AND conn_id IS NOT NULL ORDER BY created_at, rowid`
+    ).bind(user.id).all(),
+  ]);
+  const live = new Set(((await env.DB.prepare('SELECT id FROM mcp_connections WHERE user_id = ?').bind(user.id).all()).results || []).map(r => r.id));
+  const tasks = new Map();
+  for (const gp of (state && state.ganttProjects) || []) for (const t of gp.tasks || []) tasks.set(`${gp.id}/${t.id}`, t);
+  const parse = v => { try { return v == null ? null : JSON.parse(v); } catch { return null; } };
+  const by = new Map();
+  for (const r of rows.results || []) {
+    let c = by.get(r.conn_id);
+    if (!c) { c = { connId: r.conn_id, name: r.actor, changes: 0, undone: 0, tasksCompleted: 0, estimated: new Set() }; by.set(r.conn_id, c); }
+    c.name = r.actor;                                   // 最近一次的署名
+    c.changes++;
+    if (r.undone_at) { c.undone++; continue; }
+    if (r.entity_kind === 'ganttTask') {
+      const before = parse(r.before), after = parse(r.after);
+      if (after && S.effectiveDone(after) && !(before && S.effectiveDone(before))) c.tasksCompleted++;
+      if (r.tool === 'set_task_estimate') c.estimated.add(r.entity_id);
+    }
+  }
+  const connections = [...by.values()].map(c => {
+    let est = 0, act = 0, n = 0;
+    for (const id of c.estimated) {
+      const t = tasks.get(id);
+      if (t && typeof t.estimateHours === 'number' && typeof t.actualHours === 'number') { est += t.estimateHours; act += t.actualHours; n++; }
+    }
+    return {
+      connId: c.connId, name: c.name, active: live.has(c.connId), changes: c.changes, undone: c.undone,
+      tasksCompleted: c.tasksCompleted, estimateHours: est, actualHours: act, comparedTasks: n,
+    };
+  }).sort((a, b) => b.changes - a.changes);
+  return json({ windowDays: 90, connections });
+}
+
 // ------------------------------------------------------------ 開著的頁面要跟上（設計文件第二次檢討 15）
 
 /**

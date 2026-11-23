@@ -11740,7 +11740,7 @@
     try{
       const r = await fetch('/api/reminder', { method:'POST', headers:{'content-type':'application/json'},
         body: JSON.stringify({ enabled:false, leadDays:reminderLeadDays, streakMail:false,
-                               pushOverdue:false, pushStreak:false, pushToday:false, agentNotify:false }) });
+                               pushOverdue:false, pushStreak:false, pushToday:false, agentNotify:false, weeklyMail:false }) });
       if(r.status===401){ sessionExpired(); return; }
       if(!r.ok) throw new Error('HTTP '+r.status);
       reminderEnabled = false;

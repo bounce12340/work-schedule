@@ -8,6 +8,7 @@ import * as S from './schedule.js';
 import { applyOps, OpError, STATE_OP_NAMES } from './ops.js';
 import { listPrsOfProject, prView } from './prs.js';
 import { notifyAgentAsk, notifyAgentPaused, runDetached } from '../handlers/agentnotify.js';
+import { takeVersion } from './history.js';
 
 export { OpError };
 
@@ -34,22 +35,30 @@ export class StoreError extends S.ToolError {
 
 export async function readState(env, userId) {
   const row = await env.DB.prepare('SELECT state, updated_at FROM user_state WHERE user_id = ?').bind(userId).first();
-  if (!row) return { state: null, updatedAt: null };
-  return { state: JSON.parse(row.state), updatedAt: row.updated_at };
+  if (!row) return { state: null, updatedAt: null, raw: null };
+  return { state: JSON.parse(row.state), updatedAt: row.updated_at, raw: row.state };
 }
 
 /**
  * 讀 → 算 → 帶條件寫回，撞到別人的寫入就重來（最多三次）。compute 是純函式（同一份輸入
  * 永遠算出同一個結果），所以重算是安全的——同 handleUpdateShared 的重試。
  * 工具、提案同意、驗收／退回共用這一支：換一個入口不能少一道擋（大小、方案上限）。
+ *
+ * opts.version = { actor, summary: (結果) => 一句話, force? }：寫入**之前**把現在這一份留成一版（版本歷史，
+ * 第三批 3A）。放在 compute 成功之後、UPDATE 之前：算不出來（ToolError）的寫入不留版本；留的是資料庫裡的
+ * 原文。只有 Pro 留（force 例外：退回要能再退回）；留版本失敗永遠不讓寫入失敗（takeVersion 自己吞掉）。
+ * 撞到別人的寫入重試時，上一輪已經留過的內容會因為 sha 相同而不重複。
  */
-export async function casWrite(env, user, compute) {
+export async function casWrite(env, user, compute, opts = {}) {
   for (let attempt = 0; attempt < 3; attempt++) {
-    const { state, updatedAt } = await readState(env, user.id);
+    const { state, updatedAt, raw } = await readState(env, user.id);
     const r = compute(state);
     const serialized = JSON.stringify(r.state);
     if (serialized.length > MAX_STATE_BYTES) throw new S.ToolError('資料太大了，存不進去');
     if (exceedsPlanCap(state, r.state, planOf(user))) throw new S.ToolError('超過方案的上限');
+    if (opts.version && raw && (opts.version.force || planOf(user) === 'pro')) {
+      await takeVersion(env, user.id, raw, { actor: opts.version.actor, summary: opts.version.summary ? opts.version.summary(r) : '' });
+    }
     const now = Date.now();
     const res = await env.DB.prepare('UPDATE user_state SET state = ?, updated_at = ? WHERE user_id = ? AND updated_at = ?')
       .bind(serialized, now, user.id, updatedAt).run();
@@ -109,7 +118,9 @@ export async function mutate(env, user, ctx, fn, opts = {}) {
     }
     return { state: r.state, changes: r.changes, events, notices, held };
   };
-  const res = await casWrite(env, user, compute);
+  const res = await casWrite(env, user, compute, {
+    version: { actor: ctx.actor, summary: r => `${ctx.tool || 'agent 寫入'}：${(r.changes || []).map(c => c.summary).join('；')}` },
+  });
   const { changes, now } = res;
   const ids = changes.map(() => crypto.randomUUID());
   // 紀錄寫在**寫入成功之後**：寫不進去也不能讓已經生效的修改變成錯誤（同 share_activity），
@@ -325,6 +336,7 @@ export async function addAgentEvent(env, user, ctx, a) {
   if (body.length > EVENT_MAX_BODY) throw new S.ToolError(`body 最多 ${EVENT_MAX_BODY} 字（現在 ${body.length} 字），請縮短`);
   if (kind !== 'question' && (a.options != null || a.defaultAfter != null)) throw new S.ToolError('options 與 defaultAfter 只有 question 能用');
   if (kind !== 'withdraw' && a.refId != null) throw new S.ToolError('refId 只有 withdraw 能用');
+  if (a.closesEventId != null && kind !== 'risk') throw new S.ToolError('closesEventId 只有 kind=risk 能用（用來關閉一個還開著的風險）');
 
   const { state } = await readState(env, user.id);
   if (!state) throw new S.ToolError('雲端還沒有資料：請先在 app 或網頁上打開一次，讓資料同步上來');
@@ -357,6 +369,21 @@ export async function addAgentEvent(env, user, ctx, a) {
     refId = q.id; taskId = taskId ?? q.task_id;
   }
 
+  // 關閉風險（第三批 3A）：kind=risk 帶 closesEventId＝「這個風險排除了」。先單句帶條件的 UPDATE 領走
+  // （兩個 agent 同時關同一個只有一個領得到），再寫一筆 status=closed 的 risk 當結案說明（ref_id 指向被關的那一筆）。
+  // 重用 add_project_event 而不是新工具：工具數不再增加。
+  let closesId = null;
+  if (kind === 'risk' && a.closesEventId != null) {
+    const target = await env.DB.prepare("SELECT id, project_id, task_id FROM project_events WHERE id = ? AND user_id = ? AND kind = 'risk'")
+      .bind(String(a.closesEventId), user.id).first();
+    if (!target) throw new S.ToolError('找不到這個風險');
+    if (target.project_id !== project.id) throw new S.ToolError('這個風險不在這個專案裡');
+    const upd = await env.DB.prepare("UPDATE project_events SET status = 'closed' WHERE id = ? AND user_id = ? AND kind = 'risk' AND status = 'open'")
+      .bind(target.id, user.id).run();
+    if (upd.meta?.changes !== 1) throw new S.ToolError('這個風險已經不是「還開著」的狀態了');
+    closesId = target.id; refId = target.id; taskId = taskId ?? target.task_id;
+  }
+
   const id = crypto.randomUUID();
   const now = Date.now();
   // 單句帶條件的 INSERT：每個專案每天 200 筆的上限不能是「先數再寫」（兩個併發的呼叫會一起通過）
@@ -365,12 +392,16 @@ export async function addAgentEvent(env, user, ctx, a) {
      SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?
       WHERE (SELECT COUNT(*) FROM project_events WHERE user_id = ? AND project_id = ? AND actor != 'user' AND created_at >= ?) < ?`
   ).bind(id, user.id, projectId, taskId, kind, ctx.actor, body, refId,
-    kind === 'question' || kind === 'risk' ? 'open' : null,
+    closesId ? 'closed' : (kind === 'question' || kind === 'risk' ? 'open' : null),
     options ? JSON.stringify(options) : null, defaultAfter, now,
     user.id, projectId, dayStartMs(ymdTaipei(now)), EVENTS_PER_PROJECT_PER_DAY).run();
+  if (ins.meta?.changes !== 1 && closesId) {
+    // 結案說明寫不進去（今天的上限）：把風險還原成開著，不留一個「關了卻沒有說明」的風險
+    await env.DB.prepare("UPDATE project_events SET status = 'open' WHERE id = ? AND user_id = ? AND kind = 'risk' AND status = 'closed'").bind(closesId, user.id).run();
+  }
   if (ins.meta?.changes !== 1) throw new S.ToolError(`這個專案今天的進展紀錄已達上限（${EVENTS_PER_PROJECT_PER_DAY} 筆）`);
 
-  const out = { eventId: id, kind };
+  const out = { eventId: id, kind, ...(closesId ? { closedRiskId: closesId } : {}) };
   // 通知使用者有新問題（5-2）：開關、30 分鐘節流、休假都在 notifyAgentAsk 裡判斷；
   // 它永遠不丟例外——通知寄不出去不該讓已經寫進去的提問變成錯誤（agent 會重送而問兩次）。
   // 信與推播裡不放問題的全文。
@@ -440,12 +471,13 @@ export async function getProjectBrief(env, user, projectId) {
   const today = ymdTaipei();
   const nowMs = Date.now();
   const q = async (sql, ...b) => (await env.DB.prepare(sql).bind(...b).all()).results || [];
-  const [handoffs, openQs, recent, proposals, openPrs] = await Promise.all([
+  const [handoffs, openQs, recent, proposals, openPrs, openRisks] = await Promise.all([
     q("SELECT * FROM project_events WHERE user_id = ? AND project_id = ? AND kind = 'handoff' ORDER BY created_at DESC, rowid DESC LIMIT 1", user.id, projectId),
     q("SELECT * FROM project_events WHERE user_id = ? AND project_id = ? AND kind = 'question' AND status = 'open' ORDER BY created_at, rowid", user.id, projectId),
     q('SELECT * FROM project_events WHERE user_id = ? AND project_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 10', user.id, projectId),
     q("SELECT id, title, actor, created_at FROM mcp_proposals WHERE user_id = ? AND status = 'open' ORDER BY created_at", user.id),
     listPrsOfProject(env, user.id, projectId, { open: true }),
+    q("SELECT * FROM project_events WHERE user_id = ? AND project_id = ? AND kind = 'risk' AND status = 'open' ORDER BY created_at, rowid", user.id, projectId),
   ]);
   const latestHandoff = handoffs[0] || null;
   // 回答過的問題：寫在最新一筆交接之後的（交接之前的，上一個 agent 已經讀過、寫進交接了）
@@ -479,6 +511,8 @@ export async function getProjectBrief(env, user, projectId) {
     // 里程碑：會不會趕上是算出來的（atRisk），不存狀態
     milestones: (project.milestones || []).map(m => ({ id: m.id, name: m.name, date: m.date, ...S.milestoneStatus(project, m, today) })),
     openPrs: openPrs.map(prView),
+    // 還開著的風險（要關閉就帶 add_project_event 的 kind=risk＋closesEventId）
+    openRisks: openRisks.map(agentEventView),
     latestHandoff: latestHandoff ? agentEventView(latestHandoff) : null,
     tasks,
     openQuestions: openQs.map(r => ({ ...agentEventView(r), ...(r.default_after && r.default_after < today ? { pastDeadline: true, hint: '已過期限：使用者沒有回覆，你可以照預設（第一個選項）做，並寫一筆 decision 說明' } : {}) })),

@@ -23,6 +23,7 @@ import {
   opContext, dryRunOps, cleanOps, getChangesSince,
 } from './store.js';
 import { upsertPr, unlinkPr, listProjectPrs, PR_STATES, PR_CHECKS, PR_REVIEWS } from './prs.js';
+import { checkScope, filterForScope } from './scope.js';
 
 const PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 
@@ -219,13 +220,14 @@ const TOOLS = [
   },
   {
     name: 'add_project_event',
-    description: `在專案的進展日誌寫一筆（只能加，寫了就不能改或刪；使用者可以遮蔽）。kind：progress＝進展、handoff＝交接筆記（收工時寫，下一個 agent 會從這裡接手）、question＝向使用者提問（有 taskId 時任務會標成 waiting；options 給 2～4 個短選項、defaultAfter 給期限 YYYY-MM-DD）、risk＝風險、withdraw＝撤回你自己的問題（要帶 refId）。body 純文字最多 ${EVENT_MAX_BODY} 字，不要寫入金鑰或個資。署名由伺服器依連線填。`,
+    description: `在專案的進展日誌寫一筆（只能加，寫了就不能改或刪；使用者可以遮蔽）。kind：progress＝進展、handoff＝交接筆記（收工時寫，下一個 agent 會從這裡接手）、question＝向使用者提問（有 taskId 時任務會標成 waiting；options 給 2～4 個短選項、defaultAfter 給期限 YYYY-MM-DD）、risk＝風險（還開著的會列在 get_project_brief 的 openRisks；排除了就再寫一筆 kind=risk 並帶 closesEventId 關閉它）、withdraw＝撤回你自己的問題（要帶 refId）。body 純文字最多 ${EVENT_MAX_BODY} 字，不要寫入金鑰或個資。署名由伺服器依連線填。`,
     inputSchema: { type: 'object', required: ['projectId', 'kind', 'body'], properties: {
       projectId: { type: 'string' }, kind: { type: 'string', enum: ['progress', 'handoff', 'question', 'risk', 'withdraw'] },
       body: { type: 'string' }, taskId: { type: 'string' },
       options: { type: 'array', items: { type: 'string' }, minItems: 2, maxItems: 4, description: '只有 question：2～4 個短選項' },
       defaultAfter: { type: 'string', description: '只有 question：期限 YYYY-MM-DD；過期後使用者沒回，你可以照第一個選項做並寫一筆決定' },
       refId: { type: 'string', description: '只有 withdraw：要撤回的問題的 id' },
+      closesEventId: { type: 'string', description: '只有 risk：要關閉的那個風險的 id；body 寫結案說明（為什麼排除了）' },
     } },
     annotations: WRITE(false),
   },
@@ -544,6 +546,10 @@ export async function handleMcp(request, env, execCtx = null) {
       if (!TOOLS.some(t => t.name === name)) return json(rpcError(id, -32602, `沒有這個工具：${name}`), 200, CORS);
       try {
         const args = params?.arguments;
+        // 鑰匙的權限範圍（第三批 3A）：每一次都檢查，同 Pro 與暫停——唯讀鑰匙擋掉 WRITE_TOOLS 的每一個、
+        // 專案範圍的鑰匙擋掉專案以外的一切（見 scope.js）。放在連線設定之前：被擋的呼叫不該碰任何東西
+        const denied = await checkScope(env, auth, name, args, WRITE_TOOLS);
+        if (denied) return json(rpcResult(id, toolText({ error: denied }, true)), 200, CORS);
         // 連線設定每一次都重新讀（同 Pro 檢查）：暫停是緊急煞車，不能等 token 換新才生效。
         // 查不到設定列＝當成暫停（最嚴格的那一種），所以「管不住」不會在沒人知道的情況下發生
         const conn = await loadConnection(env, auth.user.id, auth.connId);
@@ -558,7 +564,7 @@ export async function handleMcp(request, env, execCtx = null) {
         const out = WRITE_TOOLS.has(name) && !isDry
           ? await withRequestId(env, auth.user, name, args || {}, () => callTool(env, ctx, name, args))
           : await callTool(env, ctx, name, args);
-        return json(rpcResult(id, toolText(out, false)), 200, CORS);
+        return json(rpcResult(id, toolText(filterForScope(auth, name, out), false)), 200, CORS);
       } catch (e) {
         if (e instanceof S.ToolError) return json(rpcResult(id, toolText({ error: e.message }, true)), 200, CORS);
         throw e;

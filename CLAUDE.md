@@ -76,6 +76,7 @@ mobile/                iOS app 外殼（Capacitor；自己的 package.json，見
 | `tests/agent2.test.mjs` | agent 工作區（第二批 2A）：**新欄位（預估／預測／認領／連結／里程碑）與前端 `normalizeGanttProjects` 逐欄相同**（含舊形狀、壞資料靜靜濾掉、常數兩邊相同、走一次真的 `applySnapshot`→`snapshot`、三方合併里程碑不衝突）、`set_task_estimate`（**`end`／進度／完成一個位元都不動**、預測改了自動寫進展、落在週末／假日清單／休假日只提醒不拒絕）、里程碑（`atRisk` 是算出來的）、**`claim_task`（四種成功／拒絕、24 小時、人手動指派搶不走、注入別人的認領的確定性競態）**、`links`、**`apply_changes`（只寫一次 user_state、全部成功或全部不做、整批復原也全有全無、整批只算一次復原）**、**`dryRun`（state／紀錄／日誌／requestId 一個位元都不動、暫停中可預演）**、`get_changes_since`、**PR（網址白名單、合併不動任務、`source`／時間、300 筆上限、跨帳號）**、**webhook（測試裡自己算真的 HMAC：未知 token 404、簽章錯 401、沒連過的 PR 只忽略不新增、別人的密鑰動不到我的列、`check_run` 不會把單一個通過當整體通過）**、備份不帶 PR 與密鑰 | 直接 import Worker 端模組；前端的正規化從 `index.html` 抽出來比；競態用 `withRaceBeforeFirstUpdate`（同 `state.test.mjs`）；十七種突變各自驗過會紅 |
 | `tests/agent3.test.mjs` | agent 工作區（第二批 2B）前端那一半的規則：**里程碑的顏色規則前端 `agentMilestoneStatus` 與 `src/mcp/schedule.js` 的 `milestoneStatus` 在兩千多個組合上逐欄相同**（同 `PLAN_LIMITS` 前後端逐字相同那一條）、`lateDays`／`effectiveDone`／認領的 24 小時門檻相同（剛好 24 小時還算新）、證據連結只收 http(s) 且經過 `normalizeGanttProjects` 原樣還在、PR 看板的順序（失敗最前、等你審第二、不改動輸入）、「PR 已合併，要標成完成嗎？」只在已合併／連到任務／任務沒完成時問 | 從 `index.html` 抽〈預測與里程碑（純函式）〉等區段求值；突變驗證過（`>` 改 `>=`、排序權重對調各自會紅） |
 | `tests/agent-notify.test.mjs` | agent 問了問題／提了提案要通知到人（1B）：**信、主旨、HTML、推播裡都不出現問題與提案的全文**（連選項也不放）、連線名稱（外部字串）跳脫、**同一專案 30 分鐘內最多一封、多的併進 pending**、cron 補送「還有 N 件」、**兩個併發的提問只有一封**（`last_sent_at` 的 compare-and-swap）、休假只累計不送（cron 當天也不補，隔天補）、**送失敗不寫 `last_sent_at`**、開關關著不送也不累計、**是訂閱信**（不走交易信的寄件帳號、帶 `List-Unsubscribe`）、**退訂 `kind=agent` 只關這一顆**（反方向也不連坐，一鍵退訂同一支）、`/api/reminder` 的 `agentNotify`（其他五顆的送出不會順手改掉它）、自動暫停的那一刻寄信、通知寄不出去**不能讓 agent 的提問變成錯誤**、`/api/state/version`（只回兩個數字、**使用者自己的回答不算「agent 剛更新了」**、新提案算、別人的不算）、匯出用的日誌端點只回自己的 | 直接 import Worker 端模組，攔 `fetch` 當假的 AgentMail 與 APNs（同 `push.test.mjs`）；七種突變各自驗過會紅 |
+| `tests/agent4.test.mjs` | agent 工作區（第三批 3A，伺服器端）：**版本歷史**（agent 每種寫入之前留一版、留的是寫入前原文、ToolError 不留、R2 失敗不擋寫入、只有 Pro、同內容不重複、自己的修改每小時一版、每日一版、30 天與 300 版上限且 R2 與索引一起清、比較以東西為單位、**退回再退回回到原樣**、退回的樂觀鎖競態、**別人的版本 id 404**、內容不在回 410、刪帳號清 R2 prefix、備份不碰它）、**權限分級的鑰匙**（**唯讀鑰匙擋掉的集合剛好等於 `WRITE_TOOLS`**、每次呼叫都檢查、舊鑰匙行為不變、專案範圍擋掉別的專案與批次／提案裡的任何一個操作、專案清單只剩它、建立與 OAuth 的範圍驗證與帶過 refresh）、**風險**（開、agent 與擁有者關、不能關別專案／別帳號的、上限時還原）、**分享連結**（預設只有專案名／里程碑／任務狀態，機敏字串一個都不在、勾選才多帶、被遮蔽的與已關的風險絕不出現、重新產生撤銷舊的、專案消失 404、跨帳號）、**每週摘要**（沒事不寄、休假不寄也不記成送過、失敗不記成送過、一週一封、星期四不寄、沒有歷史就不寫 0、退訂只關自己那一顆兩個方向、`/api/reminder` 不連坐）、**成績單**（只有數字、被復原的不算、跨帳號） | 直接 import Worker 端模組；`tests/fake-r2.mjs` 當 R2、攔 `fetch` 當假的 AgentMail；二十八種突變各自驗過會紅（含 `tests/account-delete.test.mjs` 擴充的刪帳號那一格） |
 
 前三者的挑選理由：前兩者近乎純函式、零 DOM 依賴；第三者是**競態**——靠併發碰運氣測不到，但可以把空窗做成確定性的。
 
@@ -108,7 +109,7 @@ npm run db:init:local  # 對本機 miniflare D1 建表（--local 的資料庫與
 npm run db:init        # 對遠端 D1 建表
 npm run admin:reset    # 破窗鎚：直接改密碼（見〈破窗鎚〉）
 npm run deploy         # 部署
-npm test               # 全部測試檔（node:test，不需安裝任何東西；目前 682 個測試）
+npm test               # 全部測試檔（node:test，不需安裝任何東西；目前 725 個測試）
 ```
 
 跑單一測試檔或單一測試（`npm test` 沒有轉發參數的管道，直接用 node）：
@@ -895,7 +896,7 @@ Turnstile 擋得住「一秒鐘一萬次」的機器人，擋不住「一分鐘�
 
 **改版時要做的事**：`mobile/package.json` 的 `version` 往上加（build 號是 GitHub 的 `run_number`，不用管）→ **合併進 main 就會自動打包上傳**（CI 綠、且動到 `public/index.html` 或 `mobile/`）→ App Store Connect 送審。手動觸發與 `ios-v*` tag 仍然留著，兩者都不看路徑條件。
 
-**部署順序**：`migrations/005-app-purchase.sql`、`006-plan.sql`、`007-streak-mail.sql`、`008-push.sql`、`009-leave-days.sql`、`010-mail-log.sql` 、`011-mail-sender.sql` 、`012-unsub-token.sql` 、`014-paddle.sql` 與 `015-mcp.sql` 與 `016-mcp-requests.sql` 與 `017-agent-workspace.sql` 與 `018-agent-notify.sql` 與 `019-project-prs.sql` 都要在部署新 Worker **之前**跑（**`019` 含 `ALTER TABLE mcp_activity ADD COLUMN batch_id`——漏跑的話每一個 agent 寫入工具都失敗（同 `017` 的 `conn_id`）；其餘是新增資料表 `project_prs`、`github_hooks`，漏跑只讓 PR 相關的工具與端點失敗**）（**`018` 是 `ALTER TABLE reminder_feed ADD COLUMN agent_notify`——漏跑的話 `/api/reminder` 的讀寫與逾期提醒的 SELECT 全部失敗，「我的帳號」的通知區整個讀不出來；它也建 `agent_notify_state`，那張是新增資料表，漏跑只讓 agent 通知失敗、不會讓 agent 的提問失敗**）（**`017` 含 `ALTER TABLE mcp_activity ADD COLUMN conn_id`——漏跑的話每一個 agent 寫入工具都失敗；它還回填既有連線的設定列，漏跑或晚跑的話所有現存連線會被當成暫停**）（`010` 是新增資料表，漏跑只會讓寄信多一行警告，不會 500；**`011` 是加欄位，漏跑會讓 `/api/admin/mail-log` 的 SELECT 直接失敗**）（`getSessionUser` 的 SELECT 讀 `plan_source`，欄位不在**每一個**登入請求都會 500；`007`／`008`／`009` 的欄位則是 `/api/reminder` 與 cron 會讀），理由見〈資料庫結構變更〉。006 跑完、Worker 部署完之後，還要到 `/admin` 把既有的兩個帳號設成「Pro（永久）」——漏掉的症狀是他們的第四個專案被擋，當場就會知道。
+**部署順序**：`migrations/005-app-purchase.sql`、`006-plan.sql`、`007-streak-mail.sql`、`008-push.sql`、`009-leave-days.sql`、`010-mail-log.sql` 、`011-mail-sender.sql` 、`012-unsub-token.sql` 、`014-paddle.sql` 與 `015-mcp.sql` 與 `016-mcp-requests.sql` 與 `017-agent-workspace.sql` 與 `018-agent-notify.sql` 與 `019-project-prs.sql` 與 `020-history-scope-share.sql` 都要在部署新 Worker **之前**跑（**`020` 有六句 `ALTER`：`mcp_tokens` 與 `oauth_codes` 各加 `scope`／`project_id`、`reminder_feed` 加 `weekly_mail`／`weekly_mail_week`——漏跑的話每一個 MCP 呼叫都失敗、OAuth 授權失敗、`/api/reminder` 讀不出來；`state_versions`、`project_shares` 是新增資料表，漏跑只讓那幾條路失敗**）（**`019` 含 `ALTER TABLE mcp_activity ADD COLUMN batch_id`——漏跑的話每一個 agent 寫入工具都失敗（同 `017` 的 `conn_id`）；其餘是新增資料表 `project_prs`、`github_hooks`，漏跑只讓 PR 相關的工具與端點失敗**）（**`018` 是 `ALTER TABLE reminder_feed ADD COLUMN agent_notify`——漏跑的話 `/api/reminder` 的讀寫與逾期提醒的 SELECT 全部失敗，「我的帳號」的通知區整個讀不出來；它也建 `agent_notify_state`，那張是新增資料表，漏跑只讓 agent 通知失敗、不會讓 agent 的提問失敗**）（**`017` 含 `ALTER TABLE mcp_activity ADD COLUMN conn_id`——漏跑的話每一個 agent 寫入工具都失敗；它還回填既有連線的設定列，漏跑或晚跑的話所有現存連線會被當成暫停**）（`010` 是新增資料表，漏跑只會讓寄信多一行警告，不會 500；**`011` 是加欄位，漏跑會讓 `/api/admin/mail-log` 的 SELECT 直接失敗**）（`getSessionUser` 的 SELECT 讀 `plan_source`，欄位不在**每一個**登入請求都會 500；`007`／`008`／`009` 的欄位則是 `/api/reminder` 與 cron 會讀），理由見〈資料庫結構變更〉。006 跑完、Worker 部署完之後，還要到 `/admin` 把既有的兩個帳號設成「Pro（永久）」——漏掉的症狀是他們的第四個專案被擋，當場就會知道。
 
 ### 開發者有 Mac 了（2026-09-17）
 
@@ -1097,6 +1098,43 @@ cd mobile/ios/App && xcodebuild -scheme App -sdk iphonesimulator -configuration 
 | cron 的獨立一步 `agent_notify`（`sendAgentNotifyPending`），回傳含 `errors[]`，`step()` 因此不會把失敗記成乾淨的成功 | 同 `sendOverdueReminders` |
 
 **驗證**：`tests/agent-notify.test.mjs`；`tools/smoke.mjs` 與 `tools/check-contrast.mjs` 的 agent 工作區那一段（見工具表）。真機／真信箱沒驗：寄出去的信長什麼樣、List-Unsubscribe 在 Gmail 上是否出現「取消訂閱」，要上線後用真的連線問一個問題看。
+
+### agent 工作區的第三批（3A：伺服器端，`src/mcp/history.js`／`scope.js`、`src/handlers/history.js`／`projectshare.js`／`weekly.js`）
+
+設計文件同上（第三批、甲 2、第 21 件）。migration `020-history-scope-share.sql`。**3A 沒有新畫面**（3B 才做：專案現況頁、`/p/:token` 的 HTML 頁、版本歷史與成績單的畫面、分享連結的勾選畫面、第七顆通知開關、授權頁的範圍選擇）；前端只在「全部都不要了」的 body 多帶 `weeklyMail:false`，與 `unsub.html`、`admin.html` 各補一個字串。工具仍是 **29 個**（沒有新增工具：關閉風險重用 `add_project_event`）。
+
+| 決定 | 理由 |
+|---|---|
+| 版本放 **R2**（`BACKUPS` 儲存桶的 `history/<userId>/<id>.json`），D1 的 `state_versions` 只存索引（多一欄 `sha`） | 整份 state 放 D1 會讓它變成最大的一張表。每日備份與它的輪替只碰 `backup/`，所以歷史不會被備份帶走、也不會被輪替刪到（測試守著） |
+| 留版本掛在 **`casWrite` 的 `opts.version`**，放在 compute 成功之後、UPDATE 之前，留的是資料庫裡的**原文** | agent 的每一種寫入（直接、`apply_changes`、同意提案、整批復原）都經過 `mutate`→`casWrite`，掛在這一個地方就一個都不漏；算不出來的寫入（ToolError）不留；擁有者的驗收／退回（沒帶 `version`）不留 |
+| **只有 Pro 留**（`force` 例外：退回要能再退回）；到期後停止留新版、舊的 30 天自然過期；擁有者端點不要求 Pro | 同設計文件第 20 件 |
+| **留版本失敗永遠只 `console.warn`，不讓寫入變成錯誤**；沒綁 R2 就安靜略過 | 版本是安全網，不是寫入的一部分；R2 掛掉就讓 agent 寫不進去，等於安全網把人絆倒。先寫 R2、再寫索引：反過來的話索引指向一個不存在的檔案 |
+| 與最新一版內容相同（`sha`）就不重複留 | agent 的空寫入、每日留存、退回之後的再退回都不該灌版本數（上限 300，灌滿了真正有用的舊版會被擠掉） |
+| 自己的修改（`PUT /api/state` 成功之後）最多每小時一版，留的是**剛寫進去的那一份**；cron 的 `history` 步驟讓每個 Pro 帳號每天至少一版並清全站的過期與超量 | 要的是「每小時一個點」，不是每次同步一版；cron 步驟自己回 `errors[]`（R2 出事 `step()` 才記成失敗） |
+| 保留 30 天、每個帳號 300 版，寫入時順手清；**R2 的檔案先刪、索引後刪**，檔案刪失敗就留著那一列下次再清 | 反過來會留下永遠沒人清、卻含有整份排程的檔案 |
+| 比較以「東西」為單位（項目、大項目、專案、任務、每日記錄、其餘設定）：`{entity, id, name, field, before, after}`，`before`＝那一版的值、`after`＝現在的值；用 `stableStringify`，鍵順序不同不算差異；上限 300 列 | 不做文字 diff（設計文件） |
+| **退回是一次新的寫入**：`casWrite`（樂觀鎖、重試三次）＋ `version: { force: true }` 先把現在留成一版 | 所以退回本身也退得回去（測試跑一次退回再退回回到原樣）；中間插進別台裝置的寫入，重讀重算，那個寫入留在某一版裡不會無聲消失 |
+| 路徑上的版本 id 只是定位：所有查詢 `AND user_id = ?`；內容不在了回 **410**（不是 500） | 別人的版本 id 一律 404；R2 出事或過期被清要說得出來 |
+| 刪帳號（本人與管理者）清索引與 R2 的整個 prefix（分頁）；**R2 失敗只出聲、不擋刪帳號**；也清 `project_shares` | Apple 5.1.1(v)；版本含這個人全部的排程。代價：R2 失敗時檔案可能留著，`console.error` 有那一行 |
+| **鑰匙的權限範圍放在 `mcp_tokens.scope`（`read`｜`write`，預設 `write`）與 `project_id`**，OAuth 的 `oauth_codes` 也各加兩欄，換 token 與 refresh 輪替都原樣帶過去；授權決定接受選填的 `access`／`projectId`（沒給＝原本的樣子） | 既有的金鑰與連線預設值就是以前的行為。建立金鑰與授權都驗：scope 只能 read／write、projectId 必須是現在真的有的甘特專案 |
+| 檢查在 **每一次 `tools/call`**（`scope.js` 的 `checkScope`），在連線設定之前 | 同 Pro 與暫停：改了設定下一個呼叫就生效，不必等 token 換新；被擋的呼叫不碰任何東西 |
+| **唯讀鑰匙擋掉的集合＝`WRITE_TOOLS` 一個不多一個不少**（含預演、日誌、提問、提案、復原） | 測試逐一呼叫全部 29 個工具、收集被擋的、與 `WRITE_TOOLS` 比對——新增寫入工具忘了進清單，這條會紅 |
+| 專案範圍：帶 `projectId` 的工具必須就是它；`apply_changes`／`propose_changes` **每一個**操作都檢查；`unlink_pr` 以 prId 查那一列屬於哪個專案（查不到放行，走原本的「找不到」，不洩漏別人的 PR 存不存在）；`get_overview`／`list_gantt_projects` 回應只剩那個專案 | 「不確定就擋」 |
+| 專案範圍的鑰匙**整個擋掉**：項目與大項目（`list_items`／`get_schedule`／`create_item`…）、每日記錄、建立專案、`list_recent_changes`／`get_changes_since`／`undo_change` | 項目不屬於任何甘特專案；修改紀錄與復原跨專案（summary 裡有別的專案的名字）。放行就等於讓「只能碰這個專案」的鑰匙讀到別的東西 |
+| **風險**：`add_project_event(kind='risk')` 開（`status='open'`）、帶 **`closesEventId`** 關閉；`get_project_brief` 多一個 `openRisks`；擁有者用 `POST /api/projects/events/:id/close-risk` 關 | 重用既有工具而不是新增（工具數不增加）。關閉＝單句帶條件的 `UPDATE … WHERE status='open'` 領走，再寫一筆 `status='closed'`、`ref_id` 指向原風險的結案說明；結案說明寫不進去（每日上限）就把風險還原成開著，不留「關了卻沒有說明」。`kind` 欄位在 SQL 裡沒有 CHECK，migration 不必動它 |
+| **唯讀分享連結**：`GET /api/p/:token`（公開，JSON；`/p/:token` 的 HTML 頁留給 3B）；擁有者 `GET／POST／DELETE /api/projects/:pid/share` | token 只存雜湊、只回一次、同一個專案同時只有一個有效連結（撤銷舊的與建立新的在同一個 `DB.batch`）。未知／撤銷／專案已不在／資料壞掉／**擁有者被停用****一律 404**，不分原因（不讓人探測）；停用要立即生效，公開頁不是例外 |
+| 預設內容**逐欄挑出來**：專案名、里程碑（`atRisk` 用 `S.milestoneStatus` 算）、任務的名稱／起訖／狀態／進度／完成／預測完成日；**不是整個物件複製再刪** | 日後任務多了新欄位（認領、連結、卡住的原因…）預設不會跟著公開出去。說明書、筆記、連結、認領、卡住的原因、每日記錄、其他專案：這個檔案裡沒有任何一行讀它們 |
+| 多帶的種類由擁有者勾選（`include`：`events`＝進展與交接、`questions`、`decisions`、`risks`＝只有還開著的、`prs`＝標題與狀態不含作者）；**被遮蔽的（`redacted_at`）在 SQL 就濾掉**；每種最多 50 筆 | 公開頁是給不用登入的人看的，日誌是 agent 寫的外部內容。回應帶 `private, max-age=60`（與 ICS 同量級）、`X-Robots-Tag: noindex`、`Referrer-Policy: no-referrer` |
+| **每週摘要信**：`kind='weekly'` 訂閱信（不在 `TX_KINDS`），第七顆開關 `reminder_feed.weekly_mail`，**預設關**；`weekly_mail_week` 記最後寄成功的那一週（星期一的日期） | 預設關的理由：這是所有既有使用者都沒同意過的新一種信，突然每週寄一封換來的是有人去按 Gmail 的「取消訂閱」，整個帳號進寄信商的退訂名單（helen 2026-09-09）。沒有 `reminder_feed` 那一列的人也是關 |
+| 哪天寄：**星期一（台北）**的 cron；星期一休假或寄失敗，星期二、三補；星期四之後不補 | 一封「上週」的週報在週末才到只是噪音。同〈休假那幾天閉嘴〉：休假那天不送、也不寫 `weekly_mail_week`；失敗刻意不寫（同 `last_sent_ymd`）；`step('weekly')` 因為 `errors[]` 非空記成失敗 |
+| 內容只有專案名與數字（完成／逾期／等你回覆／風險／里程碑有風險）；所有專案都沒有非零就**完全不寄**；**沒有任何日誌、提問、風險的文字** | 「沒事就閉嘴」；日誌是外部內容 |
+| 「這週完成幾件」取自**最近 7 天內最早的一版歷史**（Pro 才有）與現在比；**沒有那一版就不列這個數字，不寫 0** | 甘特任務沒有完成時間戳；寫 0 是一句假話 |
+| 退訂：`UNSUB_KINDS.weekly = 'weekly_mail'`，只關這一顆，兩個方向都不連坐（測試逐一驗另外三種 kind 不碰它）；`/api/reminder` 的 `weeklyMail` 沒帶就沿用；「全部都不要了」的 body 多帶 `weeklyMail:false` | 同 `agentNotify` |
+| **成績單** `GET /api/agent/scorecard`：每條連線的 `changes`／`undone`／`tasksCompleted`／`estimateHours`／`actualHours`／`comparedTasks`／`active`，**只有數字** | 來源是 `mcp_activity`（保留 90 天，所以是近 90 天）；被復原的不算完成；預估 vs 實際只加總目前**兩個數字都有**的任務（只有預估沒有實際放進去，「預估 vs 實際」永遠對不上）；每一句查詢帶 `user_id` |
+
+**部署順序**：`020-history-scope-share.sql` 要在合併之前跑。**六句 `ALTER` 漏跑就會壞**：`mcp_tokens.scope／project_id`（`authenticateMcp` 的 SELECT 讀它們，**每一個 MCP 呼叫都失敗**）、`oauth_codes.scope／project_id`（**OAuth 授權整個失敗**）、`reminder_feed.weekly_mail／weekly_mail_week`（**`/api/reminder` 讀寫與「我的帳號」通知區整個讀不出來**）。`state_versions`、`project_shares` 是新增資料表，漏跑只讓版本歷史與分享連結那幾條路失敗（留版本失敗只 `console.warn`）。
+
+**驗證**：`tests/agent4.test.mjs`（版本、鑰匙範圍、風險、分享連結、每週摘要、成績單）與擴充的 `tests/account-delete.test.mjs`（兩個人各一份索引、R2 檔案與分享連結，刪 A 之後 B 的每一列原樣）；`tests/fake-r2.mjs` 是記憶體版的 R2（`get`、分頁的 `list`、可注入失敗）。突變驗證過的清單見 PR 說明。**沒驗**：真的 R2（`get().text()` 的形狀、`list` 的 `cursor`／`truncated` 欄位是照官方文件寫的，上線後用 `/admin` 的「版本歷史」那一步與一次真的退回確認）、真的信箱（List-Unsubscribe 在 Gmail 是否出現）。
 
 ## 推播（子專案 B，`src/apns.js` + `src/handlers/push.js`）
 
