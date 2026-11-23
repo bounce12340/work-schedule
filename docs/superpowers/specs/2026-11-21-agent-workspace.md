@@ -236,7 +236,7 @@ agent 可以自己勾完成——夥伴會長大、進度條會滿，但東西�
 
 ## 第二批
 
-### 6. 預估與預測線（✅ 伺服器端已實作 2A：`set_task_estimate`；畫面 2B）
+### 6. 預估與預測線（✅ 伺服器端已實作 2A：`set_task_estimate`；✅ 畫面 2B：虛線＋「晚 N 天」＋「採用預測」＋預估／實際欄位）
 
 `task.estimateHours`、`task.forecastEnd`（agent 預測的完成日）、`task.actualHours`。
 
@@ -250,17 +250,17 @@ agent 可以自己勾完成——夥伴會長大、進度條會滿，但東西�
 | `update_gantt_task` 的 `start`／`end` 仍然開放（使用者明確叫 agent 改日期時要能改），但 instructions 明寫：**沒被要求就只寫 forecast** | 同現有那一句「不要為了讓畫面好看而改日期」 |
 | 每次 `forecastEnd` 變動，伺服器自動寫一筆進展「預測從 12/5 改成 12/9」 | 預測悄悄往後挪三次，等於沒有預測 |
 
-### 7. 里程碑（`gp.milestones[]`：`{ id, name, date }`）（✅ 伺服器端已實作 2A：`upsert_milestone`、`get_project_brief` 的 `atRisk`、`S.milestoneStatus`；畫面 2B）
+### 7. 里程碑（`gp.milestones[]`：`{ id, name, date }`）（✅ 伺服器端已實作 2A：`upsert_milestone`、`get_project_brief` 的 `atRisk`、`S.milestoneStatus`；✅ 畫面 2B：菱形與小編輯器，規則在前端 `agentMilestoneStatus`，測試與伺服器逐欄比對）
 
 甘特圖上一顆菱形。**會不會趕上是算出來的**：所有 `end`（或 `forecastEnd`，取晚的）落在里程碑之前的任務都完成了嗎？
 有任何一個的預測超過里程碑 → 菱形變紅。不存狀態（同夥伴的階段）。
 
-### 8. 認領（`task.assignee`）（✅ 伺服器端已實作 2A：`claim_task`、`claimedAt`；畫面 2B）
+### 8. 認領（`task.assignee`）（✅ 伺服器端已實作 2A：`claim_task`、`claimedAt`；✅ 畫面 2B：認領徽章與「N 天沒動靜」）
 
 自由文字（`'user'`、`'Claude'`、金鑰的名字）。`claim_task`：**只有沒人認領、或認領的就是自己時才成功**，
 靠那一句帶條件的寫入擋（同樂觀鎖），不靠先讀再寫。
 
-### 9. 證據連結（`task.links[]`：`{ url, label }`，最多 10 個）（✅ 伺服器端已實作 2A：`update_gantt_task` 的 `links`；畫面 2B）
+### 9. 證據連結（`task.links[]`：`{ url, label }`，最多 10 個）（✅ 伺服器端已實作 2A：`update_gantt_task` 的 `links`；✅ 畫面 2B：任務列的小連結，可加入／移除）
 
 只收 `http(s)`（同 `item.link` 的白名單）。任務列上顯示成小連結。
 
@@ -397,7 +397,7 @@ CREATE TABLE project_prs (
 
 非 GitHub 的成果（文件、截圖）仍然用 `task.links[]`（第二批第 9 項）。
 
-### 乙 2. PR 看板（第二批）（✅ 擁有者端點 2A；畫面 2B）
+### 乙 2. PR 看板（第二批）（✅ 擁有者端點 2A；✅ 畫面 2B：專案頁 PR 看板、帳號頁 webhook 設定）
 
 專案頁多一塊，讀 `project_prs`：
 
@@ -521,7 +521,7 @@ agent 對同一個任務連寫三次（狀態、預測、進度），前兩筆�
 變了才真的拉。分頁在背景時不問。有新東西時**不直接重畫**（你可能正在打字，同〈表格不重建〉），
 而是在上面出現一條「agent 剛更新了 3 個任務 · 更新畫面」。
 
-### 16. 認領與「進行中」要看得出新舊（✅ 伺服器端已實作 2A；畫面 2B）
+### 16. 認領與「進行中」要看得出新舊（✅ 伺服器端已實作 2A；✅ 畫面 2B）
 
 `assignee` 多記一個 `claimedAt`；agent 每次寫那個任務就更新。畫面上超過 24 小時沒動靜的認領標成
 「Claude 認領 · 3 天沒動靜」，而且**任何人（或別的 agent）可以接手**——`claim_task` 的條件多一條「或者已經超過 24 小時沒動靜」。

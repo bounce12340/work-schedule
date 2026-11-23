@@ -508,12 +508,18 @@ const plusD = n => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10
 const AGENT_STATE = {
   version: 3, majorProjects: [], items: [],
   ganttProjects: [{ id: 'g1', name: '新廠專案', notes: '', pet: null, brief: '預算上限 200 萬，不要刪任何東西', tasks: [
-    { id: 'tO', name: '逾期又進行中', start: '2026-01-01', end: '2026-02-01', progress: 10, done: false, todos: [], status: 'doing', blockedNote: '' },
-    { id: 'tB', name: '卡住的任務', start: '2026-01-01', end: plusD(90), progress: 10, done: false, todos: [], status: 'blocked', blockedNote: '' },
-    { id: 'tW', name: '等待的任務', start: '2026-01-01', end: plusD(90), progress: 10, done: false, todos: [], status: 'waiting', blockedNote: '等廠商回覆' },
+    // 2B：逾期又有預測（虛線接在紅色長條後面、「上線」里程碑算出會趕不上）、認領三天沒動靜、連結、預估；
+    // 等待的預測晚 5 天、進行中的預測早 4 天；一個已完成的任務讓「已達成」的里程碑有東西可量
+    { id: 'tO', name: '逾期又進行中', start: '2026-01-01', end: '2026-02-01', progress: 10, done: false, todos: [], status: 'doing', blockedNote: '',
+      forecastEnd: plusD(10), assignee: 'Claude Code', claimedAt: Date.now() - 3 * 86400000 - 5000, estimateHours: 8, actualHours: 3 },
+    { id: 'tB', name: '卡住的任務', start: '2026-01-01', end: plusD(90), progress: 10, done: false, todos: [], status: 'blocked', blockedNote: '',
+      assignee: 'Claude Code', claimedAt: Date.now() - 3600000,
+      links: [{ url: 'https://example.com/design', label: '設計稿' }, { url: 'https://example.com/spec', label: '' }] },
+    { id: 'tW', name: '等待的任務', start: '2026-01-01', end: plusD(90), progress: 10, done: false, todos: [], status: 'waiting', blockedNote: '等廠商回覆', forecastEnd: plusD(95) },
     { id: 'tR', name: '待驗收的任務', start: '2026-01-01', end: plusD(90), progress: 10, done: false, todos: [], status: 'review', blockedNote: '' },
-    { id: 'tD', name: '進行中的任務', start: '2026-01-01', end: plusD(90), progress: 10, done: false, todos: [], status: 'doing', blockedNote: '' },
-  ] }],
+    { id: 'tD', name: '進行中的任務', start: '2026-01-01', end: plusD(90), progress: 10, done: false, todos: [], status: 'doing', blockedNote: '', forecastEnd: plusD(86) },
+    { id: 'tX', name: '已完成的任務', start: '2026-01-01', end: '2026-01-15', progress: 100, done: true, todos: [], status: 'todo', blockedNote: '' },
+  ], milestones: [{ id: 'm1', name: '上線', date: plusD(5) }, { id: 'm2', name: '驗收', date: plusD(60) }, { id: 'm3', name: '設計定稿', date: '2026-01-20' }] }],
   dailyLogs: {}, absences: {}, customHolidays: [], customWorkdays: [], selectedGanttProjectId: 'g1', availableYears: [2026, 2027],
 };
 const agentEv = (id, kind, body, over = {}) => ({ id, projectId: 'g1', taskId: null, kind, actor: kind === 'decision' ? 'user' : 'Claude Code',
@@ -537,6 +543,14 @@ const AGENT_DATA = {
       preview: { ok: false, error: '找不到這個任務', rows: [] } },
   ],
   review: [{ projectId: 'g1', projectName: '新廠專案', taskId: 'tR', taskName: '待驗收的任務', todosInReview: [{ id: 'a', text: '備料' }] }],
+  // 2B：PR 看板。失敗的（--red）、等你審的、一般的、已合併連到還沒完成的任務（「要標成完成嗎？」）、已關閉
+  prs: [
+    { id: 'a', number: 78, repo: 'o/r', url: 'https://github.com/o/r/pull/78', projectId: 'g1', taskId: 'tB', title: '測試失敗的 PR', state: 'open', checks: 'failing', review: 'none', source: 'webhook', updatedAt: Date.now() - 7200000 },
+    { id: 'b', number: 77, repo: 'o/r', url: 'https://github.com/o/r/pull/77', projectId: 'g1', taskId: null, title: '等審的 PR', state: 'open', checks: 'pending', review: 'pending', source: 'agent', updatedAt: Date.now() - 3600000 },
+    { id: 'c', number: 79, repo: 'o/r', url: 'https://github.com/o/r/pull/79', projectId: 'g1', taskId: null, title: '一般的草稿 PR', state: 'draft', checks: 'passing', review: 'approved', source: 'agent', updatedAt: Date.now() - 60000 },
+    { id: 'd', number: 76, repo: 'o/r', url: 'https://github.com/o/r/pull/76', projectId: 'g1', taskId: 'tW', title: '已合併的 PR', state: 'merged', checks: 'passing', review: 'approved', source: 'agent', updatedAt: Date.now() - 86400000 },
+    { id: 'e', number: 70, repo: 'o/r', url: 'https://github.com/o/r/pull/70', projectId: 'g1', taskId: null, title: '關掉的 PR', state: 'closed', checks: 'none', review: 'none', source: 'agent', updatedAt: Date.now() - 172800000 },
+  ],
   connections: [
     { id: 'c1', kind: 'oauth', name: 'Claude Code', createdAt: 1, lastUsedAt: null, mode: 'review', paused: false, needsAcceptance: true, pausedReason: null },
     { id: 'c2', kind: 'key', name: '自動暫停的金鑰', createdAt: 2, lastUsedAt: null, mode: 'direct', paused: true, needsAcceptance: false, pausedReason: 'auto' },
@@ -551,6 +565,9 @@ const agentSrv = createServer((q, r) => {
     if (u.pathname === '/api/agent/inbox') return send(200, { questions: AGENT_DATA.questions, proposals: AGENT_DATA.proposals, review: AGENT_DATA.review, agentAvailable: false });
     if (u.pathname === '/api/state/version') return send(200, AGENT_DATA.version);
     if (/^\/api\/projects\/[^/]+\/events$/.test(u.pathname)) return send(200, { events: AGENT_DATA.events });
+    if (/^\/api\/projects\/[^/]+\/prs$/.test(u.pathname)) return send(200, { prs: AGENT_DATA.prs, counts: { open: 3, merged: 1, closed: 1 } });
+    if (u.pathname === '/api/github/hooks') return q.method === 'POST'
+      ? send(200, { url: 'https://x.test/api/github/hook/TOKENTOKENTOKENTOKEN', secret: 'SECRETSECRET', note: '' }) : send(200, { configured: false, createdAt: null });   // 沒設定過：按「建立」不會跳 confirm（Playwright 會自動取消它）
     if (u.pathname === '/api/mcp/connections') return send(200, { pro: true, connections: AGENT_DATA.connections });
     if (u.pathname === '/api/mcp/activity') return send(200, { changes: [] });
     if (u.pathname === '/api/shares') return send(200, { outgoing: [], incoming: [] });
@@ -581,6 +598,23 @@ const AGENT_INBOX = [
   ['.agent-diff-ent', '提案對照：東西'], ['.agent-diff-field', '提案對照：欄位'], ['.agent-diff-val .old', '提案對照：改前'], ['.agent-diff-val .new', '提案對照：改後'],
   ['.agent-card[data-kind=proposal] .agent-msg.err', '提案套不上去的紅字說明'], ['.agent-card .agent-line', '卡片裡的說明'],
 ];
+// 2B：預測線、里程碑、任務列底下那一條、PR 看板、GitHub 通知設定。**全部要主動造出來**（找不到元素就是錯誤）
+const AGENT_2B = [
+  ['.gantt-forecast-label', '預測線：「晚 N 天」'], ['.gantt-ms-row-label', '里程碑那一列的標籤'], ['.gantt-ms-name:not(.risk)', '里程碑的名稱'], ['.gantt-ms-name.risk', '里程碑的名稱（有風險）'],
+  ['.agent-ms-chip:not(.risk):not(.ok)', '里程碑編輯器：趕得上'], ['.agent-ms-chip.risk', '里程碑編輯器：有風險'], ['.agent-ms-chip.ok', '里程碑編輯器：已達成'],
+  ['.agent-ms-why', '里程碑編輯器：有風險的原因'], ['.agent-ms .agent-brief-hint', '里程碑的摘要（有風險時變紅字）'],
+  ['.task-meta .task-field-label', '任務列：預估／實際／小時'], ['.agent-fc', '任務列：預測那一行'], ['.agent-fc .qbtn', '任務列：「採用預測」'],
+  ['.agent-claim:not(.stale)', '任務列：認領'], ['.agent-claim.stale', '任務列：認領（N 天沒動靜）'],
+  ['.agent-linkchip a', '任務列：證據連結'], ['.agent-linkchip button', '任務列：移除連結的 ✕'], ['.agent-links > .qbtn', '任務列：「＋ 連結」'],
+  ['.agent-prs .agent-h', 'PR 看板標題'], ['.agent-pr-counts', 'PR 看板：計數'], ['.agent-pr-num', 'PR：編號'], ['.agent-pr-title', 'PR：標題'],
+  ['.agent-pr-state:not(.merged)', 'PR：狀態'], ['.agent-pr-state.merged', 'PR：已合併'],
+  ['.agent-pr-meta', 'PR：測試與來源'], ['.agent-pr-meta .bad', 'PR：測試失敗（--red）'], ['.agent-pr-meta .wait', 'PR：等你審'], ['.agent-pr-meta .good', 'PR：測試通過'],
+  ['.agent-pr-hint', '「PR 已合併，要標成完成嗎？」'], ['.agent-pr-hint .agent-send', '「標成完成」按鈕'], ['.agent-pr-more', '看已合併／已關閉'],
+];
+const AGENT_2B_ACCOUNT = [
+  ['#acctGhStatus', 'GitHub 通知：狀態'], ['#btnGhCreate', 'GitHub 通知：重新產生'], ['#btnGhDelete', 'GitHub 通知：移除'],
+  ['.acct-gh-secret .acct-sub', 'GitHub 通知：只顯示一次的說明'], ['.acct-gh-secret li', 'GitHub 通知：設定步驟'], ['#btnGhHide', 'GitHub 通知：我已複製'],
+];
 const AGENT_LIVE = [['#agentLive', '「agent 剛更新了」那一條'], ['#btnAgentLive', '「更新畫面」按鈕']];
 const AGENT_ACCOUNT = [
   ['.agent-caps', '一次性的能力說明'], ['.agent-conn-set .ghost-btn:not(.on)', '連線設定的開關（平常）'], ['.agent-conn-set .ghost-btn.on', '連線設定的開關（開著）'],
@@ -604,6 +638,35 @@ for (const theme of ['light', 'dark']) {
   await page.waitForTimeout(300);
   rows.push(...await page.evaluate(measure, AGENT_PROJECT));
 
+  // 2B：先把要量的東西造出來——里程碑編輯器展開、已合併／已關閉展開
+  await page.waitForSelector('#agentPrs .agent-pr', { timeout: 8000 });
+  await page.locator('.agent-ms > summary').click();
+  await page.locator('#agentPrs .agent-pr-more').click();
+  await page.waitForTimeout(250);
+  rows.push(...await page.evaluate(measure, AGENT_2B));
+  // 圖形（不是字）：菱形與虛線要與底色有 3:1（WCAG 非文字對比）。三種菱形都要有
+  const gfx = await page.evaluate(() => {
+    const lum = ([r, g, b]) => { const f = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+    const rgb = s => (s.match(/[\d.]+/g) || []).slice(0, 3).map(Number);
+    const ratio = (a, b) => { const x = lum(a), y = lum(b); return +((Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)).toFixed(2); };
+    const panel = rgb(getComputedStyle(document.querySelector('.gantt-wrap')).backgroundColor);
+    const strip = rgb(getComputedStyle(document.querySelector('.gantt-row-track:not(.gantt-ms-track)'), '::before').backgroundColor);
+    const out = [];
+    for (const [sel, label] of [['.gantt-ms.risk', '菱形：有風險'], ['.gantt-ms.ok', '菱形：已達成'], ['.gantt-ms:not(.risk):not(.ok)', '菱形：趕得上']]) {
+      const e = document.querySelector(sel);
+      out.push(e ? { label, ratio: ratio(rgb(getComputedStyle(e).backgroundColor), panel) } : { label, missing: true, sel });
+    }
+    const f = document.querySelector('.gantt-forecast');
+    out.push(f ? { label: '預測的虛線', ratio: ratio(rgb(getComputedStyle(f).borderTopColor), strip) } : { label: '預測的虛線', missing: true, sel: '.gantt-forecast' });
+    return out;
+  });
+  for (const g of gfx) {
+    if (g.missing) { console.log(`  ✗  ${g.label}（找不到 ${g.sel}）`); problems.push(`agent 工作區・${label}｜${g.label}：找不到 ${g.sel}（斷言是空的）`); continue; }
+    const ok = g.ratio >= 3;
+    console.log(`  ${ok ? '✓' : '✗'}  ${String(g.ratio).padStart(5)}:1  (需要 3:1)  ${g.label}（圖形）`);
+    if (!ok) problems.push(`agent 工作區・${label}｜${g.label}：${g.ratio}:1，低於 3:1`);
+  }
+
   // 「agent 剛更新了」：版本號變了 → 輪詢一次（假時鐘快轉）→ 那一條出現
   AGENT_DATA.version = { updatedAt: 1, latestEventAt: 99999 };
   await page.clock.fastForward(31000);
@@ -615,6 +678,9 @@ for (const theme of ['light', 'dark']) {
   await page.waitForSelector('#acctMcpConnList .agent-conn', { timeout: 8000 });
   await page.waitForTimeout(300);
   rows.push(...await page.evaluate(measure, AGENT_ACCOUNT));
+  await page.locator('#btnGhCreate').click();       // 2B：把「只顯示一次」那一塊造出來
+  await page.waitForSelector('#acctGhSecret', { state: 'visible', timeout: 5000 });
+  rows.push(...await page.evaluate(measure, AGENT_2B_ACCOUNT));
 
   console.log(`\n===== agent 工作區・${label} =====`);
   for (const r of rows) {

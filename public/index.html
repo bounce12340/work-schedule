@@ -134,6 +134,11 @@
     --st-block-fg: #FFFDF7;            --st-block-bg: #2A2A26;
     /* 甘特長條上的記號：進行中＝亮邊、卡住＝斜線、等待／待驗收＝小圓點 */
     --st-bar-edge: #FFFFFF;  --st-bar-stripe: rgba(0,0,0,0.30);  --st-bar-mark: #FFFFFF;
+    /* 預測線與里程碑（agent 工作區 2B）。**刻意不是紅色**：紅色是逾期專用，「預測會晚」是另一件事
+       （計畫的長條仍然照自己的規則變紅）。里程碑的紅（--ms-risk）只在「算出來會趕不上」時才用，
+       同一條規則在伺服器端的 milestoneStatus。對比由 check-contrast 量。 */
+    --forecast-line: #8A5716;  --forecast-ink: #8A5716;
+    --ms-fill: #5C5A52;  --ms-done: #1F8C68;  --ms-risk: var(--red);
     --span-teal: rgba(31,140,104,0.20);
     --span-amber: rgba(201,130,46,0.22);
     --span-violet: rgba(108,92,224,0.20);
@@ -242,6 +247,8 @@
     --st-review-fg: var(--teal-ink);   --st-review-bg: var(--teal-dim);
     --st-block-fg: #1A1917;            --st-block-bg: #E8E5DC;
     --st-bar-edge: #FFFFFF;  --st-bar-stripe: rgba(0,0,0,0.42);  --st-bar-mark: #FFFFFF;
+    --forecast-line: #E3A052;  --forecast-ink: #E3A052;
+    --ms-fill: #B5B1A6;  --ms-done: #3FBF92;  --ms-risk: var(--red);
     --span-teal: rgba(63,191,146,0.24);
     --span-amber: rgba(227,160,82,0.26);
     --span-violet: rgba(155,140,245,0.24);
@@ -1277,6 +1284,68 @@
   .agent-caps{ padding:10px 12px; margin:6px 0 10px; border:1px solid var(--amber-ink); border-radius:var(--r-s); background:var(--amber-dim); font-size:12.5px; line-height:1.7; color:var(--text); }
   .agent-caps .ghost-btn{ margin-top:6px; }
 
+  /* ===== agent 工作區（第二批 2B）：預測線、里程碑、任務的預估／認領／連結、PR 看板、GitHub 通知設定 ===== */
+  /* 預測線：計畫的長條不動，預測比計畫晚就在長條後面接一段虛線。逾期的長條仍然是紅的（.overdue 的規則沒動），虛線只是多出來的一段 */
+  .gantt-forecast{ position:absolute; top:2px; height:18px; box-sizing:border-box; border:2px dashed var(--forecast-line); border-left:none; border-radius:0 var(--r-s) var(--r-s) 0; }
+  .gantt-forecast-label{ position:absolute; top:2px; height:18px; line-height:18px; font-family:var(--sans); font-size:10.5px; font-weight:700; color:var(--forecast-ink); white-space:nowrap; }
+  .gantt-forecast-early{ position:absolute; top:2px; height:18px; width:0; border-left:2px dotted var(--forecast-line); z-index:1; }
+  /* 里程碑：甘特圖上的一顆菱形。顏色是算出來的（agentMilestoneStatus），不存狀態 */
+  .gantt-ms-track::before{ display:none; }
+  .gantt-ms{ position:absolute; top:9px; width:13px; height:13px; margin-left:-6.5px; transform:rotate(45deg); background:var(--ms-fill); border-radius:2px; }
+  .gantt-ms.ok{ background:var(--ms-done); }
+  .gantt-ms.risk{ background:var(--ms-risk); }
+  .gantt-ms-name{ position:absolute; top:0; height:100%; display:flex; align-items:center; font-family:var(--sans); font-size:10.5px; font-weight:700; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .gantt-ms-name.risk{ color:var(--red-ink); }
+  .gantt-ms-line{ position:absolute; top:24px; bottom:0; width:0; border-left:1px dashed var(--ms-fill); opacity:.5; pointer-events:none; }
+  .gantt-ms-line.risk{ border-left-color:var(--ms-risk); opacity:.7; }
+  .gantt-ms-row-label{ color:var(--text-muted); font-weight:700; }
+  /* 里程碑的小編輯器（沿用說明書那種可收合的盒子） */
+  .agent-ms-row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:6px 0; }
+  .agent-ms-row input[type=text]{ flex:1 1 160px; min-width:0; font-family:var(--sans); }
+  .agent-ms-row input[type=date]{ width:156px; }   /* 132px 在手機上把年份切成「202」 */
+  .agent-ms-chip{ font-family:var(--sans); font-size:11.5px; font-weight:700; padding:2px 8px; border-radius:var(--r-s); white-space:nowrap; color:var(--text-muted); background:var(--panel-2); }
+  .agent-ms-chip.risk{ color:var(--on-accent); background:var(--red); }   /* 實心紅：淡紅底上的紅字在暗色只有 4.39:1 */
+  .agent-ms-chip.ok{ color:var(--teal-ink); background:var(--teal-dim); }
+  .agent-ms-why{ flex:1 1 100%; font-size:12px; color:var(--red-ink); }
+  .agent-ms-add{ margin-top:4px; }
+  /* 任務列底下那一條：預估／實際、預測、認領、連結。不放進主列——那一列已經夠擠了 */
+  .task-meta{ display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; padding:0 12px 10px; }
+  .task-meta .tm-hours{ display:inline-flex; align-items:center; gap:5px; }
+  .task-meta input[type=number]{ width:76px; text-align:center; font-family:var(--mono); }
+  .agent-fc{ display:inline-flex; align-items:center; gap:8px; font-family:var(--sans); font-size:12px; font-weight:700; color:var(--forecast-ink); }
+  .agent-fc .qbtn{ font-weight:600; }
+  .agent-claim{ font-family:var(--sans); font-size:11.5px; font-weight:700; padding:2px 8px; border-radius:var(--r-s); color:var(--st-doing-fg); background:var(--st-doing-bg); white-space:nowrap; max-width:100%; overflow:hidden; text-overflow:ellipsis; }
+  .agent-claim.stale{ color:var(--st-wait-fg); background:var(--st-wait-bg); }
+  .agent-links{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; min-width:0; }
+  .agent-linkchip{ display:inline-flex; align-items:center; max-width:240px; border:1px solid var(--hairline); border-radius:var(--r-s); background:var(--panel-2); }
+  .agent-linkchip a{ font-family:var(--sans); font-size:12px; color:var(--violet-ink); text-decoration:underline; padding:3px 4px 3px 8px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .agent-linkchip button{ font-size:11px; color:var(--text-muted); background:transparent; border:none; cursor:pointer; padding:3px 7px; }
+  .agent-linkchip button:hover{ color:var(--red-ink); }
+  .agent-linkform{ flex:1 1 100%; display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  .agent-linkform input[type=text]{ flex:1 1 180px; min-width:0; font-family:var(--sans); }
+  /* PR 看板（專案頁）。看的，不是動手的：不能合併、不能留言（那要存 GitHub 的 token） */
+  .agent-prs{ margin-bottom:16px; background:var(--panel); border:1px solid var(--hairline); border-radius:var(--r-m); padding:12px 14px; }
+  .agent-pr-counts{ display:flex; flex-wrap:wrap; gap:4px 16px; margin-bottom:6px; font-family:var(--mono); font-size:12px; color:var(--text-muted); }
+  .agent-pr{ display:block; text-decoration:none; color:inherit; padding:9px 10px 9px 12px; border-top:1px solid var(--hairline); border-left:3px solid transparent; }
+  a.agent-pr:hover{ background:var(--panel-2); }
+  .agent-pr.fail{ border-left-color:var(--red); }
+  .agent-pr-top{ display:flex; gap:8px; align-items:baseline; flex-wrap:wrap; }
+  .agent-pr-num{ font-family:var(--mono); font-size:12.5px; color:var(--text-muted); }
+  .agent-pr-title{ flex:1 1 180px; min-width:0; font-size:13.5px; font-weight:600; line-height:1.5; word-break:break-word; }
+  .agent-pr-state{ font-family:var(--sans); font-size:11.5px; font-weight:700; padding:1px 8px; border-radius:var(--r-s); color:var(--text-muted); background:var(--panel-2); white-space:nowrap; }
+  .agent-pr-state.merged{ color:var(--teal-ink); background:var(--teal-dim); }
+  .agent-pr-meta{ display:flex; flex-wrap:wrap; gap:2px 12px; margin-top:3px; font-size:12px; color:var(--text-muted); }
+  .agent-pr-meta .bad{ color:var(--red); font-weight:700; }
+  .agent-pr-meta .wait{ color:var(--amber-ink); font-weight:700; }
+  .agent-pr-meta .good{ color:var(--teal-ink); }
+  .agent-pr-hint{ display:flex; flex-wrap:wrap; gap:6px 10px; align-items:center; margin:0 0 8px; padding:8px 10px; border-radius:var(--r-s); background:var(--teal-dim); color:var(--teal-ink); font-size:12.5px; font-weight:600; line-height:1.6; }
+  .agent-pr-hint span{ flex:1 1 200px; min-width:0; word-break:break-word; }
+  .agent-pr-more{ margin-top:6px; }
+  /* 帳號頁：GitHub 通知（webhook）設定。網址與密鑰只在建立的那一刻出現，不進 localStorage */
+  .acct-gh-secret{ margin:6px 0 10px; padding:10px 12px; border:1px solid var(--amber-ink); border-radius:var(--r-s); background:var(--amber-dim); }
+  .acct-gh-secret .ghost-btn{ color:var(--text-muted); }   /* --text-dim 壓在琥珀淡底上，暗色只有 3.98:1 */
+  .acct-gh-secret ol{ margin:8px 0 0 18px; font-size:12.5px; line-height:1.8; color:var(--text); }
+
   /* ---- Modal ---- */
   .overlay{ position:fixed; inset:0; background: var(--overlay-bg); backdrop-filter: blur(2px); display:none; align-items:center; justify-content:center; z-index:70; padding:20px; }
   .overlay.show{ display:flex; }
@@ -1936,6 +2005,37 @@
             <div class="acct-h2" data-i18n>agent 最近做的修改</div>
             <div class="acct-sub" data-i18n>每一筆都可以復原。若那一項之後你又改過，為了不蓋掉你的修改，就不會動它。</div>
             <div id="acctMcpActivity"><div class="acct-sub" data-i18n>載入中…</div></div>
+          </div>
+        </div>
+
+        <!-- GitHub 通知（選用）：讓 PR 合併了、測試紅了的時候 GitHub 直接通知我們。我們不存 GitHub 的 token、不主動去問它。
+             網址與密鑰只在建立／重新產生的那一刻出現，不進 localStorage（設計文件 乙 1／乙 2） -->
+        <div class="acct-sec" id="acctGithub">
+          <div class="acct-h" data-i18n>🐙 GitHub 通知（選用）</div>
+          <div class="acct-sub" data-i18n>agent 回報的 PR 狀態會過期（它下線之後 PR 才被合併）。貼一條網址到 GitHub，PR 合併了、測試紅了就會直接通知這裡，專案頁的 PR 看板才會是新的。沒設定也能用，只是要靠 agent 自己回報。</div>
+          <div class="acct-sub" id="acctGhStatus"></div>
+          <div class="acct-row">
+            <button id="btnGhCreate" class="ghost-btn" type="button" data-i18n>建立通知網址</button>
+            <button id="btnGhDelete" class="ghost-btn danger-btn" type="button" style="display:none" data-i18n>移除</button>
+            <span class="agent-msg" id="acctGhMsg"></span>
+          </div>
+          <div class="acct-gh-secret" id="acctGhSecret" style="display:none">
+            <div class="acct-sub" style="margin-bottom:6px;" data-i18n>網址與密鑰只會顯示這一次，請現在複製起來。弄丟了就重新產生（舊的會立刻失效）。</div>
+            <div class="acct-row" style="align-items:center;">
+              <code id="acctGhUrl" class="acct-mcp-url"></code>
+              <button id="btnGhCopyUrl" class="ghost-btn" type="button" data-i18n>複製網址</button>
+            </div>
+            <div class="acct-row" style="align-items:center;">
+              <code id="acctGhSecretText" class="acct-mcp-url"></code>
+              <button id="btnGhCopySecret" class="ghost-btn" type="button" data-i18n>複製密鑰</button>
+            </div>
+            <ol>
+              <li data-i18n>到 GitHub 的 repo → Settings → Webhooks → Add webhook</li>
+              <li data-i18n>Payload URL 貼上面的網址，Content type 選 application/json</li>
+              <li data-i18n>Secret 貼上面的密鑰</li>
+              <li data-i18n>事件勾 Pull requests、Check suites、Check runs，然後儲存</li>
+            </ol>
+            <div class="acct-row"><button id="btnGhHide" class="ghost-btn" type="button" data-i18n>我已複製，收起來</button></div>
           </div>
         </div>
 
@@ -3468,6 +3568,90 @@
       '知道了':'Got it',
       '暫停＝只能讀、不能寫（日誌、提問、提案也不行）。不是撤銷：恢復之後不用重新授權。':'Paused = read-only (no logs, questions or proposals either). It is not a revoke: after resuming there is no need to authorize again.',
       '你連接的 AI agent 問你問題、或提了要你審的提案時，系統會寄一封信（有裝 app 也會推播）。信裡只說「誰在哪個專案等你決定幾件事」，不放內容；同一個專案 30 分鐘內最多一封；休假那天不送。':'When a connected AI agent asks you a question or proposes changes for your review, we send an email (and a push if you use the app). It only says who is waiting on you in which project, never the content; at most one per project every 30 minutes; none on days you are on leave.',
+      // —— agent 工作區 2B：預測線、里程碑、任務的預估與連結、PR 看板、GitHub 通知 ——
+      '里程碑':'Milestones',
+      '（未命名）':'(untitled)',
+      '有任務的預測完成日超過里程碑':'A task’s forecast finish is past the milestone',
+      '已過里程碑日，還有任務沒完成':'The milestone date has passed and tasks are still open',
+      '預測 {0}，比計畫晚 {1} 天':'Forecast {0}, {1} days later than planned',
+      '預測 {0}，比計畫早 {1} 天':'Forecast {0}, {1} days earlier than planned',
+      '晚 {0} 天':'{0} d late',
+      '移除這個連結':'Remove this link',
+      '連結':'Link',
+      '＋ 連結':'+ Link',
+      '放證據：文件、截圖、部署網址（只收 http／https）':'Add evidence: a doc, screenshot or deploy URL (http/https only)',
+      '一個任務最多 {0} 個連結':'A task can have at most {0} links',
+      '連結網址':'Link URL',
+      '名稱（選填）':'Name (optional)',
+      '連結名稱':'Link name',
+      '加入':'Add',
+      '只收 http:// 或 https:// 開頭的網址':'Only URLs starting with http:// or https:// are accepted',
+      '小時':'h',
+      '預估':'Estimate',
+      '實際':'Actual',
+      '採用預測':'Adopt forecast',
+      '把這個任務的結束日改成預測完成日（可以復原）。agent 不會自己改結束日，只有你能按。':'Set this task’s end date to the forecast finish (can be undone). The agent never changes the end date itself; only you can press this.',
+      '已把「{0}」的結束日改成 {1}':'Changed the end date of “{0}” to {1}',
+      '預測 {0}（與計畫相同）':'Forecast {0} (same as planned)',
+      '預測 {0} · 晚 {1} 天':'Forecast {0} · {1} d late',
+      '預測 {0} · 早 {1} 天':'Forecast {0} · {1} d early',
+      '認領：{0}':'Claimed by {0}',
+      '{0} 天沒動靜':'idle for {0} d',
+      '超過 24 小時沒動靜：任何人（或別的 agent）可以接手':'Idle for over 24 hours: anyone (or another agent) can take it over',
+      '甘特圖上的菱形':'Diamonds on the Gantt chart',
+      '{0} 個，{1} 個有風險':'{0}, {1} at risk',
+      '{0} 個':'{0}',
+      '有風險':'At risk',
+      '已達成':'Reached',
+      '趕得上':'On track',
+      '里程碑名稱':'Milestone name',
+      '里程碑日期':'Milestone date',
+      '＋ 新增里程碑':'+ Add milestone',
+      '一個專案最多 {0} 個里程碑':'A project can have at most {0} milestones',
+      'PR 看板':'Pull requests',
+      '連線後才看得到':'Only visible when you are online',
+      '還沒有連到任何 PR。agent 開 PR 時會記在這裡；要自動更新合併與測試的狀態，到「我的帳號」設定 GitHub 通知。':'No pull requests linked yet. They show up here when an agent opens one; to keep merge and test status up to date automatically, set up GitHub notifications in My account.',
+      '開著的':'Open',
+      '已合併':'Merged',
+      '已關閉':'Closed',
+      'PR 已合併，要標成完成嗎？':'The PR is merged. Mark the task as done?',
+      '任務':'task',
+      '標成完成':'Mark as done',
+      '目前沒有開著的 PR':'No open pull requests right now',
+      '收起已合併／已關閉':'Hide merged / closed',
+      '看已合併／已關閉（{0}）':'Show merged / closed ({0})',
+      '已把「{0}」標成完成':'Marked “{0}” as done',
+      '（沒有標題）':'(no title)',
+      '草稿':'Draft',
+      '開著':'Open',
+      '測試 ✓':'Checks ✓',
+      '測試失敗':'Checks failing',
+      '測試中…':'Checks running…',
+      '等你審':'Awaiting your review',
+      '已核准':'Approved',
+      '要求修改':'Changes requested',
+      '{0} · {1}更新':'{0} · updated {1}',
+      'GitHub 通知':'GitHub notification',
+      'agent 回報':'Agent report',
+      '已設定（{0} 建立）。網址與密鑰不會再顯示；忘了就重新產生。':'Set up ({0}). The URL and secret are not shown again; regenerate if you lose them.',
+      '還沒設定。':'Not set up yet.',
+      '重新產生（舊的立刻失效）':'Regenerate (the old one stops working immediately)',
+      '建立通知網址':'Create notification URL',
+      '設定讀取失敗，其餘設定不受影響。':'Could not read this setting; the others are not affected.',
+      '重新產生會讓舊的網址與密鑰立刻失效，GitHub 那邊要換成新的。要繼續嗎？':'Regenerating makes the old URL and secret stop working immediately; you will need to update them on GitHub. Continue?',
+      '建立失敗，請稍後再試。':'Could not create it. Please try again later.',
+      '移除之後 GitHub 送來的通知會被拒絕，PR 看板要靠 agent 回報。要移除嗎？':'After removal, notifications from GitHub are rejected and the PR board relies on agent reports. Remove it?',
+      '移除失敗，請稍後再試。':'Could not remove it. Please try again later.',
+      '🐙 GitHub 通知（選用）':'🐙 GitHub notifications (optional)',
+      'agent 回報的 PR 狀態會過期（它下線之後 PR 才被合併）。貼一條網址到 GitHub，PR 合併了、測試紅了就會直接通知這裡，專案頁的 PR 看板才會是新的。沒設定也能用，只是要靠 agent 自己回報。':'Status reported by an agent goes stale (the PR may be merged after it goes offline). Paste a URL into GitHub and merges and failing checks are sent here directly, so the PR board on the project page stays current. It works without this, relying on the agent to report.',
+      '移除':'Remove',
+      '網址與密鑰只會顯示這一次，請現在複製起來。弄丟了就重新產生（舊的會立刻失效）。':'The URL and secret are shown only this once; copy them now. If you lose them, regenerate (the old ones stop working immediately).',
+      '複製密鑰':'Copy secret',
+      '到 GitHub 的 repo → Settings → Webhooks → Add webhook':'In your GitHub repo: Settings → Webhooks → Add webhook',
+      'Payload URL 貼上面的網址，Content type 選 application/json':'Paste the URL above as Payload URL and choose application/json as Content type',
+      'Secret 貼上面的密鑰':'Paste the secret above as Secret',
+      '事件勾 Pull requests、Check suites、Check runs，然後儲存':'Tick the events Pull requests, Check suites and Check runs, then save',
+      '我已複製，收起來':'I have copied them, hide',
       // —— 簽名 ——
       '此系統由劉思妤設計、規劃、製作。':'Designed, planned and built by Liu Szu-Yu.'
     }
@@ -6066,7 +6250,7 @@
     if(terms) terms.textContent = tr('訂閱會自動續訂，可隨時在 iPhone 的「設定 → Apple ID → 訂閱項目」裡取消。取消後到期前仍可使用。付款由 App Store 處理。');
   }
 
-  const ACCT_CLOUD_SECTIONS = ['acctIdentity','acctPlan','acctReminder','acctIcs','acctDevices','acctMcp','acctDanger'];
+  const ACCT_CLOUD_SECTIONS = ['acctIdentity','acctPlan','acctReminder','acctIcs','acctDevices','acctMcp','acctGithub','acctDanger'];
   function acctRenderPlan(){
     const nameEl = document.getElementById('acctPlanName'), subEl = document.getElementById('acctPlanSub');
     if(!nameEl || !subEl || !accountMe) return;
@@ -6120,6 +6304,7 @@
     syncReminderBtn();
     acctLoadDevices();
     acctLoadMcp();
+    agentLoadHookStatus();
   }
 
   /**
@@ -8962,6 +9147,77 @@
   }
   tick(); setInterval(tick, 1000);
 
+  // ================= 預測與里程碑（純函式） =================
+  // 設計文件第二批 6／7／8／9、乙 2（2B 的畫面）。**整段是純函式、不碰 DOM 與模組變數**：
+  // tests/agent3.test.mjs 把它抽出來求值，並與 src/mcp/schedule.js 的 milestoneStatus／lateDays／
+  // CLAIM_STALE_MS 在一批固定的案例上逐欄比對（同 PLAN_LIMITS 前後端逐字相同那一條）——
+  // 兩邊的規則不一樣的症狀是「agent 說有風險、菱形卻是灰的」，畫面看起來完全正常。
+  // 新增的前端函式一律 `agent` 前綴（遮蔽事故發生過三次，見〈多語系〉）。
+  const AGENT_DAY_MS = 86400000;
+  const AGENT_CLAIM_STALE_MS = 24 * 3600 * 1000;   // 與 src/mcp/schedule.js 的 CLAIM_STALE_MS 相同
+
+  /** 有效的完成：有子待辦時由子待辦算，否則看 done（同伺服器的 effectiveDone） */
+  function agentEffectiveDone(t){
+    return Array.isArray(t.todos) && t.todos.length ? t.todos.every(td => td.done) : !!t.done;
+  }
+  /** 預測比計畫晚幾天（負的＝比計畫早）。沒有預測回 null（同伺服器的 lateDays） */
+  function agentLateDays(t){
+    if(!isYmd(t.forecastEnd) || !isYmd(t.end)) return null;
+    const d = Math.round((Date.parse(t.forecastEnd + 'T00:00:00Z') - Date.parse(t.end + 'T00:00:00Z')) / AGENT_DAY_MS);
+    return Number.isFinite(d) ? d : null;
+  }
+  /**
+   * 里程碑會不會趕上——**算出來的，不存狀態**（同夥伴的階段）。是 src/mcp/schedule.js 的
+   * milestoneStatus 的逐行移植：計畫在這一天之前（end ≤ 里程碑日）要完成的任務，
+   * 其中還沒完成而預測完成日超過里程碑日的 → 有風險；已經過了里程碑日卻還有沒完成的 → 也有風險。
+   */
+  function agentMilestoneStatus(gp, m, todayYmd){
+    const gating = (gp.tasks || []).filter(t => t.end <= m.date);
+    const open = gating.filter(t => !agentEffectiveDone(t));
+    const late = open.filter(t => isYmd(t.forecastEnd) && t.forecastEnd > m.date);
+    const missed = open.length > 0 && todayYmd > m.date;
+    return {
+      atRisk: late.length > 0 || missed,
+      reason: late.length ? '有任務的預測完成日超過里程碑' : (missed ? '已過里程碑日，還有任務沒完成' : null),
+      gatingTasks: gating.length, openTasks: open.length, riskTaskIds: late.map(t => t.id),
+    };
+  }
+  /** 認領超過 24 小時沒動靜：回「幾天沒動靜」（至少 1），否則 null。沒有 claimedAt（人手動指派的）不算舊 */
+  function agentClaimIdleDays(t, now){
+    if(!t.assignee || typeof t.claimedAt !== 'number') return null;
+    const age = now - t.claimedAt;
+    return age > AGENT_CLAIM_STALE_MS ? Math.max(1, Math.floor(age / AGENT_DAY_MS)) : null;
+  }
+  /** 證據連結的網址：只收 http(s)、不含空白與控制字元、最多 500 字（同 normalizeTaskLinks 的白名單）。不合格回 null */
+  function agentCleanLinkUrl(raw){
+    const u = String(raw == null ? '' : raw).trim();
+    const m = /^(https?):\/\/(\S+)$/i.exec(u);
+    if(!m || /[\u0000-\u001f\u007f]/.test(u) || u.length > 500) return null;
+    return m[1].toLowerCase() + '://' + m[2];
+  }
+  /** PR 看板的排序：測試失敗的最前面、「等你審」第二、其餘照最近更新。該你動手的在最上面 */
+  function agentPrRank(pr){
+    if(pr.checks === 'failing') return 0;
+    if(pr.review === 'pending' && pr.state !== 'draft') return 1;
+    return 2;
+  }
+  function agentOrderPrs(list){
+    return list.slice().sort((a, b) => agentPrRank(a) - agentPrRank(b) || (b.updatedAt || 0) - (a.updatedAt || 0));
+  }
+  const agentPrIsOpen = pr => pr.state === 'open' || pr.state === 'draft';
+  /** 只有 github.com 的網址才當連結（伺服器那一側同樣只收這個前綴；這裡是第二道） */
+  const agentPrUrlOk = u => typeof u === 'string' && u.startsWith('https://github.com/');
+  /** 已合併、但連到的任務還沒完成：要問一句「要標成完成嗎？」。合併不等於做完（還要部署、驗收），所以只問、不自動勾 */
+  function agentMergedHints(gp, prs){
+    const out = [];
+    for(const pr of prs){
+      if(pr.state !== 'merged' || !pr.taskId) continue;
+      const task = (gp.tasks || []).find(x => x.id === pr.taskId);
+      if(task && !agentEffectiveDone(task)) out.push({ pr, task });
+    }
+    return out;
+  }
+
   // ================= 專案 / 甘特圖 =================
 
   // 有子待辦時，任務進度就是子待辦的完成比例——手動填的百分比與逐項勾選並存
@@ -9060,6 +9316,8 @@
     // agent 工作區：專案說明書（人寫給 agent 的規則）與最新進展（agent 寫的日誌，要連線才看得到）
     area.appendChild(agentBuildBrief(gp));
     area.appendChild(agentBuildTimeline(gp));
+    area.appendChild(agentBuildPrBoard(gp));
+    area.appendChild(agentBuildMilestones(gp));
     area.appendChild(buildGanttChart(gp));
     area.appendChild(buildTaskTable(gp));
     area.appendChild(buildProjectNotes(gp));
@@ -9203,6 +9461,7 @@
     const old = document.getElementById('ganttChartWrap');
     if(old) old.replaceWith(buildGanttChart(gp));
     petRefreshCard(gp);
+    agentRefreshPrBoard(gp);   // 勾掉任務之後，「PR 已合併，要標成完成嗎？」那一條要跟著消失（同夥伴卡的理由）
   }
 
   /**
@@ -9256,8 +9515,13 @@
 
     const starts = gp.tasks.map(t=>parseYMD(t.start));
     const ends = gp.tasks.map(t=>parseYMD(t.end));
-    let minDate = new Date(Math.min.apply(null, starts));
-    let maxDate = new Date(Math.max.apply(null, ends));
+    // 預測完成日與里程碑也要在時間軸範圍內，否則虛線與菱形會畫到範圍外面、捲不到
+    const agentExtra = [];
+    gp.tasks.forEach(t=>{ if(!t.done && agentLateDays(t) !== null) agentExtra.push(parseYMD(t.forecastEnd)); });
+    const msList = (gp.milestones||[]).filter(m=>isYmd(m.date)).slice().sort((a,b)=> a.date<b.date ? -1 : a.date>b.date ? 1 : 0);
+    msList.forEach(m=>agentExtra.push(parseYMD(m.date)));
+    let minDate = new Date(Math.min.apply(null, starts.concat(agentExtra)));
+    let maxDate = new Date(Math.max.apply(null, ends.concat(agentExtra)));
     // 從月初開始、到月底結束：刻度線落在月份邊界上，捲動時比較好定位
     minDate = new Date(minDate.getFullYear(), minDate.getMonth(), 1);
     maxDate = new Date(maxDate.getFullYear(), maxDate.getMonth()+1, 0);
@@ -9328,6 +9592,37 @@
 
     const todayX = (now>=minDate && now<=maxDate) ? xOf(now) : null;
 
+    // 里程碑：一條專屬的列（菱形＋名稱）與貫穿各列的細虛線。虛線要在任務列**之前**加進去，
+    // 長條與底色帶才會畫在它上面（同層的後加者在上）。顏色是算出來的，與伺服器同一條規則
+    const todayStr = ymd(new Date());
+    if(msList.length){
+      const mlabel = document.createElement('div'); mlabel.className='gantt-row-label gantt-ms-row-label';
+      mlabel.textContent = tr('里程碑'); labels.appendChild(mlabel);
+      const mtrack = document.createElement('div'); mtrack.className='gantt-row-track gantt-ms-track';
+      msList.forEach((m, i)=>{
+        const st = agentMilestoneStatus(gp, m, todayStr);
+        const cls = st.atRisk ? 'risk' : (st.gatingTasks > 0 && st.openTasks === 0 ? 'ok' : '');
+        const cx = xOf(parseYMD(m.date)) + zoom.pxPerDay/2;
+        const dia = document.createElement('div'); dia.className = 'gantt-ms' + (cls ? ' ' + cls : '');
+        dia.style.left = cx+'px';
+        dia.title = (m.name||tr('（未命名）')) + '　' + m.date + (st.atRisk && st.reason ? '　' + tr(st.reason) : '');
+        dia.setAttribute('role','img'); dia.setAttribute('aria-label', dia.title);
+        mtrack.appendChild(dia);
+        // 名稱放菱形右邊，寬度不超過下一顆菱形的位置：擠在一起的里程碑寧可省略名稱（title 還在），不要疊字
+        const nextX = i+1 < msList.length ? xOf(parseYMD(msList[i+1].date)) + zoom.pxPerDay/2 : Infinity;
+        const room = Math.min(nextX - cx - 18, 160);
+        if(room >= 28){
+          const nm = document.createElement('div'); nm.className = 'gantt-ms-name' + (st.atRisk ? ' risk' : '');
+          nm.style.left = (cx + 12)+'px'; nm.style.maxWidth = room+'px';
+          nm.textContent = m.name || tr('（未命名）');
+          mtrack.appendChild(nm);
+        }
+        const ln = document.createElement('div'); ln.className = 'gantt-ms-line' + (st.atRisk ? ' risk' : '');
+        ln.style.left = cx+'px'; inner.appendChild(ln);
+      });
+      inner.appendChild(mtrack);
+    }
+
     gp.tasks.forEach(t=>{
       const label=document.createElement('div'); label.className='gantt-row-label';
       agentFillRowLabel(label, t);   // 名稱＋（有狀態時）一個小字；逾期的長條不畫狀態記號，資訊改靠這裡
@@ -9353,6 +9648,27 @@
         barEl.appendChild(barLabel);
       }
       track.appendChild(barEl);
+      // 預測線：計畫（start–end）是一條線、預測（forecastEnd）是另一條。**計畫的長條一個字都不動**——
+      // 比計畫晚就在長條後面接一段虛線並標「晚 N 天」，比計畫早只畫一個細記號。
+      // 逾期的長條仍然是紅的（.overdue 沒碰）：虛線只是多出來的一段，不取代紅色。完成的任務不畫預測
+      const late = t.done ? null : agentLateDays(t);
+      if(late !== null && late !== 0){
+        const barRight = left + width;
+        const fcTitle = late > 0
+          ? tf('預測 {0}，比計畫晚 {1} 天', t.forecastEnd, late)
+          : tf('預測 {0}，比計畫早 {1} 天', t.forecastEnd, -late);
+        if(late > 0){
+          const ext = document.createElement('div'); ext.className = 'gantt-forecast';
+          ext.style.left = barRight+'px'; ext.style.width = Math.max(3, late * zoom.pxPerDay)+'px';
+          ext.title = fcTitle; track.appendChild(ext);
+          const lb = document.createElement('div'); lb.className = 'gantt-forecast-label';
+          lb.style.left = (barRight + Math.max(3, late * zoom.pxPerDay) + 5)+'px';
+          lb.textContent = tf('晚 {0} 天', late); lb.title = fcTitle; track.appendChild(lb);
+        }else{
+          const mk = document.createElement('div'); mk.className = 'gantt-forecast-early';
+          mk.style.left = (barRight + late * zoom.pxPerDay)+'px'; mk.title = fcTitle; track.appendChild(mk);
+        }
+      }
       if(todayX !== null){
         const tl=document.createElement('div'); tl.className='gantt-today-line'; tl.style.left=todayX+'px'; track.appendChild(tl);
       }
@@ -9393,7 +9709,8 @@
       cb.title = t.todos.length ? '一次勾選／取消底下所有代辦項目' : '標記完成';
       row.appendChild(cb);
       let stx=null;   // 任務狀態的控制項（agent 工作區）；done 變化時要一起更新（完成就只顯示「完成」）
-      const syncCb=()=>{ cb.className='task-done-cb'+(t.done?' done':''); cb.textContent=t.done?'✓':''; if(stx) stx.sync(); };
+      let mx=null;    // 預估／預測／認領／連結那一條（2B）；done 與日期變化時預測那一段要跟著變
+      const syncCb=()=>{ cb.className='task-done-cb'+(t.done?' done':''); cb.textContent=t.done?'✓':''; if(stx) stx.sync(); if(mx) mx.sync(); };
 
       const nameInp=document.createElement('input'); nameInp.type='text'; nameInp.value=t.name;
       nameInp.oninput=()=>{
@@ -9406,12 +9723,12 @@
 
       const startLbl=document.createElement('span'); startLbl.className='task-field-label'; startLbl.textContent=tr('開始'); row.appendChild(startLbl);
       const startInp=document.createElement('input'); startInp.type='date'; startInp.value=t.start;
-      startInp.onchange=()=>{ t.start=startInp.value; refreshGanttChart(gp); persist(); };
+      startInp.onchange=()=>{ t.start=startInp.value; if(mx) mx.sync(); refreshGanttChart(gp); persist(); };
       row.appendChild(startInp);
 
       const endLbl=document.createElement('span'); endLbl.className='task-field-label'; endLbl.textContent=tr('結束'); row.appendChild(endLbl);
       const endInp=document.createElement('input'); endInp.type='date'; endInp.value=t.end;
-      endInp.onchange=()=>{ t.end=endInp.value; refreshGanttChart(gp); persist(); };
+      endInp.onchange=()=>{ t.end=endInp.value; if(mx) mx.sync(); refreshGanttChart(gp); persist(); };
       row.appendChild(endInp);
 
       const progLbl=document.createElement('span'); progLbl.className='task-field-label'; progLbl.textContent=tr('進度'); row.appendChild(progLbl);
@@ -9461,6 +9778,8 @@
       row.appendChild(delBtn);
       block.appendChild(row);
       block.appendChild(stx.extra);    // 卡住／等待的原因、待驗收的按鈕（要才出現）
+      mx = agentBuildTaskMeta(gp, t);
+      block.appendChild(mx.el);        // 預估／實際、預測與「採用預測」、認領、證據連結
 
       // ---- 子代辦項目 ----
       const todoBox=document.createElement('div'); todoBox.className='todo-list';
@@ -9677,7 +9996,9 @@
       .then(()=>{ st.busy = false; agentRenderTimeline(gpId); });
   }
   function agentReloadVisibleEvents(){
-    if(currentView === 'gantt' && selectedGanttProjectId) return agentLoadEvents(selectedGanttProjectId, true);
+    if(currentView === 'gantt' && selectedGanttProjectId){
+      return Promise.all([agentLoadEvents(selectedGanttProjectId, true), agentLoadPrs(selectedGanttProjectId, true)]);
+    }
     return Promise.resolve();
   }
 
@@ -10187,7 +10508,10 @@
     agentLoadInbox();
     agentBaseline();
     syncAgentNotifyBtn();
-    if(currentView === 'gantt' && selectedGanttProjectId) agentLoadEvents(selectedGanttProjectId, true);
+    if(currentView === 'gantt' && selectedGanttProjectId){
+      agentLoadEvents(selectedGanttProjectId, true);
+      agentLoadPrs(selectedGanttProjectId, true);
+    }
     if(!agentPollTimer){
       agentPollTimer = setInterval(()=>{ agentPoll().catch(e=>console.error('agent poll failed', e)); }, AGENT_LIVE_POLL_MS);
     }
@@ -10298,6 +10622,394 @@
       alert(tr('目前離線，無法變更通知設定。'));
     }finally{ btnAgentNotify.disabled = false; }
   };
+
+  // ---------------- 第二批 2B：任務列的預估／預測／認領／連結 ----------------
+  // 全部掛在任務卡片底下那一條（.task-meta），不塞進主列（那一列已經夠擠了）。
+  // 照〈甘特頁的例外：表格不重建〉：改這些欄位只動自己那一格、最多換掉圖表，表格原地不動；
+  // 會改行數的（新增／刪除連結）才走完整的 commit()。存檔一律 persistSoon（它會一併推雲端；
+  // 表格裡既有的 persist() 只寫本機，下一次 commit 才推——新欄位不要沿用那個毛病）。
+  function agentLinkHost(url){
+    try{ return new URL(url).hostname.replace(/^www\./, ''); }catch(e){ return String(url).slice(0, 30); }
+  }
+
+  /** 證據連結：http(s) 的小連結。標籤與網址一律 textContent／rel=noopener（外部內容） */
+  function agentBuildTaskLinks(gp, t){
+    const wrap = agentEl('div', 'agent-links');
+    const list = Array.isArray(t.links) ? t.links : [];
+    list.forEach(l=>{
+      const chip = agentEl('span', 'agent-linkchip');
+      const a = document.createElement('a');
+      a.textContent = l.label || agentLinkHost(l.url);
+      const u = agentCleanLinkUrl(l.url);
+      if(u){ a.href = u; a.target = '_blank'; a.rel = 'noopener noreferrer'; }
+      a.title = l.url;
+      const rm = agentEl('button', null, '✕');
+      rm.type = 'button'; rm.title = tr('移除這個連結'); rm.setAttribute('aria-label', tr('移除這個連結'));
+      rm.onclick = ()=> deleteWithUndo(tr('連結') + '：' + (l.label || agentLinkHost(l.url)), ()=>{ t.links = t.links.filter(x => x !== l); });
+      chip.append(a, rm);
+      wrap.appendChild(chip);
+    });
+    const add = agentEl('button', 'qbtn', tr('＋ 連結'));
+    add.type = 'button';
+    add.title = tr('放證據：文件、截圖、部署網址（只收 http／https）');
+    if(list.length >= TASK_LINKS_MAX){ add.disabled = true; add.title = tf('一個任務最多 {0} 個連結', TASK_LINKS_MAX); }
+    wrap.appendChild(add);
+    let form = null;
+    add.onclick = ()=>{
+      if(form){ form.remove(); form = null; return; }
+      form = agentEl('div', 'agent-linkform');
+      const urlInp = document.createElement('input'); urlInp.type = 'text'; urlInp.maxLength = 500; urlInp.placeholder = 'https://…';
+      urlInp.setAttribute('aria-label', tr('連結網址'));
+      const lblInp = document.createElement('input'); lblInp.type = 'text'; lblInp.maxLength = 80; lblInp.placeholder = tr('名稱（選填）');
+      lblInp.setAttribute('aria-label', tr('連結名稱'));
+      const ok = agentEl('button', 'agent-send', tr('加入')); ok.type = 'button';
+      const no = agentEl('button', 'qbtn', tr('取消')); no.type = 'button';
+      const msg = agentEl('span', 'agent-msg');
+      const go = ()=>{
+        const u = agentCleanLinkUrl(urlInp.value);
+        if(!u){ msg.className = 'agent-msg err'; msg.textContent = tr('只收 http:// 或 https:// 開頭的網址'); urlInp.focus(); return; }
+        const label = lblInp.value.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 80);
+        commit(()=>{ if(!Array.isArray(t.links)) t.links = []; if(t.links.length < TASK_LINKS_MAX) t.links.push({ url: u, label }); });
+      };
+      ok.onclick = go;
+      no.onclick = ()=>{ form.remove(); form = null; };
+      form.addEventListener('keydown', ev=>{ if(ev.key === 'Enter' && !ev.isComposing){ ev.preventDefault(); go(); } });
+      form.append(urlInp, lblInp, ok, no, msg);
+      wrap.appendChild(form);
+      urlInp.focus();
+    };
+    return wrap;
+  }
+
+  /**
+   * 一個任務的「預估／實際／預測／認領／連結」。回 { el, sync }：done 與開始／結束日變了，
+   * 預測那一段（晚幾天、要不要「採用預測」）要跟著變，所以 buildTaskTable 會呼叫 sync。
+   * 「採用預測」是**人按的**：agent 永遠不改 end，只寫 forecastEnd；按了才把 end 改成預測日，
+   * 走 withUndo（commit＋六秒內可復原）。
+   */
+  function agentBuildTaskMeta(gp, t){
+    const el = agentEl('div', 'task-meta');
+    const hoursField = (label, key)=>{
+      const w = agentEl('span', 'tm-hours');
+      w.appendChild(agentEl('span', 'task-field-label', label));
+      const inp = document.createElement('input');
+      inp.type = 'number'; inp.min = '0'; inp.max = String(HOURS_MAX); inp.step = '0.5'; inp.placeholder = '—';
+      inp.setAttribute('aria-label', label + '（' + tr('小時') + '）');
+      inp.value = t[key] == null ? '' : t[key];
+      inp.onchange = ()=>{
+        const raw = inp.value.trim();
+        const n = raw === '' ? null : Number(raw);
+        // 認不得的值退回原本的（與 normalizeHours 同一組界線），不靜靜存一個會被正規化洗掉的數字
+        if(n !== null && !(isFinite(n) && n >= 0 && n <= HOURS_MAX)){ inp.value = t[key] == null ? '' : t[key]; return; }
+        t[key] = n;
+        persistSoon();
+      };
+      w.append(inp, agentEl('span', 'task-field-label', tr('小時')));
+      return w;
+    };
+    el.append(hoursField(tr('預估'), 'estimateHours'), hoursField(tr('實際'), 'actualHours'));
+
+    const fc = agentEl('span', 'agent-fc');
+    const fcText = agentEl('span');
+    const adopt = agentEl('button', 'qbtn', tr('採用預測'));
+    adopt.type = 'button';
+    adopt.title = tr('把這個任務的結束日改成預測完成日（可以復原）。agent 不會自己改結束日，只有你能按。');
+    adopt.onclick = ()=>{
+      const late = agentLateDays(t);
+      if(late === null || late === 0 || t.forecastEnd < t.start) return;
+      const to = t.forecastEnd;
+      withUndo(tf('已把「{0}」的結束日改成 {1}', t.name, to), ()=>{ t.end = to; });
+    };
+    fc.append(fcText, adopt);
+    el.appendChild(fc);
+
+    const claim = agentEl('span', 'agent-claim');
+    el.appendChild(claim);
+    el.appendChild(agentBuildTaskLinks(gp, t));
+
+    function sync(){
+      const late = t.done ? null : agentLateDays(t);
+      fc.style.display = late === null ? 'none' : '';
+      if(late !== null){
+        fcText.textContent = late === 0 ? tf('預測 {0}（與計畫相同）', t.forecastEnd)
+          : late > 0 ? tf('預測 {0} · 晚 {1} 天', t.forecastEnd, late) : tf('預測 {0} · 早 {1} 天', t.forecastEnd, -late);
+        adopt.style.display = (late !== 0 && t.forecastEnd >= t.start) ? '' : 'none';
+      }
+      claim.style.display = t.assignee ? '' : 'none';
+      if(t.assignee){
+        const idle = agentClaimIdleDays(t, Date.now());
+        claim.textContent = tf('認領：{0}', t.assignee) + (idle !== null ? ' · ' + tf('{0} 天沒動靜', idle) : '');
+        claim.classList.toggle('stale', idle !== null);
+        claim.title = idle !== null ? tr('超過 24 小時沒動靜：任何人（或別的 agent）可以接手') : '';
+      }
+    }
+    sync();
+    return { el, sync };
+  }
+
+  // ---------------- 第二批 2B：里程碑的小編輯器 ----------------
+  const agentMsOpen = {};          // gpId -> 使用者手動展開(true)／收合(false)；預設收合，摘要那一行就看得到有幾個、幾個有風險
+  function agentBuildMilestones(gp){
+    const det = agentEl('details', 'agent-brief agent-ms');
+    det.dataset.gpId = gp.id;
+    det.open = agentMsOpen[gp.id] === true;
+    det.addEventListener('toggle', ()=>{ agentMsOpen[gp.id] = det.open; });
+    const sum = agentEl('summary', null, tr('里程碑'));
+    const hint = agentEl('span', 'agent-brief-hint');
+    sum.appendChild(hint);
+    det.appendChild(sum);
+    const body = agentEl('div', 'agent-brief-body');
+    const listEl = agentEl('div', 'agent-ms-list');
+    body.appendChild(listEl);
+    const addBtn = agentEl('button', 'qbtn agent-ms-add', tr('＋ 新增里程碑'));
+    addBtn.type = 'button';
+    body.appendChild(addBtn);
+    det.appendChild(body);
+    const msgs = gp.milestones = Array.isArray(gp.milestones) ? gp.milestones : [];
+    const chips = [];            // { m, chip, why }：日期或名稱一改，所有里程碑的狀態都要重算（取決於全部任務）
+
+    function syncChips(){
+      const today = ymd(new Date());
+      let risky = 0;
+      chips.forEach(c=>{
+        const st = agentMilestoneStatus(gp, c.m, today);
+        if(st.atRisk) risky++;
+        const done = !st.atRisk && st.gatingTasks > 0 && st.openTasks === 0;
+        c.chip.className = 'agent-ms-chip' + (st.atRisk ? ' risk' : done ? ' ok' : '');
+        c.chip.textContent = st.atRisk ? tr('有風險') : done ? tr('已達成') : tr('趕得上');
+        c.why.style.display = st.atRisk ? '' : 'none';
+        c.why.textContent = st.reason ? tr(st.reason) : '';
+      });
+      hint.textContent = !msgs.length ? tr('甘特圖上的菱形')
+        : risky ? tf('{0} 個，{1} 個有風險', msgs.length, risky) : tf('{0} 個', msgs.length);
+      hint.style.color = risky ? 'var(--red-ink)' : '';
+      hint.style.fontWeight = risky ? '700' : '';
+    }
+    msgs.forEach(m=>{
+      const row = agentEl('div', 'agent-ms-row');
+      const nameInp = document.createElement('input');
+      nameInp.type = 'text'; nameInp.maxLength = 200; nameInp.value = m.name || '';
+      nameInp.setAttribute('aria-label', tr('里程碑名稱'));
+      nameInp.oninput = ()=>{ m.name = nameInp.value; persistSoon(); };
+      nameInp.onchange = ()=> refreshGanttChart(gp);
+      const dateInp = document.createElement('input');
+      dateInp.type = 'date'; dateInp.value = m.date;
+      dateInp.setAttribute('aria-label', tr('里程碑日期'));
+      dateInp.onchange = ()=>{
+        if(!isYmd(dateInp.value)){ dateInp.value = m.date; return; }
+        m.date = dateInp.value; syncChips(); refreshGanttChart(gp); persistSoon();
+      };
+      const chip = agentEl('span', 'agent-ms-chip');
+      const rm = agentEl('button', 'icon-btn danger', tr('刪除'));
+      rm.type = 'button';
+      rm.onclick = ()=> deleteWithUndo(tr('里程碑') + '：' + (m.name || tr('（未命名）')), ()=>{ gp.milestones = gp.milestones.filter(x => x.id !== m.id); });
+      const why = agentEl('div', 'agent-ms-why');
+      row.append(nameInp, dateInp, chip, rm, why);
+      listEl.appendChild(row);
+      chips.push({ m, chip, why });
+    });
+    if(msgs.length >= MILESTONES_MAX){ addBtn.disabled = true; addBtn.title = tf('一個專案最多 {0} 個里程碑', MILESTONES_MAX); }
+    addBtn.onclick = ()=>{
+      // 預設日期：最晚的任務結束日（沒有任務就兩週後）。人會再改，這只是讓菱形一出現就在時間軸上
+      const ends = (gp.tasks || []).map(x => x.end).filter(isYmd).sort();
+      const d = ends.length ? ends[ends.length - 1] : ymd(new Date(Date.now() + 14 * 86400000));
+      agentMsOpen[gp.id] = true;
+      commit(()=>{ gp.milestones.push({ id: uid('ms'), name: '新里程碑', date: d }); });
+      const inputs = document.querySelectorAll('.agent-ms[data-gp-id="' + String(gp.id).replace(/"/g, '\\"') + '"] .agent-ms-row input[type=text]');
+      const last = inputs[inputs.length - 1];
+      if(last){ last.focus(); last.select(); }
+    };
+    syncChips();
+    return det;
+  }
+
+  // ---------------- 第二批 2B：PR 看板 ----------------
+  // 讀 GET /api/projects/:pid/prs（擁有者端點）。**看的，不是動手的**：不能合併、不能留言——那要存 GitHub 的
+  // token（設計文件 乙 2）。PR 的資料不在 snapshot() 裡、不進 localStorage（它是 GitHub 的資料的快取，
+  // 權威來源是伺服器），所以離線時整塊只說「連線後才看得到」。標題、作者一律 textContent（公開 repo 誰都能開 PR）。
+  const agentPrs = new Map();     // gpId -> { status:'idle'|'loading'|'ok'|'failed', prs, counts, at, busy, showClosed }
+  function agentPrState(id){
+    let s = agentPrs.get(id);
+    if(!s){ s = { status:'idle', prs:[], counts:null, at:0, busy:false, showClosed:false }; agentPrs.set(id, s); }
+    return s;
+  }
+  function agentLoadPrs(gpId, force){
+    const st = agentPrState(gpId);
+    if(!cloudEnabled){ agentRenderPrs(gpId); return Promise.resolve(); }
+    if(st.busy) return Promise.resolve();
+    if(!force && st.status === 'ok' && Date.now() - st.at < 60000) return Promise.resolve();
+    st.busy = true;
+    if(st.status !== 'ok') st.status = 'loading';
+    return agentJson('/api/projects/' + encodeURIComponent(gpId) + '/prs')
+      .then(d=>{ st.status = 'ok'; st.prs = Array.isArray(d.prs) ? d.prs : []; st.counts = d.counts || null; st.at = Date.now(); })
+      .catch(e=>{
+        if(e.expired) return;
+        // 降級可以，沉默不行：畫面上說得出「連線後才看得到」，console 也要留下原因
+        console.error('agent prs failed', e);
+        st.status = 'failed';
+      })
+      .then(()=>{ st.busy = false; agentRenderPrs(gpId); });
+  }
+  function agentBuildPrBoard(gp){
+    const box = agentEl('div', 'agent-prs');
+    box.id = 'agentPrs';
+    box.dataset.gpId = gp.id;
+    agentFillPrBoard(box, gp);
+    agentLoadPrs(gp.id, false);
+    return box;
+  }
+  /** 就地換掉這一塊（不重畫整頁：使用者可能正在表格裡打字，同〈甘特頁的例外：表格不重建〉） */
+  function agentRenderPrs(gpId){
+    const gp = ganttProjects.find(g => g.id === gpId);
+    if(gp) agentRefreshPrBoard(gp);
+  }
+  function agentRefreshPrBoard(gp){
+    const box = document.getElementById('agentPrs');
+    if(box && box.dataset.gpId === gp.id) agentFillPrBoard(box, gp);
+  }
+  const AGENT_PR_STATE = { draft:'草稿', open:'開著', merged:'已合併', closed:'已關閉' };
+
+  /** 已合併、任務還沒完成：只問一句，按了才標（合併不等於做完，所以不自動勾） */
+  function agentMarkTaskDone(gp, task){
+    withUndo(tf('已把「{0}」標成完成', task.name), ()=>{
+      if(Array.isArray(task.todos) && task.todos.length){
+        task.todos.forEach(td=>{ td.done = true; td.review = false; });
+        syncTaskFromTodos(task);
+      }else{ task.done = true; task.progress = 100; }
+      if(task.status === 'review') task.status = 'todo';
+    });
+  }
+
+  function agentBuildPrRow(gp, pr){
+    const ok = agentPrUrlOk(pr.url);
+    let row;
+    if(ok){ row = document.createElement('a'); row.href = pr.url; row.target = '_blank'; row.rel = 'noopener noreferrer'; }
+    else row = document.createElement('div');
+    row.className = 'agent-pr' + (pr.checks === 'failing' && agentPrIsOpen(pr) ? ' fail' : '');
+    const top = agentEl('div', 'agent-pr-top');
+    top.appendChild(agentEl('span', 'agent-pr-num', pr.number != null ? '#' + pr.number : (pr.branch || '')));
+    top.appendChild(agentEl('span', 'agent-pr-title', pr.title || tr('（沒有標題）')));       // 外部內容：textContent
+    top.appendChild(agentEl('span', 'agent-pr-state ' + pr.state, tr(AGENT_PR_STATE[pr.state] || pr.state)));
+    row.appendChild(top);
+    const meta = agentEl('div', 'agent-pr-meta');
+    if(pr.checks === 'passing') meta.appendChild(agentEl('span', 'good', tr('測試 ✓')));
+    else if(pr.checks === 'failing') meta.appendChild(agentEl('span', 'bad', tr('測試失敗')));
+    else if(pr.checks === 'pending') meta.appendChild(agentEl('span', null, tr('測試中…')));
+    if(pr.review === 'pending' && pr.state !== 'draft') meta.appendChild(agentEl('span', 'wait', tr('等你審')));
+    else if(pr.review === 'approved') meta.appendChild(agentEl('span', 'good', tr('已核准')));
+    else if(pr.review === 'changes_requested') meta.appendChild(agentEl('span', null, tr('要求修改')));
+    // 這一列最後是誰更新的、多久前：agent 回報的狀態會過期（它下線之後 PR 才被合併），不講新舊的話三天前的「測試通過」看起來跟現在的一樣
+    meta.appendChild(agentEl('span', null, tf('{0} · {1}更新', pr.source === 'webhook' ? tr('GitHub 通知') : tr('agent 回報'), acctSince(pr.updatedAt))));
+    const task = pr.taskId ? (gp.tasks || []).find(x => x.id === pr.taskId) : null;
+    if(task) meta.appendChild(agentEl('span', null, '→ ' + tr('任務') + '「' + task.name + '」'));
+    row.appendChild(meta);
+    return row;
+  }
+
+  function agentFillPrBoard(box, gp){
+    const st = agentPrState(gp.id);
+    box.textContent = '';
+    box.appendChild(agentEl('div', 'agent-h', tr('PR 看板')));
+    if(!cloudEnabled || st.status === 'failed'){
+      box.appendChild(agentEl('div', 'agent-line', tr('連線後才看得到')));
+      return;
+    }
+    if(st.status !== 'ok'){ box.appendChild(agentEl('div', 'agent-line', tr('載入中…'))); return; }
+    const prs = st.prs;
+    if(!prs.length){
+      box.appendChild(agentEl('div', 'agent-line', tr('還沒有連到任何 PR。agent 開 PR 時會記在這裡；要自動更新合併與測試的狀態，到「我的帳號」設定 GitHub 通知。')));
+      return;
+    }
+    const open = prs.filter(agentPrIsOpen), merged = prs.filter(p => p.state === 'merged'), closed = prs.filter(p => p.state === 'closed');
+    const c = st.counts || { open: open.length, merged: merged.length, closed: closed.length };
+    const counts = agentEl('div', 'agent-pr-counts');
+    counts.append(agentEl('span', null, '● ' + tr('開著的') + ' ' + c.open), agentEl('span', null, '✓ ' + tr('已合併') + ' ' + c.merged),
+                  agentEl('span', null, '✕ ' + tr('已關閉') + ' ' + c.closed));
+    box.appendChild(counts);
+    // 合併了、任務還沒完成：永遠看得到（已合併的那一區預設收著，提示不能跟著藏起來）
+    for(const h of agentMergedHints(gp, prs)){
+      const hint = agentEl('div', 'agent-pr-hint');
+      hint.appendChild(agentEl('span', null, tr('PR 已合併，要標成完成嗎？') + '　#' + h.pr.number + ' → ' + tr('任務') + '「' + h.task.name + '」'));
+      const b = agentEl('button', 'agent-send', tr('標成完成')); b.type = 'button';
+      b.onclick = ()=> agentMarkTaskDone(gp, h.task);
+      hint.appendChild(b);
+      box.appendChild(hint);
+    }
+    if(!open.length) box.appendChild(agentEl('div', 'agent-line', tr('目前沒有開著的 PR')));
+    for(const p of agentOrderPrs(open)) box.appendChild(agentBuildPrRow(gp, p));
+    const rest = merged.length + closed.length;
+    if(rest){
+      const more = agentEl('button', 'qbtn agent-pr-more', st.showClosed ? tr('收起已合併／已關閉') : tf('看已合併／已關閉（{0}）', rest));
+      more.type = 'button';
+      more.onclick = ()=>{ st.showClosed = !st.showClosed; agentFillPrBoard(box, gp); };
+      box.appendChild(more);
+      if(st.showClosed){
+        const done = merged.concat(closed).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+        for(const p of done) box.appendChild(agentBuildPrRow(gp, p));
+      }
+    }
+  }
+
+  // ---------------- 第二批 2B：帳號頁的 GitHub 通知（webhook）設定 ----------------
+  // 網址與密鑰只在建立／重新產生的那一刻從伺服器拿到一次，**只放在畫面上**：不進 localStorage、不進 snapshot()
+  // （伺服器那一側存的是網址 token 的雜湊與密鑰，我們這邊沒有理由留）。
+  let agentHookConfigured = false;
+  function agentSyncHookUi(d){
+    agentHookConfigured = !!(d && d.configured);
+    document.getElementById('acctGhStatus').textContent = agentHookConfigured
+      ? tf('已設定（{0} 建立）。網址與密鑰不會再顯示；忘了就重新產生。', acctYmd(d.createdAt)) : tr('還沒設定。');
+    document.getElementById('btnGhCreate').textContent = agentHookConfigured ? tr('重新產生（舊的立刻失效）') : tr('建立通知網址');
+    document.getElementById('btnGhDelete').style.display = agentHookConfigured ? '' : 'none';
+  }
+  async function agentLoadHookStatus(){
+    const st = document.getElementById('acctGhStatus');
+    if(!st) return;
+    try{ agentSyncHookUi(await agentJson('/api/github/hooks')); }
+    catch(e){
+      if(e.expired) return;
+      console.error('github hook status failed', e);
+      st.textContent = tr('設定讀取失敗，其餘設定不受影響。');
+    }
+  }
+  function agentHideHookSecret(){
+    document.getElementById('acctGhUrl').textContent = '';
+    document.getElementById('acctGhSecretText').textContent = '';
+    document.getElementById('acctGhSecret').style.display = 'none';
+  }
+  document.getElementById('btnGhCreate').onclick = async function(){
+    const msg = document.getElementById('acctGhMsg');
+    if(agentHookConfigured && !confirm(tr('重新產生會讓舊的網址與密鑰立刻失效，GitHub 那邊要換成新的。要繼續嗎？'))) return;
+    this.disabled = true; msg.className = 'agent-msg'; msg.textContent = '';
+    try{
+      const d = await agentPost('/api/github/hooks');
+      document.getElementById('acctGhUrl').textContent = d.url;
+      document.getElementById('acctGhSecretText').textContent = d.secret;
+      document.getElementById('acctGhSecret').style.display = '';
+      agentSyncHookUi({ configured: true, createdAt: Date.now() });
+    }catch(e){
+      if(e.expired) return;
+      console.error('github hook create failed', e);
+      msg.className = 'agent-msg err'; msg.textContent = e.message || tr('建立失敗，請稍後再試。');
+    }finally{ this.disabled = false; }
+  };
+  document.getElementById('btnGhDelete').onclick = async function(){
+    const msg = document.getElementById('acctGhMsg');
+    if(!confirm(tr('移除之後 GitHub 送來的通知會被拒絕，PR 看板要靠 agent 回報。要移除嗎？'))) return;
+    this.disabled = true; msg.className = 'agent-msg'; msg.textContent = '';
+    try{
+      await agentJson('/api/github/hooks', { method:'DELETE' });
+      agentHideHookSecret();
+      agentSyncHookUi({ configured: false });
+    }catch(e){
+      if(e.expired) return;
+      console.error('github hook delete failed', e);
+      msg.className = 'agent-msg err'; msg.textContent = e.message || tr('移除失敗，請稍後再試。');
+    }finally{ this.disabled = false; }
+  };
+  document.getElementById('btnGhCopyUrl').onclick = function(){ acctCopy(document.getElementById('acctGhUrl').textContent, this); };
+  document.getElementById('btnGhCopySecret').onclick = function(){ acctCopy(document.getElementById('acctGhSecretText').textContent, this); };
+  document.getElementById('btnGhHide').onclick = agentHideHookSecret;
+
 
   // ================= 分享 =================
   // 分享的資源不進 snapshot()，也不寫進 localStorage：它們的權威來源是對方的
