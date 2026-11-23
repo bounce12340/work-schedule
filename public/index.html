@@ -4993,7 +4993,9 @@
     name:'名稱', title:'標題', start:'開始日', end:'結束日', progress:'進度', done:'完成', notes:'筆記',
     date:'日期', endDate:'結束日', type:'類型', text:'內容', recurrence:'循環設定', meetingTime:'時間',
     link:'連結', tags:'標籤', dependsOn:'前置作業', pet:'夥伴', parentId:'所屬大項目', noticeOnly:'純告知',
-    subtasks:'步驟', subDone:'步驟的勾選', doneMap:'完成紀錄', overrides:'改期', skipped:'略過', doneAt:'完成時間'
+    subtasks:'步驟', subDone:'步驟的勾選', doneMap:'完成紀錄', overrides:'改期', skipped:'略過', doneAt:'完成時間',
+    status:'狀態', blockedNote:'卡住的原因', estimateHours:'預估時數', actualHours:'實際時數', forecastEnd:'預測完成日',
+    assignee:'認領者', claimedAt:'認領時間', links:'連結', milestones:'里程碑', brief:'說明書', todos:'待辦', tasks:'任務'
   };
   function conflictFieldText(path){
     let rest = String(path || ''), pre = '';
@@ -10372,7 +10374,7 @@
     for(const r of rows){
       const row = agentEl('div', 'agent-diff-row');
       row.appendChild(agentEl('span', 'agent-diff-ent', r.entity));
-      row.appendChild(agentEl('span', 'agent-diff-field', r.field));
+      row.appendChild(agentEl('span', 'agent-diff-field', CONFLICT_FIELD_LABEL[r.field] || r.field));   // 給人看的欄位名（同衝突對話框）
       const val = agentEl('span', 'agent-diff-val');
       if(r.before != null && r.after != null){
         val.appendChild(agentEl('span', 'old', r.before));
