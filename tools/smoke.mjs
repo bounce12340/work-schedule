@@ -150,7 +150,7 @@ function makeServer(loggedIn, plan = 'pro') {
   const mkEv = (id, kind, body, over = {}) => ({ id, projectId: 'g1', taskId: null, kind, actor: 'Smoke Agent', body,
     refId: null, status: null, options: null, defaultAfter: null, redactedAt: null, createdAt: T0 - (over.ago || 60000), ...over });
   const agent = {
-    posts: [], eventsFail: false,
+    posts: [], eventsFail: false, statePuts: [],
     version: { updatedAt: 1, latestEventAt: 5000 },
     // ---- 2B：PR 看板與 GitHub 通知設定 ----
     // 開著的三個：測試失敗（78）、等你審（77）、一般的（79，標題是**惡意內文**：外部內容一律 textContent）；
@@ -231,7 +231,12 @@ function makeServer(loggedIn, plan = 'pro') {
       }
       if (!loggedIn) return send(404, { error: 'not found' });
       if (url.pathname === '/api/state') {
-        if (req.method === 'PUT') return send(200, { ok: true, updatedAt: 1 });
+        if (req.method === 'PUT') {
+          // 收下來：表格裡改日期／進度要真的推上雲端（見「表格的編輯要推上雲端」那一段）
+          let raw = '';
+          req.on('data', c => { raw += c; });
+          return req.on('end', () => { agent.statePuts.push(raw); send(200, { ok: true, updatedAt: 1 }); });
+        }
         return send(200, { user: { ...ME, plan, planSource: plan === 'pro' ? 'admin' : null, planExpiresAt: null, webBilling: true }, state: null, updatedAt: null });
       }
       // iOS app 的登入／驗證碼：回一個假 token，讓「app 外殼」那一輪走得完
@@ -883,6 +888,26 @@ async function walk(page, log, plan = 'pro', server = null) {
     await page.waitForTimeout(250);
     if (await block(1).locator('.agent-linkchip').count() !== 2) throw new Error('移除連結之後應該回到 2 個');
     checked.push('任務列(認領沒動靜/預估存得進去不重建表格/連結新分頁+noopener/拒絕 javascript:/加入移除)');
+
+    // ===== 表格裡改日期要推上雲端，不只寫本機 =====
+    // 原本 startInp/endInp/進度/勾選只呼叫 persist()（只寫 localStorage），要等下一次 commit
+    // 才會順便推上去——中間換到別台裝置就看不到。所以等既有的推送都結束，再改一次結束日，
+    // 斷言 1.5 秒的 pushSoon 之後真的多了一次 PUT，而且裡面帶著新日期。
+    step = '表格裡改結束日：要推上雲端';
+    await page.waitForTimeout(2200);
+    const putsBefore = A.statePuts.length;
+    const endInp0 = block(0).locator('input[type=date]').nth(1);
+    const oldEnd0 = await endInp0.inputValue();
+    const newEnd0 = oldEnd0.replace(/-(\d\d)$/, (_, d) => '-' + String(Math.max(1, Number(d) - 1)).padStart(2, '0'));
+    await endInp0.fill(newEnd0);
+    await endInp0.dispatchEvent('change');
+    await page.waitForTimeout(2300);
+    if (A.statePuts.length === putsBefore) throw new Error('表格裡改了結束日，卻沒有推上雲端（只寫了本機）');
+    if (!A.statePuts[A.statePuts.length - 1].includes(newEnd0)) throw new Error('推上雲端的資料裡沒有新的結束日 ' + newEnd0);
+    await endInp0.fill(oldEnd0);
+    await endInp0.dispatchEvent('change');
+    await page.waitForTimeout(300);
+    checked.push('表格改結束日(推上雲端)');
 
     // ===== 採用預測：人按的，走 commit，可以復原 =====
     step = '採用預測：改 end、可以復原、agent 沒有被叫到';

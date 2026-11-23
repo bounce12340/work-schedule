@@ -9723,12 +9723,12 @@
 
       const startLbl=document.createElement('span'); startLbl.className='task-field-label'; startLbl.textContent=tr('開始'); row.appendChild(startLbl);
       const startInp=document.createElement('input'); startInp.type='date'; startInp.value=t.start;
-      startInp.onchange=()=>{ t.start=startInp.value; if(mx) mx.sync(); refreshGanttChart(gp); persist(); };
+      startInp.onchange=()=>{ t.start=startInp.value; if(mx) mx.sync(); refreshGanttChart(gp); persist(); pushSoon(); };
       row.appendChild(startInp);
 
       const endLbl=document.createElement('span'); endLbl.className='task-field-label'; endLbl.textContent=tr('結束'); row.appendChild(endLbl);
       const endInp=document.createElement('input'); endInp.type='date'; endInp.value=t.end;
-      endInp.onchange=()=>{ t.end=endInp.value; if(mx) mx.sync(); refreshGanttChart(gp); persist(); };
+      endInp.onchange=()=>{ t.end=endInp.value; if(mx) mx.sync(); refreshGanttChart(gp); persist(); pushSoon(); };
       row.appendChild(endInp);
 
       const progLbl=document.createElement('span'); progLbl.className='task-field-label'; progLbl.textContent=tr('進度'); row.appendChild(progLbl);
@@ -9752,7 +9752,7 @@
         t.progress=Math.max(0,Math.min(100, parseInt(progInp.value)||0));
         progInp.value=t.progress;
         if(t.progress===100) t.done=true;
-        syncCb(); refreshGanttChart(gp); persist();
+        syncCb(); refreshGanttChart(gp); persist(); pushSoon();
       };
       row.appendChild(progText); row.appendChild(progInp); row.appendChild(suffix);
       stx = agentTaskStatusControls(gp, t);
@@ -9768,7 +9768,7 @@
         } else {
           t.done=!t.done; if(t.done) t.progress=100;
         }
-        syncCb(); syncProg(); refreshGanttChart(gp); persist();
+        syncCb(); syncProg(); refreshGanttChart(gp); persist(); pushSoon();
       };
 
       const delBtn=document.createElement('button'); delBtn.className='icon-btn danger'; delBtn.textContent=tr('刪除'); delBtn.style.marginLeft='auto';
@@ -9798,7 +9798,7 @@
             syncTaskFromTodos(t);
             tcb.className='todo-cb'+(td.done?' done':''); tcb.textContent=td.done?'✓':'';
             inp.className=td.done?'done':'';
-            syncCb(); syncProg(); refreshGanttChart(gp); persist();
+            syncCb(); syncProg(); refreshGanttChart(gp); persist(); pushSoon();
           };
           const rm=document.createElement('button'); rm.className='icon-btn danger'; rm.textContent='✕'; rm.title=tr('刪除此代辦項目');
           rm.onclick=()=>{
@@ -10627,7 +10627,7 @@
   // 全部掛在任務卡片底下那一條（.task-meta），不塞進主列（那一列已經夠擠了）。
   // 照〈甘特頁的例外：表格不重建〉：改這些欄位只動自己那一格、最多換掉圖表，表格原地不動；
   // 會改行數的（新增／刪除連結）才走完整的 commit()。存檔一律 persistSoon（它會一併推雲端；
-  // 表格裡既有的 persist() 只寫本機，下一次 commit 才推——新欄位不要沿用那個毛病）。
+  // 表格裡的日期／進度／勾選一律 persist() 再 pushSoon()，新欄位也一樣（只寫本機的話，換台裝置就看不到）。
   function agentLinkHost(url){
     try{ return new URL(url).hostname.replace(/^www\./, ''); }catch(e){ return String(url).slice(0, 30); }
   }

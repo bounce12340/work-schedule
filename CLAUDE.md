@@ -1057,7 +1057,7 @@ cd mobile/ios/App && xcodebuild -scheme App -sdk iphonesimulator -configuration 
 | 時間軸範圍把 `forecastEnd` 與里程碑日也算進去 | 否則虛線與菱形畫到範圍外、捲不到 |
 | 「採用預測」是**人按的**，走 `withUndo`（commit＋六秒內可復原）；預測日早於開始日就不顯示；不打任何伺服器端點 | agent 永遠不改 `end`；同刪除一律可復原 |
 | 里程碑菱形放在專屬的一列（顏色：有風險＝`--ms-risk`＝`--red`、把關的任務都完成＝`--ms-done`、其餘＝`--ms-fill`），名稱的寬度不超過下一顆菱形（擠在一起就省略名稱、`title` 還在） | 疊字比沒有名稱更糟 |
-| 里程碑編輯器（`<details class="agent-brief agent-ms">`，預設收合、摘要列說「N 個，M 個有風險」）：改名稱／日期走**就地更新**（`refreshGanttChart` ＋ `persistSoon`，表格不重建）；新增走 `commit`、刪除走 `deleteWithUndo` | 同〈甘特頁的例外：表格不重建〉。**表格裡既有的 `persist()` 只寫本機、不推雲端**（下一次 commit 才推），新欄位不要沿用，一律 `persistSoon` |
+| 里程碑編輯器（`<details class="agent-brief agent-ms">`，預設收合、摘要列說「N 個，M 個有風險」）：改名稱／日期走**就地更新**（`refreshGanttChart` ＋ `persistSoon`，表格不重建）；新增走 `commit`、刪除走 `deleteWithUndo` | 同〈甘特頁的例外：表格不重建〉。表格裡的日期／進度／勾選原本只 `persist()`（只寫本機，要等下一次 commit 才推），2026-11-23 改成 `persist(); pushSoon();`，`tools/smoke.mjs` 斷言改結束日之後真的有一次 `PUT /api/state`；新欄位一律 `persistSoon` |
 | 任務卡片底下多一條 `.task-meta`：預估／實際（number，`HOURS_MAX` 界線）、預測那一行（晚／早幾天＋採用預測）、認領徽章（超過 24 小時標「N 天沒動靜」，琥珀色；沒有 `claimedAt` 的人手動指派不標）、證據連結（≤10、只收 http(s)、`＋ 連結` 的小表單、移除走 `deleteWithUndo`） | 主列已經夠擠；`buildTaskTable` 的 `mx.sync()` 在 done／開始／結束日變時更新預測那一行 |
 | PR 看板（`#agentPrs`，專案頁、最新進展下面）：開著的（open＋draft）預設列出，**測試失敗最前（`--red` 左線與字）、「等你審」第二**；已合併／已關閉收著；每列標 `agent 回報／GitHub 通知 · 多久前更新`；**沒有任何合併、留言、關閉的按鈕**（那要存 GitHub token）；離線或失敗只有一行「連線後才看得到」＋ `console.error('agent prs failed')` | 同進展日誌的降級；PR 資料不進 snapshot／localStorage |
 | 「PR 已合併，要標成完成嗎？」放在看板**最上面、不隨已合併區收起**；按「標成完成」才標（`withUndo`）；`refreshGanttChart` 會就地重畫看板，勾掉任務後提示跟著消失 | 合併不等於做完，所以只問；已合併區預設收著，提示若跟著藏起來就看不到 |
