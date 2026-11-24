@@ -1437,6 +1437,32 @@
   .unsub-btn:disabled{ background:var(--text-dim); cursor:not-allowed; }
   /* 從信裡點「通知設定 →」進來時，讓人一眼看到是哪一區 */
   .acct-sec.flash{ border-color:var(--amber); box-shadow:0 0 0 3px var(--amber-dim); }
+  /* ===== agent 工作區（第三批 3B）：版本歷史、鑰匙的範圍、風險、分享連結、成績單 ===== */
+  .hist-row{ padding:9px 0; border-bottom:1px solid var(--hairline); font-size:12.5px; }
+  .hist-row:last-child{ border-bottom:none; }
+  .hist-top{ display:flex; gap:10px; align-items:baseline; flex-wrap:wrap; }
+  .hist-when{ font-family:var(--mono); font-size:11.5px; color:var(--text-muted); }
+  .hist-actor{ font-weight:600; }
+  .hist-sum{ flex:1 1 200px; min-width:0; word-break:break-word; color:var(--text-muted); }
+  .hist-btns{ display:flex; gap:6px; margin-left:auto; }
+  .hist-btns .ghost-btn{ padding:6px 10px; font-size:12px; min-height:34px; }
+  .hist-diff{ margin-top:8px; }
+  .hist-diff-note{ font-size:12px; color:var(--text-muted); line-height:1.7; }
+  .acct-chk{ display:inline-flex; gap:6px; align-items:center; font-size:13px; cursor:pointer; }
+  .agent-scope{ font-family:var(--mono); font-size:11.5px; color:var(--text-muted); margin:2px 0 4px; }
+  .agent-scope.narrow{ color:var(--amber-ink); }
+  .agent-risks, .agent-share{ margin-bottom:16px; background:var(--panel); border:1px solid var(--hairline); border-radius:var(--r-m); padding:12px 14px; }
+  .agent-risk{ padding:9px 10px 9px 12px; border-top:1px solid var(--hairline); border-left:3px solid var(--red); }
+  .agent-risk:first-of-type{ border-top:none; }
+  .agent-risk-meta{ display:flex; gap:8px; align-items:baseline; flex-wrap:wrap; font-size:12px; color:var(--text-muted); }
+  .agent-risk-meta .qbtn{ margin-left:auto; }
+  .agent-risk-body{ margin-top:3px; font-size:13.5px; line-height:1.7; white-space:pre-wrap; word-break:break-word; }
+  .agent-share-inc{ display:flex; flex-wrap:wrap; gap:6px 16px; margin:8px 0; }
+  .agent-share-url{ margin-top:10px; padding:10px 12px; border:1px solid var(--amber); border-radius:var(--r-s); background:var(--amber-dim); }
+  .agent-share-url .ghost-btn{ color:var(--text-muted); }     /* 琥珀淡底上 --text-dim 暗色只有 3.98:1（同 .acct-gh-secret） */
+  .agent-score{ font-size:12.5px; line-height:1.7; padding:7px 0; border-bottom:1px solid var(--hairline); }
+  .agent-score:last-child{ border-bottom:none; }
+  .agent-score b{ font-weight:700; }
   .acct-dev{ display:flex; gap:10px; align-items:baseline; flex-wrap:wrap;
              padding:8px 0; border-bottom:1px solid var(--hairline); font-size:12.5px; }
   .acct-dev:last-child{ border-bottom:none; }
@@ -1929,6 +1955,11 @@
           <div class="acct-row">
             <button id="btnAgentNotify" class="ghost-btn" type="button"></button>
           </div>
+          <!-- 第七顆：每週摘要信。預設關（所有既有使用者都沒同意過這一種信）。與另外六顆互不連坐。 -->
+          <div class="acct-sub" style="margin:14px 0 10px;" data-i18n>每週一早上寄一封上週的專案摘要：只有專案名與數字（完成、逾期、等你回覆、風險），不放任何內容。沒事就不寄，休假那天不送；預設是關的。</div>
+          <div class="acct-row">
+            <button id="btnWeeklyMail" class="ghost-btn" type="button"></button>
+          </div>
           <!-- 推播（子專案 B）。只在 app 裡出現——網頁版沒有 APNs 可以註冊。
                三個開關與上面兩個寄信開關**各自獨立**：關掉信不代表不想要推播。 -->
           <div id="acctPush" style="display:none">
@@ -1969,6 +2000,13 @@
           </div>
         </div>
 
+        <!-- 排程的版本歷史（第三批 3B）：agent 每次寫入之前、每小時、每天各留一版，30 天。退回是一次新的寫入，所以退回本身也退得回去。 -->
+        <div class="acct-sec" id="acctHistory">
+          <div class="acct-h" data-i18n>🕘 排程的版本歷史</div>
+          <div class="acct-sub" id="acctHistorySub"></div>
+          <div id="histList"><div class="acct-sub" data-i18n>載入中…</div></div>
+        </div>
+
         <!-- MCP：讓 Claude、ChatGPT 這類 AI agent 直接讀寫排程（Pro）。設計文件：
              docs/superpowers/specs/2026-11-20-mcp-server.md -->
         <div class="acct-sec" id="acctMcp">
@@ -1984,6 +2022,11 @@
               <input id="inputMcpKeyName" type="text" maxlength="60" data-i18n-ph placeholder="金鑰名稱（例如：Claude Code）">
               <button id="btnMcpCreateKey" class="ghost-btn" type="button" data-i18n>建立金鑰</button>
             </div>
+            <div class="acct-row" style="align-items:center;">
+              <label class="acct-chk"><input type="checkbox" id="chkMcpKeyRead"><span data-i18n>只能讀</span></label>
+              <select id="selMcpKeyProject" class="ghost-btn" aria-label="只限這個專案"></select>
+            </div>
+            <div class="acct-sub" data-i18n>「只能讀」的金鑰改不了任何東西。選了專案的金鑰只看得到那個專案，也碰不到項目與每日記錄。Claude.ai 這類用網址連接的，在授權頁選。</div>
             <div class="acct-mcp-key" id="acctMcpNewKey" style="display:none">
               <div class="acct-sub" data-i18n>這把金鑰只會出現這一次，請現在複製起來。弄丟了就撤銷它、再建一把。</div>
               <div class="acct-row" style="align-items:center;">
@@ -2002,6 +2045,9 @@
             </div>
             <div class="acct-sub" data-i18n>暫停＝只能讀、不能寫（日誌、提問、提案也不行）。不是撤銷：恢復之後不用重新授權。</div>
             <div id="acctMcpConnList"><div class="acct-sub" data-i18n>載入中…</div></div>
+            <div class="acct-h2" data-i18n>agent 成績單（近 90 天）</div>
+            <div class="acct-sub" data-i18n>只有數字：做了幾筆修改、被你復原幾筆、讓幾個任務完成，以及預估和實際的工時。要累積一陣子才有意義。</div>
+            <div id="acctMcpScore"><div class="acct-sub" data-i18n>載入中…</div></div>
             <div class="acct-h2" data-i18n>agent 最近做的修改</div>
             <div class="acct-sub" data-i18n>每一筆都可以復原。若那一項之後你又改過，為了不蓋掉你的修改，就不會動它。</div>
             <div id="acctMcpActivity"><div class="acct-sub" data-i18n>載入中…</div></div>
@@ -3652,6 +3698,71 @@
       'Secret 貼上面的密鑰':'Paste the secret above as Secret',
       '事件勾 Pull requests、Check suites、Check runs，然後儲存':'Tick the events Pull requests, Check suites and Check runs, then save',
       '我已複製，收起來':'I have copied them, hide',
+      // —— agent 工作區 3B：版本歷史、鑰匙的範圍、風險、分享連結、每週摘要、成績單 ——
+      '🕘 排程的版本歷史':'🕘 Schedule version history',
+      'agent 每次修改之前、你自己的修改（每小時）、以及每天，都會留一版，保留 30 天。可以看某一版和現在差在哪，也可以整份退回到那一版；退回本身也退得回去。':'A version is kept before every agent change, hourly for your own edits, and daily, for 30 days. You can see how a version differs from now, or roll the whole schedule back to it; the rollback itself can be rolled back.',
+      '版本歷史只替 Pro 帳號留存新的版本；已經留下的版本在 30 天內仍然可以看，也可以退回。':'New versions are only kept for Pro accounts; versions already kept can still be viewed and restored for 30 days.',
+      '版本歷史讀取失敗，其餘設定不受影響。':'Could not read the version history; the other settings are not affected.',
+      '伺服器還沒有設定版本的儲存空間，所以目前沒有留版本。':'The server has no storage set up for versions, so none are being kept.',
+      '還沒有版本。agent 下一次修改之前會留第一版。':'No versions yet. The first one is kept before the next agent change.',
+      '目前沒有可以看的版本。':'No versions to show.',
+      '只看最近 8 版':'Show the latest 8 only',
+      '每日留存':'Daily snapshot',
+      '看差異':'See differences',
+      '退回到這一版':'Restore this version',
+      '讀不到這一版，請稍後再試。':'Could not read this version. Please try again later.',
+      '要把排程退回到 {0} 的版本嗎？\n現在這一份會先留成一版，所以之後還可以再退回來。':'Restore the schedule to the version from {0}?\nThe current one is kept as a version first, so you can restore it again later.',
+      '退回中…':'Restoring…',
+      '已退回':'Restored',
+      '這一版和現在一樣，沒有差異。':'This version is the same as now.',
+      '這一版 → 現在，共 {0} 處不同。刪除線是那一版的值，綠色是現在的值；退回會讓現在的值變回那一版的。':'This version → now, {0} differences. Strikethrough is the value in that version, green is the value now; restoring turns the current values back into that version’s.',
+      '只列出前 {0} 處。':'Showing the first {0} only.',
+      '大項目':'Major project',
+      '專案':'Project',
+      '設定':'Setting',
+      'agent 成績單（近 90 天）':'Agent scorecard (last 90 days)',
+      '只有數字：做了幾筆修改、被你復原幾筆、讓幾個任務完成，以及預估和實際的工時。要累積一陣子才有意義。':'Numbers only: how many changes, how many you undid, how many tasks it completed, and estimated vs. actual hours. It takes a while to mean anything.',
+      '還沒有資料。agent 開始改東西之後，這裡會有數字。':'No data yet. Numbers appear here once an agent starts changing things.',
+      '（已撤銷）':' (revoked)',
+      '改了 {0} 筆（被你復原 {1} 筆）':'{0} changes ({1} undone by you)',
+      '讓 {0} 個任務完成':'completed {0} tasks',
+      '預估 {0} 小時、實際 {1} 小時（{2} 個任務）':'estimated {0} h, actual {1} h ({2} tasks)',
+      '還沒有預估與實際都填了的任務可以比':'No tasks with both an estimate and an actual to compare yet',
+      '成績單讀取失敗，其餘設定不受影響。':'Could not read the scorecard; the other settings are not affected.',
+      '每週一早上寄一封上週的專案摘要：只有專案名與數字（完成、逾期、等你回覆、風險），不放任何內容。沒事就不寄，休假那天不送；預設是關的。':'On Monday morning, an email with last week’s project summary: project names and numbers only (done, overdue, awaiting your reply, risks), no content. Nothing is sent when there is nothing to say, or on leave days; off by default.',
+      '🗓 每週摘要信：開':'🗓 Weekly summary email: on',
+      '🗓 每週摘要信：關':'🗓 Weekly summary email: off',
+      '目前沒有開著的風險。agent 發現可能趕不上、可能出問題的事，會記在這裡。':'No open risks. When an agent spots something that may slip or go wrong, it is listed here.',
+      '關閉這個風險':'Close this risk',
+      '這個風險排除了：它會從清單拿掉，並留下一筆「擁有者關閉了」的紀錄。':'This risk is resolved: it leaves the list and a “closed by the owner” entry is recorded.',
+      '關閉失敗，請稍後再試':'Could not close it. Please try again later.',
+      '（內容已被遮蔽）':'(content redacted)',
+      '公開的分享連結（唯讀）':'Public share link (read-only)',
+      '專案名稱、里程碑、每個任務的名稱／起訖日／狀態／進度／預測完成日':'the project name, milestones, and each task’s name, dates, status, progress and forecast end date',
+      '另外還有':'plus',
+      '目前有一個公開連結（{0} 產生）。知道網址的人不用登入就看得到：{1}。永遠不含：專案說明書、筆記、每日記錄、其他專案。':'There is one public link (created {0}). Anyone with the URL can see, without signing in: {1}. Never included: the project brief, notes, daily logs, other projects.',
+      '目前沒有公開連結。產生之後，知道網址的人不用登入就看得到：{0}。永遠不含：專案說明書、筆記、每日記錄、其他專案。':'There is no public link. Once created, anyone with the URL can see, without signing in: {0}. Never included: the project brief, notes, daily logs, other projects.',
+      '重新產生時，要多公開哪幾種？（預設一種都不勾）':'When regenerating, which extras to publish? (none by default)',
+      '要多公開哪幾種？（預設一種都不勾）':'Which extras to publish? (none by default)',
+      '進展與交接':'Progress and handoffs',
+      '提問與回答':'Questions and answers',
+      '決策':'Decisions',
+      '還開著的風險':'Open risks',
+      'PR（標題與狀態，不含作者）':'Pull requests (title and status, no author)',
+      '產生連結':'Create link',
+      '撤銷連結':'Revoke link',
+      '重新產生會讓舊的網址立刻失效，已經拿到舊網址的人就打不開了。要繼續嗎？':'Regenerating makes the old URL stop working immediately; anyone holding it can no longer open it. Continue?',
+      '撤銷之後，這個網址立刻失效。要撤銷嗎？':'Once revoked, the URL stops working immediately. Revoke it?',
+      '產生失敗，請稍後再試':'Could not create it. Please try again later.',
+      '撤銷失敗，請稍後再試':'Could not revoke it. Please try again later.',
+      '網址只會顯示這一次，請現在複製起來。弄丟了就重新產生（舊的會立刻失效）。':'The URL is shown only this once; copy it now. If you lose it, regenerate (the old one stops working immediately).',
+      '全部專案':'All projects',
+      '只限':'Only',
+      '只能讀':'Read-only',
+      '可讀寫':'Read and write',
+      '只限「{0}」':'Only “{0}”',
+      '只限一個專案（這個專案現在不在了）':'Limited to one project (which no longer exists)',
+      '「只能讀」的金鑰改不了任何東西。選了專案的金鑰只看得到那個專案，也碰不到項目與每日記錄。Claude.ai 這類用網址連接的，在授權頁選。':'A read-only key cannot change anything. A key limited to a project only sees that project, and cannot touch items or daily logs. For connections by URL (like Claude.ai), choose on the authorization page.',
       // —— 簽名 ——
       '此系統由劉思妤設計、規劃、製作。':'Designed, planned and built by Liu Szu-Yu.'
     }
@@ -4882,7 +4993,9 @@
     name:'名稱', title:'標題', start:'開始日', end:'結束日', progress:'進度', done:'完成', notes:'筆記',
     date:'日期', endDate:'結束日', type:'類型', text:'內容', recurrence:'循環設定', meetingTime:'時間',
     link:'連結', tags:'標籤', dependsOn:'前置作業', pet:'夥伴', parentId:'所屬大項目', noticeOnly:'純告知',
-    subtasks:'步驟', subDone:'步驟的勾選', doneMap:'完成紀錄', overrides:'改期', skipped:'略過', doneAt:'完成時間'
+    subtasks:'步驟', subDone:'步驟的勾選', doneMap:'完成紀錄', overrides:'改期', skipped:'略過', doneAt:'完成時間',
+    status:'狀態', blockedNote:'卡住的原因', estimateHours:'預估時數', actualHours:'實際時數', forecastEnd:'預測完成日',
+    assignee:'認領者', claimedAt:'認領時間', links:'連結', milestones:'里程碑', brief:'說明書', todos:'待辦', tasks:'任務'
   };
   function conflictFieldText(path){
     let rest = String(path || ''), pre = '';
@@ -5154,6 +5267,7 @@
         reminderEnabled = !!d.enabled;
         if(typeof d.streakMail === 'boolean') streakMailEnabled = d.streakMail;
         if(typeof d.agentNotify === 'boolean') agentNotifyEnabled = d.agentNotify;
+        if(typeof d.weeklyMail === 'boolean') weeklyMailEnabled = d.weeklyMail;
         if(typeof d.leadDays === 'number') reminderLeadDays = d.leadDays;
         // 推播的三個開關同理：讀不回來的話按鈕會一律顯示預設值，即使他早就改過了
         for(const k of ['pushOverdue','pushStreak','pushToday']){
@@ -6250,7 +6364,7 @@
     if(terms) terms.textContent = tr('訂閱會自動續訂，可隨時在 iPhone 的「設定 → Apple ID → 訂閱項目」裡取消。取消後到期前仍可使用。付款由 App Store 處理。');
   }
 
-  const ACCT_CLOUD_SECTIONS = ['acctIdentity','acctPlan','acctReminder','acctIcs','acctDevices','acctMcp','acctGithub','acctDanger'];
+  const ACCT_CLOUD_SECTIONS = ['acctIdentity','acctPlan','acctReminder','acctIcs','acctDevices','acctHistory','acctMcp','acctGithub','acctDanger'];
   function acctRenderPlan(){
     const nameEl = document.getElementById('acctPlanName'), subEl = document.getElementById('acctPlanSub');
     if(!nameEl || !subEl || !accountMe) return;
@@ -6303,6 +6417,7 @@
 
     syncReminderBtn();
     acctLoadDevices();
+    histLoad();
     acctLoadMcp();
     agentLoadHookStatus();
   }
@@ -6371,8 +6486,36 @@
     agentSyncCapsNote(pro);     // 上線那一次：連線多了幾樣能力的說明，看過才收起來
     if(!pro) return;
     document.getElementById('acctMcpUrl').textContent = acctMcpUrl();
+    acctFillKeyProjects();
     acctLoadMcpConnections();
+    scoreLoad();
     acctLoadMcpActivity();
+  }
+  /** 建立金鑰時「只限這個專案」的選單：專案名是使用者打的字，一律 textContent */
+  function acctFillKeyProjects(){
+    const sel = document.getElementById('selMcpKeyProject');
+    if(!sel) return;
+    const keep = sel.value;
+    sel.textContent = '';
+    const all = document.createElement('option'); all.value = ''; all.textContent = tr('全部專案'); sel.appendChild(all);
+    for(const g of ganttProjects){
+      const o = document.createElement('option'); o.value = g.id; o.textContent = tr('只限') + '「' + g.name + '」'; sel.appendChild(o);
+    }
+    if([...sel.options].some(o => o.value === keep)) sel.value = keep;
+  }
+  /** 建立金鑰的 body：沒勾、沒選就跟以前一樣只有名稱（伺服器預設＝可寫、全部專案） */
+  function acctKeyBody(name){
+    const body = { name };
+    if(document.getElementById('chkMcpKeyRead').checked) body.scope = 'read';
+    const pid = document.getElementById('selMcpKeyProject').value;
+    if(pid) body.projectId = pid;
+    return body;
+  }
+  /** 這條連線現在的權限範圍，用人話說出來（顯示在每一條連線上） */
+  function acctScopeText(c){
+    const proj = c.projectId ? (ganttProjects.find(g => g.id === c.projectId) || null) : null;
+    const where = !c.projectId ? tr('全部專案') : (proj ? tf('只限「{0}」', proj.name) : tr('只限一個專案（這個專案現在不在了）'));
+    return (c.access === 'read' ? tr('只能讀') : tr('可讀寫')) + ' · ' + where;
   }
   async function acctLoadMcpConnections(){
     const el = document.getElementById('acctMcpConnList');
@@ -6407,6 +6550,10 @@
         };
         row.append(name, when, btn);
         item.appendChild(row);
+        // 權限範圍：只能讀嗎、限哪個專案（建立時決定，之後不能改——要改就撤銷、重建）
+        const scope = agentEl('div', 'agent-scope' + (c.access === 'read' || c.projectId ? ' narrow' : ''), acctScopeText(c));
+        scope.dataset.access = c.access === 'read' ? 'read' : 'write';
+        item.appendChild(scope);
         // 每條連線自己的設定：直接改／先審核、勾完成要我驗收、暫停（設定放在「連線」上，換 token 不會消失）
         item.appendChild(agentBuildConnSettings(c));
         const why = agentPausedText(c);
@@ -6472,7 +6619,7 @@
     const nameEl = document.getElementById('inputMcpKeyName');
     this.disabled = true;
     try{
-      const r = await fetch('/api/mcp/keys', { method:'POST', headers:{ 'content-type':'application/json' }, body: JSON.stringify({ name: nameEl.value }) });
+      const r = await fetch('/api/mcp/keys', { method:'POST', headers:{ 'content-type':'application/json' }, body: JSON.stringify(acctKeyBody(nameEl.value)) });
       const d = await r.json().catch(()=>({}));
       if(!r.ok){ alert(d.error || tr('建立失敗，請稍後再試。')); return; }
       document.getElementById('acctMcpKeyText').textContent = d.token;
@@ -9316,7 +9463,9 @@
     // agent 工作區：專案說明書（人寫給 agent 的規則）與最新進展（agent 寫的日誌，要連線才看得到）
     area.appendChild(agentBuildBrief(gp));
     area.appendChild(agentBuildTimeline(gp));
+    area.appendChild(riskBuild(gp));
     area.appendChild(agentBuildPrBoard(gp));
+    area.appendChild(pshareBuild(gp));
     area.appendChild(agentBuildMilestones(gp));
     area.appendChild(buildGanttChart(gp));
     area.appendChild(buildTaskTable(gp));
@@ -10016,6 +10165,7 @@
     if(!box || box.dataset.gpId !== gpId) return;
     const gp = ganttProjects.find(g => g.id === gpId);
     if(gp) agentFillTimeline(box, gp);
+    riskRender(gpId);        // 風險取自同一批日誌，跟著一起換
   }
   function agentFillTimeline(box, gp){
     const st = agentEvState(gp.id);
@@ -10224,7 +10374,7 @@
     for(const r of rows){
       const row = agentEl('div', 'agent-diff-row');
       row.appendChild(agentEl('span', 'agent-diff-ent', r.entity));
-      row.appendChild(agentEl('span', 'agent-diff-field', r.field));
+      row.appendChild(agentEl('span', 'agent-diff-field', CONFLICT_FIELD_LABEL[r.field] || r.field));   // 給人看的欄位名（同衝突對話框）
       const val = agentEl('span', 'agent-diff-val');
       if(r.before != null && r.after != null){
         val.appendChild(agentEl('span', 'old', r.before));
@@ -11011,6 +11161,389 @@
   document.getElementById('btnGhHide').onclick = agentHideHookSecret;
 
 
+  // ================= agent 工作區：第三批畫面（3B） =================
+  // 設計文件：docs/superpowers/specs/2026-11-21-agent-workspace.md（第三批、甲 2、第 21 件）。
+  // 伺服器端是 3A 做好的（版本歷史、鑰匙的範圍、風險、分享連結、每週摘要、成績單）；這裡只負責畫。
+  //
+  // 新增的前端函式一律用 hist／score／weekly／risk／pshare 前綴（同上一段：遮蔽事故發生過三次）。
+  // 版本的摘要、風險的內文、任務名、專案名都是使用者或 agent 寫的外部內容，一律 textContent。
+  // 分享連結的網址只存在畫面上與這一段的記憶體裡，**不進 localStorage／sessionStorage／snapshot()**。
+
+  // ---------------- 版本歷史（帳號頁） ----------------
+  const HIST_ENTITY = { item:'項目', majorProject:'大項目', ganttProject:'專案', ganttTask:'任務', dailyLog:'每日記錄', setting:'設定' };
+  const HIST_ACTOR = { user:'我', system:'每日留存' };
+  const histUi = { all:false, openId:null };
+
+  function histWhen(ms){
+    const d = new Date(ms);
+    const p = n => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + p(d.getMonth()+1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+
+  async function histLoad(){
+    const sub = document.getElementById('acctHistorySub');
+    const box = document.getElementById('histList');
+    if(!sub || !box || !cloudEnabled) return;
+    const pro = !!(accountMe && accountMe.plan === 'pro');
+    // 不是 Pro 也照樣讀清單：到期之後那是使用者自己的資料，已經留下的版本 30 天內仍然看得到、退得回去
+    sub.textContent = pro
+      ? tr('agent 每次修改之前、你自己的修改（每小時）、以及每天，都會留一版，保留 30 天。可以看某一版和現在差在哪，也可以整份退回到那一版；退回本身也退得回去。')
+      : tr('版本歷史只替 Pro 帳號留存新的版本；已經留下的版本在 30 天內仍然可以看，也可以退回。');
+    try{
+      const d = await agentJson('/api/history/versions');
+      histRender(box, d, pro);
+    }catch(e){
+      if(e.expired) return;
+      // 降級可以，沉默不行：畫面上說得出來，console 也要留下原因
+      console.error('history list failed', e);
+      box.textContent = '';
+      box.appendChild(agentEl('div', 'acct-sub', tr('版本歷史讀取失敗，其餘設定不受影響。')));
+    }
+  }
+
+  function histRender(box, d, pro){
+    box.textContent = '';
+    if(!d.configured){
+      box.appendChild(agentEl('div', 'acct-sub', tr('伺服器還沒有設定版本的儲存空間，所以目前沒有留版本。')));
+      return;
+    }
+    const list = Array.isArray(d.versions) ? d.versions : [];
+    if(!list.length){
+      box.appendChild(agentEl('div', 'acct-sub', pro ? tr('還沒有版本。agent 下一次修改之前會留第一版。') : tr('目前沒有可以看的版本。')));
+      return;
+    }
+    const shown = histUi.all ? list : list.slice(0, 8);
+    for(const v of shown) box.appendChild(histBuildRow(box, d, pro, v));
+    if(list.length > 8){
+      const more = agentEl('button', 'qbtn', histUi.all ? tr('只看最近 8 版') : tf('看全部（{0}）', list.length));
+      more.type = 'button';
+      more.onclick = ()=>{ histUi.all = !histUi.all; histRender(box, d, pro); };
+      box.appendChild(more);
+    }
+  }
+
+  function histBuildRow(box, d, pro, v){
+    const row = agentEl('div', 'hist-row');
+    row.dataset.versionId = v.id;
+    const top = agentEl('div', 'hist-top');
+    top.appendChild(agentEl('span', 'hist-when', histWhen(v.createdAt)));
+    top.appendChild(agentEl('span', 'hist-actor', HIST_ACTOR[v.actor] ? tr(HIST_ACTOR[v.actor]) : v.actor));   // actor 可能是 agent 的連線名稱：外部字串
+    top.appendChild(agentEl('span', 'hist-sum', v.summary || ''));
+    const btns = agentEl('div', 'hist-btns');
+    const diffBtn = agentEl('button', 'ghost-btn', tr('看差異')); diffBtn.type = 'button';
+    const backBtn = agentEl('button', 'ghost-btn', tr('退回到這一版')); backBtn.type = 'button';
+    btns.append(diffBtn, backBtn);
+    top.appendChild(btns);
+    row.appendChild(top);
+    const holder = agentEl('div', 'hist-diff');
+    row.appendChild(holder);
+    const msg = agentEl('div', 'agent-msg');
+    row.appendChild(msg);
+
+    diffBtn.onclick = async ()=>{
+      if(holder.childNodes.length){ holder.textContent = ''; histUi.openId = null; return; }
+      diffBtn.disabled = true; msg.className = 'agent-msg'; msg.textContent = '';
+      try{
+        const r = await agentJson('/api/history/versions/' + encodeURIComponent(v.id) + '/diff');
+        histRenderDiff(holder, r);
+        histUi.openId = v.id;
+      }catch(e){
+        if(e.expired) return;
+        console.error('history diff failed', e);
+        msg.className = 'agent-msg err';
+        // 410＝那一版的檔案已經不在了：伺服器的話原樣說出來
+        msg.textContent = e.message || tr('讀不到這一版，請稍後再試。');
+      }finally{ diffBtn.disabled = false; }
+    };
+    backBtn.onclick = async ()=>{
+      if(!confirm(tf('要把排程退回到 {0} 的版本嗎？\n現在這一份會先留成一版，所以之後還可以再退回來。', histWhen(v.createdAt)))) return;
+      backBtn.disabled = true; diffBtn.disabled = true;
+      msg.className = 'agent-msg'; msg.textContent = tr('退回中…');
+      try{
+        await agentSettle();      // 還沒推上去的本機修改先對齊，退回才不會與它互相蓋
+        await agentPost('/api/history/versions/' + encodeURIComponent(v.id) + '/restore');
+        msg.textContent = tr('已退回');
+        await agentAfterStateWrite();
+        histLoad();
+      }catch(e){
+        if(e.expired) return;
+        console.error('history restore failed', e);
+        msg.className = 'agent-msg err';
+        msg.textContent = e.message || tr('退回失敗，請稍後再試');
+        backBtn.disabled = false; diffBtn.disabled = false;
+      }
+    };
+    return row;
+  }
+
+  /** 差異：以「東西」為單位，不是 JSON 也不是文字 diff。刪除線＝那一版的值，綠色＝現在的值 */
+  function histRenderDiff(holder, r){
+    holder.textContent = '';
+    const rows = Array.isArray(r.rows) ? r.rows : [];
+    if(!rows.length){
+      holder.appendChild(agentEl('div', 'hist-diff-note', tr('這一版和現在一樣，沒有差異。')));
+      return;
+    }
+    holder.appendChild(agentEl('div', 'hist-diff-note', tf('這一版 → 現在，共 {0} 處不同。刪除線是那一版的值，綠色是現在的值；退回會讓現在的值變回那一版的。', r.total || rows.length)));
+    holder.appendChild(agentBuildDiff(rows.map(x => ({
+      entity: tr(HIST_ENTITY[x.entity] || x.entity) + '「' + x.name + '」',
+      field: x.field, before: x.before, after: x.after,
+    }))));
+    if(r.truncated) holder.appendChild(agentEl('div', 'hist-diff-note', tf('只列出前 {0} 處。', rows.length)));
+  }
+
+  // ---------------- agent 成績單（帳號頁，連線清單旁邊） ----------------
+  async function scoreLoad(){
+    const el = document.getElementById('acctMcpScore');
+    if(!el) return;
+    try{
+      const d = await agentJson('/api/agent/scorecard');
+      el.textContent = '';
+      const list = Array.isArray(d.connections) ? d.connections : [];
+      if(!list.length){ el.appendChild(agentEl('div', 'acct-sub', tr('還沒有資料。agent 開始改東西之後，這裡會有數字。'))); return; }
+      for(const c of list){
+        const line = agentEl('div', 'agent-score');
+        line.dataset.connId = c.connId;
+        line.appendChild(agentEl('b', null, c.name + (c.active ? '' : tr('（已撤銷）'))));
+        const parts = [
+          tf('改了 {0} 筆（被你復原 {1} 筆）', c.changes, c.undone),
+          tf('讓 {0} 個任務完成', c.tasksCompleted),
+          c.comparedTasks > 0
+            ? tf('預估 {0} 小時、實際 {1} 小時（{2} 個任務）', c.estimateHours, c.actualHours, c.comparedTasks)
+            : tr('還沒有預估與實際都填了的任務可以比'),
+        ];
+        line.appendChild(document.createTextNode('　' + parts.join(' · ')));
+        el.appendChild(line);
+      }
+    }catch(e){
+      if(e.expired) return;
+      console.error('agent scorecard failed', e);
+      el.textContent = '';
+      el.appendChild(agentEl('div', 'acct-sub', tr('成績單讀取失敗，其餘設定不受影響。')));
+    }
+  }
+
+  // ---------------- 第七顆通知開關：每週摘要信 ----------------
+  // 預設關（所有既有使用者都沒同意過這一種信）。與另外六顆互不連坐：只送自己那一欄，沒帶的伺服器沿用。
+  let weeklyMailEnabled = false;
+  const btnWeeklyMail = document.getElementById('btnWeeklyMail');
+  function syncWeeklyBtn(){
+    if(!btnWeeklyMail) return;
+    btnWeeklyMail.style.display = cloudEnabled ? '' : 'none';
+    btnWeeklyMail.textContent = weeklyMailEnabled ? tr('🗓 每週摘要信：開') : tr('🗓 每週摘要信：關');
+  }
+  if(btnWeeklyMail) btnWeeklyMail.onclick = async ()=>{
+    const next = !weeklyMailEnabled;
+    btnWeeklyMail.disabled = true;
+    try{
+      // enabled／leadDays／streakMail 一起送：這支端點的 enabled 沒帶會被當成「開」，不能順手把使用者關掉的逾期提醒打開
+      await agentPost('/api/reminder', { enabled: reminderEnabled, leadDays: reminderLeadDays, streakMail: streakMailEnabled, weeklyMail: next });
+      weeklyMailEnabled = next;
+      syncWeeklyBtn();
+    }catch(e){
+      if(e.expired) return;
+      console.error('weekly mail toggle failed', e);
+      alert(tr('目前離線，無法變更通知設定。'));
+    }finally{ btnWeeklyMail.disabled = false; }
+  };
+
+  // ---------------- 風險（專案頁） ----------------
+  // 資料就是「最新進展」已經讀下來的那一批日誌（kind=risk、status=open），不另外打端點。
+  // 只能關閉、不能編輯：風險是 agent 說的話，擁有者的動作只有「這個排除了」。
+  function riskBuild(gp){
+    const box = agentEl('div', 'agent-risks');
+    box.id = 'agentRisks';
+    box.dataset.gpId = gp.id;
+    riskFill(box, gp);
+    return box;
+  }
+  function riskRender(gpId){
+    const box = document.getElementById('agentRisks');
+    if(!box || box.dataset.gpId !== gpId) return;
+    const gp = ganttProjects.find(g => g.id === gpId);
+    if(gp) riskFill(box, gp);
+  }
+  function riskFill(box, gp){
+    const st = agentEvState(gp.id);
+    box.textContent = '';
+    box.appendChild(agentEl('div', 'agent-h', tr('風險')));
+    if(!cloudEnabled || st.status === 'failed'){ box.appendChild(agentEl('div', 'agent-line', tr('連線後才看得到'))); return; }
+    if(st.status !== 'ok'){ box.appendChild(agentEl('div', 'agent-line', tr('載入中…'))); return; }
+    const open = st.events.filter(e => e.kind === 'risk' && e.status === 'open');
+    if(!open.length){ box.appendChild(agentEl('div', 'agent-line', tr('目前沒有開著的風險。agent 發現可能趕不上、可能出問題的事，會記在這裡。'))); return; }
+    for(const e of open){
+      const row = agentEl('div', 'agent-risk');
+      const meta = agentEl('div', 'agent-risk-meta');
+      meta.appendChild(agentEl('span', 'agent-ev-actor', e.actor === 'user' ? tr('我') : e.actor));
+      const task = e.taskId ? (gp.tasks || []).find(x => x.id === e.taskId) : null;
+      if(task) meta.appendChild(agentEl('span', null, '→ ' + task.name));
+      meta.appendChild(agentEl('span', null, acctSince(e.createdAt)));
+      const msg = agentEl('span', 'agent-msg');
+      const b = agentEl('button', 'qbtn', tr('關閉這個風險')); b.type = 'button';
+      b.title = tr('這個風險排除了：它會從清單拿掉，並留下一筆「擁有者關閉了」的紀錄。');
+      b.onclick = async ()=>{
+        b.disabled = true; msg.className = 'agent-msg'; msg.textContent = '';
+        try{
+          await agentPost('/api/projects/events/' + encodeURIComponent(e.id) + '/close-risk');
+          await agentLoadEvents(gp.id, true);
+        }catch(err){
+          if(err.expired) return;
+          console.error('close risk failed', err);
+          b.disabled = false; msg.className = 'agent-msg err'; msg.textContent = err.message || tr('關閉失敗，請稍後再試');
+        }
+      };
+      meta.append(msg, b);
+      row.appendChild(meta);
+      // 內文是 agent 寫的外部內容（被遮蔽的內文是空的）
+      row.appendChild(agentEl('div', 'agent-risk-body', e.redactedAt ? tr('（內容已被遮蔽）') : e.body));
+      box.appendChild(row);
+    }
+  }
+
+  // ---------------- 公開的分享連結（專案頁） ----------------
+  // 內容預設只有專案名、里程碑、任務狀態；要多公開哪幾種由擁有者勾（預設一種都不勾）。
+  // 網址只在產生的那一刻拿到一次：放在這個變數（記憶體）與畫面上，按「我已複製，收起來」就清掉，
+  // 絕不進 localStorage／sessionStorage／snapshot()。放在記憶體而不是只放在 DOM，是因為專案頁
+  // 會在 commit 時整頁重建——只放 DOM 的話，使用者還沒複製，網址就被重畫吃掉了。
+  const PSHARE_KINDS = [
+    ['events', '進展與交接'], ['questions', '提問與回答'], ['decisions', '決策'],
+    ['risks', '還開著的風險'], ['prs', 'PR（標題與狀態，不含作者）'],
+  ];
+  const pshareReveal = { gpId:null, url:'' };
+  const pshareSt = new Map();     // gpId -> { status:'idle'|'loading'|'ok'|'failed', active, sel:Set, busy }
+  function pshareState(id){
+    let s = pshareSt.get(id);
+    if(!s){ s = { status:'idle', active:null, sel:new Set(), busy:false, touched:false }; pshareSt.set(id, s); }
+    return s;
+  }
+  function pshareClearReveal(){ pshareReveal.gpId = null; pshareReveal.url = ''; }
+
+  function pshareLoad(gpId, force){
+    const st = pshareState(gpId);
+    if(!cloudEnabled){ pshareRender(gpId); return Promise.resolve(); }
+    if(st.busy) return Promise.resolve();
+    if(!force && st.status === 'ok') return Promise.resolve();
+    st.busy = true;
+    if(st.status !== 'ok') st.status = 'loading';
+    return agentJson('/api/projects/' + encodeURIComponent(gpId) + '/share')
+      .then(d=>{
+        st.status = 'ok'; st.active = d.active || null;
+        if(!st.touched) st.sel = new Set(st.active ? st.active.include : []);
+      })
+      .catch(e=>{
+        if(e.expired) return;
+        console.error('project share status failed', e);
+        st.status = 'failed';
+      })
+      .then(()=>{ st.busy = false; pshareRender(gpId); });
+  }
+  function pshareBuild(gp){
+    if(pshareReveal.gpId && pshareReveal.gpId !== gp.id) pshareClearReveal();
+    const box = agentEl('div', 'agent-share');
+    box.id = 'agentShare';
+    box.dataset.gpId = gp.id;
+    pshareFill(box, gp);
+    pshareLoad(gp.id, false);
+    return box;
+  }
+  function pshareRender(gpId){
+    const box = document.getElementById('agentShare');
+    if(!box || box.dataset.gpId !== gpId) return;
+    const gp = ganttProjects.find(g => g.id === gpId);
+    if(gp) pshareFill(box, gp);
+  }
+  const PSHARE_BASE = '專案名稱、里程碑、每個任務的名稱／起訖日／狀態／進度／預測完成日';
+
+  function pshareFill(box, gp){
+    const st = pshareState(gp.id);
+    box.textContent = '';
+    box.appendChild(agentEl('div', 'agent-h', tr('公開的分享連結（唯讀）')));
+    if(!cloudEnabled || st.status === 'failed'){ box.appendChild(agentEl('div', 'agent-line', tr('連線後才看得到'))); return; }
+    if(st.status !== 'ok'){ box.appendChild(agentEl('div', 'agent-line', tr('載入中…'))); return; }
+
+    // 這個連結公開了什麼：寫清楚（有連結時以伺服器記的為準；沒有時說「產生之後會是」）
+    const inc = st.active ? st.active.include : [];
+    const extra = PSHARE_KINDS.filter(k => inc.indexOf(k[0]) >= 0).map(k => tr(k[1]));
+    const what = tr(PSHARE_BASE) + (extra.length ? '；' + tr('另外還有') + ' ' + extra.join('、') : '');
+    const state = agentEl('div', 'agent-line');
+    state.dataset.role = 'share-state';
+    state.textContent = st.active
+      ? tf('目前有一個公開連結（{0} 產生）。知道網址的人不用登入就看得到：{1}。永遠不含：專案說明書、筆記、每日記錄、其他專案。', acctYmd(st.active.createdAt), what)
+      : tf('目前沒有公開連結。產生之後，知道網址的人不用登入就看得到：{0}。永遠不含：專案說明書、筆記、每日記錄、其他專案。', what);
+    box.appendChild(state);
+
+    box.appendChild(agentEl('div', 'agent-line', st.active ? tr('重新產生時，要多公開哪幾種？（預設一種都不勾）') : tr('要多公開哪幾種？（預設一種都不勾）')));
+    const incBox = agentEl('div', 'agent-share-inc');
+    for(const k of PSHARE_KINDS){
+      const lab = agentEl('label', 'acct-chk');
+      const cb = document.createElement('input'); cb.type = 'checkbox'; cb.value = k[0];
+      cb.checked = st.sel.has(k[0]);
+      cb.onchange = ()=>{ st.touched = true; if(cb.checked) st.sel.add(k[0]); else st.sel.delete(k[0]); };
+      lab.append(cb, agentEl('span', null, tr(k[1])));
+      incBox.appendChild(lab);
+    }
+    box.appendChild(incBox);
+
+    const act = agentEl('div', 'agent-actions');
+    const msg = agentEl('span', 'agent-msg');
+    const mk = agentEl('button', 'agent-send', st.active ? tr('重新產生（舊的立刻失效）') : tr('產生連結')); mk.type = 'button';
+    act.appendChild(mk);
+    let off = null;
+    if(st.active){
+      off = agentEl('button', 'qbtn', tr('撤銷連結')); off.type = 'button';
+      act.appendChild(off);
+    }
+    act.appendChild(msg);
+    box.appendChild(act);
+
+    mk.onclick = async ()=>{
+      if(st.active && !confirm(tr('重新產生會讓舊的網址立刻失效，已經拿到舊網址的人就打不開了。要繼續嗎？'))) return;
+      mk.disabled = true; if(off) off.disabled = true; msg.className = 'agent-msg'; msg.textContent = '';
+      try{
+        const d = await agentPost('/api/projects/' + encodeURIComponent(gp.id) + '/share', { include: PSHARE_KINDS.map(k => k[0]).filter(k => st.sel.has(k)) });
+        pshareReveal.gpId = gp.id; pshareReveal.url = d.url;
+        st.touched = false;
+        await pshareLoad(gp.id, true);
+      }catch(e){
+        if(e.expired) return;
+        console.error('project share create failed', e);
+        mk.disabled = false; if(off) off.disabled = false;
+        msg.className = 'agent-msg err'; msg.textContent = e.message || tr('產生失敗，請稍後再試');
+      }
+    };
+    if(off) off.onclick = async ()=>{
+      if(!confirm(tr('撤銷之後，這個網址立刻失效。要撤銷嗎？'))) return;
+      off.disabled = true; mk.disabled = true; msg.className = 'agent-msg'; msg.textContent = '';
+      try{
+        await agentJson('/api/projects/' + encodeURIComponent(gp.id) + '/share', { method:'DELETE' });
+        pshareClearReveal(); st.touched = false;
+        await pshareLoad(gp.id, true);
+      }catch(e){
+        if(e.expired) return;
+        console.error('project share revoke failed', e);
+        off.disabled = false; mk.disabled = false;
+        msg.className = 'agent-msg err'; msg.textContent = e.message || tr('撤銷失敗，請稍後再試');
+      }
+    };
+
+    // 剛產生的網址：只顯示這一次
+    if(pshareReveal.gpId === gp.id && pshareReveal.url){
+      const rev = agentEl('div', 'agent-share-url');
+      rev.id = 'agentShareReveal';
+      rev.appendChild(agentEl('div', 'agent-line', tr('網址只會顯示這一次，請現在複製起來。弄丟了就重新產生（舊的會立刻失效）。')));
+      const row = agentEl('div', 'acct-row');
+      row.style.alignItems = 'center';
+      const code = agentEl('code', 'acct-mcp-url', pshareReveal.url); code.id = 'agentShareUrl';
+      const cp = agentEl('button', 'ghost-btn', tr('複製網址')); cp.type = 'button';
+      cp.onclick = ()=> acctCopy(pshareReveal.url, cp);
+      const hide = agentEl('button', 'ghost-btn', tr('我已複製，收起來')); hide.type = 'button'; hide.id = 'btnShareHide';
+      hide.onclick = ()=>{ pshareClearReveal(); pshareFill(box, gp); };
+      row.append(code, cp, hide);
+      rev.appendChild(row);
+      box.appendChild(rev);
+    }
+  }
+
   // ================= 分享 =================
   // 分享的資源不進 snapshot()，也不寫進 localStorage：它們的權威來源是對方的
   // 帳號。若在本地留一份快取，離線編輯後會與對方的版本無聲分歧——而分享的
@@ -11746,6 +12279,7 @@
       reminderEnabled = false;
       streakMailEnabled = false;
       agentNotifyEnabled = false;
+      weeklyMailEnabled = false;
       pushPrefs.pushOverdue = false; pushPrefs.pushStreak = false; pushPrefs.pushToday = false;
       syncReminderBtn();
       if(acctUnsubMsg) acctUnsubMsg.textContent = tr('已經全部關掉了。要再打開，按上面那幾顆就可以。');
@@ -11792,6 +12326,7 @@
       : tr('開啟後，有逾期項目時會寄信到你的註冊信箱（沒有逾期就不寄）');
 
     syncStreakMailBtn();
+    syncWeeklyBtn();          // 第七顆（每週摘要信）
     syncAgentNotifyBtn();     // 第六顆（agent 問我問題時通知我），同樣放在 return 之前
     // 取消訂閱那一區也要跟著（單機模式下沒有伺服器可以關）。**和下面那一行
     // 一樣要放在 return 之前**——放在後面的話 selReminderLead 不存在時它就

@@ -51,6 +51,10 @@
   .lede{margin:0 0 16px;font-size:13.5px;line-height:1.7;color:var(--text-muted);}
   .who{font-weight:700;color:var(--text);}
   ul{margin:0 0 16px;padding-left:20px;font-size:13px;line-height:1.8;color:var(--text-muted);}
+  .opts{margin:0 0 16px;padding:12px 14px;border:1px solid var(--hairline);border-radius:10px;background:var(--panel-2);font-size:13px;line-height:1.7;}
+  .opts label{display:flex;gap:8px;align-items:center;color:var(--text);}
+  .opts select{width:100%;margin-top:6px;padding:9px 10px;font-family:var(--sans);font-size:16px;color:var(--text);background:var(--panel);border:1px solid var(--hairline);border-radius:8px;}
+  .opts .note{margin-top:8px;font-size:12px;color:var(--text-muted);}
   .row{display:flex;gap:10px;}
   button{flex:1;padding:12px;border-radius:9px;font-family:var(--sans);font-size:14.5px;font-weight:700;cursor:pointer;}
   button.allow{border:none;background:var(--accent-fill);color:var(--on-accent);}
@@ -75,6 +79,13 @@
     <li>向你提問（等你回覆），也可能因此寄通知給你；你可以隨時把這條連線設成「先審核」、要求「勾完成要我驗收」，或暫停它</li>
     <li>隨時可以在「我的帳號 › 連接 AI agent」撤銷</li>
   </ul>
+  <!-- 權限範圍（第三批）：預設就是以前的樣子（可以寫、全部專案）；要收窄才動它 -->
+  <div class="opts" id="opts" hidden>
+    <label><input type="checkbox" id="chkRead"> 只能讀（不能修改任何東西）</label>
+    <label for="selProject" style="margin-top:10px;display:block;">只限這個專案</label>
+    <select id="selProject"><option value="">全部專案</option></select>
+    <div class="note">只限一個專案的連線看不到別的專案，也碰不到項目與每日記錄。勾了「只能讀」，上面列的新增、修改、刪除、寫筆記與提問都不會發生。</div>
+  </div>
   <div class="row" id="actions" hidden>
     <button class="deny" type="button" id="btnDeny">拒絕</button>
     <button class="allow" type="button" id="btnAllow">允許</button>
@@ -111,7 +122,14 @@
   function decide(approve){
     document.getElementById('btnAllow').disabled = true;
     document.getElementById('btnDeny').disabled = true;
-    post('/api/oauth/decision', Object.assign({ approve: approve }, req))
+    var extra = {};
+    if(approve){
+      // 預設不帶＝伺服器照原本的樣子（可寫、全部專案）
+      if(document.getElementById('chkRead').checked) extra.access = 'read';
+      var pid = document.getElementById('selProject').value;
+      if(pid) extra.projectId = pid;
+    }
+    post('/api/oauth/decision', Object.assign({ approve: approve }, extra, req))
       .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, d: d }; }); })
       .then(function(x){
         // 轉去哪裡由伺服器決定（它驗過 redirect_uri）；這裡只照著走
@@ -124,6 +142,22 @@
   }
   document.getElementById('btnAllow').onclick = function(){ decide(true); };
   document.getElementById('btnDeny').onclick = function(){ decide(false); };
+
+  // 專案清單從 /api/state 拿（同源、帶 cookie）；拿不到就只剩「全部專案」，不擋授權
+  function loadProjects(){
+    fetch('/api/state', { credentials:'same-origin', cache:'no-store' })
+      .then(function(r){ if(!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(d){
+        var list = (d && d.state && Array.isArray(d.state.ganttProjects)) ? d.state.ganttProjects : [];
+        var sel = document.getElementById('selProject');
+        list.forEach(function(g){
+          if(!g || typeof g.id !== 'string') return;
+          var o = document.createElement('option'); o.value = g.id; o.textContent = String(g.name || '（未命名）');   // 專案名是使用者打的字：textContent
+          sel.appendChild(o);
+        });
+      })
+      .catch(function(e){ console.error('authorize: projects failed', e); });
+  }
 
   post('/api/oauth/info', req).then(function(r){
     if(r.status === 401){
@@ -146,6 +180,8 @@
         return;
       }
       document.getElementById('actions').hidden = false;
+      document.getElementById('opts').hidden = false;
+      loadProjects();
     });
   }).catch(function(e){ console.error('oauth info failed', e); lede.textContent = '連線失敗，請稍後再試。'; });
 })();

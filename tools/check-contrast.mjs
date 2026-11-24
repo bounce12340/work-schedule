@@ -532,7 +532,16 @@ const AGENT_DATA = {
     agentEv('e3', 'handoff', '交接：下一步做視覺', { ago: 7200000, taskId: 'tW' }),
     agentEv('e4', 'decision', '問題：x\n決定：y', { ago: 8000000 }),
     agentEv('e5', 'progress', '', { redactedAt: Date.now() - 86400000, ago: 90000000 }),
+    // 3B：一個還開著的風險（專案頁的「風險」那一塊要有東西可量）
+    agentEv('r1', 'risk', '廠商可能來不及交件，上線會晚', { status: 'open', taskId: 'tB', ago: 100000000 }),
   ],
+  // 3B：版本歷史、成績單、分享連結（按「產生連結」之後才有 active——「撤銷」與「重新產生」要有東西可量）
+  versions: [
+    { id: 'v1', createdAt: Date.now() - 3600e3, actor: 'Claude Code', summary: 'agent 修改之前：改了任務日期', bytes: 1234 },
+    { id: 'v2', createdAt: Date.now() - 7200e3, actor: 'system', summary: '每日留存', bytes: 1200 },
+  ],
+  scorecard: [{ connId: 'c1', name: 'Claude Code', active: true, changes: 12, undone: 2, tasksCompleted: 3, estimateHours: 10, actualHours: 12, comparedTasks: 2 }],
+  share: null,
   questions: [{ ...agentEv('q1', 'question', '要用哪個方案？', { status: 'open', options: ['甲案', '乙案'], taskId: 'tB', defaultAfter: plusD(-1) }),
     projectName: '新廠專案', taskName: '卡住的任務', pastDeadline: true }],
   proposals: [
@@ -552,9 +561,25 @@ const AGENT_DATA = {
     { id: 'e', number: 70, repo: 'o/r', url: 'https://github.com/o/r/pull/70', projectId: 'g1', taskId: null, title: '關掉的 PR', state: 'closed', checks: 'none', review: 'none', source: 'agent', updatedAt: Date.now() - 172800000 },
   ],
   connections: [
-    { id: 'c1', kind: 'oauth', name: 'Claude Code', createdAt: 1, lastUsedAt: null, mode: 'review', paused: false, needsAcceptance: true, pausedReason: null },
-    { id: 'c2', kind: 'key', name: '自動暫停的金鑰', createdAt: 2, lastUsedAt: null, mode: 'direct', paused: true, needsAcceptance: false, pausedReason: 'auto' },
+    { id: 'c1', kind: 'oauth', name: 'Claude Code', access: 'write', projectId: null, createdAt: 1, lastUsedAt: null, mode: 'review', paused: false, needsAcceptance: true, pausedReason: null },
+    { id: 'c2', kind: 'key', name: '自動暫停的金鑰', access: 'read', projectId: 'g1', createdAt: 2, lastUsedAt: null, mode: 'direct', paused: true, needsAcceptance: false, pausedReason: 'auto' },
   ],
+};
+// 公開分享頁（p.html）讀到的內容：每一種畫面元素都要有（逾期紅條、預測虛線、有風險的菱形、勾選才多帶的各區）
+const PUBLIC_DATA = {
+  project: { name: '公開的專案' }, today: plusD(0),
+  milestones: [{ name: '上線', date: plusD(10), atRisk: true, reason: '把關的任務預測會晚' }, { name: '驗收', date: plusD(200), atRisk: false }],
+  tasks: [
+    { name: '逾期又預測更晚', start: plusD(-60), end: plusD(-5), status: 'doing', progress: 40, done: false, forecastEnd: plusD(14) },
+    { name: '已完成的任務', start: plusD(-80), end: plusD(-70), status: 'todo', progress: 100, done: true, forecastEnd: null },
+    { name: '卡住的任務', start: plusD(-3), end: plusD(40), status: 'blocked', progress: 10, done: false, forecastEnd: plusD(36) },
+    { name: '一般進行中', start: plusD(0), end: plusD(60), status: 'todo', progress: 0, done: false, forecastEnd: null },
+  ],
+  includes: ['events', 'risks', 'prs'],
+  events: [{ kind: 'progress', by: 'Claude Code', at: new Date().toISOString(), text: '整理完訪談紀錄' }],
+  risks: [{ by: 'Claude Code', at: new Date().toISOString(), text: '廠商可能來不及交件' }],
+  prs: [{ repo: 'o/r', number: 5, title: '公開的 PR', url: 'https://github.com/o/r/pull/5', state: 'open', checks: 'failing', review: 'none' },
+        { repo: 'o/r', number: 4, title: '已通過的 PR', url: 'https://github.com/o/r/pull/4', state: 'merged', checks: 'passing', review: 'approved' }],
 };
 const agentSrv = createServer((q, r) => {
   const u = new URL(q.url, 'http://x');
@@ -570,11 +595,21 @@ const agentSrv = createServer((q, r) => {
       ? send(200, { url: 'https://x.test/api/github/hook/TOKENTOKENTOKENTOKEN', secret: 'SECRETSECRET', note: '' }) : send(200, { configured: false, createdAt: null });   // 沒設定過：按「建立」不會跳 confirm（Playwright 會自動取消它）
     if (u.pathname === '/api/mcp/connections') return send(200, { pro: true, connections: AGENT_DATA.connections });
     if (u.pathname === '/api/mcp/activity') return send(200, { changes: [] });
+    if (u.pathname === '/api/history/versions') return send(200, { configured: true, versions: AGENT_DATA.versions });
+    if (/^\/api\/history\/versions\/[^/]+\/diff$/.test(u.pathname)) return send(200, { rows: [
+      { entity: 'ganttTask', id: 'g1/tO', name: '新廠專案／逾期又進行中', field: 'end', before: '2026-02-01', after: '2026-03-01' },
+      { entity: 'item', id: 'i1', name: '某個項目', field: '（新增）', before: null, after: '某個項目' }], total: 2, truncated: false });
+    if (u.pathname === '/api/agent/scorecard') return send(200, { windowDays: 90, connections: AGENT_DATA.scorecard });
+    if (/^\/api\/projects\/[^/]+\/share$/.test(u.pathname)) {
+      if (q.method === 'POST') { AGENT_DATA.share = { id: 's1', createdAt: Date.now(), include: ['risks'] }; return send(200, { id: 's1', token: 'T', url: 'https://x.test/p/TOKENTOKENTOKENTOKENTOKEN', include: ['risks'] }); }
+      return send(200, { active: AGENT_DATA.share });
+    }
+    if (/^\/api\/p\//.test(u.pathname)) return send(200, PUBLIC_DATA);
     if (u.pathname === '/api/shares') return send(200, { outgoing: [], incoming: [] });
     if (u.pathname === '/api/activity') return send(200, { activity: [] });
     return send(200, { ok: true });
   }
-  const n = u.pathname.slice(1) || 'index.html';
+  const n = /^\/p\/[^/]+$/.test(u.pathname) ? 'p.html' : (u.pathname.slice(1) || 'index.html');
   let b; try { b = readFileSync(PUBLIC + n); } catch { return send(404, 'x', 'text/plain'); }
   send(200, b.toString('utf8'), 'text/html');
 });
@@ -615,6 +650,19 @@ const AGENT_2B_ACCOUNT = [
   ['#acctGhStatus', 'GitHub 通知：狀態'], ['#btnGhCreate', 'GitHub 通知：重新產生'], ['#btnGhDelete', 'GitHub 通知：移除'],
   ['.acct-gh-secret .acct-sub', 'GitHub 通知：只顯示一次的說明'], ['.acct-gh-secret li', 'GitHub 通知：設定步驟'], ['#btnGhHide', 'GitHub 通知：我已複製'],
 ];
+// 3B：專案頁的風險與分享連結、帳號頁的版本歷史／範圍／成績單／每週摘要
+const AGENT_3B_PROJECT = [
+  ['.agent-risks .agent-h', '風險：標題'], ['.agent-risk-meta', '風險：誰與多久前'], ['.agent-risk-body', '風險：內文'], ['.agent-risk .qbtn', '風險：「關閉這個風險」'],
+  ['.agent-share .agent-h', '分享連結：標題'], ['.agent-share [data-role=share-state]', '分享連結：公開了什麼'], ['.agent-share > .agent-line', '分享連結：勾選的說明'],
+  ['.agent-share .acct-chk', '分享連結：勾選項目'], ['.agent-share .agent-send', '分享連結：「產生／重新產生」'], ['.agent-share .qbtn', '分享連結：「撤銷連結」'],
+  ['.agent-share-url .agent-line', '分享連結：只顯示一次的說明（琥珀底）'], ['.agent-share-url .ghost-btn', '分享連結：複製／收起來'],
+];
+const AGENT_3B_ACCOUNT = [
+  ['#acctHistorySub', '版本歷史：說明'], ['.hist-when', '版本歷史：時間'], ['.hist-actor', '版本歷史：誰'], ['.hist-sum', '版本歷史：摘要'], ['.hist-btns .ghost-btn', '版本歷史：看差異／退回'],
+  ['.hist-diff-note', '版本歷史：差異的說明'], ['.hist-row .agent-diff-val .old', '版本歷史：差異（那一版的值）'], ['.hist-row .agent-diff-val .new', '版本歷史：差異（現在的值）'],
+  ['.agent-scope:not(.narrow)', '連線的範圍'], ['.agent-scope.narrow', '連線的範圍（有收窄）'], ['.agent-score', '成績單：一條連線'], ['.agent-score b', '成績單：連線名稱'],
+  ['#btnWeeklyMail', '第七顆通知開關（每週摘要）'], ['#viewAccount .acct-chk', '建立金鑰：只能讀'],
+];
 const AGENT_LIVE = [['#agentLive', '「agent 剛更新了」那一條'], ['#btnAgentLive', '「更新畫面」按鈕']];
 const AGENT_ACCOUNT = [
   ['.agent-caps', '一次性的能力說明'], ['.agent-conn-set .ghost-btn:not(.on)', '連線設定的開關（平常）'], ['.agent-conn-set .ghost-btn.on', '連線設定的開關（開著）'],
@@ -622,6 +670,7 @@ const AGENT_ACCOUNT = [
 ];
 for (const theme of ['light', 'dark']) {
   const label = theme === 'light' ? '亮色' : '暗色';
+  AGENT_DATA.share = null;         // 兩種主題各自從「還沒有連結」開始：已經有連結的話，按「產生」會先跳 confirm
   const page = await br.newPage({ viewport: { width: 1280, height: 900 }, locale: 'zh-TW' });
   await page.clock.install();
   await page.addInitScript(([t, st]) => { try { localStorage.setItem('workSchedule.v1.theme', t); localStorage.setItem('workSchedule.v1', JSON.stringify(st)); } catch (e) {} },
@@ -644,6 +693,13 @@ for (const theme of ['light', 'dark']) {
   await page.locator('#agentPrs .agent-pr-more').click();
   await page.waitForTimeout(250);
   rows.push(...await page.evaluate(measure, AGENT_2B));
+  // 3B：風險（資料裡有一筆開著的）、分享連結（先按「產生連結」，撤銷鈕與「只顯示一次」那一塊才造得出來）
+  await page.waitForSelector('#agentRisks .agent-risk', { timeout: 8000 });
+  await page.waitForSelector('#agentShare .agent-send', { timeout: 8000 });
+  await page.locator('#agentShare .agent-send').click();
+  await page.waitForSelector('#agentShareUrl', { timeout: 5000 });
+  await page.waitForTimeout(200);
+  rows.push(...await page.evaluate(measure, AGENT_3B_PROJECT));
   // 圖形（不是字）：菱形與虛線要與底色有 3:1（WCAG 非文字對比）。三種菱形都要有
   const gfx = await page.evaluate(() => {
     const lum = ([r, g, b]) => { const f = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
@@ -678,6 +734,12 @@ for (const theme of ['light', 'dark']) {
   await page.waitForSelector('#acctMcpConnList .agent-conn', { timeout: 8000 });
   await page.waitForTimeout(300);
   rows.push(...await page.evaluate(measure, AGENT_ACCOUNT));
+  // 3B：版本歷史先把一版的差異打開，成績單與範圍等它們自己畫出來
+  await page.waitForSelector('#histList .hist-row', { timeout: 8000 });
+  await page.locator('#histList .hist-row .hist-btns .ghost-btn').first().click();
+  await page.waitForSelector('#histList .agent-diff-row', { timeout: 5000 });
+  await page.waitForSelector('#acctMcpScore .agent-score', { timeout: 8000 });
+  rows.push(...await page.evaluate(measure, AGENT_3B_ACCOUNT));
   await page.locator('#btnGhCreate').click();       // 2B：把「只顯示一次」那一塊造出來
   await page.waitForSelector('#acctGhSecret', { state: 'visible', timeout: 5000 });
   rows.push(...await page.evaluate(measure, AGENT_2B_ACCOUNT));
@@ -688,6 +750,69 @@ for (const theme of ['light', 'dark']) {
     const ok = r.ratio >= r.need;
     console.log(`  ${ok ? '✓' : '✗'}  ${String(r.ratio).padStart(5)}:1  (需要 ${r.need}:1)  ${r.label}  ${r.px}px`);
     if (!ok) problems.push(`agent 工作區・${label}｜${r.label}：${r.ratio}:1，低於 ${r.need}:1`);
+  }
+  await page.close();
+}
+
+// ---------- 公開分享頁（p.html）：自己一份 CSS、亮暗兩組變數 ----------
+const PUBLIC_TARGETS = [
+  ['h1', '專案名稱'], ['.wrap > .sub', '副標'], ['.expose', '這個連結公開了什麼'], ['.expose b', '「這個連結公開了：」'], ['h2', '區塊標題'],
+  ['.ms-row span:nth-child(2)', '里程碑名稱'], ['.ms-date', '里程碑日期'], ['.ms-risk', '里程碑：有風險'], ['.g-axis', '甘特：起訖日'],
+  ['.g-name .n', '任務名稱'], ['.g-st', '任務狀態'], ['.g-meta', '任務日期與進度'], ['.g-late', '預測晚 N 天'],
+  ['.ev-meta', '日誌：誰與日期'], ['.ev-body', '日誌：內文'], ['.risk-item .ev-body', '風險：內文'], ['.pr a', 'PR：連結'], ['.pr .s', 'PR：狀態'], ['.pr .s.bad', 'PR：測試失敗'], ['.foot', '頁尾'],
+];
+for (const theme of ['light', 'dark']) {
+  const label = theme === 'light' ? '亮色' : '暗色';
+  const page = await br.newPage({ viewport: { width: 390, height: 900 }, locale: 'zh-TW' });
+  await page.addInitScript(t => { try { localStorage.setItem('workSchedule.v1.theme', t); } catch (e) {} }, theme);
+  await page.goto(`http://localhost:${AGENT_PORT}/p/TOKENTOKENTOKENTOKENTOKEN`);
+  await page.waitForSelector('h1', { timeout: 8000 });
+  const rows = await page.evaluate(measure, PUBLIC_TARGETS);
+  // 圖形：長條（一般／完成／逾期）與預測虛線要與軌道有 3:1；菱形（有風險與否）與卡片底
+  const gfx = await page.evaluate(() => {
+    const lum = ([r, g, b]) => { const f = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+    const rgb = s => (s.match(/[\d.]+/g) || []).slice(0, 3).map(Number);
+    const ratio = (a, b) => { const x = lum(a), y = lum(b); return +((Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)).toFixed(2); };
+    const track = rgb(getComputedStyle(document.querySelector('.g-track')).backgroundColor);
+    const card = rgb(getComputedStyle(document.querySelector('.card')).backgroundColor);
+    const out = [];
+    for (const [sel, bg, lab, prop] of [['.g-bar:not(.done):not(.overdue)', track, '長條：一般'], ['.g-bar.done', track, '長條：已完成'], ['.g-bar.overdue', track, '長條：逾期（--red）'],
+      ['.g-fc', track, '預測的虛線', 'borderTopColor'], ['.g-fc-early', track, '預測較早的細記號'], ['.dia:not(.risk)', card, '菱形：一般'], ['.dia.risk', card, '菱形：有風險']]) {
+      const e = document.querySelector(sel);
+      out.push(e ? { label: lab, ratio: ratio(rgb(getComputedStyle(e)[prop || 'backgroundColor']), bg) } : { label: lab, missing: true, sel });
+    }
+    return out;
+  });
+  console.log(`\n===== 公開分享頁・${label} =====`);
+  for (const r of rows) {
+    if (r.missing) { console.log(`  ✗  ${r.label}（找不到 ${r.sel}——假資料沒有把它造出來，這條斷言是空的）`); problems.push(`公開分享頁・${label}｜${r.label}：找不到 ${r.sel}（斷言是空的）`); continue; }
+    const ok = r.ratio >= r.need;
+    console.log(`  ${ok ? '✓' : '✗'}  ${String(r.ratio).padStart(5)}:1  (需要 ${r.need}:1)  ${r.label}  ${r.px}px`);
+    if (!ok) problems.push(`公開分享頁・${label}｜${r.label}：${r.ratio}:1，低於 ${r.need}:1`);
+  }
+  for (const g of gfx) {
+    if (g.missing) { console.log(`  ✗  ${g.label}（找不到 ${g.sel}）`); problems.push(`公開分享頁・${label}｜${g.label}：找不到 ${g.sel}（斷言是空的）`); continue; }
+    const ok = g.ratio >= 3;
+    console.log(`  ${ok ? '✓' : '✗'}  ${String(g.ratio).padStart(5)}:1  (需要 3:1)  ${g.label}（圖形）`);
+    if (!ok) problems.push(`公開分享頁・${label}｜${g.label}：${g.ratio}:1，低於 3:1`);
+  }
+  await page.close();
+}
+// 失效連結的那一頁（沒有專案內容，只有一句話）
+for (const theme of ['light', 'dark']) {
+  const label = theme === 'light' ? '亮色' : '暗色';
+  const page = await br.newPage({ viewport: { width: 390, height: 700 }, locale: 'zh-TW' });
+  await page.addInitScript(t => { try { localStorage.setItem('workSchedule.v1.theme', t); } catch (e) {} }, theme);
+  await page.route('**/api/p/**', r => r.fulfill({ status: 404, body: '{"error":"x"}', contentType: 'application/json' }));
+  await page.goto(`http://localhost:${AGENT_PORT}/p/GONE`);
+  await page.waitForSelector('.msg .big', { timeout: 8000 });
+  const rows = await page.evaluate(measure, [['.msg .big', '失效連結：標題'], ['.msg .sub', '失效連結：說明']]);
+  console.log(`\n===== 公開分享頁（失效）・${label} =====`);
+  for (const r of rows) {
+    if (r.missing) { console.log(`  ✗  ${r.label}（找不到）`); problems.push(`公開分享頁（失效）・${label}｜${r.label}：找不到（斷言是空的）`); continue; }
+    const ok = r.ratio >= r.need;
+    console.log(`  ${ok ? '✓' : '✗'}  ${String(r.ratio).padStart(5)}:1  (需要 ${r.need}:1)  ${r.label}`);
+    if (!ok) problems.push(`公開分享頁（失效）・${label}｜${r.label}：${r.ratio}:1，低於 ${r.need}:1`);
   }
   await page.close();
 }

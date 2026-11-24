@@ -277,11 +277,11 @@ agent 可以自己勾完成——夥伴會長大、進度條會滿，但東西�
 | 功能 | 重點 |
 |---|---|
 | **專案現況頁** | 一頁：里程碑、甘特圖（含預測線）、最新進展、等你決定、風險 |
-| **唯讀分享連結**（✅ 3A 伺服器端） | `/p/:token`，token 只存雜湊、可撤銷（同 ICS）。**只給這一個專案**、不含每日記錄與其他專案。內容由伺服器從 state＋events 組出來（甘特任務是固定日期，不需要 occurrence 引擎） |
-| **每週摘要信**（✅ 3A：`kind='weekly'`、第七顆開關 `weekly_mail` **預設關**、星期一～三寄、一週一封、沒事／休假／失敗都不記成送過、退訂只關自己） | 走既有的 cron 與 `mail_log`；自己一個開關、沒事不寄、休假那天不寄、帶退訂連結（訂閱信的規則全部適用） |
-| **風險清單**（✅ 3A：agent 用 `add_project_event(kind=risk)` 開、`closesEventId` 關，擁有者 `close-risk` 端點，`get_project_brief` 的 `openRisks`；現況頁的畫面留給 3B） | `kind='risk'`，`open`／`closed`；現況頁列出還開著的 |
-| **agent 成績單**（✅ 3A：`GET /api/agent/scorecard`，只有數字） | 預估 vs 實際、完成數、被復原的次數。**要累積資料才有意義**，最後做 |
-| **權限分級的鑰匙**（✅ 3A：連 OAuth 授權也帶得過去；專案範圍的鑰匙整個擋掉項目、每日記錄、修改紀錄與復原） | `mcp_tokens` 加 `scope`（`read`｜`write`）與 `project_id`（選填）。每次 `tools/call` 檢查，同現有的 Pro 檢查 |
+| **唯讀分享連結**（✅ 3A 伺服器端；✅ 3B 畫面） | `/p/:token`，token 只存雜湊、可撤銷（同 ICS）。**只給這一個專案**、不含每日記錄與其他專案。內容由伺服器從 state＋events 組出來（甘特任務是固定日期，不需要 occurrence 引擎） |
+| **每週摘要信**（✅ 3B：第七顆開關畫面；✅ 3A：`kind='weekly'`、第七顆開關 `weekly_mail` **預設關**、星期一～三寄、一週一封、沒事／休假／失敗都不記成送過、退訂只關自己） | 走既有的 cron 與 `mail_log`；自己一個開關、沒事不寄、休假那天不寄、帶退訂連結（訂閱信的規則全部適用） |
+| **風險清單**（✅ 3A：agent 用 `add_project_event(kind=risk)` 開、`closesEventId` 關，擁有者 `close-risk` 端點，`get_project_brief` 的 `openRisks`；現況頁的畫面 ✅ 3B：帳號頁的版本歷史） | `kind='risk'`，`open`／`closed`；現況頁列出還開著的 |
+| **agent 成績單**（✅ 3B：連線區一塊；✅ 3A：`GET /api/agent/scorecard`，只有數字） | 預估 vs 實際、完成數、被復原的次數。**要累積資料才有意義**，最後做 |
+| **權限分級的鑰匙**（✅ 3B：建立金鑰與授權頁的選擇；✅ 3A：連 OAuth 授權也帶得過去；專案範圍的鑰匙整個擋掉項目、每日記錄、修改紀錄與復原） | `mcp_tokens` 加 `scope`（`read`｜`write`）與 `project_id`（選填）。每次 `tools/call` 檢查，同現有的 Pro 檢查 |
 
 ---
 
@@ -565,7 +565,7 @@ MCP 只給 Pro。到期之後：
 | 通知信 | 不會再有新的（agent 寫不進來） |
 | 版本歷史 | 停止留新版，舊的照 30 天規則自然過期 |
 
-### 21. 公開的分享連結預設不帶日誌（✅ 伺服器端已實作 3A：`project_shares`、`GET /api/p/:token`（JSON）、擁有者的產生／撤銷端點，`include`：`events`／`questions`／`decisions`／`risks`／`prs`；`/p/:token` 的 HTML 頁與勾選畫面留給 3B）
+### 21. 公開的分享連結預設不帶日誌（✅ 伺服器端已實作 3A：`project_shares`、`GET /api/p/:token`（JSON）、擁有者的產生／撤銷端點，`include`：`events`／`questions`／`decisions`／`risks`／`prs`；✅ 3B：`/p/:token` 的 HTML 頁 `public/p.html` 與專案頁的產生／撤銷／勾選畫面）
 
 `/p/:token` 是給**不用登入的人**看的。日誌是 agent 寫的外部內容，可能有內部網址、人名、甚至金鑰（5-1 就是為了這個）。
 
