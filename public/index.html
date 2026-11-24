@@ -1061,6 +1061,10 @@
              background:var(--panel-2); border:1px solid var(--hairline); border-radius:var(--r-m); flex-wrap:wrap; }
   .pet-card-art{ width:56px; height:56px; flex:0 0 auto; }
   .pet-card-art svg{ width:100%; height:100%; display:block; overflow:visible; }
+  /* AI 畫的圖（目前只有貓）細節多，56px 看不清楚，放大到 96px（使用者看過對照圖之後選的） */
+  .pet-card-art.has-img{ width:96px; height:96px; }
+  .pet-art-wrap{ display:block; width:100%; height:100%; }
+  .pet-img{ width:100%; height:100%; object-fit:contain; display:block; }
   .pet-card-info{ flex:1 1 180px; min-width:0; }
   .pet-card-name{ font-family:var(--serif); font-size:15px; color:var(--text); display:flex; align-items:center; gap:7px; }
   /* 成年只多一個小記號。不改顏色、不加動畫——真正在說「100% 了」的是下面那行數字 */
@@ -7055,6 +7059,28 @@
     return '<svg viewBox="0 0 64 64" aria-hidden="true"><g class="pet" filter="url(#petFelt)">' + draw(k) + '</g></svg>';
   }
 
+  /**
+   * 有 AI 繪製的圖的物種（目前只有貓）：專案卡與挑夥伴的面板用 /pets/<物種>/<階段>.webp，
+   * 開機畫面在湖邊走的仍是 SVG（腳會擺、跟主題換色）。
+   * 圖讀不到（離線又沒進快取、iOS app 內建的只有 index.html 而網路不通）就**換回 SVG**——
+   * 寧可退回手繪的那一隻，也不要留一格空白（同〈降級可以，沉默不行〉，console 會出聲）。
+   */
+  const PET_IMAGES = { cat: true };
+  const PET_IMAGE_STAGES = ['baby','small','half','big','almost','adult'];
+  function petArtEl(speciesId, stage){
+    const wrap = document.createElement('span'); wrap.className = 'pet-art-wrap';
+    if(PET_IMAGES[speciesId] && PET_IMAGE_STAGES.indexOf(stage) >= 0){
+      const img = document.createElement('img');
+      img.className = 'pet-img'; img.alt = ''; img.decoding = 'async';
+      img.src = (NATIVE ? SITE_ORIGIN : '') + '/pets/' + speciesId + '/' + stage + '.webp';
+      img.onerror = ()=>{ console.error('pet image failed, falling back to SVG', img.src); wrap.innerHTML = petArt(speciesId, stage); };
+      wrap.appendChild(img);
+    }else{
+      wrap.innerHTML = petArt(speciesId, stage);
+    }
+    return wrap;
+  }
+
   /** 給人看的階段名稱。動物與植物兩套語彙，中間四階共用 */
   function petStageLabel(speciesId, stage){
     const sp = petSpecies(speciesId); if(!sp) return '';
@@ -9489,8 +9515,8 @@
     const stage = petStageOf(gp);
 
     const art = document.createElement('div');
-    art.className = 'pet-card-art' + (stage === 'adult' ? ' adult' : '');
-    art.innerHTML = sp ? petArt(gp.pet, stage) : '';
+    art.className = 'pet-card-art' + (stage === 'adult' ? ' adult' : '') + (sp && PET_IMAGES[gp.pet] ? ' has-img' : '');
+    if(sp) art.appendChild(petArtEl(gp.pet, stage));
     box.appendChild(art);
 
     const info = document.createElement('div'); info.className = 'pet-card-info';
@@ -9553,7 +9579,9 @@
     PET_SPECIES.forEach(sp => {
       const cell = document.createElement('button');
       cell.className = 'pet-pick' + (gp.pet === sp.id ? ' on' : '');
-      cell.innerHTML = '<span class="pet-pick-art">' + petArt(sp.id, 'adult') + '</span>';
+      const pa = document.createElement('span'); pa.className = 'pet-pick-art';
+      pa.appendChild(petArtEl(sp.id, 'adult'));
+      cell.appendChild(pa);
       const cap = document.createElement('span'); cap.className = 'pet-pick-cap';
       cap.textContent = sp.baby + ' → ' + sp.adult;
       cell.appendChild(cap);
