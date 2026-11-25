@@ -25,14 +25,17 @@
  * （PWA 的某些啟動路徑、iOS 的返回上一頁、預抓）。少了版本號的話，舊的那一份
  * 沒有任何時機會被清掉。
  */
-const CACHE = 'work-schedule-v52';
+const CACHE = 'work-schedule-v53';
 
 // 這幾個不需要登入就取得，install 階段預先抓下來
 const PRECACHE = [
   '/manifest.webmanifest',
   '/icon.svg',
   '/icon-192.png',
-  '/icon-512.png'
+  '/icon-512.png',
+  // 夥伴的圖（目前只有貓）：離線也要看得到，讀不到時前端才退回手繪的 SVG
+  '/pets/cat/baby.webp', '/pets/cat/small.webp', '/pets/cat/half.webp',
+  '/pets/cat/big.webp', '/pets/cat/almost.webp', '/pets/cat/adult.webp'
 ];
 
 self.addEventListener('install', event => {

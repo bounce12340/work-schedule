@@ -436,6 +436,17 @@ function makeServer(loggedIn, plan = 'pro') {
     }
     // 專案的公開分享頁：真的 Worker 對 /p/<任何東西> 都回同一頁 p.html（頁面自己從網址讀 token）
     if (/^\/p\/[^/]+$/.test(url.pathname)) return send(200, assets.get('/p.html'), 'text/html');
+    // 夥伴的圖（目前只有貓）：真的靜態資產，二進位原樣送
+    {
+      const m = /^\/pets\/([a-z]+)\/([a-z]+)\.webp$/.exec(url.pathname);
+      if (m) {
+        let buf = null;
+        try { buf = readFileSync(PUBLIC + 'pets/' + m[1] + '/' + m[2] + '.webp'); } catch {}
+        if (!buf) return send(404, 'not found', 'text/plain');
+        res.writeHead(200, { 'Content-Type': 'image/webp' });
+        return res.end(buf);
+      }
+    }
     const path = url.pathname === '/' ? '/index.html' : url.pathname;
     if (path === '/sw.js') return send(200, SW, 'text/javascript');
     if (assets.has(path)) return send(200, assets.get(path), 'text/html');
@@ -1143,8 +1154,11 @@ async function walk(page, log, plan = 'pro', server = null) {
     const cells = await page.locator('#petGrid .pet-pick').count();
     if (cells !== 8) throw new Error(`挑夥伴的面板應該有 8 格，實際 ${cells} 格`);
     // 每一格畫的是**長大後的樣子**：八格都要有圖，缺一個代表那個物種的畫皮沒接上
-    const arts = await page.locator('#petGrid .pet-pick-art svg').count();
+    const arts = await page.locator('#petGrid .pet-pick-art svg, #petGrid .pet-pick-art img').count();
     if (arts !== 8) throw new Error(`八格都要畫得出圖，實際 ${arts} 個`);
+    // 小貓那一格是 AI 畫的圖，而且要**真的讀得到**（naturalWidth > 0），不是一格破圖
+    await page.waitForFunction(() => { const i = document.querySelectorAll('#petGrid .pet-pick')[3]?.querySelector('img.pet-img'); return i && i.complete && i.naturalWidth > 0; }, null, { timeout: 4000 })
+      .catch(() => { throw new Error('挑夥伴面板的小貓那一格沒有讀到 /pets/cat/adult.webp'); });
     log(`      挑夥伴的面板：8 格、8 張圖`);
 
     // 真的選一隻，而且要驗**選完之後卡片跟著變**——只驗「點得下去」的話，
@@ -1152,7 +1166,11 @@ async function walk(page, log, plan = 'pro', server = null) {
     const before = await page.locator('.pet-card-name').textContent();
     await page.locator('#petGrid .pet-pick').nth(3).click();   // 第 4 格：小貓
     await page.waitForTimeout(320);
-    await need('.pet-card-art svg', '換完夥伴的圖');
+    // 小貓走圖片，不是 SVG：卡片要放大到 96px、圖要真的讀得到
+    await page.waitForFunction(() => { const i = document.querySelector('.pet-card-art img.pet-img'); return i && i.complete && i.naturalWidth > 0 && /\/pets\/cat\/[a-z]+\.webp$/.test(i.src); }, null, { timeout: 4000 })
+      .catch(() => { throw new Error('選了小貓，卡上沒有讀到貓的圖'); });
+    const catBox = await page.locator('.pet-card-art').boundingBox();
+    if (!catBox || Math.round(catBox.width) !== 96) throw new Error('貓的圖應該放大到 96px，實際 ' + (catBox && catBox.width));
     const after = await page.locator('.pet-card-name').textContent();
     if (before === after) throw new Error(`換了夥伴但卡片沒變（還是「${after}」）——commit() 有接上嗎？`);
     log(`      換夥伴：${before.trim()} → ${after.trim()}`);
@@ -1177,13 +1195,21 @@ async function walk(page, log, plan = 'pro', server = null) {
       throw new Error(`待辦全部勾完了，夥伴卡還停在「${stageAfter}」——refreshGanttChart 有換掉夥伴卡嗎？`);
     }
     log(`      勾完全部待辦：${stageBefore.trim()} → ${stageAfter.trim()}（就地更新，沒切頁籤）`);
+    // 長大之後圖要換成成年那一張（階段是算出來的，圖跟著它走）
+    const adultSrc = await page.locator('.pet-card-art img.pet-img').getAttribute('src');
+    if (!/\/pets\/cat\/adult\.webp$/.test(adultSrc || '')) throw new Error('勾完全部待辦，貓的圖沒換成 adult.webp：' + adultSrc);
+    // 圖讀不到（離線又沒快取）要退回手繪的 SVG，不能留一格空白
+    await page.evaluate(() => { document.querySelector('.pet-card-art img.pet-img').src = '/pets/cat/missing.webp'; });
+    await page.waitForFunction(() => !!document.querySelector('.pet-card-art svg') && !document.querySelector('.pet-card-art img'), null, { timeout: 4000 })
+      .catch(() => { throw new Error('貓的圖讀不到時沒有退回 SVG'); });
+    log(`      貓的圖：96px、讀得到、成年換 adult.webp、讀不到退回 SVG`);
 
     // 「不要夥伴」要真的清掉
     await click('.pet-card-pick', '再打開面板');
     await page.waitForTimeout(240);
     await click('#petNone', '選「不要夥伴」');
     await page.waitForTimeout(320);
-    if (await page.locator('.pet-card-art svg').count() !== 0) {
+    if (await page.locator('.pet-card-art svg, .pet-card-art img').count() !== 0) {
       throw new Error('選了「不要夥伴」，卡上卻還有圖');
     }
     await need('.pet-card', '沒夥伴時卡片仍然在');   // 整張卡消失會讓人以為功能不見了
@@ -1610,6 +1636,8 @@ for (const loggedIn of [false, true]) {
       if (server.agent && server.agent.prsFail && /agent prs failed/.test(t)) return;
       // 版本歷史：那一版的檔案已經不在（410）是**預期**的（驗「讀不到的那一版說得出原因」），console.error 是它該留下的線索
       if (/history diff failed/.test(t)) return;
+      // 夥伴那一段刻意把貓的圖換成不存在的網址，驗「讀不到就退回 SVG」；那一行是它該留下的線索
+      if (/pet image failed, falling back to SVG .*missing\.webp/.test(t)) return;
       errors.push(`console.error：${t}`);
     });
     await page.route('**://fonts.*/**', r => r.abort());
