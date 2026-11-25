@@ -16,8 +16,15 @@
 set -euo pipefail
 KEY="${OPENAI_API_KEY:-dummy}"
 MODEL=gpt-image-1.5
+# 每次一個自己的暫存檔：同時跑好幾隻時共用 /tmp/gen.json 會互相蓋掉
+TMP="$(mktemp)"
 
 STYLE="Needle-felted wool figurine, soft fuzzy wool fibers clearly visible, gentle rounded shapes, warm natural coloring only (no green accents), cozy healing Japanese zakka style, single character centered and filling most of the frame, full body, facing the viewer, cute, no text, no props, no background, soft even studio lighting."
+# 植物（冷杉、松樹）本來就是綠的：上面那條「不要綠色」是為了動物的尾巴不長綠毛，
+# 對樹不適用。PLANT=1 時換成允許綠色針葉、其餘一樣的寫法。
+if [ "${PLANT:-}" = 1 ]; then
+  STYLE="Needle-felted wool figurine, soft fuzzy wool fibers clearly visible, gentle rounded shapes, soft natural muted colors (deep muted green needles, warm brown trunk), cozy healing Japanese zakka style, a single small tree in a tiny felt mound of soil, centered and filling most of the frame, cute, no text, no pot, no props, no background, soft even studio lighting."
+fi
 KEEP="This must be the SAME character as the reference image: identical needle-felted wool material and fiber texture, identical fur colors and markings, same face (eyes, nose, cheeks), same art style and soft lighting. Only the age, pose or expression changes. Single character centered, full body, no text, no props, no background, transparent background."
 
 case "$1" in
@@ -27,16 +34,16 @@ case "$1" in
       -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
       -d "$(jq -n --arg m "$MODEL" --arg p "$desc $STYLE" \
             '{model:$m,prompt:$p,size:"1024x1024",quality:"high",background:"transparent",output_format:"png"}')" \
-      | tee /tmp/gen.json | jq -r '.data[0].b64_json' | base64 -d > "$out"
+      | tee "$TMP" | jq -r '.data[0].b64_json' | base64 -d > "$out"
     ;;
   edit)
     ref="$2"; out="$3"; desc="$4"
     curl -s https://api.openai.com/v1/images/edits -H "Authorization: Bearer $KEY" \
       -F model=$MODEL -F image=@"$ref" -F background=transparent -F output_format=png \
       -F size=1024x1024 -F quality=high --form-string "prompt=$desc $KEEP" \
-      | tee /tmp/gen.json | jq -r '.data[0].b64_json' | base64 -d > "$out"
+      | tee "$TMP" | jq -r '.data[0].b64_json' | base64 -d > "$out"
     ;;
   *) echo "用法見檔案開頭" >&2; exit 1 ;;
 esac
-jq -r '.error.message // empty' /tmp/gen.json >&2
+jq -r '.error.message // empty' "$TMP" >&2 || true; rm -f "$TMP"
 ls -la "$out"
