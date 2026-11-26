@@ -27,6 +27,10 @@ if [ "${PLANT:-}" = 1 ]; then
 fi
 KEEP="This must be the SAME character as the reference image: identical needle-felted wool material and fiber texture, identical fur colors and markings, same face (eyes, nose, cheeks), same art style and soft lighting. Only the age, pose or expression changes. Single character centered, full body, no text, no props, no background, transparent background."
 
+# 樹沒有臉：上面那句 KEEP 的「same face」會讓小樹苗長出眼睛（第一次就長出一張狐狸臉）
+if [ "${PLANT:-}" = 1 ]; then
+  KEEP="This must be the SAME kind of tree as the reference image: identical needle-felted wool material and fiber texture, same needle colors and trunk color, same felt soil mound, same art style and soft lighting. Only the age and size of the plant changes. It is a plain plant: NO face, NO eyes, NO mouth, no animal. Single plant centered, no text, no props, no pot, no background, transparent background."
+fi
 case "$1" in
   adult)
     out="$2"; desc="$3"
