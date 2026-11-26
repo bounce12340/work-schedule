@@ -14,7 +14,7 @@ final class CloudStore: ObservableObject {
     private let vault: SessionVault
     private let readLegacy: @MainActor () async -> LegacyScheduleProbe
     private var token: String?
-    private var sessionGeneration = UUID()
+    private(set) var sessionGeneration = UUID()
     private var base: JSONObject?
     private var updatedAt: Int64?
     private var dirty = false
@@ -105,7 +105,8 @@ final class CloudStore: ObservableObject {
         try await authenticate("/api/auth/app/oauth", body: Self.googleBody(authorizationCode, codeVerifier, redirectURI))
     }
 
-    func logout(pushToken: String? = nil) async throws {
+    func logout(pushToken: String? = nil, generation: UUID? = nil) async throws {
+        if let generation, sessionGeneration != generation { throw CloudError.noSession }
         let previousToken = token
         // Drop access locally before waiting for the best-effort revoke.
         // Any previous async operation now belongs to a retired session.
@@ -122,12 +123,12 @@ final class CloudStore: ObservableObject {
         try await removeAccount(body: ["password": .string(password)])
     }
 
-    func deleteAccountWithApple(idToken: String, authorizationCode: String?, nonce: String) async throws {
-        try await removeAccount(body: Self.appleBody(idToken, authorizationCode, nonce))
+    func deleteAccountWithApple(idToken: String, authorizationCode: String?, nonce: String, generation: UUID) async throws {
+        try await removeAccount(body: Self.appleBody(idToken, authorizationCode, nonce), generation: generation)
     }
 
-    func deleteAccountWithGoogle(authorizationCode: String, codeVerifier: String, redirectURI: String) async throws {
-        try await removeAccount(body: Self.googleBody(authorizationCode, codeVerifier, redirectURI))
+    func deleteAccountWithGoogle(authorizationCode: String, codeVerifier: String, redirectURI: String, generation: UUID) async throws {
+        try await removeAccount(body: Self.googleBody(authorizationCode, codeVerifier, redirectURI), generation: generation)
     }
 
     func changePassword(oldPassword: String, newPassword: String) async throws {
@@ -165,8 +166,10 @@ final class CloudStore: ObservableObject {
     }
 
     func sync() async {
-        guard token != nil else { return }
-        let generation = sessionGeneration
+        await sync(generation: sessionGeneration)
+    }
+
+    private func sync(generation: UUID) async {
         do { try await synchronize(generation: generation) }
         catch {
             if sessionGeneration == generation { report(error) }
@@ -190,11 +193,12 @@ final class CloudStore: ObservableObject {
         try await authorized("GET", "/api/shares")
     }
 
-    func createShare(kind: String, resourceId: String, permission: String, email: String) async throws {
-        try await flushBeforeSharing()
+    func createShare(kind: String, resourceId: String, permission: String, email: String, generation: UUID? = nil) async throws {
+        let generation = generation ?? sessionGeneration
+        try await flushBeforeSharing(generation: generation)
         _ = try await authorized("POST", "/api/shares", body: [
             "kind": .string(kind), "resourceId": .string(resourceId), "permission": .string(permission), "email": .string(email),
-        ])
+        ], generation: generation)
     }
 
     func deleteShare(id: String) async throws {
@@ -210,8 +214,10 @@ final class CloudStore: ObservableObject {
     }
 
     func createProjectShare(projectId: String, include: [String] = []) async throws -> URL {
-        try await flushBeforeSharing()
-        let result = try await authorized("POST", Self.projectSharePath(projectId), body: ["include": .array(include.map(JSONValue.string))])
+        let generation = sessionGeneration
+        try await flushBeforeSharing(generation: generation)
+        let result = try await authorized("POST", Self.projectSharePath(projectId),
+                                          body: ["include": .array(include.map(JSONValue.string))], generation: generation)
         guard let rawURL = result["url"]?.string, let url = URL(string: rawURL), url.scheme == "https" else {
             throw CloudError.malformedResponse
         }
@@ -222,14 +228,14 @@ final class CloudStore: ObservableObject {
         _ = try await authorized("DELETE", Self.projectSharePath(projectId))
     }
 
-    func syncAppleEntitlements(_ signedTransactions: [String]) async throws {
+    func syncAppleEntitlements(_ signedTransactions: [String], generation: UUID? = nil) async throws {
         guard !signedTransactions.isEmpty else { return }
-        guard let sessionToken = token else { throw CloudError.noSession }
+        let generation = generation ?? sessionGeneration
         for start in stride(from: 0, to: signedTransactions.count, by: 20) {
-            guard token == sessionToken else { throw CloudError.noSession }
             let batch = signedTransactions[start ..< min(start + 20, signedTransactions.count)]
-            let plan = try await authorized("POST", "/api/plan/apple", body: ["signedTransactions": .array(batch.map(JSONValue.string))])
-            guard token == sessionToken, var current = user else { throw CloudError.noSession }
+            let plan = try await authorized("POST", "/api/plan/apple",
+                                            body: ["signedTransactions": .array(batch.map(JSONValue.string))], generation: generation)
+            guard sessionGeneration == generation, var current = user else { throw CloudError.noSession }
             current.plan = plan["plan"]?.string
             current.source = plan["planSource"]?.string
             current.expiresAt = plan["planExpiresAt"]?.int.map(Int64.init)
@@ -238,9 +244,10 @@ final class CloudStore: ObservableObject {
         }
     }
 
-    func registerPush(token: String, environment: String) async throws {
+    func registerPush(token: String, environment: String, generation: UUID) async throws {
         let value = try Self.pushToken(token)
-        _ = try await authorized("POST", "/api/push/register", body: ["token": .string(value), "environment": .string(environment)])
+        _ = try await authorized("POST", "/api/push/register", body: ["token": .string(value), "environment": .string(environment)],
+                                 generation: generation)
     }
 
     func unregisterPush(token: String) async throws {
@@ -423,21 +430,21 @@ final class CloudStore: ObservableObject {
         status = dirty ? .pending : .synced
     }
 
-    private func removeAccount(body: JSONObject) async throws {
-        guard let email = user?.email, !managingSession else { throw CloudError.noSession }
-        let generation = sessionGeneration
+    private func removeAccount(body: JSONObject, generation: UUID? = nil) async throws {
+        let generation = generation ?? sessionGeneration
+        guard sessionGeneration == generation, let email = user?.email, !managingSession else { throw CloudError.noSession }
         managingSession = true
         defer { if sessionGeneration == generation { managingSession = false } }
-        _ = try await authorized("DELETE", "/api/auth/account", body: body)
+        _ = try await authorized("DELETE", "/api/auth/account", body: body, generation: generation)
         guard sessionGeneration == generation else { throw CloudError.noSession }
         let clear = Result { try clearSession() }
         try disk.deleteSchedule(email: email)
         try clear.get()
     }
 
-    func authorized(_ method: String, _ path: String, body: JSONObject? = nil) async throws -> JSONObject {
-        guard let token, user != nil else { throw CloudError.noSession }
-        let generation = sessionGeneration
+    func authorized(_ method: String, _ path: String, body: JSONObject? = nil, generation: UUID? = nil) async throws -> JSONObject {
+        let generation = generation ?? sessionGeneration
+        guard sessionGeneration == generation, let token, user != nil else { throw CloudError.noSession }
         let reply = try await api.send(method, path, body: body, token: token)
         guard sessionGeneration == generation else { throw CloudError.noSession }
         try validateSession(reply)
@@ -504,12 +511,13 @@ final class CloudStore: ObservableObject {
             catch { return }
             guard let self, self.sessionGeneration == generation, !Task.isCancelled else { return }
             self.syncTask = nil
-            await self.sync()
+            await self.sync(generation: generation)
         }
     }
 
-    private func flushBeforeSharing() async throws {
-        if dirty { await sync() }
+    private func flushBeforeSharing(generation: UUID) async throws {
+        if dirty { await sync(generation: generation) }
+        guard sessionGeneration == generation, user != nil else { throw CloudError.noSession }
         guard !dirty else { throw CloudError.pendingSchedule }
     }
 

@@ -146,12 +146,13 @@ private struct ShareEditor: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("分享") {
                         guard let resource = resources.first(where: { $0.key == resourceKey }) else { return }
+                        let generation = store.sessionGeneration
                         sending = true
                         Task {
                             defer { sending = false }
                             do {
-                                await store.sync()
-                                try await store.createShare(kind: resource.kind, resourceId: resource.id, permission: permission, email: email)
+                                try await store.createShare(kind: resource.kind, resourceId: resource.id, permission: permission,
+                                                            email: email, generation: generation)
                                 dismiss()
                             } catch { self.error = error.localizedDescription }
                         }

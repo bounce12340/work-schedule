@@ -267,6 +267,52 @@ struct CloudCheck {
         precondition(MockTransport.count == 0)
         print("PASS logout invalidates an in-flight startup and permits another account before the old probe returns")
 
+        let shareDisk = CloudDisk(directory: root.appendingPathComponent("share-then-switch"))
+        let shareGate = LegacyProbeGate()
+        var sharingProbes = 0
+        savedToken = "sharing-account-token"
+        let sharing = CloudStore(api: api, disk: shareDisk, vault: vault, readLegacy: {
+            sharingProbes += 1
+            if sharingProbes == 2 { return await shareGate.pause() }
+            return sharingProbes == 1 ? .unavailable : .absent
+        })
+        MockTransport.enqueue { _ in try stateReply(userID: a, email: "first@example.invalid", snapshot: online, updatedAt: 350) }
+        await sharing.start()
+        sharing.updateState { $0["pendingShareEdit"] = .bool(true) }
+        MockTransport.enqueue { request in
+            precondition(request.httpMethod == "PUT")
+            return (200, Data("{\"ok\":true,\"updatedAt\":351}".utf8))
+        }
+        let oldShare = Task {
+            try await sharing.createShare(kind: "gantt", resourceId: "old-project", permission: "view", email: "target@example.invalid")
+        }
+        await shareGate.waitForProbe()
+
+        MockTransport.enqueue { request in
+            precondition(request.url?.path == "/api/auth/logout")
+            return (200, Data("{\"ok\":true}".utf8))
+        }
+        try await sharing.logout()
+        MockTransport.enqueue { _ in
+            (200, Data("""
+            {"ok":true,"token":"other-account-token","user":{"id":"\(b)","email":"second@example.invalid","role":"user"}}
+            """.utf8))
+        }
+        MockTransport.enqueue { _ in try stateReply(userID: b, email: "second@example.invalid", snapshot: nil, updatedAt: nil) }
+        try await sharing.login(email: "second@example.invalid", password: "fixture-only")
+        MockTransport.enqueue { request in
+            precondition(request.url?.path == "/api/shares")
+            return (200, Data("{\"ok\":true}".utf8))
+        }
+        shareGate.release(.absent)
+        do {
+            try await oldShare.value
+            preconditionFailure("A share started before logout must not use the next account's token")
+        } catch CloudError.noSession { }
+        precondition(MockTransport.count == 1 && sharing.user?.appAccountToken?.uuidString == b)
+        print("PASS account switch during pre-share sync prevents the pending share POST")
+
+
 
     }
 

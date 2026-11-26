@@ -48,12 +48,13 @@ struct SettingsView: View {
                 Button("啟用這台裝置的推播") {
                     perform {
                         guard let owner = store.user?.email else { return }
+                        let generation = store.sessionGeneration
                         guard let token = try await NativeNotifications.shared.requestDeviceToken() else {
                             notice = "通知權限已關閉。可在 iOS 設定中開啟。"
                             return
                         }
-                        guard store.user?.email == owner else { return }
-                        try await store.registerPush(token: token.token, environment: token.environment)
+                        try await store.registerPush(token: token.token, environment: token.environment, generation: generation)
+                        guard store.sessionGeneration == generation else { return }
                         pushOwner = owner
                         pushToken = token.token
                         notice = "已啟用推播。"
@@ -95,12 +96,15 @@ struct SettingsView: View {
             case .logout:
                 return Alert(title: Text(kind.rawValue), primaryButton: .destructive(Text("登出")) {
                     perform {
+                        let generation = store.sessionGeneration
                         let deviceToken = pushOwner == store.user?.email ? pushToken : nil
                         NativeNotifications.shared.stopReceivingRemoteNotifications()
                         await NativeNotifications.shared.clearLocalReminders()
-                        try await store.logout(pushToken: deviceToken)
-                        pushOwner = ""
-                        pushToken = ""
+                        try await store.logout(pushToken: deviceToken, generation: generation)
+                        if store.user == nil {
+                            pushOwner = ""
+                            pushToken = ""
+                        }
                     }
                 }, secondaryButton: .cancel())
             case .restore:
@@ -240,20 +244,22 @@ private struct AccountView: View {
             }
             Button("用 Apple 驗證並刪除", role: .destructive) {
                 perform {
+                    let generation = store.sessionGeneration
                     let credential = try await identity.appleCredential()
                     try await store.deleteAccountWithApple(idToken: credential.idToken,
                                                            authorizationCode: credential.authorizationCode,
-                                                           nonce: credential.nonce)
+                                                           nonce: credential.nonce, generation: generation)
                     await cleanNotifications()
                 }
             }
             if NativeIdentity.isGoogleConfigured {
                 Button("用 Google 驗證並刪除", role: .destructive) {
                     perform {
+                        let generation = store.sessionGeneration
                         let credential = try await identity.googleCredential()
                         try await store.deleteAccountWithGoogle(authorizationCode: credential.authorizationCode,
                                                                 codeVerifier: credential.codeVerifier,
-                                                                redirectURI: credential.redirectURI)
+                                                                redirectURI: credential.redirectURI, generation: generation)
                         await cleanNotifications()
                     }
                 }
@@ -291,8 +297,10 @@ private struct SubscriptionView: View {
                 ForEach(products, id: \.id) { product in
                     Button {
                         perform {
-                            let result = try await NativeSubscriptions.purchase(product, accountToken: store.user?.appAccountToken,
-                                                                                submit: store.syncAppleEntitlements)
+                            let generation = store.sessionGeneration
+                            let result = try await NativeSubscriptions.purchase(product, accountToken: store.user?.appAccountToken) {
+                                try await store.syncAppleEntitlements($0, generation: generation)
+                            }
                             switch result {
                             case .completed: notice = "購買完成。"
                             case .pending: notice = "購買正在等待 Apple 確認。"
@@ -308,8 +316,10 @@ private struct SubscriptionView: View {
                     .font(.footnote).foregroundStyle(.secondary)
                 Button("恢復購買") {
                     perform {
-                        let restored = try await NativeSubscriptions.restore(accountToken: store.user?.appAccountToken,
-                                                                             submit: store.syncAppleEntitlements)
+                        let generation = store.sessionGeneration
+                        let restored = try await NativeSubscriptions.restore(accountToken: store.user?.appAccountToken) {
+                            try await store.syncAppleEntitlements($0, generation: generation)
+                        }
                         notice = restored ? "已恢復購買。" : "這個帳號沒有可恢復的訂閱。"
                     }
                 }
