@@ -119,6 +119,10 @@ const IN_GANTT = [
   ['.gantt-toolbar-label', '「時間刻度」小標'],
   ['.task-field-label', '任務列的「開始／結束／進度」'],
 ];
+// 點了夥伴才會長出來的對話泡泡（3 秒就收掉，所以要點完馬上量）
+const IN_PET_BUBBLE = [
+  ['.pet-bubble', '夥伴的對話泡泡'],
+];
 const IN_PET_PANEL = [
   ['#petOverlay .scope-note', '挑夥伴面板的說明'],
   ['#petGrid .pet-pick-cap', '每一格的「幼體 → 成年」'],
@@ -428,6 +432,13 @@ for (const [theme, label, fixedTime] of PASSES) {
   await page.waitForSelector('.pet-card-adult');     // 勾完了才量，否則量到的是半大的那一階
   await page.waitForTimeout(250);
   rows.push(...await page.evaluate(measure, IN_GANTT));
+
+  // 點一下夥伴讓泡泡長出來再量。**主動點，不等它自然出現**：長大的那句只在階段變高時
+  // 才會冒，而且 3 秒就收掉——等它出現就是一條永遠印「略過」的斷言。
+  // 用程式點（夥伴在走動，Playwright 等不到「穩定」），走的仍是按鈕自己的 onclick。
+  await page.locator('.pet-btn').evaluate(el => el.click());
+  await page.waitForSelector('.pet-bubble');
+  rows.push(...await page.evaluate(measure, IN_PET_BUBBLE));
 
   // 開挑夥伴的面板。它是 overlay，量完一定要關掉，否則後面的 nav 點不到
   await page.locator('.pet-card-pick').first().click();

@@ -436,9 +436,9 @@ function makeServer(loggedIn, plan = 'pro') {
     }
     // 專案的公開分享頁：真的 Worker 對 /p/<任何東西> 都回同一頁 p.html（頁面自己從網址讀 token）
     if (/^\/p\/[^/]+$/.test(url.pathname)) return send(200, assets.get('/p.html'), 'text/html');
-    // 夥伴的圖（目前只有貓）：真的靜態資產，二進位原樣送
+    // 夥伴的圖與動作圖：真的靜態資產，二進位原樣送（動作圖還沒做出來的話是 404，前端要能照樣運作）
     {
-      const m = /^\/pets\/([a-z]+)\/([a-z]+)\.webp$/.exec(url.pathname);
+      const m = /^\/pets\/([a-z]+)\/((?:poses\/)?[a-z-]+)\.webp$/.exec(url.pathname);
       if (m) {
         let buf = null;
         try { buf = readFileSync(PUBLIC + 'pets/' + m[1] + '/' + m[2] + '.webp'); } catch {}
@@ -1145,7 +1145,9 @@ async function walk(page, log, plan = 'pro', server = null) {
     await need('.pet-card', '夥伴卡');
     // 示範資料給了一隻鹿，所以卡上要有圖與進度文字——沒選夥伴時那一格是空的，
     // 只斷言「卡片在」會讓「圖畫不出來」照樣綠
-    await need('.pet-card-art svg', '夥伴的圖');
+    // 示範的鹿也是 AI 畫的圖，而且站在小院子裡的按鈕上（不是手繪 SVG）
+    await page.waitForFunction(() => { const i = document.querySelector('.pet-yard .pet-btn img.pet-img'); return i && i.complete && i.naturalWidth > 0; }, null, { timeout: 4000 })
+      .catch(() => { throw new Error('夥伴卡的小院子裡沒有讀到鹿的圖'); });
     await need('.pet-card-sub', '夥伴的進度文字');
 
     await click('.pet-card-pick', '打開挑夥伴的面板');
@@ -1156,24 +1158,99 @@ async function walk(page, log, plan = 'pro', server = null) {
     // 每一格畫的是**長大後的樣子**：八格都要有圖，缺一個代表那個物種的畫皮沒接上
     const arts = await page.locator('#petGrid .pet-pick-art svg, #petGrid .pet-pick-art img').count();
     if (arts !== 8) throw new Error(`八格都要畫得出圖，實際 ${arts} 個`);
-    // 小貓那一格是 AI 畫的圖，而且要**真的讀得到**（naturalWidth > 0），不是一格破圖
-    await page.waitForFunction(() => { const i = document.querySelectorAll('#petGrid .pet-pick')[3]?.querySelector('img.pet-img'); return i && i.complete && i.naturalWidth > 0; }, null, { timeout: 4000 })
-      .catch(() => { throw new Error('挑夥伴面板的小貓那一格沒有讀到 /pets/cat/adult.webp'); });
-    log(`      挑夥伴的面板：8 格、8 張圖`);
+    // 八種都是 AI 畫的圖，而且要**真的讀得到**（naturalWidth > 0），不是八格破圖
+    await page.waitForFunction(() => { const imgs = [...document.querySelectorAll('#petGrid .pet-pick img.pet-img')]; return imgs.length === 8 && imgs.every(i => i.complete && i.naturalWidth > 0); }, null, { timeout: 6000 })
+      .catch(() => { throw new Error('挑夥伴面板的八格沒有全部讀到 /pets/<物種>/adult.webp'); });
+    log(`      挑夥伴的面板：8 格、8 張圖（全是真的圖片）`);
 
     // 真的選一隻，而且要驗**選完之後卡片跟著變**——只驗「點得下去」的話，
     // commit() 沒接上也是綠的
     const before = await page.locator('.pet-card-name').textContent();
     await page.locator('#petGrid .pet-pick').nth(3).click();   // 第 4 格：小貓
     await page.waitForTimeout(320);
-    // 小貓走圖片，不是 SVG：卡片要放大到 96px、圖要真的讀得到
-    await page.waitForFunction(() => { const i = document.querySelector('.pet-card-art img.pet-img'); return i && i.complete && i.naturalWidth > 0 && /\/pets\/cat\/[a-z]+\.webp$/.test(i.src); }, null, { timeout: 4000 })
+    // 貓也是圖片，站在小院子裡的按鈕上：圖要真的讀得到
+    await page.waitForFunction(() => { const i = document.querySelector('.pet-yard .pet-btn img.pet-img'); return i && i.complete && i.naturalWidth > 0 && /\/pets\/cat\/[a-z]+\.webp$/.test(i.src); }, null, { timeout: 4000 })
       .catch(() => { throw new Error('選了小貓，卡上沒有讀到貓的圖'); });
-    const catBox = await page.locator('.pet-card-art').boundingBox();
-    if (!catBox || Math.round(catBox.width) !== 96) throw new Error('貓的圖應該放大到 96px，實際 ' + (catBox && catBox.width));
+    const catBtn = await page.locator('.pet-yard button.pet-btn').count();
+    if (catBtn !== 1) throw new Error('小院子裡應該有一顆夥伴按鈕，實際 ' + catBtn);
+    if (!(await page.locator('.pet-btn').getAttribute('aria-label'))) throw new Error('夥伴按鈕沒有 aria-label');
+    const sizeBefore = await page.locator('.pet-btn').evaluate(el => el.getBoundingClientRect().height);
     const after = await page.locator('.pet-card-name').textContent();
     if (before === after) throw new Error(`換了夥伴但卡片沒變（還是「${after}」）——commit() 有接上嗎？`);
     log(`      換夥伴：${before.trim()} → ${after.trim()}`);
+
+    // ---- 活的夥伴：會走、點了會說話（同時只有一個泡泡）、鍵盤也能用 ----
+    // 走路是 CSS transition 換 translateX 目標：量計算後的 transform 在兩個時間點不同，
+    // 而不是只看 data-state（狀態對了、transform 沒動，畫面上就是站著不動）。
+    {
+      await page.waitForSelector('.pet-btn[data-state="walk"]', { timeout: 25000 })
+        .catch(() => { throw new Error('夥伴 25 秒內從來沒有進入 walk 狀態'); });
+      const tx = () => page.locator('.pet-btn').evaluate(el => new DOMMatrix(getComputedStyle(el).transform).m41);
+      const t1 = await tx(); await page.waitForTimeout(900); const t2 = await tx();
+      if (Math.abs(t1 - t2) < 2) throw new Error(`夥伴在 walk 狀態卻沒有位移（${t1} → ${t2}）`);
+      // 點一下：用程式點（走動中的元素 Playwright 等不到「穩定」），再按一次 Enter 走鍵盤那條路
+      await page.locator('.pet-btn').evaluate(el => el.click());
+      await page.waitForSelector('.pet-bubble', { timeout: 2000 });
+      const st = await page.locator('.pet-btn').getAttribute('data-state');
+      if (st !== 'happy') throw new Error('點了夥伴，狀態應該是 happy，實際 ' + st);
+      await page.locator('.pet-btn').focus();
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(150);
+      const bubbles = await page.locator('.pet-bubble').count();
+      const text = (await page.locator('.pet-bubble').first().textContent() || '').trim();
+      if (bubbles !== 1) throw new Error('連點兩次之後泡泡應該只有一個，實際 ' + bubbles);
+      if (!text) throw new Error('泡泡是空的');
+      await page.waitForFunction(() => document.querySelectorAll('.pet-bubble').length === 0, null, { timeout: 5000 })
+        .catch(() => { throw new Error('泡泡 3 秒後沒有消失'); });
+      log(`      活的夥伴：會走（${Math.round(t1)}→${Math.round(t2)}px）、點一下與 Enter 都只有一個泡泡「${text}」、之後自己收掉`);
+      // 走路的每一刻都要整隻在院子裡。第一步曾經從「置中」的舊 transform 起算，
+      // 從院子外面走進來（頭被切掉一半）——只看「有沒有位移」的話那仍然是綠的
+      await page.waitForSelector('.pet-btn[data-state="walk"]', { timeout: 25000 }).catch(() => {});
+      const out = await page.evaluate(async () => {
+        const bad = [];
+        for (let i = 0; i < 20; i++) {
+          const y = document.querySelector('.pet-yard').getBoundingClientRect();
+          const b = document.querySelector('.pet-btn').getBoundingClientRect();
+          if (b.left < y.left - 1 || b.right > y.right + 1) bad.push(Math.round(b.left - y.left));
+          await new Promise(r => setTimeout(r, 60));
+        }
+        return bad;
+      });
+      if (out.length) throw new Error('夥伴走到院子外面了（離左邊 ' + out.join(', ') + 'px）');
+      // 上面那一段量到的是「換過夥伴」的卡片；真正會出事的是**剛打開頁面、第一次起步**
+      // （那時夥伴還站在置中的暫時位置）。另開一頁只走這一條路：打開 → 專案頁 → 一開始走就量
+      {
+        const p2 = await page.context().newPage();
+        const lang = await page.evaluate(() => localStorage.getItem('workSchedule.v1.lang'));
+        const origin = new URL(page.url()).origin;
+        await p2.addInitScript(([sd, l]) => {
+          localStorage.setItem('workSchedule.v1', JSON.stringify(sd));
+          localStorage.setItem('workSchedule.v1.lang', l);
+        }, [seed(), lang]);
+        await p2.goto(origin + '/', { waitUntil: 'domcontentloaded' });
+        await p2.waitForSelector('#navGantt');
+        await p2.evaluate(() => { const b = document.querySelector('.boot-sakura'); if (b) b.click(); });
+        // 等雲端同步跑完再切過去：同步完成會重畫一次，切太早的話量到的是「重畫過」的那張卡，
+        // 不是第一次起步
+        await p2.waitForFunction(() => /同步|sync/i.test(document.body.innerText), null, { timeout: 8000 }).catch(() => {});
+        await p2.waitForTimeout(1500);
+        await p2.evaluate(() => document.getElementById('navGantt').click());
+        await p2.waitForSelector('.pet-btn[data-state="walk"]', { timeout: 15000 })
+          .catch(() => { throw new Error('剛打開頁面時夥伴 15 秒內沒有開始走'); });
+        const out2 = await p2.evaluate(async () => {
+          const bad = [];
+          for (let i = 0; i < 20; i++) {
+            const y = document.querySelector('.pet-yard').getBoundingClientRect();
+            const b = document.querySelector('.pet-btn').getBoundingClientRect();
+            if (b.left < y.left - 1 || b.right > y.right + 1) bad.push(Math.round(b.left - y.left));
+            await new Promise(r => setTimeout(r, 60));
+          }
+          return bad;
+        });
+        await p2.close();
+        if (out2.length) throw new Error('剛打開頁面，夥伴第一步就在院子外面（離左邊 ' + out2.join(', ') + 'px）');
+      }
+    }
 
     // 勾完最後一件待辦，夥伴要**當場**長大。
     // 這一條守的是一個真的踩到的 bug：任務的勾選框只叫 refreshGanttChart()
@@ -1196,21 +1273,50 @@ async function walk(page, log, plan = 'pro', server = null) {
     }
     log(`      勾完全部待辦：${stageBefore.trim()} → ${stageAfter.trim()}（就地更新，沒切頁籤）`);
     // 長大之後圖要換成成年那一張（階段是算出來的，圖跟著它走）
-    const adultSrc = await page.locator('.pet-card-art img.pet-img').getAttribute('src');
+    const adultSrc = await page.locator('.pet-yard img.pet-img').getAttribute('src');
     if (!/\/pets\/cat\/adult\.webp$/.test(adultSrc || '')) throw new Error('勾完全部待辦，貓的圖沒換成 adult.webp：' + adultSrc);
+    // 長大要**看得出來**：成年那一階是最大的（108px），而且比一開始大
+    const sizeAfter = await page.locator('.pet-btn').evaluate(el => el.getBoundingClientRect().height);
+    if (Math.round(sizeAfter) !== 108 || !(sizeAfter > sizeBefore)) throw new Error(`成年的夥伴應該是 108px 且比之前大（${sizeBefore} → ${sizeAfter}）`);
+    // 剛長大會自己說一句
+    await page.waitForFunction(() => /長大|grown|grow/i.test(document.querySelector(".pet-bubble")?.textContent || ''), null, { timeout: 3000 })
+      .catch(() => { throw new Error('長大那一刻夥伴沒有自己說話'); });
+    log(`      長大：${Math.round(sizeBefore)}px → ${Math.round(sizeAfter)}px，換成 adult.webp，並自己說了一句`);
+
+    // 減少動態：不走、不自己換狀態、不跳，但點一下仍然會說話。
+    // 換一次夥伴（走 commit 重建卡片）讓新的控制器讀到「減少動態」。
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await click('.pet-card-pick', '再打開面板（減少動態）');
+    await page.waitForTimeout(240);
+    await page.locator('#petGrid .pet-pick').nth(3).click();
+    await page.waitForTimeout(400);
+    const seen = new Set(); const pos = new Set();
+    for (let i = 0; i < 12; i++) {
+      const r = await page.locator('.pet-btn').evaluate(el => ({ s: el.dataset.state, x: Math.round(el.getBoundingClientRect().left) }));
+      seen.add(r.s); pos.add(r.x);
+      await page.waitForTimeout(300);
+    }
+    if (seen.size !== 1 || !seen.has('idle')) throw new Error('減少動態時夥伴的狀態應該一直是 idle，實際 ' + [...seen].join(','));
+    if (pos.size !== 1) throw new Error('減少動態時夥伴不該移動，位置：' + [...pos].join(','));
+    await page.locator('.pet-btn').click();
+    await page.waitForSelector('.pet-bubble', { timeout: 2000 });
+    if (await page.locator('.pet-btn').getAttribute('data-state') !== 'idle') throw new Error('減少動態時點夥伴不該切換動作狀態');
+    await page.emulateMedia({ reducedMotion: null });
+    log(`      減少動態：3.6 秒裡一直是 idle、沒位移，點一下仍然說話`);
+
     // 圖讀不到（離線又沒快取）要退回手繪的 SVG，不能留一格空白
-    await page.evaluate(() => { document.querySelector('.pet-card-art img.pet-img').src = '/pets/cat/missing.webp'; });
-    await page.waitForFunction(() => !!document.querySelector('.pet-card-art svg') && !document.querySelector('.pet-card-art img'), null, { timeout: 4000 })
+    await page.evaluate(() => { document.querySelector('.pet-yard img.pet-img').src = '/pets/cat/missing.webp'; });
+    await page.waitForFunction(() => !!document.querySelector('.pet-yard .pet-btn svg') && !document.querySelector('.pet-yard img'), null, { timeout: 4000 })
       .catch(() => { throw new Error('貓的圖讀不到時沒有退回 SVG'); });
-    log(`      貓的圖：96px、讀得到、成年換 adult.webp、讀不到退回 SVG`);
+    log(`      貓的圖：讀得到、成年換 adult.webp、讀不到退回 SVG`);
 
     // 「不要夥伴」要真的清掉
     await click('.pet-card-pick', '再打開面板');
     await page.waitForTimeout(240);
     await click('#petNone', '選「不要夥伴」');
     await page.waitForTimeout(320);
-    if (await page.locator('.pet-card-art svg, .pet-card-art img').count() !== 0) {
-      throw new Error('選了「不要夥伴」，卡上卻還有圖');
+    if (await page.locator('.pet-yard').count() !== 0) {
+      throw new Error('選了「不要夥伴」，卡上卻還有小院子');
     }
     await need('.pet-card', '沒夥伴時卡片仍然在');   // 整張卡消失會讓人以為功能不見了
     log(`      「不要夥伴」：圖清掉了，卡片還在`);
