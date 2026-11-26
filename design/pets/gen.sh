@@ -43,7 +43,7 @@ case "$1" in
   edit)
     ref="$2"; out="$3"; desc="$4"
     curl -s https://api.openai.com/v1/images/edits -H "Authorization: Bearer $KEY" \
-      -F model=$MODEL -F image=@"$ref" -F background=transparent -F output_format=png \
+      -F model=$MODEL -F "image=@$ref;type=image/${ref##*.}" -F background=transparent -F output_format=png \
       -F size=1024x1024 -F quality=high --form-string "prompt=$desc $KEEP" \
       | tee "$TMP" | jq -r '.data[0].b64_json' | base64 -d > "$out"
     ;;
