@@ -14,6 +14,7 @@ final class CloudStore: ObservableObject {
     private let vault: SessionVault
     private let readLegacy: @MainActor () async -> LegacyScheduleProbe
     private var token: String?
+    private var sessionGeneration = UUID()
     private var base: JSONObject?
     private var updatedAt: Int64?
     private var dirty = false
@@ -52,8 +53,9 @@ final class CloudStore: ObservableObject {
 
     func start() async {
         guard user == nil, !managingSession else { return }
+        let generation = sessionGeneration
         managingSession = true
-        defer { managingSession = false }
+        defer { if sessionGeneration == generation { managingSession = false } }
         status = .checking
         do {
             guard let savedToken = try vault.read() else {
@@ -68,9 +70,9 @@ final class CloudStore: ObservableObject {
             } catch {
                 message = error.localizedDescription
             }
-            try await synchronize()
+            try await synchronize(generation: generation)
         } catch {
-            report(error)
+            if sessionGeneration == generation { report(error) }
         }
     }
 
@@ -104,10 +106,9 @@ final class CloudStore: ObservableObject {
     }
 
     func logout(pushToken: String? = nil) async throws {
-        guard !managingSession else { return }
-        managingSession = true
-        defer { managingSession = false }
         let previousToken = token
+        // Drop access locally before waiting for the best-effort revoke.
+        // Any previous async operation now belongs to a retired session.
         try clearSession()
         if let previousToken {
             if let pushToken, let value = try? Self.pushToken(pushToken) {
@@ -164,21 +165,25 @@ final class CloudStore: ObservableObject {
     }
 
     func sync() async {
-        guard let currentToken = token else { return }
-        do { try await synchronize() }
+        guard token != nil else { return }
+        let generation = sessionGeneration
+        do { try await synchronize(generation: generation) }
         catch {
-            if token == currentToken || (error as? CloudError)?.statusCode == 401 { report(error) }
+            if sessionGeneration == generation { report(error) }
         }
     }
 
     func resolveConflict(_ choice: CloudConflictChoice) async {
         guard let conflict else { return }
+        let generation = sessionGeneration
         let merged = SnapshotMerge.merge(base: base, local: state, remote: conflict.remote, choice: choice)
         adoptResolution(merged.state, against: conflict.remote, at: conflict.updatedAt)
         do {
             try persist()
-            if dirty { try await synchronize() }
-        } catch { report(error) }
+            if dirty { try await synchronize(generation: generation) }
+        } catch {
+            if sessionGeneration == generation { report(error) }
+        }
     }
 
     func listShares() async throws -> JSONObject {
@@ -269,9 +274,11 @@ final class CloudStore: ObservableObject {
 
     private func authenticate(_ path: String, body: JSONObject) async throws {
         guard !managingSession, user == nil else { return }
+        let generation = sessionGeneration
         managingSession = true
-        defer { managingSession = false }
+        defer { if sessionGeneration == generation { managingSession = false } }
         let reply = try await api.send("POST", path, body: body)
+        guard sessionGeneration == generation else { throw CancellationError() }
         try reply.validate()
         let authorization = try reply.decode(Authentication.self)
         try vault.write(authorization.token)
@@ -283,19 +290,21 @@ final class CloudStore: ObservableObject {
            authorization.user.id != nil {
             apply(cache)
         }
-        do { try await synchronize(verifyingUser: true) }
-        catch { report(error) }
+        do { try await synchronize(generation: generation, verifyingUser: true) }
+        catch {
+            if sessionGeneration == generation { report(error) }
+        }
     }
 
-    private func synchronize(verifyingUser: Bool = false) async throws {
-        guard let token, !syncing, conflict == nil else { return }
+    private func synchronize(generation: UUID, verifyingUser: Bool = false) async throws {
+        guard sessionGeneration == generation, let token, !syncing, conflict == nil else { return }
         syncing = true
-        defer { if self.token == token { syncing = false } }
+        defer { if sessionGeneration == generation { syncing = false } }
         status = .syncing
         message = nil
         if !dirty || user == nil || verifyingUser {
             let reply = try await api.send("GET", "/api/state", token: token)
-            guard self.token == token else { return }
+            guard sessionGeneration == generation else { return }
             try validateSession(reply)
             let remote = try reply.decode(Remote.self)
             if let remoteState = remote.state, !Self.supports(remoteState) { throw CloudError.invalidState }
@@ -313,29 +322,29 @@ final class CloudStore: ObservableObject {
             }
             try persist()
         }
-        try await pushPending(for: token)
-        guard self.token == token, !dirty, conflict == nil else { return }
+        try await pushPending(for: token, generation: generation)
+        guard sessionGeneration == generation, !dirty, conflict == nil else { return }
         if disk.allowsLegacyImport() {
             let probe = await readLegacy()
-            guard self.token == token else { return }
+            guard sessionGeneration == generation else { return }
             // A user can edit the native schedule while WebKit is opening its
             // old store. Settle those edits before comparing the legacy branch.
-            try await pushPending(for: token)
-            guard self.token == token, !dirty, conflict == nil else { return }
+            try await pushPending(for: token, generation: generation)
+            guard sessionGeneration == generation, !dirty, conflict == nil else { return }
             try reconcileLegacy(probe)
-            try await pushPending(for: token)
+            try await pushPending(for: token, generation: generation)
         }
-        if self.token == token, !dirty, conflict == nil { status = .synced }
+        if sessionGeneration == generation, !dirty, conflict == nil { status = .synced }
     }
 
-    private func pushPending(for token: String) async throws {
+    private func pushPending(for token: String, generation: UUID) async throws {
         var retriedConflict = false
-        while dirty, conflict == nil {
+        while sessionGeneration == generation, dirty, conflict == nil {
             let sent = state
             let reply = try await api.send("PUT", "/api/state", body: [
                 "state": .object(sent), "baseUpdatedAt": updatedAt.map { .number(Double($0)) } ?? .null,
             ], token: token)
-            guard self.token == token else { return }
+            guard sessionGeneration == generation else { return }
             if reply.status == 409 {
                 let remote = try reply.decode(WriteConflict.self).remote
                 guard Self.supports(remote.state) else { throw CloudError.invalidState }
@@ -416,9 +425,11 @@ final class CloudStore: ObservableObject {
 
     private func removeAccount(body: JSONObject) async throws {
         guard let email = user?.email, !managingSession else { throw CloudError.noSession }
+        let generation = sessionGeneration
         managingSession = true
-        defer { managingSession = false }
+        defer { if sessionGeneration == generation { managingSession = false } }
         _ = try await authorized("DELETE", "/api/auth/account", body: body)
+        guard sessionGeneration == generation else { throw CloudError.noSession }
         let clear = Result { try clearSession() }
         try disk.deleteSchedule(email: email)
         try clear.get()
@@ -426,14 +437,18 @@ final class CloudStore: ObservableObject {
 
     func authorized(_ method: String, _ path: String, body: JSONObject? = nil) async throws -> JSONObject {
         guard let token, user != nil else { throw CloudError.noSession }
+        let generation = sessionGeneration
         let reply = try await api.send(method, path, body: body, token: token)
-        guard self.token == token else { throw CloudError.noSession }
+        guard sessionGeneration == generation else { throw CloudError.noSession }
         try validateSession(reply)
         return try reply.decode(JSONObject.self)
     }
 
     private func validateSession(_ reply: CloudAPI.Reply) throws {
-        if reply.status == 401 { try clearSession() }
+        if reply.status == 401 {
+            try clearSession()
+            message = "登入憑證已過期，請重新登入。"
+        }
         try reply.validate()
     }
 
@@ -451,6 +466,8 @@ final class CloudStore: ObservableObject {
     }
 
     private func clearSession() throws {
+        sessionGeneration = UUID()
+        managingSession = false
         syncTask?.cancel()
         syncTask = nil
         syncing = false
@@ -474,23 +491,20 @@ final class CloudStore: ObservableObject {
             if status == .syncing { status = user == nil ? .signedOut : .pending }
             return
         }
-        if (error as? CloudError)?.statusCode == 401 {
-            status = .signedOut
-            message = "登入憑證已過期，請重新登入。"
-        } else {
-            status = error is URLError && user != nil ? .offline : .failed
-            message = error.localizedDescription
-        }
+        status = error is URLError && user != nil ? .offline : .failed
+        message = error.localizedDescription
     }
 
     private func scheduleSync() {
         guard conflict == nil else { return }
+        let generation = sessionGeneration
         syncTask?.cancel()
         syncTask = Task { @MainActor [weak self] in
             do { try await Task.sleep(nanoseconds: 1_200_000_000) }
             catch { return }
-            self?.syncTask = nil
-            await self?.sync()
+            guard let self, self.sessionGeneration == generation, !Task.isCancelled else { return }
+            self.syncTask = nil
+            await self.sync()
         }
     }
 

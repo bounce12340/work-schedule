@@ -46,6 +46,30 @@ final class MockTransport: URLProtocol {
     override func stopLoading() {}
 }
 
+@MainActor
+private final class LegacyProbeGate {
+    private var reply: CheckedContinuation<LegacyScheduleProbe, Never>?
+    private var observer: CheckedContinuation<Void, Never>?
+
+    func pause() async -> LegacyScheduleProbe {
+        await withCheckedContinuation { continuation in
+            reply = continuation
+            observer?.resume()
+            observer = nil
+        }
+    }
+
+    func waitForProbe() async {
+        if reply != nil { return }
+        await withCheckedContinuation { observer = $0 }
+    }
+
+    func release(_ result: LegacyScheduleProbe) {
+        reply?.resume(returning: result)
+        reply = nil
+    }
+}
+
 @main
 struct CloudCheck {
     @MainActor
@@ -198,6 +222,51 @@ struct CloudCheck {
         precondition(unrelated.user?.appAccountToken?.uuidString == b && unrelated.state["unuploadedLegacyEdit"] == nil)
         precondition(wrongOwnerDisk.allowsLegacyImport() && MockTransport.count == 0)
         print("PASS account mismatch never displays or uploads a legacy draft")
+
+        let raceDisk = CloudDisk(directory: root.appendingPathComponent("logout-while-starting"))
+        let probeGate = LegacyProbeGate()
+        var firstProbe = true
+        savedToken = "startup-account-token"
+        let switching = CloudStore(api: api, disk: raceDisk, vault: vault, readLegacy: {
+            guard firstProbe else { return .absent }
+            firstProbe = false
+            return await probeGate.pause()
+        })
+        MockTransport.enqueue { _ in
+            try stateReply(userID: a, email: "first@example.invalid", snapshot: online, updatedAt: 250)
+        }
+        let firstStartup = Task { await switching.start() }
+        await probeGate.waitForProbe()
+        precondition(switching.user?.appAccountToken?.uuidString == a)
+
+        MockTransport.enqueue { request in
+            precondition(request.url?.path == "/api/auth/logout")
+            precondition(request.value(forHTTPHeaderField: "Authorization") == "Bearer startup-account-token")
+            return (200, Data("{\"ok\":true}".utf8))
+        }
+        try await switching.logout()
+        precondition(switching.user == nil && savedToken == nil && switching.status == .signedOut,
+                     "Logout must clear the active account while startup is waiting on a legacy probe")
+
+        MockTransport.enqueue { _ in
+            (200, Data("""
+            {"ok":true,"token":"new-account-token","user":{"id":"\(b)","email":"second@example.invalid","role":"user"}}
+            """.utf8))
+        }
+        MockTransport.enqueue { _ in
+            try stateReply(userID: b, email: "second@example.invalid", snapshot: nil, updatedAt: nil)
+        }
+        try await switching.login(email: "second@example.invalid", password: "fixture-only")
+        precondition(switching.user?.appAccountToken?.uuidString == b && savedToken == "new-account-token")
+
+        probeGate.release(.found(ScheduleCache(user: CloudUser(email: "first@example.invalid"), state: oldDraft,
+                                             base: oldBase, updatedAt: 200, dirty: true)))
+        await firstStartup.value
+        precondition(switching.user?.appAccountToken?.uuidString == b && switching.status == .synced)
+        precondition(switching.state["unuploadedLegacyEdit"] == nil && savedToken == "new-account-token")
+        precondition(MockTransport.count == 0)
+        print("PASS logout invalidates an in-flight startup and permits another account before the old probe returns")
+
 
     }
 
