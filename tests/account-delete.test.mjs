@@ -7,6 +7,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { handleDeleteAccount } from '../src/handlers/appauth.js';
 import { createSession, getSessionUser } from '../src/session.js';
 import { hashPassword } from '../src/crypto.js';
@@ -81,11 +82,13 @@ function snapshotOf(env, userId, email) {
   };
 }
 
-function del(password) {
+function deleteRequest(body) {
   return new Request('https://app.test/api/auth/account', {
-    method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password })
+    method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body)
   });
 }
+
+const del = password => deleteRequest({ password });
 
 const A = { id: 'A', email: 'a@x.test', role: 'user', status: 'approved' };
 
@@ -97,6 +100,110 @@ test('密碼錯回 403，而且每一張表都一列沒少', async () => {
   const after = TABLES.map(t => env.DB.prepare(`SELECT COUNT(*) AS n FROM ${t}`).first().n);
   assert.deepEqual(after, before);
   assert.equal(env.DB.prepare('SELECT COUNT(*) AS n FROM admin_activity').first().n, 0, '失敗不留記錄');
+});
+
+test('Google 刪除帳號必須用單次授權碼，驗證後只比對已連結的 subject', async () => {
+  const env = await setup();
+  env.GOOGLE_IOS_CLIENT_ID = '123.apps.googleusercontent.com';
+  const original = globalThis.fetch;
+  let exchanges = 0;
+  let googleSubject = 'google-B';
+  globalThis.fetch = async (url, init) => {
+    const endpoint = new URL(url);
+    if (endpoint.pathname === '/token') {
+      assert.equal(init.body.get('code'), 'new-code');
+      assert.equal(init.body.get('code_verifier'), 'pkce-verifier');
+      exchanges++;
+      return Response.json({ id_token: 'verified-google-token' });
+    }
+    assert.equal(endpoint.searchParams.get('id_token'), 'verified-google-token');
+    return Response.json({
+      aud: env.GOOGLE_IOS_CLIENT_ID, iss: 'accounts.google.com', sub: googleSubject,
+      email: A.email, email_verified: true, exp: Math.floor(Date.now() / 1000) + 60,
+    });
+  };
+  try {
+    const tokenOnly = deleteRequest({ provider: 'google', idToken: 'verified-google-token' });
+    assert.equal((await handleDeleteAccount(tokenOnly, env, A)).status, 403);
+    assert.equal(exchanges, 0);
+
+    const credentials = {
+      provider: 'google', authorizationCode: 'new-code', codeVerifier: 'pkce-verifier',
+      redirectUri: 'com.googleusercontent.apps.123:/oauth2redirect/google',
+    };
+    const before = snapshotOf(env, 'A', A.email);
+    assert.equal((await handleDeleteAccount(deleteRequest(credentials), env, A)).status, 403);
+    assert.deepEqual(snapshotOf(env, 'A', A.email), before, 'email 相同的其他 subject 無法刪除帳號');
+
+    googleSubject = 'google-A';
+    assert.equal((await handleDeleteAccount(deleteRequest(credentials), env, A)).status, 200);
+    assert.equal(snapshotOf(env, 'A', A.email).user.length, 0);
+    assert.equal(snapshotOf(env, 'B', 'b@x.test').user.length, 1);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test('Apple 刪除帳號要讓 nonce 與新授權碼對應同一 Apple 身分，並撤銷取得的 refresh token', async () => {
+  const env = await setup();
+  const clientKey = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign']);
+  const der = await crypto.subtle.exportKey('pkcs8', clientKey.privateKey);
+  Object.assign(env, {
+    APPLE_SIGN_IN_TEAM_ID: 'TEAM123',
+    APPLE_SIGN_IN_KEY_ID: 'KEY123',
+    APPLE_SIGN_IN_CLIENT_ID: 'com.bounceto.workschedule',
+    APPLE_SIGN_IN_PRIVATE_KEY: `-----BEGIN PRIVATE KEY-----\n${Buffer.from(der).toString('base64')}\n-----END PRIVATE KEY-----`,
+  });
+  const apple = await crypto.subtle.generateKey(
+    { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
+    true, ['sign', 'verify'],
+  );
+  const jwk = { ...(await crypto.subtle.exportKey('jwk', apple.publicKey)), kid: 'apple-test-key' };
+  const rawNonce = 'client-nonce';
+  async function tokenFor(subject) {
+    const encode = object => Buffer.from(JSON.stringify(object)).toString('base64url');
+    const header = encode({ alg: 'RS256', kid: jwk.kid });
+    const claims = encode({
+      iss: 'https://appleid.apple.com', aud: env.APPLE_SIGN_IN_CLIENT_ID, sub: subject,
+      exp: Math.floor(Date.now() / 1000) + 60, nonce: createHash('sha256').update(rawNonce).digest('hex'),
+    });
+    const input = `${header}.${claims}`;
+    const signature = await crypto.subtle.sign(apple.publicKey.algorithm.name, apple.privateKey, Buffer.from(input));
+    return `${input}.${Buffer.from(signature).toString('base64url')}`;
+  }
+  env.DB.prepare(`INSERT INTO oauth_identities
+    (id, user_id, provider, subject, apple_refresh_token, created_at, updated_at)
+    VALUES ('apple-a', 'A', 'apple', 'apple-sub', 'old-refresh', 0, 0)`).run();
+  const credentials = { provider: 'apple', idToken: await tokenFor('apple-sub'), authorizationCode: 'single-use', nonce: rawNonce };
+  let exchanged = await tokenFor('another-apple-sub');
+  let exchangeCount = 0;
+  const revoked = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const endpoint = new URL(url);
+    assert.equal(endpoint.host, 'appleid.apple.com');
+    if (endpoint.pathname === '/auth/keys') return Response.json({ keys: [jwk] });
+    if (endpoint.pathname === '/auth/token') {
+      assert.equal(init.body.get('code'), 'single-use');
+      exchangeCount++;
+      return Response.json({ id_token: exchanged, refresh_token: 'new-refresh' });
+    }
+    assert.equal(endpoint.pathname, '/auth/revoke');
+    revoked.push(init.body.get('token'));
+    return new Response(null, { status: 200 });
+  };
+  try {
+    assert.equal((await handleDeleteAccount(deleteRequest({ ...credentials, nonce: 'wrong' }), env, A)).status, 403);
+    assert.equal(exchangeCount, 0);
+    assert.equal((await handleDeleteAccount(deleteRequest(credentials), env, A)).status, 403);
+    assert.equal(revoked.length, 0);
+    exchanged = await tokenFor('apple-sub');
+    assert.equal((await handleDeleteAccount(deleteRequest(credentials), env, A)).status, 200);
+    assert.deepEqual(revoked.sort(), ['new-refresh', 'old-refresh']);
+    assert.equal(snapshotOf(env, 'A', A.email).user.length, 0);
+  } finally {
+    globalThis.fetch = original;
+  }
 });
 
 test('刪除帳號：Apple refresh token 會送到 revoke，而且第三方身分一併刪除', async () => {
