@@ -54,6 +54,7 @@
     --paper: #FDFAF1;   /* 每日記錄專用的紙色，比 panel 再暖一點 */
     --sakura-trunk: #6E5A4A; --sakura-branch: #8A7360; --sakura-leaf: #7FA36B; --sakura-petal: #F0A6C0; --sakura-petal-2: #D4709A; --sakura-petal-3: #FBD6E3; --sakura-leaf-2: #5E8A4E; --sakura-leaf-3: #A9C98E; --sakura-soil: #CDBE9E;   /* 遊戲化的櫻花樹 */
     --pet-body: #C9A882; --pet-body-2: #A8855F; --pet-ink: #4A3F36; --pet-pale: #EADBC6; --pet-leaf: #6F9A5E; --pet-leaf-2: #517A44;   /* 專案的夥伴 */
+    --pet-ground: #CDBFA4; --pet-ground-fill: rgba(111,154,94,.16);   /* 夥伴的小院子：地線與草地 */
     --art-far: #DCE3D0;   /* 空狀態插畫：遠山 */
     --art-near: #C7D3BA;  /* 空狀態插畫：近坡 */
     /* 開機的載入畫面：藍色的山、湖、前景的草叢 */
@@ -192,6 +193,7 @@
     --paper: #24211C;
     --sakura-trunk: #5C4C40; --sakura-branch: #705E4E; --sakura-leaf: #6E9A5C; --sakura-petal: #C77F9C; --sakura-petal-2: #9C5676; --sakura-petal-3: #E0A9BF; --sakura-leaf-2: #4F7742; --sakura-leaf-3: #8DB377; --sakura-soil: #4A423A;
     --pet-body: #A98D6D; --pet-body-2: #8A6F52; --pet-ink: #E2D8CB; --pet-pale: #6B5B48; --pet-leaf: #5E8750; --pet-leaf-2: #456B3A;
+    --pet-ground: #4A4438; --pet-ground-fill: rgba(94,135,80,.20);
     --art-far: #2C332B;
     --art-near: #363E33;
     --scene-sky-1: #1D2431; --scene-sky-2: #1A1917; --scene-mist: #2A3241;
@@ -1059,12 +1061,40 @@
      而 check-contrast 量到的就是那個最差情況（見〈對比工具原本看不到光暈〉）。 */
   .pet-card{ display:flex; align-items:center; gap:14px; padding:12px 14px; margin-bottom:16px;
              background:var(--panel-2); border:1px solid var(--hairline); border-radius:var(--r-m); flex-wrap:wrap; }
-  .pet-card-art{ width:56px; height:56px; flex:0 0 auto; }
-  .pet-card-art svg{ width:100%; height:100%; display:block; overflow:visible; }
-  /* AI 畫的圖（目前只有貓）細節多，56px 看不清楚，放大到 96px（使用者看過對照圖之後選的） */
-  .pet-card-art.has-img{ width:96px; height:96px; }
   .pet-art-wrap{ display:block; width:100%; height:100%; }
   .pet-img{ width:100%; height:100%; object-fit:contain; display:block; }
+  /* 小院子：夥伴站在這裡，長大了就真的比較大（高度隨階段，見 PET_STAGE_SCALE）。
+     不裁切上緣——對話泡泡要放在牠頭上。只靠 transform／opacity 動，不碰版面。 */
+  .pet-yard{ position:relative; flex:1 0 100%; height:144px; overflow:hidden; border-radius:var(--r-s);
+             background:linear-gradient(to top, var(--pet-ground-fill) 0, var(--pet-ground-fill) 16px, transparent 16px);
+             border-bottom:2px solid var(--pet-ground); }
+  .pet-btn{ position:absolute; left:0; bottom:9px; padding:0; margin:0; border:0; background:none; cursor:pointer;
+            font:inherit; color:inherit; -webkit-tap-highlight-color:transparent; will-change:transform; }
+  .pet-btn:focus-visible{ outline:2px solid var(--amber); outline-offset:2px; border-radius:var(--r-s); }
+  .pet-hopper, .pet-sprite{ display:block; width:100%; height:100%; }
+  .pet-sprite{ transform-origin:50% 100%; }
+  .pet-sprite svg{ width:100%; height:100%; display:block; overflow:visible; }
+  .pet-btn .pet-img{ -webkit-user-drag:none; user-select:none; pointer-events:none; }
+  .pet-btn.flip .pet-img{ transform:scaleX(-1); }
+  .pet-hopper.hop{ animation:pet-hop .5s ease-out; }
+  .pet-btn[data-state="walk"] .pet-sprite{ animation:pet-bob .46s ease-in-out infinite; }
+  .pet-btn[data-state="stretch"] .pet-sprite{ animation:pet-stretch 1s ease-in-out; }
+  .pet-btn[data-state="sway"] .pet-sprite{ animation:pet-sway 3.6s ease-in-out infinite; }
+  .pet-zz{ position:absolute; right:-4px; top:2px; display:none; font-family:var(--serif); font-size:14px; font-weight:700;
+           color:var(--text-muted); pointer-events:none; }
+  .pet-btn[data-state="sleep"] .pet-zz{ display:block; animation:pet-zz 2s ease-in-out infinite; }
+  .pet-bubble{ position:absolute; top:4px; max-width:190px; padding:6px 10px; border-radius:var(--r-m);
+               background:var(--panel); color:var(--text); border:1px solid var(--hairline);
+               font-size:13px; line-height:1.45; box-shadow:0 2px 8px rgba(0,0,0,.10); pointer-events:none; z-index:2; }
+  @keyframes pet-hop{ 0%{ transform:translateY(0); } 30%{ transform:translateY(-22px); } 55%{ transform:translateY(0); } 75%{ transform:translateY(-9px); } 100%{ transform:translateY(0); } }
+  @keyframes pet-bob{ 0%,100%{ transform:translateY(0); } 50%{ transform:translateY(-3px); } }
+  @keyframes pet-stretch{ 0%{ transform:scale(1,1); } 40%{ transform:scale(1.14,.88); } 70%{ transform:scale(.96,1.05); } 100%{ transform:scale(1,1); } }
+  @keyframes pet-sway{ 0%,100%{ transform:rotate(-1.6deg); } 50%{ transform:rotate(1.6deg); } }
+  @keyframes pet-zz{ 0%{ transform:translateY(0); opacity:0; } 30%{ opacity:1; } 100%{ transform:translateY(-14px); opacity:0; } }
+  /* 減少動態：不走、不搖、不跳；站著不動（點一下仍然會說話） */
+  @media (prefers-reduced-motion: reduce){
+    .pet-btn, .pet-hopper, .pet-sprite, .pet-zz{ animation:none !important; transition:none !important; }
+  }
   .pet-card-info{ flex:1 1 180px; min-width:0; }
   .pet-card-name{ font-family:var(--serif); font-size:15px; color:var(--text); display:flex; align-items:center; gap:7px; }
   /* 成年只多一個小記號。不改顏色、不加動畫——真正在說「100% 了」的是下面那行數字 */
@@ -3138,6 +3168,36 @@
   const LANG_KEY = 'workSchedule.v1.lang';
   const I18N = {
     en: {
+      // —— 夥伴的口頭禪 ——
+      '今天的草看起來特別好吃。':'The grass looks extra tasty today.',
+      '我跑得很快，不過先陪你。':'I run fast, but I will stay with you for now.',
+      '耳朵動一動，我聽到你的腳步聲了。':'My ears twitch — I can hear you coming.',
+      '啾啾！今天也要加油喔。':'Tweet! Keep it up today.',
+      '我在樹梢上看得到你的進度！':'From the treetop I can see your progress!',
+      '唱首歌給你聽，啾～':'Let me sing you a song, tweet~',
+      '蹦蹦跳跳，心情真好！':'Hop hop — what a good mood!',
+      '胡蘿蔔先放著，我陪你把待辦做完。':'Carrots can wait — I will help you finish your to-dos.',
+      '耳朵豎起來，準備好了！':'Ears up, I am ready!',
+      '喵～摸摸我就有力氣了。':'Meow~ a little pat and I am full of energy.',
+      '我先伸個懶腰，你繼續。':'I will stretch first — you carry on.',
+      '呼嚕呼嚕，專心工作吧。':'Purr purr — focus on your work.',
+      '嘿嘿，我嗅到成功的味道。':'Hehe, I can smell success.',
+      '尾巴搖一搖，今天運氣不錯。':'Wag my tail — lucky day today.',
+      '聰明做事，輕鬆收工。':'Work smart, finish easy.',
+      '慢慢來，比較快。':'Slow and steady wins.',
+      '一步一步，我們會到的。':'One step at a time — we will get there.',
+      '縮進殼裡休息一下也沒關係。':'It is fine to rest in my shell for a bit.',
+      '沙沙沙……風吹過來了。':'Rustle rustle… the wind is here.',
+      '我在長高喔，你有看到嗎？':'I am growing taller — did you notice?',
+      '樹蔭留給你休息。':'I will keep the shade for you to rest in.',
+      '松針香香的，深呼吸一下。':'Pine needles smell nice — take a deep breath.',
+      '根扎穩了，什麼都不怕。':'My roots are firm, I fear nothing.',
+      '年輪一圈一圈，慢慢加上去。':'Ring by ring, little by little.',
+      '我長大了！謝謝你一路照顧我':'I have grown up! Thank you for taking care of me all along.',
+      '我們一起開始吧！':'Let us get started together!',
+      '還差 {0} 件，我就能長大一點！':'Only {0} left and I can grow a little more!',
+      '我長大了一點，現在是「{0}」！':'I grew a little — now I am “{0}”!',
+      '{0}，目前是「{1}」。點一下跟牠打招呼':'{0}, currently “{1}”. Click to say hi',
       // —— 導覽與頁首 ——
       '工作排程確認系統':'Schedule Control Board',
       // —— 連續斷掉的信（F2）——
@@ -7060,19 +7120,25 @@
   }
 
   /**
-   * 有 AI 繪製的圖的物種（目前只有貓）：專案卡與挑夥伴的面板用 /pets/<物種>/<階段>.webp，
+   * 八種夥伴都有 AI 繪製的圖：專案卡的小院子與挑夥伴的面板用
+   * /pets/<物種>/<階段>.webp，動物另有動作圖 /pets/<物種>/poses/<young|grown>-<走|打哈欠|睡|開心>.webp。
    * 開機畫面在湖邊走的仍是 SVG（腳會擺、跟主題換色）。
    * 圖讀不到（離線又沒進快取、iOS app 內建的只有 index.html 而網路不通）就**換回 SVG**——
    * 寧可退回手繪的那一隻，也不要留一格空白（同〈降級可以，沉默不行〉，console 會出聲）。
+   * 圖**不放進 sw.js 的 PRECACHE**：四十八張＋動作圖預先抓是白白佔流量，
+   * 第一次看到才由 service worker 既有的靜態資產規則快取起來。
    */
-  const PET_IMAGES = { cat: true };
+  const PET_IMAGES = { deer:true, bird:true, rabbit:true, cat:true, fox:true, turtle:true, fir:true, pine:true };
   const PET_IMAGE_STAGES = ['baby','small','half','big','almost','adult'];
+  function petImgUrl(speciesId, stage){
+    return (NATIVE ? SITE_ORIGIN : '') + '/pets/' + speciesId + '/' + stage + '.webp';
+  }
   function petArtEl(speciesId, stage){
     const wrap = document.createElement('span'); wrap.className = 'pet-art-wrap';
     if(PET_IMAGES[speciesId] && PET_IMAGE_STAGES.indexOf(stage) >= 0){
       const img = document.createElement('img');
       img.className = 'pet-img'; img.alt = ''; img.decoding = 'async';
-      img.src = (NATIVE ? SITE_ORIGIN : '') + '/pets/' + speciesId + '/' + stage + '.webp';
+      img.src = petImgUrl(speciesId, stage);
       img.onerror = ()=>{ console.error('pet image failed, falling back to SVG', img.src); wrap.innerHTML = petArt(speciesId, stage); };
       wrap.appendChild(img);
     }else{
@@ -9498,6 +9564,256 @@
     area.appendChild(buildProjectNotes(gp));
   }
 
+  // ================= 夥伴的小院子（活的夥伴） =================
+  // 專案卡上的夥伴站在一小塊院子裡：長大了真的比較大、會自己走動、打哈欠、睡覺，
+  // 點一下會跳、換開心的動作圖、說一句話。
+  //
+  // 全部只動 transform／opacity：走路是 CSS transition 換一個 translateX 目標
+  // （不跑 JS 逐格迴圈）。**每張卡一個控制器**，以專案 id 為鍵放在 petLives——
+  // 卡片被就地換掉（勾選會觸發）時舊的一定要停，否則計時器會一個一個疊起來，
+  // 而畫面看起來完全正常，只是頁面越用越慢。
+  // 新增的頂層函式一律 `pet` 前綴（遮蔽事故見〈多語系〉）。
+
+  const PET_BASE_H = 108;                         // 成年那一階的高度（px）
+  const PET_STAGE_SCALE = { baby:.42, small:.52, half:.64, big:.76, almost:.88, adult:1 };
+  const PET_WALK_PX_PER_S = 38;
+  const PET_POSES = ['walk','yawn','sleep','happy'];
+  // 每種夥伴的口頭禪（中文原文就是字典的 key，英文在 I18N.en）。用的當下才 tr()，不要在載入時翻
+  const PET_LINES = {
+    deer:   ['今天的草看起來特別好吃。', '我跑得很快，不過先陪你。', '耳朵動一動，我聽到你的腳步聲了。'],
+    bird:   ['啾啾！今天也要加油喔。', '我在樹梢上看得到你的進度！', '唱首歌給你聽，啾～'],
+    rabbit: ['蹦蹦跳跳，心情真好！', '胡蘿蔔先放著，我陪你把待辦做完。', '耳朵豎起來，準備好了！'],
+    cat:    ['喵～摸摸我就有力氣了。', '我先伸個懶腰，你繼續。', '呼嚕呼嚕，專心工作吧。'],
+    fox:    ['嘿嘿，我嗅到成功的味道。', '尾巴搖一搖，今天運氣不錯。', '聰明做事，輕鬆收工。'],
+    turtle: ['慢慢來，比較快。', '一步一步，我們會到的。', '縮進殼裡休息一下也沒關係。'],
+    fir:    ['沙沙沙……風吹過來了。', '我在長高喔，你有看到嗎？', '樹蔭留給你休息。'],
+    pine:   ['松針香香的，深呼吸一下。', '根扎穩了，什麼都不怕。', '年輪一圈一圈，慢慢加上去。']
+  };
+  const petLives = new Map();        // 專案 id → 控制器
+  const petLastPos = new Map();      // 專案 id → 上次站的位置（0~1），卡片重建後接著走
+  const petLastStage = new Map();    // 專案 id → { pet, stage }，用來偵測「剛長大」
+  const petReduceMq = (typeof window.matchMedia === 'function') ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+  function petReduced(){ return !!(petReduceMq && petReduceMq.matches); }
+  function petRand(lo, hi){ return lo + Math.random() * (hi - lo); }
+  function petPoseUrl(speciesId, stage, pose){
+    const group = (stage === 'baby' || stage === 'small' || stage === 'half') ? 'young' : 'grown';
+    return (NATIVE ? SITE_ORIGIN : '') + '/pets/' + speciesId + '/poses/' + group + '-' + pose + '.webp';
+  }
+
+  function petLifeStop(c){
+    if(!c) return;
+    c.stopped = true;
+    clearTimeout(c.timer); clearTimeout(c.happyTimer); clearTimeout(c.bubbleTimer);
+    petLifeSavePos(c);           // 卡片被換掉重建時，新的一張接著站在這裡
+    if(petLives.get(c.id) === c) petLives.delete(c.id);
+  }
+  function petLifeSet(c, state){
+    c.state = state; c.btn.dataset.state = state;
+    if(state !== 'walk') c.btn.classList.remove('flip');
+  }
+  function petLifeNext(c, ms){
+    clearTimeout(c.timer);
+    c.timer = setTimeout(()=> petLifeTick(c), ms);
+  }
+  /** 換圖：動作圖**預先載入成功**才會顯示，沒有就維持階段圖（不閃、不留空白） */
+  function petShow(c, name){
+    if(c.noImg || !c.img.isConnected) return;
+    if(name !== 'stage' && !c.poseOk[name]) name = 'stage';
+    if(c.shown === name) return;
+    c.shown = name;
+    c.img.src = name === 'stage' ? petImgUrl(c.species, c.stage) : petPoseUrl(c.species, c.stage, name);
+  }
+  /** 第一次真的量得到院子寬度時，把「百分比擺位」換成像素位置（之後走路只動 transform） */
+  function petLifeLayout(c){
+    const W = c.yard.clientWidth, w = c.btn.offsetWidth;
+    if(!W || !w) return false;
+    c.min = 4; c.max = Math.max(4, W - w - 4);
+    if(c.x === null){
+      c.x = c.min + c.frac * (c.max - c.min);
+      c.btn.style.left = '0'; petLifeX(c, c.x, 0);
+      // 先讓瀏覽器把起點真的套用上去：否則下一個走路的 transition 會從「置中」那個
+      // 舊的 translateX(-50%) 起算，第一步從院子外面走進來（鹿的頭被切掉一半）
+      void c.btn.offsetWidth;
+    }else if(c.x > c.max){ c.x = c.max; petLifeX(c, c.x, 0); }
+    return true;
+  }
+  function petLifeX(c, x, ms){
+    c.btn.style.transition = ms ? 'transform ' + Math.round(ms) + 'ms linear' : 'none';
+    c.btn.style.transform = 'translateX(' + Math.round(x * 10) / 10 + 'px)';
+  }
+  function petLifeSavePos(c){
+    if(c.x !== null && c.max > c.min) petLastPos.set(c.id, Math.max(0, Math.min(1, (c.x - c.min) / (c.max - c.min))));
+  }
+  /** 停在某個狀態一段時間，之後回到 idle 再排下一次 */
+  function petLifeHold(c, state, pose, ms, then){
+    petLifeSet(c, state); petShow(c, pose);
+    clearTimeout(c.timer);
+    c.timer = setTimeout(()=>{
+      if(c.stopped) return;
+      petLifeSet(c, 'idle'); petShow(c, 'stage');
+      if(then && !c.stopped){ then(); return; }
+      petLifeNext(c, petRand(700, 1600));
+    }, ms);
+  }
+  function petLifeTick(c){
+    if(c.stopped) return;
+    if(!c.btn.isConnected || currentView !== 'gantt'){ petLifeStop(c); return; }
+    if(document.hidden){ c.paused = true; return; }       // 回到前景才繼續（visibilitychange）
+    if(petReduced()){ petLifeSet(c, 'idle'); petShow(c, 'stage'); return; }
+    if(!petLifeLayout(c)){ petLifeNext(c, 500); return; }
+    if(c.plant){                                           // 樹不走，只是輕輕搖或停一下
+      petLifeSet(c, c.state === 'sway' ? 'idle' : 'sway');
+      petLifeNext(c, petRand(3000, 7000));
+      return;
+    }
+    let st;
+    if(c.first){ st = 'walk'; c.first = false; }
+    else{
+      const r = Math.random();
+      st = r < .45 ? 'walk' : r < .62 ? 'idle' : r < .74 ? 'stretch' : r < .86 ? 'yawn' : 'sleep';
+      if(st === c.last && st !== 'walk') st = 'walk';
+    }
+    c.last = st;
+    if(st === 'walk'){
+      let dir = Math.random() < .5 ? -1 : 1;
+      if(c.x <= c.min + 2) dir = 1; else if(c.x >= c.max - 2) dir = -1;
+      let target = Math.max(c.min, Math.min(c.max, c.x + dir * petRand(70, 220)));
+      if(Math.abs(target - c.x) < 24){ dir = -dir; target = Math.max(c.min, Math.min(c.max, c.x + dir * petRand(70, 220))); }
+      const dx = target - c.x;
+      if(Math.abs(dx) < 8){ petLifeNext(c, 800); return; }
+      const ms = Math.abs(dx) / PET_WALK_PX_PER_S * 1000;
+      petLifeSet(c, 'walk'); petShow(c, 'walk');
+      // 只有真的換成「面朝右」的走路圖才翻面；階段圖不知道面向哪裡，翻了反而奇怪
+      c.btn.classList.toggle('flip', dx < 0 && c.shown === 'walk');
+      c.x = target; petLifeX(c, target, ms);
+      clearTimeout(c.timer);
+      c.timer = setTimeout(()=>{
+        if(c.stopped) return;
+        petLifeSet(c, 'idle'); petShow(c, 'stage'); petLifeSavePos(c);
+        petLifeNext(c, petRand(500, 1400));
+      }, ms + 30);
+    }else if(st === 'idle'){
+      petLifeSet(c, 'idle'); petShow(c, 'stage');
+      petLifeNext(c, petRand(1500, 4000));
+    }else if(st === 'stretch'){
+      petLifeHold(c, 'stretch', 'stage', 1000);
+    }else if(st === 'yawn'){
+      petLifeHold(c, 'yawn', 'yawn', 1600, Math.random() < .4 ? ()=> petLifeHold(c, 'sleep', 'sleep', petRand(4000, 7000)) : null);
+    }else{
+      petLifeHold(c, 'sleep', 'sleep', petRand(4000, 7000));
+    }
+  }
+
+  /** 說一句話。**同時只會有一個泡泡**：再點一次是換字並重新計時，不是再長一個 */
+  function petSay(c, text){
+    if(c.stopped || !text) return;
+    if(!c.bubble || !c.bubble.isConnected){
+      c.bubble = document.createElement('div'); c.bubble.className = 'pet-bubble';
+      c.bubble.setAttribute('role', 'status');
+      c.yard.appendChild(c.bubble);
+    }
+    c.bubble.textContent = text;           // 一律 textContent
+    const W = c.yard.clientWidth, bw = c.bubble.offsetWidth, pw = c.btn.offsetWidth;
+    const px = c.x === null ? c.frac * Math.max(0, W - pw) : c.x;
+    c.bubble.style.left = Math.max(4, Math.min(Math.max(4, W - bw - 4), px + pw / 2 - bw / 2)) + 'px';
+    clearTimeout(c.bubbleTimer);
+    c.bubbleTimer = setTimeout(()=>{ if(c.bubble){ c.bubble.remove(); c.bubble = null; } }, 3000);
+  }
+  function petProgressLine(c){
+    if(c.allDone) return tr('我長大了！謝謝你一路照顧我');
+    if(!c.total || !c.doneCnt) return tr('我們一起開始吧！');
+    return tf('還差 {0} 件，我就能長大一點！', c.total - c.doneCnt);
+  }
+  function petPickLine(c){
+    const pool = (PET_LINES[c.species] || []).map(l => tr(l)).concat([petProgressLine(c)]).filter(l => l !== c.lastLine);
+    const line = pool[Math.floor(Math.random() * pool.length)] || petProgressLine(c);
+    c.lastLine = line;
+    return line;
+  }
+  function petLifeClick(c){
+    if(c.stopped) return;
+    clearTimeout(c.timer); clearTimeout(c.happyTimer);
+    if(!petReduced()){
+      // 走到一半被點到：就停在原地（讀它現在真的在哪，而不是目標）
+      if(c.x !== null){
+        const yr = c.yard.getBoundingClientRect(), br = c.btn.getBoundingClientRect();
+        c.x = Math.max(c.min, Math.min(c.max, br.left - yr.left)); petLifeX(c, c.x, 0); petLifeSavePos(c);
+      }
+      c.hopper.classList.remove('hop'); void c.hopper.offsetWidth; c.hopper.classList.add('hop');
+      petLifeSet(c, 'happy'); petShow(c, 'happy');
+      c.happyTimer = setTimeout(()=>{
+        if(c.stopped) return;
+        petLifeSet(c, c.plant ? 'sway' : 'idle'); petShow(c, 'stage');
+        petLifeNext(c, petRand(800, 1600));
+      }, 1200);
+    }
+    petSay(c, petPickLine(c));
+  }
+
+  /** 專案卡上的小院子。回傳的元素一接上畫面，控制器就開始活動；沒接上就自己停掉。 */
+  function petBuildYard(gp, stage, box){
+    const sp = petSpecies(gp.pet);
+    const tasks = Array.isArray(gp.tasks) ? gp.tasks : [];
+    const yard = document.createElement('div'); yard.className = 'pet-yard';
+    const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'pet-btn';
+    const h = Math.round(PET_BASE_H * (PET_STAGE_SCALE[stage] || 1));
+    btn.style.width = h + 'px'; btn.style.height = h + 'px';
+    btn.dataset.state = 'idle'; btn.dataset.species = gp.pet; btn.dataset.stage = stage;
+    btn.setAttribute('aria-label', tf('{0}，目前是「{1}」。點一下跟牠打招呼', sp.adult, petStageLabel(gp.pet, stage)));
+    const old = petLives.get(gp.id); if(old) petLifeStop(old);     // 先停舊的（它會把位置存起來），再讀位置
+    const frac = petLastPos.has(gp.id) ? petLastPos.get(gp.id) : .5;
+    // 還沒接上畫面、量不到寬度時先用百分比擺好（left＋translate 抵掉自己的寬度）
+    btn.style.left = (frac * 100) + '%'; btn.style.transform = 'translateX(-' + (frac * 100) + '%)';
+    const hopper = document.createElement('span'); hopper.className = 'pet-hopper';
+    hopper.onanimationend = ()=> hopper.classList.remove('hop');
+    const sprite = document.createElement('span'); sprite.className = 'pet-sprite';
+    const img = document.createElement('img');
+    img.className = 'pet-img'; img.alt = ''; img.decoding = 'async'; img.draggable = false;
+    sprite.appendChild(img); hopper.appendChild(sprite); btn.appendChild(hopper);
+    const zz = document.createElement('span'); zz.className = 'pet-zz'; zz.textContent = 'Zz'; zz.setAttribute('aria-hidden', 'true');
+    btn.appendChild(zz);
+    yard.appendChild(btn);
+
+    const c = { id: gp.id, species: gp.pet, stage, plant: !!sp.plant, yard, btn, hopper, sprite, img, zz,
+                shown: 'stage', poseOk: {}, noImg: false, x: null, min: 4, max: 4, frac,
+                state: 'idle', last: '', first: !old, stopped: false, paused: false,
+                timer: 0, happyTimer: 0, bubbleTimer: 0, bubble: null, lastLine: '',
+                total: tasks.length, doneCnt: tasks.filter(t => t && t.done).length, allDone: petAllDone(gp) };
+    img.onerror = ()=>{
+      console.error('pet image failed, falling back to SVG', img.src);
+      c.noImg = true; sprite.innerHTML = petArt(c.species, c.stage);
+    };
+    img.src = petImgUrl(gp.pet, stage);
+    btn.onclick = ()=> petLifeClick(c);
+    petLives.set(gp.id, c);
+
+    const reduced = petReduced();
+    if(!reduced && !c.plant){
+      PET_POSES.forEach(name => {            // 動作圖還沒做出來也不會壞：載不到就永遠維持階段圖
+        const probe = new Image();
+        probe.onload = ()=>{ c.poseOk[name] = true; };
+        probe.src = petPoseUrl(gp.pet, stage, name);
+      });
+    }
+    if(reduced) btn.dataset.state = 'idle'; else petLifeNext(c, 700);
+
+    // 剛長大：自己說一句（只在同一隻夥伴、階段變高時；第一次看到這張卡不說）
+    const prev = petLastStage.get(gp.id);
+    petLastStage.set(gp.id, { pet: gp.pet, stage });
+    if(prev && prev.pet === gp.pet && petStageIndex(stage) > petStageIndex(prev.stage)){
+      setTimeout(()=>{
+        if(c.stopped || !btn.isConnected) return;
+        petSay(c, stage === 'adult' ? tr('我長大了！謝謝你一路照顧我') : tf('我長大了一點，現在是「{0}」！', petStageLabel(gp.pet, stage)));
+      }, 450);
+    }
+    return yard;
+  }
+  // 分頁被藏起來就不要再動；回到前景才接著排下一次
+  document.addEventListener('visibilitychange', ()=>{
+    if(document.hidden) return;
+    petLives.forEach(c => { if(c.paused && !c.stopped){ c.paused = false; petLifeNext(c, 300); } });
+  });
+
   /**
    * 專案頁上那一張夥伴卡。
    *
@@ -9514,10 +9830,7 @@
     const pct = petCompletion(gp);
     const stage = petStageOf(gp);
 
-    const art = document.createElement('div');
-    art.className = 'pet-card-art' + (stage === 'adult' ? ' adult' : '') + (sp && PET_IMAGES[gp.pet] ? ' has-img' : '');
-    if(sp) art.appendChild(petArtEl(gp.pet, stage));
-    box.appendChild(art);
+    if(sp) box.appendChild(petBuildYard(gp, stage, box));
 
     const info = document.createElement('div'); info.className = 'pet-card-info';
     if(sp){
