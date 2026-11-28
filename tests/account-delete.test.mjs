@@ -276,3 +276,98 @@ test('刪掉之後同一個 email 可以再註冊（users 沒有殘留）', asyn
     .bind('A2', 'a@x.test', 'x', 'user', 'approved', 0).run();
   assert.equal(env.DB.prepare("SELECT COUNT(*) AS n FROM users WHERE email = 'a@x.test'").first().n, 1);
 });
+
+// ------------------------------------------------------------ 訂閱中不能刪帳號（Paddle 的扣款停不了）
+
+const DAY = 24 * 3600 * 1000;
+const PADDLE_KEY = 'pdl_sdbx_apikey_TEST_ONLY';
+
+/** 讓 A 是某種方案，並攔下 fetch 當假的 Paddle；回傳打過的呼叫。 */
+async function withPaddle(env, plan, paddle, fn) {
+  env.DB.prepare('UPDATE users SET plan_source = ?, plan_expires_at = ?, paddle_subscription_id = ? WHERE id = ?')
+    .bind(plan.source, plan.expiresAt ?? null, plan.subId ?? null, 'A').run();
+  if (paddle !== 'no-key') Object.assign(env, { PADDLE_API_KEY: PADDLE_KEY, PADDLE_ENV: 'sandbox' });
+  const calls = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), auth: init?.headers?.authorization });
+    if (paddle === 'throw') throw new Error('network down: ' + PADDLE_KEY);
+    return paddle();
+  };
+  try { return await fn(calls); } finally { globalThis.fetch = real; }
+}
+const paddleSub = (sub) => () => Response.json({ data: { id: 'sub_1', ...sub } });
+const live = { source: 'paddle', expiresAt: Date.now() + 20 * DAY, subId: 'sub_1' };
+
+function counts(env) {
+  return TABLES.map(t => env.DB.prepare(`SELECT COUNT(*) AS n FROM ${t}`).first().n);
+}
+
+test('刪帳號：網頁訂閱還在續訂 → 409 paddle_active，每一張表原樣、不留記錄、不燒驗證', async () => {
+  const env = await setup();
+  await withPaddle(env, live, paddleSub({ status: 'active', scheduled_change: null }), async (calls) => {
+    const before = snapshotOf(env, 'A', A.email); const n = counts(env);
+    const r = await unwrap(await handleDeleteAccount(del('correct-horse'), env, A));
+    assert.equal(r.status, 409);
+    assert.equal(r.body.reason, 'paddle_active');
+    assert.match(r.body.error, /管理訂閱|取消/);
+    assert.equal(calls.length, 1);
+    assert.match(calls[0].url, /^https:\/\/sandbox-api\.paddle\.com\/subscriptions\/sub_1$/);
+    assert.deepEqual(snapshotOf(env, 'A', A.email), before);
+    assert.deepEqual(counts(env), n);
+    assert.equal(env.DB.prepare('SELECT COUNT(*) AS n FROM admin_activity').first().n, 0);
+    // 密碼錯也是同一個擋法（擋在驗證之前，Apple 的單次授權碼不會被燒掉）
+    assert.equal((await unwrap(await handleDeleteAccount(del('wrong'), env, A))).status, 409);
+  });
+});
+
+test('刪帳號：Paddle 說已排定取消、或已經取消 → 照舊可以刪', async () => {
+  for (const sub of [{ status: 'active', scheduled_change: { action: 'cancel', effective_at: new Date(Date.now() + 5 * DAY).toISOString() } }, { status: 'canceled' }]) {
+    const env = await setup();
+    await withPaddle(env, live, paddleSub(sub), async (calls) => {
+      assert.equal((await unwrap(await handleDeleteAccount(del('correct-horse'), env, A))).status, 200, JSON.stringify(sub));
+      assert.equal(calls.length, 1, '刪除當下問了一次');
+      assert.equal(snapshotOf(env, 'A', A.email).user.length, 0);
+    });
+  }
+});
+
+test('刪帳號：Paddle 問不到（5xx、連線失敗、沒設 API key、回應壞掉）→ 也擋 paddle_unknown，API key 與錯誤原文不外洩', async () => {
+  const bad = [
+    ['5xx', () => Response.json({ error: { code: 'internal', detail: 'SECRET-UPSTREAM-DETAIL' } }, { status: 500 })],
+    ['非 JSON', () => new Response('<html>SECRET-UPSTREAM-DETAIL</html>', { status: 200 })],
+    ['連線失敗', 'throw'],
+    ['沒設 key', 'no-key'],
+  ];
+  for (const [name, paddle] of bad) {
+    const env = await setup();
+    const n = counts(env);
+    await withPaddle(env, live, paddle, async (calls) => {
+      const r = await unwrap(await handleDeleteAccount(del('correct-horse'), env, A));
+      assert.equal(r.status, 409, name);
+      assert.equal(r.body.reason, 'paddle_unknown', name);
+      const text = JSON.stringify(r.body);
+      assert.ok(!text.includes('SECRET-UPSTREAM-DETAIL') && !text.includes(PADDLE_KEY), name + '：不轉發上游');
+      assert.deepEqual(counts(env), n, name);
+      assert.equal(env.DB.prepare('SELECT COUNT(*) AS n FROM admin_activity').first().n, 0, name);
+      if (paddle === 'no-key') assert.equal(calls.length, 0, '沒有 key 就不該打');
+    });
+  }
+});
+
+test('刪帳號：已過期（超過寬限）的網頁訂閱、Apple 有效訂閱、admin 永久方案、沒有方案 → 照舊可以刪，而且不打 Paddle', async () => {
+  const cases = [
+    ['paddle 已過期', { source: 'paddle', expiresAt: Date.now() - 10 * DAY, subId: 'sub_1' }],
+    ['apple 有效', { source: 'apple', expiresAt: Date.now() + 100 * DAY }],
+    ['admin 永久', { source: 'admin', expiresAt: null }],
+    ['沒有方案', { source: null, expiresAt: null }],
+  ];
+  for (const [name, plan] of cases) {
+    const env = await setup();
+    await withPaddle(env, plan, paddleSub({ status: 'active' }), async (calls) => {
+      assert.equal((await unwrap(await handleDeleteAccount(del('correct-horse'), env, A))).status, 200, name);
+      assert.equal(calls.length, 0, name + '：不打 Paddle');
+      assert.equal(snapshotOf(env, 'A', A.email).user.length, 0, name);
+    });
+  }
+});

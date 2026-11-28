@@ -62,12 +62,12 @@ mobile/                iOS app 外殼（Capacitor；自己的 package.json，見
 | `tests/deps.test.mjs` | 前置作業的配對與擋環、「不在」不影響任何計算、`normalizeItems` 的 `noticeOnly` | 從 `index.html` 抽真正的原始碼求值 |
 | `tests/absence.test.mjs` | `absences` 的正規化、v1→v2→v3 逐階升級、三方合併（含基準／遠端仍是舊形狀） | 從 `index.html` 抽〈富文字〉〈持久化〉〈三方合併〉三個區段求值 |
 | `tests/appauth.test.mjs` | Bearer 與 cookie 並存、購買證明驗簽（五種失敗一種成功）、email 驗證碼、app 註冊／登入 | 直接 import；`tests/fake-apple.mjs` 用純 JS 的 DER 編碼器自己當 Apple 簽憑證鏈 |
-| `tests/account-delete.test.mjs` | 刪除自己的帳號：每張表清空、**別人的每一列原樣**、session 失效 | 直接 import Worker 端模組 |
+| `tests/account-delete.test.mjs` | 刪除自己的帳號：每張表清空、**別人的每一列原樣**、session 失效；**訂閱中不能刪**：網頁訂閱還在續訂 409 `paddle_active`（每張表原樣、不留記錄）、Paddle 說已排定取消／已取消可刪、**問不到 Paddle（5xx／非 JSON／連線失敗／沒設 key）也擋 `paddle_unknown` 且 key 與上游錯誤原文不外洩**、已過期／Apple 有效／admin 永久／沒方案照刪且不打 Paddle | 直接 import Worker 端模組 |
 | `tests/cors.test.mjs` | iOS app 來源的 CORS：預檢、正常與錯誤回應都帶標頭、別的來源與同源不加、永不開 credentials | 直接打 Worker 的 `fetch` 入口 |
 | `tests/plan.test.mjs` | 方案：`planOf` 與寬限、「只有變多才擋」、`PUT /api/state` 的 402 且列不動、管理者設方案、AI 上限依方案、**前後端 `PLAN_LIMITS` 逐字相同** | 直接 import；上限那一份從 `index.html` 抽出來比 |
 | `tests/game.test.mjs` | 遊戲化引擎：按時＝到期那天結束前、沒安排的日子跳過、今天 missed 不斷、上線日之前不算、等級門檻、挑戰梯子、徽章、`setOccurrenceDone` 寫時間戳、**純告知不算安排** | 從 `index.html` 抽〈遊戲化〉區段求值（連同 date helpers 與 occurrence engine） |
 | `tests/plan-apple.test.mjs` | 訂閱交易與 Apple 通知：只往後、退款往前、永久不被蓋、搬移、去重、驗簽失敗 401 | 直接 import；`fake-apple.mjs` 自己當 Apple 簽 |
-| `tests/plan-paddle.test.mjs` | 網頁版訂閱：webhook 驗簽（含重放）、user id 由伺服器決定、舊事件不理但取消往前寫、只結束網頁那一份、不縮短 Apple 那一份、price 白名單、API key 不外洩、app 不帶 `webBilling` | 直接 import，攔 `fetch` 當假的 Paddle API |
+| `tests/plan-paddle.test.mjs` | 網頁版訂閱：webhook 驗簽（含重放）、user id 由伺服器決定、舊事件不理但取消往前寫、只結束網頁那一份、不縮短 Apple 那一份、price 白名單、API key 不外洩、app 不帶 `webBilling`、**退款（`adjustment`）：只有已核准的整筆退款／拒付收回網頁那一份的 Pro**（pending／rejected／credit／部分退款／別份訂閱／Apple／admin 都不動、驗簽照舊、重送冪等、舊事件不理） | 直接 import，攔 `fetch` 當假的 Paddle API |
 | `tests/push.test.mjs` | 推播：APNs JWT 與快取、410 刪 token、換人登入搬 token、沒事不推、三個開關獨立、失敗不寫 ymd | 直接 import，攔 `fetch` 當假的 APNs |
 | `tests/state.test.mjs`（下半） | 連續斷掉的信：`dayReport`、三個「不該寄」（沒斷、連續 < 2、開關關著）、同一天只寄一次、寄失敗不記錄、兩個開關互不影響 | 直接 import Worker 端模組，攔 `fetch` 當假信箱 |
 | `tests/pet.test.mjs` | 專案的夥伴：完成度、六個階段的門檻、**199/200 是 `almost` 不是 `adult`**、白名單、舊存檔的形狀、`petRoster` 排序、被分享者改不到 `pet` | 從 `index.html` 抽〈富文字〉〈持久化〉〈專案的夥伴〉求值；`mergeSharedEdit` 直接 import Worker 端模組 |
@@ -987,7 +987,8 @@ cd mobile/ios/App && xcodebuild -scheme App -sdk iphonesimulator -configuration 
 | 比的是**事件時間**（`paddle_event_at`），不是「只往後」 | Paddle 不保證順序；但取消必須能把到期日往前寫 |
 | 結束類事件**只結束網頁那一份**；網頁那一份**不縮短 Apple 那一份** | 兩邊都付了錢的人取比較長的那一份；取消一份不能把另一份撐著的 Pro 一起關掉 |
 | **price 白名單** | 同一個 Paddle 帳號底下還有別的產品 |
-| 退款不自動收回 Pro；刪帳號不自動取消 Paddle 訂閱 | 前者要在 Paddle 後台「立即取消」；後者還沒做（見設計文件） |
+| **退款自動收回 Pro**（`adjustment.created`／`.updated`，`handleAdjustment`）：`action` 是 refund／chargeback、`status` 是 approved、**`type` 是 full**、帶 `subscription_id` 且就是這個帳號現在那份網頁訂閱（`plan_source='paddle'`）→ `plan_expires_at` 往前寫成現在（`planOf` 的 3 天寬限照舊）；其餘（pending／rejected／credit／**部分退款**）只記一筆 `plan_events` | 部分退款不收回是刻意的：退一點小錢就把付全額的人降級，使用者當場被鎖在外面；漏收一次看得見、補得了。只動網頁那一份（Apple、admin、別份訂閱不動）、單句帶條件的 UPDATE、已經過期的不再動（冪等）、比事件時間（舊的不理）。退款不等於取消訂閱：沒取消的話下一個續訂事件會把 Pro 寫回來，所以要在 Paddle 後台一起取消 |
+| **訂閱中不能刪帳號**（`paddleDeletionGuard`，`DELETE /api/auth/account` 在驗證之前問）：`plan_source='paddle'`、`planOf` 仍是 Pro、而且**刪除當下問 Paddle** `GET /subscriptions/{id}` 沒有 `status==='canceled'`／`scheduled_change.action==='cancel'` → 409 `{reason:'paddle_active'}`；**問不到（沒設 API key、非 2xx、非 JSON、連線失敗、沒有訂閱 id）也擋** `paddle_unknown` | 刪帳號停不了 Paddle 的扣款。擋在驗證之前：擋下時不燒掉 Apple 的單次授權碼、一列都不動、不留 `admin_activity`。不默默放行：放行等於帳號沒了卡照扣。Paddle 的錯誤原文與 API key 只進 console，回給前端的文字是固定的；前端用 `reason` 顯示自己的（可翻譯的）文字，並給「管理訂閱」（與「我的帳號」共用 `acctOpenPaddlePortal`）；**app 裡只說「到網站取消」，不出現網頁付款的介面**（Apple 3.1.1）。Apple 有效訂閱**仍可刪**，確認畫面多一段「到 iPhone 設定 → Apple ID → 訂閱 取消，刪除帳號不會停止扣款」；admin 永久方案不受影響。`tools/smoke.mjs`（登入的兩輪）**另開一個 context**（刪帳號成功會 `clearLocalData()`，共用 localStorage 會把主頁的資料一起清掉）走四條路：Apple 警告有盒子且仍可刪、網頁訂閱被擋（前端文字不是伺服器原文、有「管理訂閱」且按得到客戶頁端點、本機資料沒被清）、問不到也擋且沒有「管理訂閱」、非 Apple 的帳號看不到警告 |
 
 ## 讓 AI agent 連進來（MCP，`src/mcp/`）
 
@@ -1066,7 +1067,7 @@ cd mobile/ios/App && xcodebuild -scheme App -sdk iphonesimulator -configuration 
 | 「PR 已合併，要標成完成嗎？」放在看板**最上面、不隨已合併區收起**；按「標成完成」才標（`withUndo`）；`refreshGanttChart` 會就地重畫看板，勾掉任務後提示跟著消失 | 合併不等於做完，所以只問；已合併區預設收著，提示若跟著藏起來就看不到 |
 | 帳號頁 `#acctGithub`（雲端模式才顯示，不要求 Pro，因為到期後仍要能移除）：建立／重新產生時網址與密鑰**只存在畫面上**（不進 localStorage／sessionStorage），按「我已複製，收起來」才清掉；重新產生與移除都先 `confirm` | `smoke` 在建立之後傾印兩種儲存，斷言找不到密鑰與網址 token；密鑰框不會被帳號頁的重畫吃掉 |
 
-**驗證**：`tests/agent3.test.mjs`（10 條）；`tools/smoke.mjs`（假後端多了 `/api/projects/:pid/prs`、`/api/github/hooks`，示範資料的 t1 逾期且有預測、t2 晚 5 天、t3 早 4 天、兩個里程碑）斷言：失敗最前／等你審第二／`--red`、新分頁＋noopener、惡意標題不長出 `<img>` 也不執行、已合併區收著、沒有合併／留言按鈕、虛線＋「晚 N 天」＋早的細記號、逾期長條仍是 `--red`、虛線與長條同一個每日像素寬、只有「算出來會趕不上」的菱形是紅的、改里程碑日期不重建表格、認領「3 天沒動靜」、預估存得進去、連結拒絕 `javascript:`、「採用預測」改 `end` 並可復原且不打伺服器、「要標成完成嗎？」只問不自動勾、webhook 設定只顯示一次且不進儲存；`tools/check-contrast.mjs` 主動造出每一種狀態量兩種主題（菱形與虛線另量非文字的 3:1）。量出來改過兩處：暗色下淡紅底上的紅字 4.39:1 → 風險小標改實心紅；暗色琥珀淡底上的 `--text-dim` 3.98:1 → `.acct-gh-secret .ghost-btn` 改 `--text-muted`。突變驗證過：里程碑 `>` 改 `>=`、PR 排序權重對調、PR 標題改 `innerHTML`、逾期長條遇到預測就不畫紅，各自會紅。**沒驗**：真的 GitHub 打進來（要使用者設一次 webhook 看 `ping`）；人沒有編輯認領的入口（過期的認領靠別的 agent 接手，或之後再加「放掉」）。
+**驗證**：`tests/agent3.test.mjs`（10 條）；`tools/smoke.mjs`（假後端多了 `/api/projects/:pid/prs`、`/api/github/hooks`，示範資料的 t1 逾期且有預測、t2 晚 5 天、t3 早 4 天、兩個里程碑）斷言：失敗最前／等你審第二／`--red`、新分頁＋noopener、惡意標題不長出 `<img>` 也不執行、已合併區收著、沒有合併／留言按鈕、虛線＋「晚 N 天」＋早的細記號、逾期長條仍是 `--red`、虛線與長條同一個每日像素寬、只有「算出來會趕不上」的菱形是紅的、改里程碑日期不重建表格、認領「3 天沒動靜」、預估存得進去、連結拒絕 `javascript:`、「採用預測」改 `end` 並可復原且不打伺服器、「要標成完成嗎？」只問不自動勾、webhook 設定只顯示一次且不進儲存；`tools/check-contrast.mjs` 主動造出每一種狀態量兩種主題（菱形與虛線另量非文字的 3:1）。量出來改過兩處：暗色下淡紅底上的紅字 4.39:1 → 風險小標改實心紅；暗色琥珀淡底上的 `--text-dim` 3.98:1 → `.acct-gh-secret .ghost-btn` 改 `--text-muted`。突變驗證過：里程碑 `>` 改 `>=`、PR 排序權重對調、PR 標題改 `innerHTML`、逾期長條遇到預測就不畫紅，各自會紅。**沒驗**：真的 GitHub 打進來（要使用者設一次 webhook 看 `ping`）；認領的人手編輯入口只有「放掉」（見下方〈第一批的小缺口〉）。
 
 ### agent 工作區的畫面與通知（第一批 1B，`index.html` 的〈agent 工作區〉區段、`src/handlers/agentnotify.js`）
 
@@ -1153,7 +1154,7 @@ cd mobile/ios/App && xcodebuild -scheme App -sdk iphonesimulator -configuration 
 | 成績單：連線區下面一塊，**每條連線一行、只有數字**；以名稱列出，不貼到每條連線列上 | 連線列的 `id` 是 token 列 id，OAuth 的成績單 `connId` 是 grant id，兩者對不起來；硬貼會貼錯人 |
 | 第七顆通知開關：預設關、送 `{enabled, leadDays, streakMail, weeklyMail}`（不帶 push／agentNotify）；「全部都不要了」也把本機的 `weeklyMailEnabled` 清掉 | 同第六顆：`enabled` 沒帶會被當成開；各自獨立不連坐 |
 | 風險（專案頁，最新進展下面）：資料取自**已經讀下來的那批日誌**（`kind=risk && status=open`），不另打端點；只能「關閉」（打 `close-risk`），關完重讀日誌；被遮蔽的仍列出（內文寫「已被遮蔽」）讓擁有者還能關；左邊的線是 `--red`、文字不變色 | 逾期專用的紅色只借線條。**限制**：日誌一次讀最新 100 筆，更舊的開著的風險看不到（要真的堆到 100 筆以上才會發生） |
-| 關閉風險**沒有「備註」欄**：設計文件原寫「可附說明」，但 3A 的端點固定寫「擁有者關閉了這個風險」、不收 body | 畫面不提供伺服器會丟掉的欄位；要加得先改端點 |
+| 關閉風險可**附一句說明**（選填）：`close-risk` 收 `{note}`（去頭尾空白、純文字、≤500 字；全空白當沒給），結案那一筆的內文就是它，沒給維持「擁有者關閉了這個風險」；太長 400 且在動任何東西之前；畫面上是風險那一列的輸入框（`maxlength=500`），顯示一律 `textContent` | 結案時說「怎麼排除的」比一句固定的話有用；壞掉的 body 不擋關閉（沒有說明不是沒有關閉） |
 | 分享連結（專案頁，PR 看板下面）：五種可多公開的勾選框**預設全不勾**；狀態那一句寫「不用登入就看得到：專案名稱、里程碑、每個任務的…；永遠不含：專案說明書、筆記、每日記錄、其他專案」，有連結時列出伺服器記的實際 `include`；重新產生與撤銷都要 `confirm` | 第 21 件：公開了哪些東西要明寫 |
 | **網址只在記憶體與畫面上**（`pshareReveal`），按「我已複製，收起來」才清；**不進 localStorage／sessionStorage／snapshot**；放在記憶體而不是只放 DOM，因為專案頁會在 `commit` 時整頁重建，只放 DOM 的話還沒複製就被重畫吃掉 | 同 GitHub 通知的密鑰（只顯示一次）；smoke 切頁籤再回來斷言它還在、收起來後畫面文字裡也沒有 |
 | 公開頁 `p.html`：零相依、自己的小 CSS 與亮暗兩組 token、`noindex`＋`no-referrer`、`credentials:'omit'`；位置全用百分比（390px 不溢出）；逾期（沒完成且結束日已過）的長條是 `--red`，預測比計畫晚＝長條後面接虛線、比計畫早＝一個細記號，**計畫長條不動**；頁面上明寫這個連結公開了什麼；失效連結只說「這個連結失效了」，不分原因 | 與 app 內的甘特圖同一套語意；讀者沒有帳號，頁面不能打任何要登入的端點 |
@@ -1162,6 +1163,13 @@ cd mobile/ios/App && xcodebuild -scheme App -sdk iphonesimulator -configuration 
 | 新公開頁面的三份清單已補：`tools/check-syntax.mjs` 的 `FILES`、`tools/check-sw-version.mjs` 的 `WATCHED`、`tools/smoke.mjs` 的 assets（假後端對 `/p/<任何>` 回 p.html、`/api/p/` 排在登入檢查之前） | 漏補的症狀都是「檢查綠、其實沒看那個檔案」 |
 
 **驗證**：`tests/publicpage.test.mjs`；`tools/smoke.mjs`（八輪；3B 的斷言見工具表）；`tools/check-contrast.mjs`（3B 各元素與公開頁兩種主題，量出一處：暗色琥珀淡底上的 ghost 按鈕 3.98:1，改 `--text-muted`，同 GitHub 通知那一處）；`tools/check-mobile.mjs` 無橫向溢出。突變驗證過（各自會紅）：分享勾選預設全勾、網址存進 localStorage、差異顯示成 JSON、退回不確認、每週開關連坐 agentNotify、風險內文改 innerHTML、金鑰唯讀送成 write、公開頁逾期長條不紅、公開頁專案名改 innerHTML。**沒驗**：真的 Worker＋Cloudflare 資產層對 `/p/<token>` 的解析（`/p` → `p.html` 照 `/unsub` 的行為推，上線後開一次真的連結確認）、真機。
+
+### 第一批的小缺口（A1／A3，`index.html`）
+
+| 決定 | 理由 |
+|---|---|
+| **英文模式下夥伴相關的畫面不能有任何中文**：物種名（小鹿／公鹿…）、階段名稱、挑夥伴的面板、卡片文字、泡泡、aria-label 全部走 `tr()`，`I18N.en` 有對應；`petStageLabel` 一律 `tr()` | 這一塊原本漏了：`sp.baby`／`sp.adult` 與階段名稱是裸的中文，英文使用者看到「半大」。`tools/smoke.mjs` 在英文那一輪掃夥伴卡、挑夥伴面板、泡泡、成年卡的**文字節點與 title／aria-label／alt／placeholder**，另外**靜態比對**每一句口頭禪、八種夥伴的名字、階段名稱都是 `I18N.en` 的 key（泡泡的話是隨機挑的，掃一次抓不全）；讀不到原始碼裡的字串時斷言本身會紅，不會變成空斷言 |
+| **放掉認領**：任務卡的認領徽章旁一顆「放掉」（`.agent-claim-release`，沒人認領時不顯示），要 `confirm`，走 `withUndo`（`commit`，六秒內可復原）清 `assignee`／`claimedAt` | 擁有者隨時要能把 agent 的認領拿掉（agent 卡住不動、或不想讓它做）。純前端資料，**不打任何新端點**；人手動指派的也可以放掉。smoke 斷言：取消確認不動、確認後兩個欄位都是 null 且徽章消失、有復原提示、復原後認領回來、`A.posts` 一筆都沒多 |
 
 ## 推播（子專案 B，`src/apns.js` + `src/handlers/push.js`）
 
