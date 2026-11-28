@@ -486,6 +486,24 @@ for (const [theme, label, fixedTime] of PASSES) {
   await page.waitForTimeout(400);
   rows.push(...await page.evaluate(measure, NOTICE_PAST));
 
+  // 撞時間提醒：造兩場同一天同一時間的會議，第二場在 modal 裡就會長出那一行。
+  // **走使用者的路徑造出來**（存第一場、開第二場、填同一個時間），不是硬塞文字：
+  // 等它自然出現的話這一條永遠印「略過」。
+  for (const [t, last] of [['甲會議', false], ['乙會議', true]]) {
+    await page.locator('#openItemModal').click();
+    await page.waitForTimeout(150);
+    await page.fill('#inputItemTitle', t);
+    await page.locator('#btnTypeMeeting').click();
+    await page.fill('#inputItemDate', '2026-12-01');
+    await page.fill('#inputItemMeetingTime', '10:00');
+    if (last) {
+      await page.waitForFunction(() => document.getElementById('itemConflictNote').getClientRects().length > 0, null, { timeout: 3000 });
+      rows.push(...await page.evaluate(measure, [['#itemConflictNote', '撞時間提醒（琥珀淡底上的 --amber-ink）']]));
+      await page.locator('#btnCancelItem').click();
+    } else await page.locator('#btnConfirmItem').click();
+    await page.waitForTimeout(300);
+  }
+
   // 逼出空狀態：回到項目安排頁，搜尋一個不會命中的字
   await page.locator('.nav-item', { hasText: '項目安排' }).click();
   await page.waitForSelector('#board');
@@ -692,6 +710,18 @@ for (const theme of ['light', 'dark']) {
   await page.waitForTimeout(300);
   const rows = [];
   rows.push(...await page.evaluate(measure, AGENT_INBOX));
+  // 第一次登入的導覽卡（雲端模式才有，所以放在有假後端的這一輪）：先量還沒做的，
+  // 再走使用者的路徑按一步（按了就打勾）造出「已打勾」的狀態再量——等它自然出現就是空斷言
+  rows.push(...await page.evaluate(measure, [
+    ['#onbCard .onb-title', '導覽卡的標題'], ['#onbCard .onb-label', '導覽卡的步驟名'],
+    ['#onbCard .onb-hint', '導覽卡的步驟說明（--text-muted 壓在 --panel-2）'], ['#onbDismiss', '導覽卡的「我知道了」'],
+  ]));
+  await page.locator('#onbStepShare').click();
+  await page.locator('#navSchedule').click();
+  await page.waitForSelector('#onbCard .onb-step.done');
+  rows.push(...await page.evaluate(measure, [
+    ['#onbCard .onb-step.done .onb-label', '導覽卡：打勾的步驟名'], ['#onbCard .onb-step.done .onb-tick', '導覽卡：打勾的 ✓（--panel 壓在 --teal-ink）'],
+  ]));
 
   await page.locator('#navGantt').click();
   await page.waitForSelector('#agentTimeline .agent-ev', { timeout: 8000 });

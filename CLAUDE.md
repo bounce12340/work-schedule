@@ -71,7 +71,7 @@ mobile/                iOS app 外殼（Capacitor；自己的 package.json，見
 | `tests/push.test.mjs` | 推播：APNs JWT 與快取、410 刪 token、換人登入搬 token、沒事不推、三個開關獨立、失敗不寫 ymd | 直接 import，攔 `fetch` 當假的 APNs |
 | `tests/state.test.mjs`（下半） | 連續斷掉的信：`dayReport`、三個「不該寄」（沒斷、連續 < 2、開關關著）、同一天只寄一次、寄失敗不記錄、兩個開關互不影響 | 直接 import Worker 端模組，攔 `fetch` 當假信箱 |
 | `tests/pet.test.mjs` | 專案的夥伴：完成度、六個階段的門檻、**199/200 是 `almost` 不是 `adult`**、白名單、舊存檔的形狀、`petRoster` 排序、被分享者改不到 `pet` | 從 `index.html` 抽〈富文字〉〈持久化〉〈專案的夥伴〉求值；`mergeSharedEdit` 直接 import Worker 端模組 |
-| `tests/conflict.test.mjs` | 衝突預覽（〈衝突預覽〉區段，**尚未接上畫面**）：半開區間、沒有結束時間時只比同開始時間（不套預設時長）、只比會議、時區不同不換算只提示、90 天範圍、略過／單次覆寫／假日調整、休假輕量提示、**輸入資料前後逐字相同** | 從 `index.html` 抽〈date helpers〉〈occurrence engine〉〈衝突預覽〉求值；七種突變各自驗過會紅 |
+| `tests/conflict.test.mjs` | 衝突預覽（〈衝突預覽〉區段；**已接上小項目 modal**，見〈撞時間提醒〉）：半開區間、沒有結束時間時只比同開始時間（不套預設時長）、只比會議、時區不同不換算只提示、90 天範圍、略過／單次覆寫／假日調整、休假輕量提示、**輸入資料前後逐字相同** | 從 `index.html` 抽〈date helpers〉〈occurrence engine〉〈衝突預覽〉求值；七種突變各自驗過會紅 |
 | `tests/mcp.test.mjs` | MCP：401 帶 `WWW-Authenticate`、非 Pro 擋、金鑰只存雜湊、**伺服器建的項目與前端 `normalizeItems` 逐欄相同**、改頻率清完成、復原（**細到欄位**：同一任務連寫三次可任意順序各自復原、使用者改了別的欄位不擋、**改了同一欄才拒絕**）、**`requestId` 防重複**（同 id 回上一次的結果、指紋不同擋、失敗還位子、處理中、兩個使用者互不影響）、跨帳號隔離、競態重試、OAuth 全流程（PKCE、code 單次、open redirect、免費帳號 402、refresh 輪替與撤銷） | 直接 import Worker 端模組；前端的 `normalizeItems`／`normalizeRecurrence`／`stableStringify` 從 `index.html` 抽出來比 |
 | `tests/agent.test.mjs` | agent 工作區（第一批）：**伺服器建的甘特專案／任務／子待辦與前端 `normalizeGanttProjects` 逐欄相同**、agent 寫的狀態走一次真的 `applySnapshot`→`snapshot`、連線設定（**OAuth 換 token 之後 review 仍在**、**查不到設定＝暫停**、migration 回填、暫停擋每一個寫入工具、5 次復原自動暫停）、review 模式（**資料一個位元都沒變**、日誌不受審核擋、同意在當下資料上套、**一項套不上去整份不套 stale**、同意的競態、兩台同時同意只套一次、20 份上限、跨帳號）、待驗收（set_done／進度 100／**一個一個勾子待辦**都攔、驗收／退回、提案同意時也攔、可復原）、日誌（署名由伺服器填、200／天、2000 字、只能加、遮蔽只有擁有者、**Pro 到期擁有者照樣讀與回答**、跨帳號）、專案消失 30 天才清（**讀不到 state 不算消失**）、備份與刪帳號 | 直接 import Worker 端模組；前端的 `normalizeGanttProjects`／`applySnapshot`／`snapshot` 從 `index.html` 抽出來比（`todoProgress` 單獨抽那一個純函式）；競態用既有的 `env.DB.prepare` 攔截模式 |
 | `tests/agent2.test.mjs` | agent 工作區（第二批 2A）：**新欄位（預估／預測／認領／連結／里程碑）與前端 `normalizeGanttProjects` 逐欄相同**（含舊形狀、壞資料靜靜濾掉、常數兩邊相同、走一次真的 `applySnapshot`→`snapshot`、三方合併里程碑不衝突）、`set_task_estimate`（**`end`／進度／完成一個位元都不動**、預測改了自動寫進展、落在週末／假日清單／休假日只提醒不拒絕）、里程碑（`atRisk` 是算出來的）、**`claim_task`（四種成功／拒絕、24 小時、人手動指派搶不走、注入別人的認領的確定性競態）**、`links`、**`apply_changes`（只寫一次 user_state、全部成功或全部不做、整批復原也全有全無、整批只算一次復原）**、**`dryRun`（state／紀錄／日誌／requestId 一個位元都不動、暫停中可預演）**、`get_changes_since`、**PR（網址白名單、合併不動任務、`source`／時間、300 筆上限、跨帳號）**、**webhook（測試裡自己算真的 HMAC：未知 token 404、簽章錯 401、沒連過的 PR 只忽略不新增、別人的密鑰動不到我的列、`check_run` 不會把單一個通過當整體通過）**、備份不帶 PR 與密鑰 | 直接 import Worker 端模組；前端的正規化從 `index.html` 抽出來比；競態用 `withRaceBeforeFirstUpdate`（同 `state.test.mjs`）；十七種突變各自驗過會紅 |
@@ -313,6 +313,36 @@ UI 類的改動（版面、行動版、主題）**必須真的用瀏覽器看過
 - 假日調整**只作用於循環項目**，非循環項目的日期原樣使用
 - **跨多天事項**（`item.endDate`，僅非循環）：引擎以「與檢視區間重疊」判斷、仍只回**一筆**（occKey `'single'`，完成狀態整段共用）；日曆的逐日鋪排是 `renderCalendar` 自己的顯示邏輯，不是引擎的職責。循環＋區間刻意不支援——每一次都要有自己的區間會讓 occKey 與完成語意複雜化。逾期以結束日判斷，進行中不算
 - 展開迴圈有兩道保險：`guard < 800`，以及 `cursorY > rangeEnd.getFullYear() + 2` 就中止。新增循環頻率（例如每週）時必須確認這兩個上限仍然合理，否則會在長區間靜默漏算
+
+## 撞時間提醒（小項目 modal，`cfl` 前綴）
+
+〈衝突預覽〉的純函式接上畫面：在 modal 的「時間」欄下面，會議有時間時即時顯示一行「這個時間和「X」（10/05 10:00）撞在一起」，最多 3 筆、其餘寫「（還有 N 筆）」。**只提示，絕不擋存檔**。
+
+| 決定 | 理由 |
+|---|---|
+| 判斷**全部**交給 `findConflictPreview`，modal 這一側只組候選項目、收結果；循環設定與儲存共用 `modalFormRecurrence()` | 另寫一份判斷或另拼一份循環，預覽看的就可能不是真的會存進去的東西 |
+| 事件委派在整個 modal（`input`／`change`／按鈕 `click`），再在 `openItemModal` 結尾算一次 | 日期、時間、類型、純告知、循環的任何欄位都會影響結果；按鈕自己的 onclick 先跑，冒泡到這裡時狀態已是新的 |
+| 候選項目的 id 是正在編輯的那個（新增則是 `__modal_new__`），其他項目排除自己；編輯且頻率沒改時帶著原本的 `skipped`／`overrides` | 不跟自己比；被略過的那一次不算 |
+| 比對對象含「分享給我的項目」（`shares.incoming` 中 kind=item，先過 `normalizeItems`） | 引擎本來就支援 `sharedItems` |
+| 顏色是 `--amber-dim` 底＋`--amber-ink` 字，**不是紅色**；`.off` 不用 `[hidden]`；標題一律 `textContent`；算失敗只 `console.error` 並隱藏 | 紅色是逾期專用；降級可以，沉默不行 |
+| **目前項目沒有結束時間與時區欄位**，所以畫面上實際只會出現「同一天、同一個開始時間」（`sameStart`）；`overlaps` 的路徑已一併處理，日後加了欄位不必回來改。措辭因此是「撞在一起」而不是「重疊」——說「重疊」會暗示我們知道會議多長 | 同〈衝突預覽〉「不套預設時長」 |
+
+`tools/smoke.mjs` 的 `expectConflictNote`：同時間出現、標題長不出元素、不是 `--red`、改時間／日期／純告知即時消失、改循環仍撞到、有提醒時照樣存得進去、編輯甲只看到乙。`tools/check-contrast.mjs` 主動走使用者的路徑造出那一行再量兩種主題。
+
+## 第一次登入的導覽卡（`onb` 前綴）
+
+項目安排頁最上方的一張小卡，三步：新增第一件事（開新增表單）／把日曆接到手機（切到「我的帳號」、捲到並標示行事曆訂閱那一區，共用 `acctGotoSection()`，與信裡的 `#notify` 同一條路）／把專案分享給同事（切到「共享」）。不是 modal、沒有遮罩。
+
+| 決定 | 理由 |
+|---|---|
+| **只在雲端模式且已登入、且這台裝置沒看過**才出現（`cloudEnabled && currentUserEmail && !onbSeen()`）；單機、app 登入閘門、file:// 都沒有帳號所以不出現 | 「分享」「行事曆訂閱」對沒有帳號的人沒有意義 |
+| 一步算做完＝按過那一步，**或**資料裡看得出已做過（有項目／`icsEnabled`／有分享出去的資源） | 換裝置的老使用者不必再被叫去做已經做過的事；這一刻所有既有使用者第一次載入都會看到它，第一步多半已經是打勾的 |
+| 「我知道了」或三步都做完（按過或偵測到）就收起來；記在 `workSchedule.v1.onboardSeen`（`'1'`），按過的步驟記在 `.onboardSteps`；**顯示偏好，不進 `snapshot()`**，讀寫都包 try/catch（寫不進去時這個工作階段內仍然有效） | 同 `agentCapsSeen` |
+| 收起來用 `.off`（`display:none`），沒有盒子；減少動態時打勾的轉場是 `0s`；390px 三步改直排 | 同 `.agent-inbox.off`；`prefers-reduced-motion` 一律關純氛圍動畫 |
+| 步驟 1 按下去走 `#openItemModal.click()`，不自己呼叫 `openItemModal` | 預設日期與日後加進去的檢查都跟原本那顆按鈕一致 |
+| 在 `renderAll()` 結尾呼叫 `onbRender()`，不在每個入口各叫一次 | 同 `agentRenderInbox`：漏掉一個入口不會有任何徵兆 |
+
+`tools/smoke.mjs` 的 `expectOnboarding`（雲端那兩輪）：出現在最上方且剛好三步、示範資料已有項目所以只有第一步打勾、不是浮層、390px 不溢出、reduced-motion 無轉場、「我知道了」收起來且沒有盒子且不進 snapshot、重開仍收著、清掉記錄又出現、三步各自按了打勾並跳到對的頁、做完收起來。其他工具若在雲端模式下走項目安排頁，卡片會多佔一塊——它們目前都是單機模式（`markSignedIn` 只寫 owner，後端 404），所以不受影響。
 
 ## 前置作業與「不在」：兩個刻意什麼都不做的功能
 

@@ -1766,6 +1766,8 @@ for (const loggedIn of [false, true]) {
       if (loggedIn) {
         await walk(page, console.log, plan, server);
         await expectLeaveDaysPushed(page, server, console.log);
+        await expectConflictNote(page, console.log);
+        await expectOnboarding(page, console.log);
       } else await expectGate(page, console.log);
     } catch (e) {
       // 一定要說是「哪一步」走不完，否則 timeout 訊息只有選擇器，看不出走到哪
@@ -1787,6 +1789,185 @@ for (const loggedIn of [false, true]) {
 }
 
 /**
+ * 第一次登入的導覽卡（C1–C4）與 modal 裡的撞時間提醒（B5）。
+ *
+ * 卡片是 display:block 以外也可能被改掉的元素，所以「收起來」一律量 getClientRects()，
+ * 不看 class。每個斷言前先確認它的前提成立（卡片真的出現過），否則「收起來之後沒有盒子」
+ * 會是一條對一張從來沒出現的卡也成立的空斷言。
+ */
+async function expectOnboarding(page, log) {
+  const KEY = 'workSchedule.v1.onboardSeen';
+  const boxes = p => p.evaluate(() => { const el = document.getElementById('onbCard'); return el ? el.getClientRects().length : -1; });
+  const states = p => p.evaluate(() => ['onbStepItem', 'onbStepIcs', 'onbStepShare'].map(id => document.getElementById(id).classList.contains('done')));
+  const perr = [];
+  const watch = p => p.on('pageerror', e => perr.push(e.message));
+  watch(page);
+  const fail = m => { throw new Error('導覽卡：' + m); };
+
+  // C1：登入、雲端模式、這台裝置沒看過 → 在項目安排頁上方出現；三步；項目已經有了所以第一步是打勾的
+  walk.lastStep = () => '導覽卡（C1）';
+  await page.click('#navSchedule');
+  await page.waitForTimeout(300);
+  if (await boxes(page) < 1) fail('第一次登入應該出現，但沒有盒子');
+  if ((await page.locator('#onbCard .onb-step').count()) !== 3) fail('應該剛好三步');
+  const first = await page.evaluate(() => {
+    const c = document.getElementById('onbCard'), v = document.getElementById('viewSchedule');
+    return c.getBoundingClientRect().top <= v.querySelector('.major-section').getBoundingClientRect().top;
+  });
+  if (!first) fail('應該在項目安排頁的最上方');
+  const st = await states(page);
+  if (JSON.stringify(st) !== '[true,false,false]') fail('示範資料已經有項目：只有第一步該是打勾的，實際 ' + JSON.stringify(st));
+  // 不是 modal、沒有遮罩：整頁照樣點得到（四張卡之下的看板、側欄）
+  const modalish = await page.evaluate(() => { const cs = getComputedStyle(document.getElementById('onbCard')); return cs.position; });
+  if (modalish === 'fixed' || modalish === 'absolute') fail('不該是浮層（position: ' + modalish + '）');
+
+  // C4：390px 不溢出；兩個斷點都量（卡片在手機上三步改成直排）
+  walk.lastStep = () => '導覽卡（390px）';
+  const vp = page.viewportSize();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(200);
+  const narrow = await page.evaluate(() => {
+    const r = document.getElementById('onbCard').getBoundingClientRect();
+    return { right: r.right, w: window.innerWidth, over: document.documentElement.scrollWidth > window.innerWidth };
+  });
+  if (narrow.right > narrow.w + 0.5 || narrow.over) fail(`390px 溢出（右緣 ${narrow.right}，視窗 ${narrow.w}）`);
+  const stacked = await page.evaluate(() => [...document.querySelectorAll('#onbCard .onb-step')].map(b => { const r = b.getBoundingClientRect(); return [Math.round(r.left), Math.round(r.width)]; }));
+  if (new Set(stacked.map(x => x[0])).size !== 1 || stacked[0][1] < 280) fail('390px 時三步應該直排、各佔整行：' + JSON.stringify(stacked));
+  await page.setViewportSize(vp);
+
+  // C3：減少動態時沒有任何轉場
+  walk.lastStep = () => '導覽卡（reduced-motion）';
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const tr0 = await page.evaluate(() => getComputedStyle(document.querySelector('.onb-tick')).transitionDuration);
+  await page.emulateMedia({ reducedMotion: null });
+  if (!/^0s(, 0s)*$/.test(tr0)) fail('reduced-motion 下打勾還有轉場：' + tr0);
+
+  // C2：「我知道了」收起來——沒有盒子，記在 localStorage，不進 snapshot
+  walk.lastStep = () => '導覽卡（我知道了）';
+  await page.click('#onbDismiss');
+  await page.waitForTimeout(200);
+  if (await boxes(page) !== 0) fail('按了「我知道了」之後卡片仍有盒子');
+  const saved = await page.evaluate(k => ({ seen: localStorage.getItem(k), snap: (localStorage.getItem('workSchedule.v1') || '').includes('onboard') }), KEY);
+  if (saved.seen !== '1') fail('「看過了」沒有記進 localStorage');
+  if (saved.snap) fail('「看過了」不該進 snapshot');
+  // 重開（新分頁、同一個 context＝同一份 localStorage）：仍然沒有。
+  // 一律開首頁：walk 走過的網址可能帶著 #notify，那會直接把人帶去「我的帳號」
+  const home = new URL(page.url()).origin + '/';
+  const p2 = await page.context().newPage(); watch(p2);
+  await p2.goto(home, { waitUntil: 'domcontentloaded' });
+  await p2.waitForSelector('#viewSchedule', { state: 'attached' });
+  // 前提：這一頁真的走完雲端同步了（頁尾說「雲端同步啟用中」）。否則「沒有盒子」
+  // 只是還沒載好，那條對一張根本不會出現的卡也成立
+  await p2.waitForSelector('#storageNoteText .storage-state:not(.off)', { timeout: 8000 })
+    .catch(() => fail('（前提）新分頁沒有走完雲端同步'));
+  await p2.waitForTimeout(500);
+  if (await boxes(p2) !== 0) fail('看過之後重開，卡片又出現了');
+  // 清掉記錄 → 又出現（證明上面的「沒有」是那個 key 的功勞，不是別的原因）
+  await p2.evaluate(k => { localStorage.removeItem(k); localStorage.removeItem(k.replace('Seen', 'Steps')); }, KEY);
+  await p2.close();
+
+  // C2：三步各自按了就打勾；三步都做完就收起來（走完整條使用者路徑）
+  const p3 = await page.context().newPage(); watch(p3);
+  await p3.goto(home, { waitUntil: 'domcontentloaded' });
+  await p3.waitForFunction(() => { const el = document.getElementById('onbCard'); return el && el.getClientRects().length > 0; }, null, { timeout: 8000 })
+    .catch(() => fail('清掉記錄之後卡片應該再出現'));
+  walk.lastStep = () => '導覽卡（把專案分享給同事 → 共享頁）';
+  await p3.click('#onbStepShare');
+  await p3.waitForSelector('#viewShared.active', { timeout: 3000 }).catch(() => fail('「把專案分享給同事」沒有切到共享頁'));
+  walk.lastStep = () => '導覽卡（把日曆接到手機 → 我的帳號的行事曆訂閱）';
+  await p3.click('#navSchedule');
+  await p3.waitForTimeout(200);
+  if (JSON.stringify(await states(p3)) !== '[true,false,true]') fail('按過分享那一步之後應該是 [true,false,true]：' + JSON.stringify(await states(p3)));
+  await p3.click('#onbStepIcs');
+  await p3.waitForSelector('#viewAccount.active', { timeout: 3000 }).catch(() => fail('「把日曆接到手機」沒有切到我的帳號'));
+  await p3.waitForFunction(() => document.getElementById('acctIcs').classList.contains('flash'), null, { timeout: 3000 })
+    .catch(() => fail('行事曆訂閱那一區沒有被標示出來'));
+  // 捲動是 smooth 的，要等它捲完
+  await p3.waitForFunction(() => { const r = document.getElementById('acctIcs').getBoundingClientRect(); return r.bottom > 0 && r.top < window.innerHeight; }, null, { timeout: 4000 })
+    .catch(() => fail('行事曆訂閱那一區沒有捲進畫面'));
+  await p3.click('#navSchedule');
+  await p3.waitForTimeout(200);
+  // 三步都做完（第一步是示範資料本來就有項目）的那一刻 render 把卡收起來：沒有盒子，而且記成看過了
+  if (await boxes(p3) !== 0) fail('三步都做完之後卡片沒有收起來');
+  if ((await p3.evaluate(k => localStorage.getItem(k), KEY)) !== '1') fail('三步做完之後沒有記成看過了');
+  await p3.close();
+  if (perr.length) fail('pageerror：' + perr[0]);
+  log('      驗過：導覽卡(出現/三步/最上方/不是浮層/390px/reduced-motion/我知道了/重開/三步各自打勾與跳轉/做完收起)');
+}
+
+async function expectConflictNote(page, log) {
+  walk.lastStep = () => '撞時間提醒（B5）';
+  const fail = m => { throw new Error('撞時間提醒：' + m); };
+  const note = () => page.evaluate(() => {
+    const el = document.getElementById('itemConflictNote');
+    return { boxes: el.getClientRects().length, text: el.textContent, html: el.innerHTML };
+  });
+  const D = await page.evaluate(() => { const d = new Date(); d.setDate(d.getDate() + 2); return d.toISOString().slice(0, 10); });
+  const D2 = await page.evaluate(() => { const d = new Date(); d.setDate(d.getDate() + 3); return d.toISOString().slice(0, 10); });
+  const fillItem = async (title, time, date) => {
+    await page.fill('#inputItemTitle', title);
+    await page.click('#btnTypeMeeting');
+    await page.fill('#inputItemMeetingTime', time);
+    await page.fill('#inputItemDate', date);
+  };
+  await page.click('#navSchedule');
+  await page.waitForTimeout(200);
+  // A：第一場會議，沒有別人可撞——不顯示（也驗「沒有時間不顯示」「非會議不顯示」）
+  await page.click('#openItemModal');
+  await page.fill('#inputItemTitle', '甲會議<b>');
+  await page.fill('#inputItemDate', D);
+  await page.fill('#inputItemMeetingTime', '10:00');
+  if ((await note()).boxes) fail('工作項目（類型不是會議）不該顯示');
+  await page.click('#btnTypeMeeting');
+  if ((await note()).boxes) fail('沒有別的會議可撞時不該顯示');
+  await page.click('#btnConfirmItem');
+  await page.waitForTimeout(300);
+  // B：同一天同一個時間的第二場——出現，而且點名了甲、標題是文字不是 HTML
+  await page.click('#openItemModal');
+  await fillItem('乙會議', '10:00', D);
+  let n = await note();
+  if (!n.boxes) fail('同一天同一個時間的兩場會議應該出現提醒');
+  if (!n.text.includes('甲會議<b>')) fail('提醒沒有點名另一場會議：' + n.text);
+  if (/<b>/.test(n.html.replace(/&lt;b&gt;/g, ''))) fail('標題被當成 HTML 解讀了：' + n.html);
+  if (!/撞在一起|clashes/.test(n.text)) fail('提醒的措辭不對：' + n.text);
+  const colors = await page.evaluate(() => { const cs = getComputedStyle(document.getElementById('itemConflictNote')); return cs.color; });
+  const red = await page.evaluate(() => { const t = document.createElement('i'); t.style.color = 'var(--red)'; document.body.appendChild(t); const c = getComputedStyle(t).color; t.remove(); return c; });
+  if (colors === red) fail('提醒不該用逾期專用的 --red');
+  // 改到不重疊（時間／日期）就消失；改回來又出現——即時重算
+  await page.fill('#inputItemMeetingTime', '10:30');
+  if ((await note()).boxes) fail('改到不同時間之後提醒沒有消失');
+  await page.fill('#inputItemMeetingTime', '10:00');
+  if (!(await note()).boxes) fail('改回同一個時間提醒沒有回來');
+  await page.fill('#inputItemDate', D2);
+  if ((await note()).boxes) fail('改到不同日期之後提醒沒有消失');
+  await page.fill('#inputItemDate', D);
+  // 改成每週循環：甲是單次、日期相同，仍然撞到（循環展開的第一次）
+  await page.selectOption('#selectRecurrence', 'weekly');
+  if (!(await note()).boxes) fail('改成每週循環之後同一天的那一次應該仍然撞到');
+  await page.selectOption('#selectRecurrence', 'none');
+  // 勾「純告知」→ 不比對
+  await page.check('#inputNoticeOnly');
+  if ((await note()).boxes) fail('純告知不該顯示提醒');
+  await page.uncheck('#inputNoticeOnly');
+  // 不擋存檔：提醒顯示著，照樣存得進去
+  if (!(await note()).boxes) fail('（前提）存檔前提醒應該還在');
+  await page.click('#btnConfirmItem');
+  await page.waitForTimeout(300);
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('workSchedule.v1')).items.filter(i => i.title === '乙會議').length);
+  if (saved !== 1) fail('有提醒時存檔被擋下了（或存了 ' + saved + ' 筆）');
+  // 編輯甲：看得到乙、看不到自己
+  const rowA = page.locator('#board .occ-row', { hasText: '甲會議' }).first();
+  await rowA.locator('.icon-btn', { hasText: /編輯|Edit/ }).first().click();
+  await page.waitForTimeout(200);
+  n = await note();
+  if (!n.boxes) fail('編輯甲會議時，乙會議應該被點名');
+  if (n.text.includes('甲會議')) fail('編輯自己時跟自己比了：' + n.text);
+  if (!n.text.includes('乙會議')) fail('編輯甲會議時沒有點名乙會議：' + n.text);
+  await page.click('#btnCancelItem');
+  log('      驗過：撞時間提醒(同時間出現/標題是文字/不是紅/改時間日期即時消失/循環/純告知/不擋存檔/編輯不跟自己比)');
+}
+
+/**
  * 沒有後端、也從來沒登入過：畫面必須是登入閘門，而且什麼都不能 seed。
  *
  * 這兩輪原本走四個頁籤（那時「單檔雙擊開啟」是一種使用方式）。使用者的裁決改成
@@ -1802,7 +1983,12 @@ async function expectGate(page, log) {
   const text = (await btn.textContent()).trim();
   const stored = await page.evaluate(() => localStorage.getItem('workSchedule.v1'));
   if (stored !== null) throw new Error('閘門關著卻還是 seed 了示範資料（workSchedule.v1 不該存在）');
-  log(`      閘門出現，按鈕「${text}」，沒有 seed`);
+  // C3：導覽卡只屬於「登入過的雲端模式」。閘門（沒有帳號）底下那一張要沒有盒子——卡片的元素本身
+  // 一直在 markup 裡，所以先確認它存在，否則「沒有盒子」是一條對任何頁面都成立的空斷言
+  const onb = await page.evaluate(() => { const el = document.getElementById('onbCard'); return el ? el.getClientRects().length : -1; });
+  if (onb === -1) throw new Error('找不到 #onbCard——「閘門時沒有導覽卡」會是空斷言');
+  if (onb !== 0) throw new Error('沒有登入（閘門）卻有導覽卡的盒子');
+  log(`      閘門出現，按鈕「${text}」，沒有 seed，沒有導覽卡`);
 }
 
 /**
