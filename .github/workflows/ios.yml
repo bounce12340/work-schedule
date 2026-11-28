@@ -1,4 +1,5 @@
 # iOS app：在 GitHub 的 Mac 上打包、簽章、上傳到 App Store Connect。
+# 原生 SwiftUI 版要手動選 native。tag 與 main CI 照舊只打包 Capacitor 版。
 #
 # 三種觸發：手動、推 ios-v* tag、以及 **main 的 CI 全綠之後自動跑**。
 # 開發者沒有 Mac 也沒關係——Xcode 只在這台機器上，金鑰只活在這幾分鐘。
@@ -43,10 +44,15 @@ name: iOS
 on:
   workflow_dispatch:
     inputs:
+      app:
+        description: iOS 版本
+        type: choice
+        options: [legacy, native]
+        default: legacy
       upload:
         description: 上傳到 App Store Connect（false 只打包、把 .ipa 留成 artifact）
         type: boolean
-        default: true
+        default: false
   push:
     tags: ['ios-v*']
   # main 的 CI 跑完就檢查一次。掛在 CI 後面而不是直接 on.push，是為了「CI 綠了才打包」——
@@ -99,7 +105,7 @@ jobs:
           # app 會內建 public/index.html、privacy.html 與 terms.html（見
           # mobile/scripts/prepare-www.mjs）。改 Worker、login/admin、sw.js 或文件不必重打；
           # 法律頁改動則必須重打，因為它們也會隨 app bundle 上架。
-          if printf '%s\n' "$CHANGED" | grep -qE '^(public/(index|privacy|terms)\.html|mobile/|\.github/workflows/ios\.yml)'; then
+          if printf '%s\n' "$CHANGED" | grep -v '^mobile/native/' | grep -qE '^(public/(index|privacy|terms)\.html|mobile/)'; then
             echo "build=true" >> "$GITHUB_OUTPUT"
           else
             echo "::notice::這次沒有動到 app 內建的前端或 mobile/，不打包"
@@ -116,6 +122,8 @@ jobs:
     # the latest Release Candidates (RC)」（第五次打包就是這樣紅的，前面四關全過）。
     runs-on: macos-26
     timeout-minutes: 45
+    env:
+      IOS_APP: ${{ github.event_name == 'workflow_dispatch' && inputs.app == 'native' && 'native' || 'legacy' }}
     steps:
       # 同 decide：workflow_run 觸發時要指名那一次的 commit，不然打包的是別的東西
       - uses: actions/checkout@v4
@@ -123,21 +131,46 @@ jobs:
           ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
       - uses: actions/setup-node@v4
+        if: env.IOS_APP == 'legacy'
         with:
           node-version: 22
 
       - name: 顯示工具版本
         run: |
           xcodebuild -version
-          node --version
+          if [ "$IOS_APP" = legacy ]; then node --version; fi
 
       - name: 安裝 Capacitor（只在 mobile/，根目錄維持零相依）
+        if: env.IOS_APP == 'legacy'
         working-directory: mobile
         run: npm ci --no-audit --no-fund
 
       - name: 產生 www 並同步到 Xcode 專案
+        if: env.IOS_APP == 'legacy'
         working-directory: mobile
         run: npm run sync
+
+      - name: 設定原生 Google 登入
+        if: env.IOS_APP == 'native'
+        env:
+          GOOGLE_IOS_CLIENT_ID: ${{ vars.GOOGLE_IOS_CLIENT_ID }}
+        run: |
+          if [ -z "$GOOGLE_IOS_CLIENT_ID" ]; then
+            echo "::notice::未設定 GOOGLE_IOS_CLIENT_ID，原生版會提供電子郵件與 Apple 登入。"
+            exit 0
+          fi
+          if [[ ! "$GOOGLE_IOS_CLIENT_ID" =~ ^[0-9]+-[a-z0-9]+\.apps\.googleusercontent\.com$ ]]; then
+            echo "::error::GOOGLE_IOS_CLIENT_ID 格式不符"
+            exit 1
+          fi
+          client="${GOOGLE_IOS_CLIENT_ID%.apps.googleusercontent.com}"
+          plist=mobile/native/Config/Info.plist
+          /usr/libexec/PlistBuddy -c "Add :GIDClientID string $GOOGLE_IOS_CLIENT_ID" "$plist"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes array" "$plist"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0 dict" "$plist"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleTypeRole string Editor" "$plist"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes array" "$plist"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string com.googleusercontent.apps.$client" "$plist"
 
       - name: 寫入 App Store Connect API 金鑰
         # 放在 ~/private_keys：xcodebuild 與 altool 都會在這裡找 AuthKey_<KEY_ID>.p8
@@ -151,39 +184,57 @@ jobs:
           printf '%s\n' "$ASC_API_KEY_P8" > ~/private_keys/AuthKey_${ASC_KEY_ID}.p8
           chmod 600 ~/private_keys/AuthKey_${ASC_KEY_ID}.p8
 
-      - name: 決定版本號與 build 號
-        # 版本從 mobile/package.json 讀，build 號用 run_number：永不重複、不必手動加
-        working-directory: mobile
+      - name: 決定 Xcode 專案與 build 號
         run: |
-          VERSION=$(node -p "require('./package.json').version")
-          echo "MARKETING_VERSION=$VERSION" >> "$GITHUB_ENV"
+          if [ "$IOS_APP" = native ]; then
+            echo 'IOS_PROJECT=mobile/native/WorkSchedule.xcodeproj' >> "$GITHUB_ENV"
+            echo 'IOS_SCHEME=WorkSchedule' >> "$GITHUB_ENV"
+          else
+            VERSION=$(node -p "require('./mobile/package.json').version")
+            echo "LEGACY_MARKETING_VERSION=$VERSION" >> "$GITHUB_ENV"
+            echo 'IOS_PROJECT=mobile/ios/App/App.xcodeproj' >> "$GITHUB_ENV"
+            echo 'IOS_SCHEME=App' >> "$GITHUB_ENV"
+          fi
           echo "BUILD_NUMBER=${{ github.run_number }}" >> "$GITHUB_ENV"
-          echo "版本 $VERSION（build ${{ github.run_number }}）"
+          echo "$IOS_APP build ${{ github.run_number }}"
 
-      - name: 打包（xcodebuild archive，ad-hoc 簽章；正式簽章在下一步的 export）
-        working-directory: mobile/ios/App
+      - name: 封存 iOS App
         env:
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           test -n "$APPLE_TEAM_ID" || { echo "::error::缺少 secret APPLE_TEAM_ID"; exit 1; }
           test -n "$ASC_ISSUER_ID" || { echo "::error::缺少 secret ASC_ISSUER_ID"; exit 1; }
-          xcodebuild -resolvePackageDependencies -project App.xcodeproj -scheme App
-          xcodebuild archive \
-            -project App.xcodeproj \
-            -scheme App \
+          args=(CURRENT_PROJECT_VERSION="$BUILD_NUMBER")
+          if [ "$IOS_APP" = legacy ]; then
+            xcodebuild -resolvePackageDependencies -project "$IOS_PROJECT" -scheme "$IOS_SCHEME"
+            args+=(MARKETING_VERSION="$LEGACY_MARKETING_VERSION" CODE_SIGN_STYLE=Manual
+                   CODE_SIGN_IDENTITY=- AD_HOC_CODE_SIGNING_ALLOWED=YES PROVISIONING_PROFILE_SPECIFIER=)
+          else
+            args+=(CODE_SIGNING_ALLOWED=NO)
+          fi
+          if ! xcodebuild archive \
+            -project "$IOS_PROJECT" \
+            -scheme "$IOS_SCHEME" \
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/App.xcarchive" \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
-            MARKETING_VERSION="$MARKETING_VERSION" \
-            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
-            CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY="-" \
-            AD_HOC_CODE_SIGNING_ALLOWED=YES \
-            PROVISIONING_PROFILE_SPECIFIER="" \
-            | tee "$RUNNER_TEMP/archive.log" | grep -E "error|warning: .*sign|Archive Succeeded|BUILD" || true
+            "${args[@]}" > "$RUNNER_TEMP/archive.log" 2>&1; then
+            tail -80 "$RUNNER_TEMP/archive.log"
+            exit 1
+          fi
+          grep -E 'warning: .*sign|ARCHIVE SUCCEEDED' "$RUNNER_TEMP/archive.log" || true
           test -d "$RUNNER_TEMP/App.xcarchive" || { echo "::error::archive 沒有產生，看上面的 log"; tail -80 "$RUNNER_TEMP/archive.log"; exit 1; }
+
+      - name: 寫入原生版封存的發佈權限
+        if: env.IOS_APP == 'native'
+        run: |
+          # Apple 登入與推播能力會讓 Xcode 在封存時要求開發描述檔。封存後加上 ad-hoc 簽章，
+          # exportArchive 仍可讀到完整權限，正式的分發簽章由下一步依開發團隊重簽。
+          APP="$RUNNER_TEMP/App.xcarchive/Products/Applications/$IOS_SCHEME.app"
+          codesign --force --sign - --timestamp=none --generate-entitlement-der \
+            --entitlements mobile/native/Config/Release.entitlements "$APP"
 
       # build 13／14 的 aps-environment 就是在這裡掉的，而當時沒有任何一關在看。
       # archive 原本完全不簽章（CODE_SIGNING_ALLOWED=NO），於是 entitlements 從來沒有被
@@ -200,9 +251,9 @@ jobs:
       # 「沒有人在看結果」。寧可擋下這次打包，也不要再上傳一個推播壞掉的 build。
       - name: 確認 archive 真的帶著 aps-environment
         run: |
-          APP="$RUNNER_TEMP/App.xcarchive/Products/Applications/App.app"
+          APP="$RUNNER_TEMP/App.xcarchive/Products/Applications/$IOS_SCHEME.app"
           ENT="$RUNNER_TEMP/archived.entitlements"
-          test -d "$APP" || { echo "::error::archive 裡找不到 App.app（$APP）"; exit 1; }
+          test -d "$APP" || { echo "::error::archive 裡找不到 $APP"; exit 1; }
           codesign -d --entitlements :- "$APP" > "$ENT" 2>"$RUNNER_TEMP/codesign.err" || true
           echo "── 簽進 archive 的 entitlements ──"
           cat "$ENT" || true
@@ -216,8 +267,7 @@ jobs:
             exit 1; }
           echo "✓ aps-environment = production，真的在 archive 裡"
 
-      - name: 匯出並上傳到 App Store Connect
-        working-directory: mobile/ios/App
+      - name: 匯出 App Store Connect 版本
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
@@ -226,7 +276,9 @@ jobs:
           # 原本寫 `event_name == 'push' || inputs.upload`，workflow_run 走這條會變成 false。
           UPLOAD: ${{ github.event_name != 'workflow_dispatch' || inputs.upload }}
         run: |
-          DEST=$([ "$UPLOAD" = "true" ] && echo upload || echo export)
+          # 原生版先取得正式簽章的 .ipa，驗過成品才上傳。
+          DEST=export
+          if [ "$IOS_APP" = legacy ] && [ "$UPLOAD" = true ]; then DEST=upload; fi
           cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -249,6 +301,56 @@ jobs:
             -authenticationKeyIssuerID "$ASC_ISSUER_ID"
           echo "目的地：$DEST"
           ls -la "$RUNNER_TEMP/export" || true
+
+      - name: 驗證原生版 .ipa 的簽章、權限與登入設定
+        if: env.IOS_APP == 'native'
+        run: |
+          IPA="$RUNNER_TEMP/export/$IOS_SCHEME.ipa"
+          test -f "$IPA"
+          CHECK_DIR=$(mktemp -d "$RUNNER_TEMP/ios-check.XXXXXX")
+          ditto -x -k "$IPA" "$CHECK_DIR"
+          APP="$CHECK_DIR/Payload/$IOS_SCHEME.app"
+          ENT="$CHECK_DIR/signed.entitlements"
+          codesign --verify --strict "$APP"
+          codesign -d --entitlements :- "$APP" > "$ENT"
+          python3 - "$APP/Info.plist" "$ENT" <<'PY'
+          import plistlib
+          import re
+          import sys
+
+          with open(sys.argv[1], 'rb') as file:
+              info = plistlib.load(file)
+          with open(sys.argv[2], 'rb') as file:
+              entitlements = plistlib.load(file)
+
+          if info.get('CFBundleIdentifier') != 'com.bounceto.workschedule':
+              sys.exit('::error::原生版的 Bundle ID 與既有 App 不符')
+          if entitlements.get('aps-environment') != 'production':
+              sys.exit('::error::正式簽章缺少 production APNs')
+          if 'Default' not in entitlements.get('com.apple.developer.applesignin', []):
+              sys.exit('::error::正式簽章缺少 Sign in with Apple')
+
+          schemes = [scheme for url_type in info.get('CFBundleURLTypes', [])
+                     for scheme in url_type.get('CFBundleURLSchemes', [])]
+          if any(not re.fullmatch(r'[a-zA-Z][a-zA-Z0-9+.-]*', scheme) for scheme in schemes):
+              sys.exit('::error::CFBundleURLSchemes 有無效的 URL scheme')
+          google_id = info.get('GIDClientID')
+          if google_id or any(scheme.startswith('com.googleusercontent.apps.') for scheme in schemes):
+              if not re.fullmatch(r'[a-zA-Z0-9-]+\.apps\.googleusercontent\.com', google_id or ''):
+                  sys.exit('::error::GIDClientID 不是有效的 Google iOS Client ID')
+              if '.'.join(reversed(google_id.split('.'))) not in schemes:
+                  sys.exit('::error::Google OAuth 的 URL scheme 必須對應 GIDClientID')
+          print('✓ Bundle ID、APNs、Sign in with Apple 和 URL schemes 通過')
+          PY
+
+      - name: 上傳已驗證的原生版到 App Store Connect
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.app == 'native' && inputs.upload }}
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          xcrun altool --upload-app -f "$RUNNER_TEMP/export/$IOS_SCHEME.ipa" -t ios \
+            --api-key "$ASC_KEY_ID" --api-issuer "$ASC_ISSUER_ID"
 
       - name: 保留 .ipa（只打包不上傳時）
         if: ${{ github.event_name == 'workflow_dispatch' && !inputs.upload }}

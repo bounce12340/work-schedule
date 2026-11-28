@@ -15,15 +15,18 @@ let appleKeysCache = null;
 let appleKeysCachedAt = 0;
 const APPLE_KEYS_TTL = 6 * 3600 * 1000;
 
-export async function verifyAppOAuth(body, env) {
+export async function verifyAppOAuth(body, env, { freshCode = false } = {}) {
   const provider = body?.provider === 'apple' || body?.provider === 'google'
     ? body.provider : null;
   if (!provider) return { ok: false, reason: 'provider' };
+  if (freshCode && (typeof body.authorizationCode !== 'string' || !body.authorizationCode.trim())) {
+    return { ok: false, reason: 'oauth_parameters' };
+  }
 
   if (provider === 'google') {
     return verifyGoogle(body, env);
   }
-  return verifyApple(body, env);
+  return verifyApple(body, env, freshCode);
 }
 
 async function verifyGoogle(body, env) {
@@ -68,19 +71,28 @@ async function verifyGoogle(body, env) {
   return { ok: true, provider: 'google', subject: String(p.sub), email: String(p.email).toLowerCase() };
 }
 
-async function verifyApple(body, env) {
+async function verifyApple(body, env, freshCode) {
   const token = String(body.idToken || '');
   if (!token) return { ok: false, reason: 'token' };
   const verified = await verifyAppleJwt(token, env);
   if (!verified.ok) return verified;
-  if (body.nonce && verified.payload.nonce && verified.payload.nonce !== body.nonce) {
+  const nonce = typeof body.nonce === 'string' ? body.nonce : '';
+  if ((freshCode || nonce) && (!nonce || verified.payload.nonce !== await hashAppleNonce(nonce))) {
     return { ok: false, reason: 'nonce' };
   }
 
   let refreshToken = null;
   const code = String(body.authorizationCode || '');
+  if (freshCode && !appleOAuthConfigured(env)) return { ok: false, reason: 'not_configured' };
   if (code && appleOAuthConfigured(env)) {
-    refreshToken = await exchangeAppleCode(code, env);
+    const exchanged = await exchangeAppleCode(code, env);
+    const exchangedIdentity = exchanged?.id_token && await verifyAppleJwt(exchanged.id_token, env);
+    if (exchangedIdentity?.ok && exchangedIdentity.payload.sub === verified.payload.sub) {
+      refreshToken = exchanged.refresh_token || null;
+    } else if (freshCode) {
+      return { ok: false, reason: 'token_exchange' };
+    }
+    if (freshCode && !refreshToken) return { ok: false, reason: 'token_exchange' };
   }
   return {
     ok: true,
@@ -89,6 +101,11 @@ async function verifyApple(body, env) {
     email: verified.payload.email ? String(verified.payload.email).toLowerCase() : null,
     appleRefreshToken: refreshToken,
   };
+}
+
+async function hashAppleNonce(nonce) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(nonce));
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
 export async function revokeAppleCredential(refreshToken, env) {
@@ -122,13 +139,14 @@ export async function linkOAuthIdentity(env, auth, userId) {
   if (existing && existing.user_id !== userId) return { ok: false, reason: 'identity_in_use' };
 
   const current = await env.DB.prepare(
-    'SELECT id FROM oauth_identities WHERE user_id = ? AND provider = ?'
+    'SELECT id, subject, apple_refresh_token FROM oauth_identities WHERE user_id = ? AND provider = ?'
   ).bind(userId, auth.provider).first();
   if (current) {
+    const refreshToken = auth.appleRefreshToken || (current.subject === auth.subject ? current.apple_refresh_token : null);
     await env.DB.prepare(
       `UPDATE oauth_identities SET subject = ?, email = ?, apple_refresh_token = ?, updated_at = ?
        WHERE id = ?`
-    ).bind(auth.subject, auth.email, auth.appleRefreshToken || null, now, current.id).run();
+    ).bind(auth.subject, auth.email, refreshToken, now, current.id).run();
     return { ok: true };
   }
   await env.DB.prepare(
@@ -161,8 +179,7 @@ async function exchangeAppleCode(code, env) {
     console.error('Apple authorization-code exchange failed', res.status, await res.text());
     return null;
   }
-  const data = await res.json().catch(() => ({}));
-  return data.refresh_token || null;
+  return res.json().catch(() => null);
 }
 
 async function verifyAppleJwt(token, env) {

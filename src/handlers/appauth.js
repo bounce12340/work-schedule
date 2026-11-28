@@ -259,7 +259,7 @@ export async function handleAppOAuth(request, env) {
 }
 
 /**
- * DELETE /api/auth/account  { password }
+ * DELETE /api/auth/account  { password } 或剛完成的 app OAuth 憑證。
  *
  * Apple 5.1.1(v)：有註冊就要能在 app 裡自己刪。網頁版同一顆按鈕。
  *
@@ -275,9 +275,25 @@ export async function handleDeleteAccount(request, env, user) {
   const body = await readJson(request);
   if (!body) return json({ error: '請求格式錯誤' }, 400);
 
-  const row = await env.DB.prepare('SELECT password_hash FROM users WHERE id = ?').bind(user.id).first();
-  if (!row || !(await verifyPassword(String(body.password || ''), row.password_hash))) {
-    return json({ error: '密碼不正確' }, 403);
+  let freshAppleToken = null;
+  if (body.provider) {
+    const auth = await verifyAppOAuth(body, env, { freshCode: true }).catch(error => {
+      console.error('account deletion reauthentication failed', error?.stack || String(error));
+      return { ok: false, reason: 'provider_unavailable' };
+    });
+    if (!auth.ok) {
+      return json({ error: oauthMessage(auth.reason) }, auth.reason === 'not_configured' ? 503 : 403);
+    }
+    const linked = await env.DB.prepare(
+      'SELECT 1 FROM oauth_identities WHERE user_id = ? AND provider = ? AND subject = ?'
+    ).bind(user.id, auth.provider, auth.subject).first();
+    if (!linked) return json({ error: '這個登入身分未連結到目前的帳號' }, 403);
+    freshAppleToken = auth.appleRefreshToken || null;
+  } else {
+    const row = await env.DB.prepare('SELECT password_hash FROM users WHERE id = ?').bind(user.id).first();
+    if (!row || !(await verifyPassword(String(body.password || ''), row.password_hash))) {
+      return json({ error: '密碼不正確' }, 403);
+    }
   }
 
   await logAdminAction(env, user, user, '本人刪除帳號（含其雲端排程資料）');
@@ -286,12 +302,14 @@ export async function handleDeleteAccount(request, env, user) {
   const identities = await env.DB.prepare(
     'SELECT provider, apple_refresh_token FROM oauth_identities WHERE user_id = ?'
   ).bind(id).all();
-  for (const row of identities.results || []) {
-    if (row.provider === 'apple' && row.apple_refresh_token) {
-      await revokeAppleCredential(row.apple_refresh_token, env).catch(e =>
-        console.error('Apple credential revoke failed during account deletion', e?.stack || String(e))
-      );
-    }
+  const appleTokens = new Set((identities.results || [])
+    .filter(row => row.provider === 'apple' && row.apple_refresh_token)
+    .map(row => row.apple_refresh_token));
+  if (freshAppleToken) appleTokens.add(freshAppleToken);
+  for (const token of appleTokens) {
+    await revokeAppleCredential(token, env).catch(e =>
+      console.error('Apple credential revoke failed during account deletion', e?.stack || String(e))
+    );
   }
   // 版本歷史含這個人**全部的排程**：R2 的整個 prefix 與索引都清掉（失敗只出聲，不擋刪帳號）
   await deleteAllVersions(env, id);
