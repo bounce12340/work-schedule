@@ -151,6 +151,8 @@ function makeServer(loggedIn, plan = 'pro') {
     refId: null, status: null, options: null, defaultAfter: null, redactedAt: null, createdAt: T0 - (over.ago || 60000), ...over });
   const agent = {
     posts: [], eventsFail: false, statePuts: [],
+    // 刪帳號那一段（D）：GET /api/state 回的方案來源、DELETE /api/auth/account 的回覆、與打過的請求
+    planSource: null, deleteReply: null, deletes: [], portalPosts: 0,
     version: { updatedAt: 1, latestEventAt: 5000 },
     // ---- 2B：PR 看板與 GitHub 通知設定 ----
     // 開著的三個：測試失敗（78）、等你審（77）、一般的（79，標題是**惡意內文**：外部內容一律 textContent）；
@@ -284,7 +286,16 @@ function makeServer(loggedIn, plan = 'pro') {
           req.on('data', c => { raw += c; });
           return req.on('end', () => { agent.statePuts.push(raw); send(200, { ok: true, updatedAt: 1 }); });
         }
-        return send(200, { user: { ...ME, plan, planSource: plan === 'pro' ? 'admin' : null, planExpiresAt: null, webBilling: true }, state: null, updatedAt: null });
+        return send(200, { user: { ...ME, plan: agent.planSource ? 'pro' : plan, planSource: agent.planSource || (plan === 'pro' ? 'admin' : null), planExpiresAt: null, webBilling: true }, state: null, updatedAt: null });
+      }
+      if (url.pathname === '/api/auth/account' && req.method === 'DELETE') {
+        agent.deletes.push(true);
+        const r = agent.deleteReply || { status: 200, body: { ok: true } };
+        return send(r.status, r.body);
+      }
+      if (url.pathname === '/api/plan/paddle/portal' && req.method === 'POST') {
+        agent.portalPosts++;
+        return send(200, { url: '/portal-ok' });
       }
       // iOS app 的登入／驗證碼：回一個假 token，讓「app 外殼」那一輪走得完
       if (url.pathname === '/api/auth/app/login') return send(200, { ok: true, token: APP_TOKEN, expiresAt: 9e12, user: ME });
@@ -965,6 +976,35 @@ async function walk(page, log, plan = 'pro', server = null) {
     if (!claims[0] || claims[0].stale || /沒動靜|idle/.test(claims[0].text)) throw new Error('剛認領的任務不該標「沒動靜」：' + JSON.stringify(claims[0]));
     if (!claims[1] || !claims[1].stale || !/3 天沒動靜|idle for 3 d/.test(claims[1].text)) throw new Error('認領三天的任務該標「3 天沒動靜」：' + JSON.stringify(claims[1]));
     if (claims[2]) throw new Error('沒人認領的任務不該有認領的標示');
+    // ---- 放掉認領（A3）：要確認、清 assignee／claimedAt、走 commit（可復原）、不打任何 agent 端點 ----
+    step = '放掉認領：要確認、清掉兩個欄位、可復原、不打新端點';
+    {
+      const rel = i => block(i).locator('.agent-claim-release');
+      const hasBox = (i, sel) => block(i).locator(sel).evaluate(el => el.getClientRects().length);
+      if (!(await hasBox(1, '.agent-claim-release'))) throw new Error('有人認領的任務旁沒有「放掉」');
+      if (await hasBox(2, '.agent-claim-release')) throw new Error('沒人認領的任務卻有「放掉」');
+      const store = () => page.evaluate(() => { const t = JSON.parse(localStorage.getItem('workSchedule.v1')).ganttProjects[0].tasks[1]; return [t.assignee, t.claimedAt]; });
+      const posts0 = A.posts.length;
+      page.once('dialog', d => d.dismiss());
+      await rel(1).click();
+      await page.waitForTimeout(250);
+      if ((await store())[0] !== 'Smoke Agent') throw new Error('取消確認之後認領還是被清掉了');
+      // 先把前面留下來的復原提示收掉：不然「有提示」可能是舊的，換成 commit 也看不出來
+      await page.evaluate(() => document.getElementById('undoToast').classList.remove('show'));
+      page.once('dialog', d => d.accept());
+      await rel(1).click();
+      await page.waitForTimeout(400);
+      const after = await store();
+      if (after[0] !== null || after[1] !== null) throw new Error('放掉之後 assignee／claimedAt 沒有清成 null：' + JSON.stringify(after));
+      if (await hasBox(1, '.agent-claim')) throw new Error('放掉之後認領徽章還在');
+      if (!(await page.locator('#undoToast.show').count())) throw new Error('放掉之後沒有「復原」的提示（要走 withUndo）');
+      await page.click('#undoBtn');
+      await page.waitForTimeout(400);
+      const back = await store();
+      if (back[0] !== 'Smoke Agent' || typeof back[1] !== 'number') throw new Error('復原之後認領沒有回來：' + JSON.stringify(back));
+      if (A.posts.length !== posts0) throw new Error('放掉認領不該打任何 agent 端點');
+      checked.push('放掉認領(要確認/清兩個欄位/可復原/不打端點)');
+    }
     step = '預估與實際：改了存得進去，而且不重建表格';
     // 上面新增／刪除里程碑走了完整的 commit()（行數改變，該重建）——所以要重新做一次記號
     await page.evaluate(() => { document.querySelector('.task-row input[type=text]').dataset.keep = '1'; });
@@ -1077,11 +1117,17 @@ async function walk(page, log, plan = 'pro', server = null) {
     if (rk.imgs || rk.ran) throw new Error('風險的內文被當成 HTML 執行了：' + JSON.stringify(rk));
     if (!/<img src=x/.test(rk.text) || !/廠商可能來不及交件/.test(rk.text)) throw new Error('惡意內文應該原樣顯示成文字——斷言會變成空的');
     if (/已經排除的舊風險/.test(rk.text)) throw new Error('已經關閉的風險還在清單裡');
-    step = '風險：擁有者關閉';
+    step = '風險：擁有者關閉（附一句說明）';
+    const noteInp = page.locator('#agentRisks .agent-risk .agent-risk-note');
+    if (!(await noteInp.evaluate(el => el.getClientRects().length))) throw new Error('關閉風險旁沒有可填說明的輸入框');
+    if (await noteInp.getAttribute('maxlength') !== '500') throw new Error('說明的輸入框沒有 500 字上限');
+    await noteInp.fill('  已經請廠商補件了  ');
     await page.locator('#agentRisks .agent-risk .qbtn').click();
     await page.waitForFunction(() => document.querySelectorAll('#agentRisks .agent-risk').length === 0, null, { timeout: 5000 })
       .catch(() => { throw new Error('按了「關閉這個風險」，風險沒有從清單拿掉'); });
-    if (!A.posts.find(x => /\/projects\/events\/r1\/close-risk$/.test(x.path))) throw new Error('關閉風險沒有打到 close-risk 端點');
+    const closePost = A.posts.find(x => /\/projects\/events\/r1\/close-risk$/.test(x.path));
+    if (!closePost) throw new Error('關閉風險沒有打到 close-risk 端點');
+    if (JSON.stringify(closePost.body) !== JSON.stringify({ note: '已經請廠商補件了' })) throw new Error('關閉風險送出的說明不對（要去頭尾空白）：' + JSON.stringify(closePost.body));
     checked.push('風險(只列開著的/惡意內文/關閉)');
 
     // ===== 公開的分享連結 =====
@@ -1143,6 +1189,40 @@ async function walk(page, log, plan = 'pro', server = null) {
   {
     step = '專案的夥伴';
     await need('.pet-card', '夥伴卡');
+    const lang = await page.evaluate(() => localStorage.getItem('workSchedule.v1.lang'));
+    // 英文模式下夥伴相關的畫面不能有任何殘留的中文（A1）：文字節點與 title／aria-label／alt／placeholder 都掃
+    const noCjk = async (where, sel) => {
+      if (lang !== 'en') return;
+      const found = await page.evaluate((q) => {
+        const out = [];
+        for (const root of document.querySelectorAll(q)) {
+          const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+          for (let n = w.nextNode(); n; n = w.nextNode()) if (/[\u3400-\u9fff\uff00-\uffef]/.test(n.nodeValue)) out.push(n.nodeValue.trim());
+          for (const el of [root, ...root.querySelectorAll('*')]) {
+            for (const a of ['title', 'aria-label', 'alt', 'placeholder']) {
+              const v = el.getAttribute && el.getAttribute(a);
+              if (v && /[\u3400-\u9fff\uff00-\uffef]/.test(v)) out.push(a + '=' + v);
+            }
+          }
+        }
+        return out;
+      }, sel);
+      if (found.length) throw new Error(`英文模式下「${where}」殘留中文：${found.slice(0, 5).join(' ｜ ')}`);
+    };
+    await noCjk('夥伴卡', '.pet-card');
+    if (lang === 'en') {
+      // 泡泡的話是隨機挑的，掃一次抓不全：靜態比對——每一種夥伴的每一句口頭禪、八種夥伴的兩個名字、
+      // 階段名稱都必須是 I18N.en 的 key（取來源碼，不是複製一份）
+      const src = readFileSync(PUBLIC + 'index.html', 'utf8');
+      const en = src.slice(src.indexOf('const I18N = {'), src.indexOf('const I18N = {') + 200000);
+      const hasKey = k => en.includes(`'${k}':`);
+      const lines = [...src.slice(src.indexOf('const PET_LINES = {'), src.indexOf('const petLives')).matchAll(/'([^']+)'/g)].map(m => m[1]).filter(t => /[\u4e00-\u9fff]/.test(t));
+      const species = [...src.slice(src.indexOf('const PET_SPECIES = ['), src.indexOf('const PET_IDS')).matchAll(/(?:baby|adult):'([^']+)'/g)].map(m => m[1]);
+      const stages = ['長出葉子', '剛長大一點', '小樹', '半大', '長高了', '接近成年', '就快成林', '就快成年', '成年'];
+      if (lines.length < 24 || species.length < 16) throw new Error('沒有從原始碼讀到夥伴的口頭禪與名稱，這條斷言是空的');
+      const missing = [...lines, ...species, ...stages].filter(k => !hasKey(k));
+      if (missing.length) throw new Error('I18N.en 缺這些夥伴字串：' + [...new Set(missing)].join('、'));
+    }
     // 示範資料給了一隻鹿，所以卡上要有圖與進度文字——沒選夥伴時那一格是空的，
     // 只斷言「卡片在」會讓「圖畫不出來」照樣綠
     // 示範的鹿也是 AI 畫的圖，而且站在小院子裡的按鈕上（不是手繪 SVG）
@@ -1153,6 +1233,7 @@ async function walk(page, log, plan = 'pro', server = null) {
     await click('.pet-card-pick', '打開挑夥伴的面板');
     await page.waitForTimeout(260);
     await need('#petOverlay.show', '挑夥伴的面板');
+    await noCjk('挑夥伴的面板', '#petOverlay');
     const cells = await page.locator('#petGrid .pet-pick').count();
     if (cells !== 8) throw new Error(`挑夥伴的面板應該有 8 格，實際 ${cells} 格`);
     // 每一格畫的是**長大後的樣子**：八格都要有圖，缺一個代表那個物種的畫皮沒接上
@@ -1198,6 +1279,7 @@ async function walk(page, log, plan = 'pro', server = null) {
       await page.waitForTimeout(150);
       const bubbles = await page.locator('.pet-bubble').count();
       const text = (await page.locator('.pet-bubble').first().textContent() || '').trim();
+      await noCjk('夥伴的泡泡', '.pet-bubble');
       if (bubbles !== 1) throw new Error('連點兩次之後泡泡應該只有一個，實際 ' + bubbles);
       if (!text) throw new Error('泡泡是空的');
       await page.waitForFunction(() => document.querySelectorAll('.pet-bubble').length === 0, null, { timeout: 5000 })
@@ -1267,6 +1349,7 @@ async function walk(page, log, plan = 'pro', server = null) {
     }
     await page.waitForTimeout(260);
     await need('.pet-card-adult', '「成年」的記號');
+    await noCjk('成年的夥伴卡', '.pet-card');
     const stageAfter = await page.locator('.pet-card-name').textContent();
     if (stageBefore === stageAfter) {
       throw new Error(`待辦全部勾完了，夥伴卡還停在「${stageAfter}」——refreshGanttChart 有換掉夥伴卡嗎？`);
@@ -1667,9 +1750,83 @@ async function walk(page, log, plan = 'pro', server = null) {
   if (dangerShown) {
     await click('#btnDeleteAccount', '打開刪除帳號對話框');
     await need('#delOverlay.show', '刪除帳號對話框');
+    // 不是 Apple 訂閱的人看不到那一段警告（D4 的另一半：多顯示等於嚇人）；管理訂閱的鈕也是收著的
+    if (await page.evaluate(() => document.getElementById('delAppleWarn').getClientRects().length + document.getElementById('btnDelManageSub').getClientRects().length)) {
+      throw new Error('不是 Apple 訂閱的帳號，刪除對話框卻顯示了 Apple 的警告或「管理訂閱」');
+    }
     await click('#btnCancelDel', '取消刪除');
     await page.waitForTimeout(100);
     if (await page.locator('#delOverlay.show').count()) throw new Error('刪除帳號對話框取消後沒有關閉');
+  }
+
+  // ---- 訂閱中不能刪帳號（D）：另開一頁走四條路，假後端決定 /api/state 回的方案與 DELETE 的回覆 ----
+  if (dangerShown && server) {
+    step = '刪帳號：訂閱的擋與警告';
+    const A = server.agent;
+    const en = (await page.evaluate(() => localStorage.getItem('workSchedule.v1.lang'))) === 'en';
+    const origin = new URL(page.url()).origin;
+    const lang = en ? 'en' : 'zh';
+    const open = async (planSource, reply) => {
+      A.planSource = planSource; A.deleteReply = reply; A.deletes.length = 0; A.portalPosts = 0;
+      // 另開一個 context：刪帳號成功那條路會 clearLocalData()，共用 localStorage 會把主頁的資料一起清掉
+      const ctx3 = await page.context().browser().newContext({ viewport: { width: 1280, height: 950 }, locale: 'zh-TW' });
+      const p3 = await ctx3.newPage();
+      p3.ctx3 = ctx3;
+      await p3.route('**://fonts.*/**', r => r.abort());
+      await p3.addInitScript(([sd, l]) => {
+        localStorage.setItem('workSchedule.v1', JSON.stringify(sd));
+        localStorage.setItem('workSchedule.v1.lang', l);
+      }, [seed(), lang]);
+      await p3.goto(origin + '/', { waitUntil: 'domcontentloaded' });
+      await p3.waitForSelector('#navAccount');
+      await p3.evaluate(() => { const b = document.querySelector('.boot-sakura'); if (b) b.click(); });
+      // 等同步完成：accountMe 是同步時才拿到的，開得太早會看不到方案
+      await p3.waitForFunction(() => /已同步|同步|synced|sync/i.test(document.body.innerText), null, { timeout: 8000 }).catch(() => {});
+      await p3.waitForTimeout(600);
+      await p3.evaluate(() => document.getElementById('navAccount').click());
+      await p3.evaluate(() => document.getElementById('btnDeleteAccount').click());
+      await p3.waitForSelector('#delOverlay.show');
+      return p3;
+    };
+    const boxes = (p3, id) => p3.evaluate((i) => document.getElementById(i).getClientRects().length, id);
+    const submit = async (p3) => {
+      await p3.fill('#inputDelPw', 'whatever-password');
+      p3.once('dialog', d => d.accept());
+      await p3.click('#btnConfirmDel');
+      await p3.waitForTimeout(500);
+    };
+    try {
+      // Apple 有效訂閱：仍可刪，但確認畫面多一段警告（寫著 iPhone 設定取消、刪帳號不會停止扣款）
+      let p3 = await open('apple', null);
+      if (!(await boxes(p3, 'delAppleWarn'))) throw new Error('Apple 訂閱的帳號，刪除對話框沒有顯示「刪除帳號不會停止扣款」的警告');
+      const warn = await p3.locator('#delAppleWarn').textContent();
+      if (!/Apple ID/.test(warn) || !/不會停止扣款|does not stop billing/.test(warn)) throw new Error('警告沒有講清楚：' + warn);
+      await submit(p3);
+      if (A.deletes.length !== 1) throw new Error('Apple 訂閱的帳號應該照樣能刪（打到 DELETE 一次），實際 ' + A.deletes.length);
+      await p3.ctx3.close();
+
+      // 網頁訂閱還在續訂：伺服器 409 → 畫面說清楚、給「管理訂閱」、帳號沒被當成刪掉（本機資料還在）
+      p3 = await open(null, { status: 409, body: { error: 'SERVER-RAW-TEXT', reason: 'paddle_active' } });
+      if (await boxes(p3, 'delAppleWarn')) throw new Error('不是 Apple 訂閱的帳號卻顯示了 Apple 的警告');
+      await submit(p3);
+      const msg = await p3.locator('#delMsg').textContent();
+      if (!/取消訂閱|cancel/i.test(msg) || /SERVER-RAW-TEXT/.test(msg)) throw new Error('被擋下時的說明不對（要用前端的文字、不是伺服器的原文）：' + msg);
+      if (!(await boxes(p3, 'btnDelManageSub'))) throw new Error('被擋下時沒有「管理訂閱」按鈕（或沒有盒子）');
+      if (!(await p3.evaluate(() => localStorage.getItem('workSchedule.v1')))) throw new Error('被擋下時本機資料被清掉了——不該有任何東西被刪');
+      await p3.click('#btnDelManageSub');
+      await p3.waitForTimeout(400);
+      if (A.portalPosts !== 1) throw new Error('「管理訂閱」沒有打到 Paddle 客戶頁的端點');
+      await p3.ctx3.close();
+
+      // 問不到 Paddle：也擋，說「暫時無法確認」，而且沒有「管理訂閱」（那不是使用者能解的）
+      p3 = await open(null, { status: 409, body: { error: 'SERVER-RAW-TEXT', reason: 'paddle_unknown' } });
+      await submit(p3);
+      const msg2 = await p3.locator('#delMsg').textContent();
+      if (!/無法確認|cannot confirm/i.test(msg2) || /SERVER-RAW-TEXT/.test(msg2)) throw new Error('問不到 Paddle 時的說明不對：' + msg2);
+      if (await boxes(p3, 'btnDelManageSub')) throw new Error('問不到 Paddle 時不該出現「管理訂閱」');
+      await p3.ctx3.close();
+    } finally { A.planSource = null; A.deleteReply = null; }
+    checked.push('刪帳號(Apple 警告/網頁訂閱被擋＋管理訂閱/問不到也擋)');
   }
 
   // 主題與語言現在只有這一頁能切，所以在這裡按一次——順便確認搬家之後
@@ -1766,6 +1923,8 @@ for (const loggedIn of [false, true]) {
       if (loggedIn) {
         await walk(page, console.log, plan, server);
         await expectLeaveDaysPushed(page, server, console.log);
+        await expectConflictNote(page, console.log);
+        await expectOnboarding(page, console.log);
       } else await expectGate(page, console.log);
     } catch (e) {
       // 一定要說是「哪一步」走不完，否則 timeout 訊息只有選擇器，看不出走到哪
@@ -1787,6 +1946,185 @@ for (const loggedIn of [false, true]) {
 }
 
 /**
+ * 第一次登入的導覽卡（C1–C4）與 modal 裡的撞時間提醒（B5）。
+ *
+ * 卡片是 display:block 以外也可能被改掉的元素，所以「收起來」一律量 getClientRects()，
+ * 不看 class。每個斷言前先確認它的前提成立（卡片真的出現過），否則「收起來之後沒有盒子」
+ * 會是一條對一張從來沒出現的卡也成立的空斷言。
+ */
+async function expectOnboarding(page, log) {
+  const KEY = 'workSchedule.v1.onboardSeen';
+  const boxes = p => p.evaluate(() => { const el = document.getElementById('onbCard'); return el ? el.getClientRects().length : -1; });
+  const states = p => p.evaluate(() => ['onbStepItem', 'onbStepIcs', 'onbStepShare'].map(id => document.getElementById(id).classList.contains('done')));
+  const perr = [];
+  const watch = p => p.on('pageerror', e => perr.push(e.message));
+  watch(page);
+  const fail = m => { throw new Error('導覽卡：' + m); };
+
+  // C1：登入、雲端模式、這台裝置沒看過 → 在項目安排頁上方出現；三步；項目已經有了所以第一步是打勾的
+  walk.lastStep = () => '導覽卡（C1）';
+  await page.click('#navSchedule');
+  await page.waitForTimeout(300);
+  if (await boxes(page) < 1) fail('第一次登入應該出現，但沒有盒子');
+  if ((await page.locator('#onbCard .onb-step').count()) !== 3) fail('應該剛好三步');
+  const first = await page.evaluate(() => {
+    const c = document.getElementById('onbCard'), v = document.getElementById('viewSchedule');
+    return c.getBoundingClientRect().top <= v.querySelector('.major-section').getBoundingClientRect().top;
+  });
+  if (!first) fail('應該在項目安排頁的最上方');
+  const st = await states(page);
+  if (JSON.stringify(st) !== '[true,false,false]') fail('示範資料已經有項目：只有第一步該是打勾的，實際 ' + JSON.stringify(st));
+  // 不是 modal、沒有遮罩：整頁照樣點得到（四張卡之下的看板、側欄）
+  const modalish = await page.evaluate(() => { const cs = getComputedStyle(document.getElementById('onbCard')); return cs.position; });
+  if (modalish === 'fixed' || modalish === 'absolute') fail('不該是浮層（position: ' + modalish + '）');
+
+  // C4：390px 不溢出；兩個斷點都量（卡片在手機上三步改成直排）
+  walk.lastStep = () => '導覽卡（390px）';
+  const vp = page.viewportSize();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(200);
+  const narrow = await page.evaluate(() => {
+    const r = document.getElementById('onbCard').getBoundingClientRect();
+    return { right: r.right, w: window.innerWidth, over: document.documentElement.scrollWidth > window.innerWidth };
+  });
+  if (narrow.right > narrow.w + 0.5 || narrow.over) fail(`390px 溢出（右緣 ${narrow.right}，視窗 ${narrow.w}）`);
+  const stacked = await page.evaluate(() => [...document.querySelectorAll('#onbCard .onb-step')].map(b => { const r = b.getBoundingClientRect(); return [Math.round(r.left), Math.round(r.width)]; }));
+  if (new Set(stacked.map(x => x[0])).size !== 1 || stacked[0][1] < 280) fail('390px 時三步應該直排、各佔整行：' + JSON.stringify(stacked));
+  await page.setViewportSize(vp);
+
+  // C3：減少動態時沒有任何轉場
+  walk.lastStep = () => '導覽卡（reduced-motion）';
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const tr0 = await page.evaluate(() => getComputedStyle(document.querySelector('.onb-tick')).transitionDuration);
+  await page.emulateMedia({ reducedMotion: null });
+  if (!/^0s(, 0s)*$/.test(tr0)) fail('reduced-motion 下打勾還有轉場：' + tr0);
+
+  // C2：「我知道了」收起來——沒有盒子，記在 localStorage，不進 snapshot
+  walk.lastStep = () => '導覽卡（我知道了）';
+  await page.click('#onbDismiss');
+  await page.waitForTimeout(200);
+  if (await boxes(page) !== 0) fail('按了「我知道了」之後卡片仍有盒子');
+  const saved = await page.evaluate(k => ({ seen: localStorage.getItem(k), snap: (localStorage.getItem('workSchedule.v1') || '').includes('onboard') }), KEY);
+  if (saved.seen !== '1') fail('「看過了」沒有記進 localStorage');
+  if (saved.snap) fail('「看過了」不該進 snapshot');
+  // 重開（新分頁、同一個 context＝同一份 localStorage）：仍然沒有。
+  // 一律開首頁：walk 走過的網址可能帶著 #notify，那會直接把人帶去「我的帳號」
+  const home = new URL(page.url()).origin + '/';
+  const p2 = await page.context().newPage(); watch(p2);
+  await p2.goto(home, { waitUntil: 'domcontentloaded' });
+  await p2.waitForSelector('#viewSchedule', { state: 'attached' });
+  // 前提：這一頁真的走完雲端同步了（頁尾說「雲端同步啟用中」）。否則「沒有盒子」
+  // 只是還沒載好，那條對一張根本不會出現的卡也成立
+  await p2.waitForSelector('#storageNoteText .storage-state:not(.off)', { timeout: 8000 })
+    .catch(() => fail('（前提）新分頁沒有走完雲端同步'));
+  await p2.waitForTimeout(500);
+  if (await boxes(p2) !== 0) fail('看過之後重開，卡片又出現了');
+  // 清掉記錄 → 又出現（證明上面的「沒有」是那個 key 的功勞，不是別的原因）
+  await p2.evaluate(k => { localStorage.removeItem(k); localStorage.removeItem(k.replace('Seen', 'Steps')); }, KEY);
+  await p2.close();
+
+  // C2：三步各自按了就打勾；三步都做完就收起來（走完整條使用者路徑）
+  const p3 = await page.context().newPage(); watch(p3);
+  await p3.goto(home, { waitUntil: 'domcontentloaded' });
+  await p3.waitForFunction(() => { const el = document.getElementById('onbCard'); return el && el.getClientRects().length > 0; }, null, { timeout: 8000 })
+    .catch(() => fail('清掉記錄之後卡片應該再出現'));
+  walk.lastStep = () => '導覽卡（把專案分享給同事 → 共享頁）';
+  await p3.click('#onbStepShare');
+  await p3.waitForSelector('#viewShared.active', { timeout: 3000 }).catch(() => fail('「把專案分享給同事」沒有切到共享頁'));
+  walk.lastStep = () => '導覽卡（把日曆接到手機 → 我的帳號的行事曆訂閱）';
+  await p3.click('#navSchedule');
+  await p3.waitForTimeout(200);
+  if (JSON.stringify(await states(p3)) !== '[true,false,true]') fail('按過分享那一步之後應該是 [true,false,true]：' + JSON.stringify(await states(p3)));
+  await p3.click('#onbStepIcs');
+  await p3.waitForSelector('#viewAccount.active', { timeout: 3000 }).catch(() => fail('「把日曆接到手機」沒有切到我的帳號'));
+  await p3.waitForFunction(() => document.getElementById('acctIcs').classList.contains('flash'), null, { timeout: 3000 })
+    .catch(() => fail('行事曆訂閱那一區沒有被標示出來'));
+  // 捲動是 smooth 的，要等它捲完
+  await p3.waitForFunction(() => { const r = document.getElementById('acctIcs').getBoundingClientRect(); return r.bottom > 0 && r.top < window.innerHeight; }, null, { timeout: 4000 })
+    .catch(() => fail('行事曆訂閱那一區沒有捲進畫面'));
+  await p3.click('#navSchedule');
+  await p3.waitForTimeout(200);
+  // 三步都做完（第一步是示範資料本來就有項目）的那一刻 render 把卡收起來：沒有盒子，而且記成看過了
+  if (await boxes(p3) !== 0) fail('三步都做完之後卡片沒有收起來');
+  if ((await p3.evaluate(k => localStorage.getItem(k), KEY)) !== '1') fail('三步做完之後沒有記成看過了');
+  await p3.close();
+  if (perr.length) fail('pageerror：' + perr[0]);
+  log('      驗過：導覽卡(出現/三步/最上方/不是浮層/390px/reduced-motion/我知道了/重開/三步各自打勾與跳轉/做完收起)');
+}
+
+async function expectConflictNote(page, log) {
+  walk.lastStep = () => '撞時間提醒（B5）';
+  const fail = m => { throw new Error('撞時間提醒：' + m); };
+  const note = () => page.evaluate(() => {
+    const el = document.getElementById('itemConflictNote');
+    return { boxes: el.getClientRects().length, text: el.textContent, html: el.innerHTML };
+  });
+  const D = await page.evaluate(() => { const d = new Date(); d.setDate(d.getDate() + 2); return d.toISOString().slice(0, 10); });
+  const D2 = await page.evaluate(() => { const d = new Date(); d.setDate(d.getDate() + 3); return d.toISOString().slice(0, 10); });
+  const fillItem = async (title, time, date) => {
+    await page.fill('#inputItemTitle', title);
+    await page.click('#btnTypeMeeting');
+    await page.fill('#inputItemMeetingTime', time);
+    await page.fill('#inputItemDate', date);
+  };
+  await page.click('#navSchedule');
+  await page.waitForTimeout(200);
+  // A：第一場會議，沒有別人可撞——不顯示（也驗「沒有時間不顯示」「非會議不顯示」）
+  await page.click('#openItemModal');
+  await page.fill('#inputItemTitle', '甲會議<b>');
+  await page.fill('#inputItemDate', D);
+  await page.fill('#inputItemMeetingTime', '10:00');
+  if ((await note()).boxes) fail('工作項目（類型不是會議）不該顯示');
+  await page.click('#btnTypeMeeting');
+  if ((await note()).boxes) fail('沒有別的會議可撞時不該顯示');
+  await page.click('#btnConfirmItem');
+  await page.waitForTimeout(300);
+  // B：同一天同一個時間的第二場——出現，而且點名了甲、標題是文字不是 HTML
+  await page.click('#openItemModal');
+  await fillItem('乙會議', '10:00', D);
+  let n = await note();
+  if (!n.boxes) fail('同一天同一個時間的兩場會議應該出現提醒');
+  if (!n.text.includes('甲會議<b>')) fail('提醒沒有點名另一場會議：' + n.text);
+  if (/<b>/.test(n.html.replace(/&lt;b&gt;/g, ''))) fail('標題被當成 HTML 解讀了：' + n.html);
+  if (!/撞在一起|clashes/.test(n.text)) fail('提醒的措辭不對：' + n.text);
+  const colors = await page.evaluate(() => { const cs = getComputedStyle(document.getElementById('itemConflictNote')); return cs.color; });
+  const red = await page.evaluate(() => { const t = document.createElement('i'); t.style.color = 'var(--red)'; document.body.appendChild(t); const c = getComputedStyle(t).color; t.remove(); return c; });
+  if (colors === red) fail('提醒不該用逾期專用的 --red');
+  // 改到不重疊（時間／日期）就消失；改回來又出現——即時重算
+  await page.fill('#inputItemMeetingTime', '10:30');
+  if ((await note()).boxes) fail('改到不同時間之後提醒沒有消失');
+  await page.fill('#inputItemMeetingTime', '10:00');
+  if (!(await note()).boxes) fail('改回同一個時間提醒沒有回來');
+  await page.fill('#inputItemDate', D2);
+  if ((await note()).boxes) fail('改到不同日期之後提醒沒有消失');
+  await page.fill('#inputItemDate', D);
+  // 改成每週循環：甲是單次、日期相同，仍然撞到（循環展開的第一次）
+  await page.selectOption('#selectRecurrence', 'weekly');
+  if (!(await note()).boxes) fail('改成每週循環之後同一天的那一次應該仍然撞到');
+  await page.selectOption('#selectRecurrence', 'none');
+  // 勾「純告知」→ 不比對
+  await page.check('#inputNoticeOnly');
+  if ((await note()).boxes) fail('純告知不該顯示提醒');
+  await page.uncheck('#inputNoticeOnly');
+  // 不擋存檔：提醒顯示著，照樣存得進去
+  if (!(await note()).boxes) fail('（前提）存檔前提醒應該還在');
+  await page.click('#btnConfirmItem');
+  await page.waitForTimeout(300);
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('workSchedule.v1')).items.filter(i => i.title === '乙會議').length);
+  if (saved !== 1) fail('有提醒時存檔被擋下了（或存了 ' + saved + ' 筆）');
+  // 編輯甲：看得到乙、看不到自己
+  const rowA = page.locator('#board .occ-row', { hasText: '甲會議' }).first();
+  await rowA.locator('.icon-btn', { hasText: /編輯|Edit/ }).first().click();
+  await page.waitForTimeout(200);
+  n = await note();
+  if (!n.boxes) fail('編輯甲會議時，乙會議應該被點名');
+  if (n.text.includes('甲會議')) fail('編輯自己時跟自己比了：' + n.text);
+  if (!n.text.includes('乙會議')) fail('編輯甲會議時沒有點名乙會議：' + n.text);
+  await page.click('#btnCancelItem');
+  log('      驗過：撞時間提醒(同時間出現/標題是文字/不是紅/改時間日期即時消失/循環/純告知/不擋存檔/編輯不跟自己比)');
+}
+
+/**
  * 沒有後端、也從來沒登入過：畫面必須是登入閘門，而且什麼都不能 seed。
  *
  * 這兩輪原本走四個頁籤（那時「單檔雙擊開啟」是一種使用方式）。使用者的裁決改成
@@ -1802,7 +2140,12 @@ async function expectGate(page, log) {
   const text = (await btn.textContent()).trim();
   const stored = await page.evaluate(() => localStorage.getItem('workSchedule.v1'));
   if (stored !== null) throw new Error('閘門關著卻還是 seed 了示範資料（workSchedule.v1 不該存在）');
-  log(`      閘門出現，按鈕「${text}」，沒有 seed`);
+  // C3：導覽卡只屬於「登入過的雲端模式」。閘門（沒有帳號）底下那一張要沒有盒子——卡片的元素本身
+  // 一直在 markup 裡，所以先確認它存在，否則「沒有盒子」是一條對任何頁面都成立的空斷言
+  const onb = await page.evaluate(() => { const el = document.getElementById('onbCard'); return el ? el.getClientRects().length : -1; });
+  if (onb === -1) throw new Error('找不到 #onbCard——「閘門時沒有導覽卡」會是空斷言');
+  if (onb !== 0) throw new Error('沒有登入（閘門）卻有導覽卡的盒子');
+  log(`      閘門出現，按鈕「${text}」，沒有 seed，沒有導覽卡`);
 }
 
 /**

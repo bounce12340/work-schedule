@@ -207,6 +207,112 @@ test('找不到帳號不是錯誤：回 200 並留下一筆事件', async () => 
   assert.equal(eventCount(env), 1);
 });
 
+// ------------------------------------------------------------ 退款（adjustment）
+
+/** 一則 adjustment 事件。預設：sub_1 的「已核准的整筆退款」。 */
+function adjEvent(over = {}, adj = {}) {
+  return {
+    event_id: 'evt_adj_1',
+    event_type: 'adjustment.updated',
+    occurred_at: iso(Date.now()),
+    ...over,
+    data: {
+      id: 'adj_1', action: 'refund', type: 'full', status: 'approved',
+      subscription_id: 'sub_1', transaction_id: 'txn_1', customer_id: 'ctm_1',
+      ...adj,
+    },
+  };
+}
+async function subscribed() {
+  const env = paddleEnv(); addUser(env, 'u1', 'a@x.test');
+  await deliver(env, subEvent({ occurred_at: iso(T0) }, { current_billing_period: { starts_at: iso(Date.now()), ends_at: iso(Date.now() + 20 * DAY) } }));
+  assert.equal(row(env).plan_source, 'paddle');
+  return env;
+}
+
+test('退款：已核准的整筆退款把網頁版 Pro 往前收回成現在（plan_source 仍是 paddle，寬限照 planOf）', async () => {
+  const env = await subscribed();
+  const before = Date.now();
+  const { status, body } = await deliver(env, adjEvent());
+  assert.equal(status, 200);
+  assert.equal(body.applied, true);
+  const r = row(env);
+  assert.equal(r.plan_source, 'paddle');
+  assert.ok(r.plan_expires_at >= before && r.plan_expires_at <= Date.now(), '到期日＝現在');
+  assert.equal(planOf(r, Date.now() + 4 * DAY), 'free');
+});
+
+test('退款：拒付（chargeback）已核准的整筆也收回', async () => {
+  const env = await subscribed();
+  const { body } = await deliver(env, adjEvent({}, { action: 'chargeback' }));
+  assert.equal(body.applied, true);
+});
+
+test('退款：pending_approval、rejected、credit、部分退款都一個欄位不動（只記一筆事件）', async () => {
+  const env = await subscribed();
+  const was = row(env);
+  let n = 0;
+  for (const adj of [{ status: 'pending_approval' }, { status: 'rejected' }, { action: 'credit' }, { type: 'partial' }, { action: 'chargeback_warning' }]) {
+    const { status, body } = await deliver(env, adjEvent({ event_id: 'evt_adj_x' + (n++) }, adj));
+    assert.equal(status, 200);
+    assert.equal(body.applied, false, JSON.stringify(adj));
+    assert.deepEqual(row(env), was, JSON.stringify(adj));
+  }
+  assert.ok(eventCount(env) >= 1 + 5, '每一則都留痕跡');
+});
+
+test('退款：只動網頁那一份——訂閱 id 對不上、plan_source 不是 paddle（Apple 撐著）、admin 永久方案都不動', async () => {
+  // 訂閱 id 不同
+  let env = await subscribed();
+  let was = row(env);
+  await deliver(env, adjEvent({}, { subscription_id: 'sub_other' }));
+  assert.deepEqual(row(env), was, '別份訂閱');
+  // 沒帶訂閱 id（一次性購買的退款）
+  await deliver(env, adjEvent({ event_id: 'evt_adj_2' }, { subscription_id: null }));
+  assert.deepEqual(row(env), was, '沒有訂閱 id');
+  // Apple 撐著：訂閱 id 記著，但 plan_source 是 apple
+  env = await subscribed();
+  env.DB.prepare("UPDATE users SET plan_source = 'apple', plan_expires_at = ? WHERE id = 'u1'").bind(Date.now() + 300 * DAY).run();
+  was = row(env);
+  const r = await deliver(env, adjEvent());
+  assert.equal(r.body.applied, false);
+  assert.deepEqual(row(env), was, 'Apple 那一份不縮短');
+  // admin
+  env = await subscribed();
+  env.DB.prepare("UPDATE users SET plan_source = 'admin', plan_expires_at = NULL WHERE id = 'u1'").run();
+  await deliver(env, adjEvent());
+  assert.equal(row(env).plan_source, 'admin');
+  assert.equal(row(env).plan_expires_at, null);
+});
+
+test('退款：驗簽照舊（偽造的 adjustment 回 401，什麼都不寫）', async () => {
+  const env = await subscribed();
+  const was = row(env); const n = eventCount(env);
+  const { status } = await deliver(env, adjEvent(), { secret: 'forged' });
+  assert.equal(status, 401);
+  assert.deepEqual(row(env), was);
+  assert.equal(eventCount(env), n);
+});
+
+test('退款：同一則重送回 duplicate；另一則同樣的退款（已經收回）不會把到期日再動', async () => {
+  const env = await subscribed();
+  await deliver(env, adjEvent());
+  const after = row(env);
+  assert.equal((await deliver(env, adjEvent())).body.duplicate, true);
+  const again = await deliver(env, adjEvent({ event_id: 'evt_adj_again' }));
+  assert.equal(again.body.applied, false);
+  assert.deepEqual(row(env), after);
+});
+
+test('退款：比上一次處理還舊的事件不理（Paddle 不保證順序）', async () => {
+  const env = await subscribed();
+  env.DB.prepare("UPDATE users SET paddle_event_at = ? WHERE id = 'u1'").bind(Date.now() + DAY).run();
+  const was = row(env);
+  const { body } = await deliver(env, adjEvent());
+  assert.equal(body.applied, false);
+  assert.deepEqual(row(env), was);
+});
+
 test('paddleExpiry：三種狀態各自的到期日', () => {
   assert.equal(paddleExpiry({ status: 'past_due', current_billing_period: { ends_at: iso(T0) } }).expiresAt, T0);
   assert.deepEqual(paddleExpiry({ status: 'canceled', canceled_at: iso(T0) }), { expiresAt: T0, ended: true });

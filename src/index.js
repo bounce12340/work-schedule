@@ -385,7 +385,7 @@ async function route(request, env, ctx) {
     if (m) {
       if (request.method !== 'POST') return methodNotAllowed();
       const id = decodeURIComponent(m[1]);
-      if (m[2] === 'close-risk') return handleCloseRisk(env, user, id);
+      if (m[2] === 'close-risk') return handleCloseRisk(env, user, id, request);
       return m[2] === 'answer' ? handleAnswerEvent(request, env, user, id) : handleRedactEvent(env, user, id);
     }
   }

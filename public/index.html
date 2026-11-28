@@ -1286,6 +1286,25 @@
      （.agent-inbox 若被改成 flex／grid，優先度會壓過 [hidden]{display:none}，同 .metric-strip.off） */
   .agent-inbox{ margin-bottom:18px; background:var(--panel); border:1px solid var(--amber); border-radius:var(--r-m); padding:14px 16px; box-shadow:0 0 0 3px var(--amber-dim); }
   .agent-inbox.off{ display:none; }
+  /* 第一次登入的導覽卡：安靜的一張小卡，不是 modal、沒有遮罩。邊線用 --hairline（不跟 agent 收件匣搶「這裡有事」的琥珀）。
+     .off 而不是 [hidden]：它是 display:block 以外也可能被改成 flex，同 .agent-inbox.off。 */
+  .onb-card{ margin-bottom:18px; background:var(--panel); border:1px solid var(--hairline); border-radius:var(--r-m); padding:14px 16px; box-shadow:var(--shadow-soft); }
+  .onb-card.off{ display:none; }
+  .onb-head{ display:flex; align-items:center; gap:12px; margin-bottom:8px; }
+  .onb-title{ font-family:var(--serif); font-size:15px; color:var(--text); flex:1; min-width:0; }
+  .onb-steps{ list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:8px; }
+  .onb-step{ width:100%; text-align:left; display:flex; gap:10px; align-items:flex-start; background:var(--panel-2); border:1px solid var(--hairline); border-radius:var(--r-s); padding:10px 12px; cursor:pointer; font-family:var(--sans); color:var(--text); min-height:44px; }
+  .onb-step:hover{ border-color:var(--amber); }
+  /* 減少動態時的轉場由檔案尾端那條全域 *{transition:none!important} 一併關掉 */
+  .onb-tick{ flex:0 0 18px; width:18px; height:18px; margin-top:1px; border-radius:6px; border:1.5px solid var(--text-muted); display:inline-flex; align-items:center; justify-content:center; font-size:12px; line-height:1; color:transparent; transition:background .2s, border-color .2s; }
+  .onb-step.done .onb-tick{ background:var(--teal-ink, var(--teal)); border-color:var(--teal-ink, var(--teal)); color:var(--panel); }
+  .onb-step.done .onb-label{ color:var(--text-muted); }
+  .onb-label{ display:block; font-size:13.5px; font-weight:600; line-height:1.4; }
+  .onb-hint{ display:block; font-size:12px; color:var(--text-muted); line-height:1.5; margin-top:2px; }
+  @media (max-width:600px){ .onb-steps{ grid-template-columns:1fr; } }
+  /* 撞時間提醒：只提示、不擋存檔。紅色是逾期專用，這裡用琥珀的提示色 */
+  .conflict-note{ margin:-6px 0 14px; padding:8px 10px; border-radius:var(--r-s); background:var(--amber-dim); color:var(--amber-ink); font-family:var(--sans); font-size:12.5px; line-height:1.6; }
+  .conflict-note.off{ display:none; }
   .agent-card{ padding:12px 0; border-top:1px solid var(--hairline); }
   .agent-card:first-of-type{ border-top:none; padding-top:4px; }
   .agent-card-title{ font-size:14px; font-weight:700; line-height:1.6; word-break:break-word; }
@@ -1489,7 +1508,8 @@
   .agent-risk{ padding:9px 10px 9px 12px; border-top:1px solid var(--hairline); border-left:3px solid var(--red); }
   .agent-risk:first-of-type{ border-top:none; }
   .agent-risk-meta{ display:flex; gap:8px; align-items:baseline; flex-wrap:wrap; font-size:12px; color:var(--text-muted); }
-  .agent-risk-meta .qbtn{ margin-left:auto; }
+  .agent-risk-foot{ display:flex; gap:8px; align-items:center; margin-top:6px; }
+  .agent-risk-note{ flex:1; min-width:0; }
   .agent-risk-body{ margin-top:3px; font-size:13.5px; line-height:1.7; white-space:pre-wrap; word-break:break-word; }
   .agent-share-inc{ display:flex; flex-wrap:wrap; gap:6px 16px; margin:8px 0; }
   .agent-share-url{ margin-top:10px; padding:10px 12px; border:1px solid var(--amber); border-radius:var(--r-s); background:var(--amber-dim); }
@@ -1552,8 +1572,12 @@
   .share-existing-row{ display:flex; align-items:center; gap:8px; font-family:var(--mono); font-size:11.5px; color:var(--text-muted); background:var(--panel-2); border:1px solid var(--hairline); border-radius:var(--r-s); padding:6px 9px; }
   .share-existing-row .who{ flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .share-perm-hint{ font-family:var(--mono); font-size:11px; color:var(--text-dim); margin-top:7px; line-height:1.7; }
+  .del-apple-warn{ margin:-4px 0 14px; padding:8px 10px; border-left:3px solid var(--amber); background:var(--panel-2); color:var(--text); font-size:12px; border-radius:0 var(--r-s) var(--r-s) 0; }
+  .del-sub-actions{ margin:0 0 8px; }
   .msg-inline{ display:none; font-size:12.5px; line-height:1.6; padding:9px 11px; border-radius:var(--r-s); margin-bottom:4px; }
   .msg-inline.err{ display:block; background:var(--red-dim); border:1px solid var(--red); color:var(--red-ink); }
+  /* 暗色下淡紅底上的紅字只有 4.39:1（check-contrast 在刪帳號被擋下的說明上量出來）：字改回正文色，紅色留在框線 */
+  [data-theme="dark"] .msg-inline.err{ color:var(--text); }
   .msg-inline.ok{ display:block; background:var(--teal-dim); border:1px solid var(--teal); color:var(--teal); }
 
   @media (prefers-reduced-motion: reduce){ *{ transition: none !important; } }
@@ -1807,6 +1831,18 @@
 
       <!-- ================= VIEW 1: 項目安排 ================= -->
       <div class="view active" id="viewSchedule">
+        <!-- 第一次登入的導覽：雲端模式、這台裝置沒看過才出現；看過（「我知道了」或三步都做完）就收起來（.off） -->
+        <div class="onb-card off" id="onbCard" role="region" aria-labelledby="onbTitle">
+          <div class="onb-head">
+            <div class="onb-title" id="onbTitle" data-i18n>剛開始用？三件小事就上手</div>
+            <button type="button" class="ghost-btn" id="onbDismiss" data-i18n>我知道了</button>
+          </div>
+          <ol class="onb-steps">
+            <li><button type="button" class="onb-step" id="onbStepItem"><span class="onb-tick" aria-hidden="true">✓</span><span><span class="onb-label" data-i18n>新增第一件事</span><span class="onb-hint" data-i18n>工作、會議、作業都可以</span></span></button></li>
+            <li><button type="button" class="onb-step" id="onbStepIcs"><span class="onb-tick" aria-hidden="true">✓</span><span><span class="onb-label" data-i18n>把日曆接到手機</span><span class="onb-hint" data-i18n>訂閱網址貼進 Google 或 Apple 行事曆</span></span></button></li>
+            <li><button type="button" class="onb-step" id="onbStepShare"><span class="onb-tick" aria-hidden="true">✓</span><span><span class="onb-label" data-i18n>把專案分享給同事</span><span class="onb-hint" data-i18n>到「共享」頁，邀請對方一起看</span></span></button></li>
+          </ol>
+        </div>
         <!-- 等你回覆：agent 的提問、等你審的提案、等你驗收的任務。有才出現，沒有就不佔位（.off） -->
         <div class="agent-inbox off" id="agentInbox" aria-live="polite"></div>
         <div class="major-section">
@@ -2244,6 +2280,7 @@
       <div class="field-hint" data-i18n>不長勾選框、永遠不逾期，也不算進今日／本週／逾期／會議的數字與櫻花樹。行事曆訂閱看得到，提醒信與推播不會通知。</div>
     </div>
     <div class="field" id="itemMeetingTimeField"><label data-i18n>時間（選填）</label><input type="time" id="inputItemMeetingTime"></div>
+    <div class="conflict-note off" id="itemConflictNote" role="status" aria-live="polite"></div>
     <div class="field"><label data-i18n>連結（選填，例如會議連結或文件）</label><input type="url" id="inputItemLink" placeholder="https://…"></div>
     <div class="field"><label data-i18n>歸屬大項目</label><select id="selectParent"><option value="" data-i18n>獨立項目（不歸屬任何大項目）</option></select></div>
     <div class="field">
@@ -2519,8 +2556,10 @@
   <div class="modal" style="max-width:400px;">
     <h3><span class="dot" style="background:var(--red);"></span><span data-i18n>刪除我的帳號</span></h3>
     <div class="field-hint" style="margin-bottom:14px;" data-i18n>這會刪掉你的帳號、雲端上的所有排程、你分享出去與別人分享給你的項目、行事曆訂閱與提醒設定。無法復原。</div>
+    <div class="field-hint del-apple-warn" id="delAppleWarn" hidden data-i18n>訂閱要到 iPhone 設定 → Apple ID → 訂閱 取消，刪除帳號不會停止扣款。</div>
     <div class="field"><label data-i18n>輸入密碼以確認</label><span class="pw-wrap"><input type="password" id="inputDelPw" autocomplete="current-password"><button type="button" class="pw-eye" data-i18n-aria aria-label="顯示密碼" aria-pressed="false" tabindex="-1"><svg class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="2.6"/></svg><svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="2.6"/><path d="M4 20 20 4"/></svg></button></span></div>
     <div class="msg-inline" id="delMsg"></div>
+    <div class="del-sub-actions"><button type="button" class="ghost-btn" id="btnDelManageSub" hidden data-i18n>管理訂閱</button></div>
     <div class="modal-actions">
       <button class="btn-cancel" id="btnCancelDel" data-i18n>取消</button>
       <button class="btn-confirm btn-danger" id="btnConfirmDel" data-i18n>永久刪除</button>
@@ -3198,6 +3237,27 @@
       '還差 {0} 件，我就能長大一點！':'Only {0} left and I can grow a little more!',
       '我長大了一點，現在是「{0}」！':'I grew a little — now I am “{0}”!',
       '{0}，目前是「{1}」。點一下跟牠打招呼':'{0}, currently “{1}”. Click to say hi',
+      // —— 刪帳號時的訂閱提醒 ——
+      '訂閱要到 iPhone 設定 → Apple ID → 訂閱 取消，刪除帳號不會停止扣款。':'Cancel the subscription in iPhone Settings → Apple ID → Subscriptions. Deleting your account does not stop billing.',
+      '暫時無法確認訂閱狀態，請稍後再試。':'We cannot confirm your subscription status right now. Please try again later.',
+      '你的訂閱是在網頁版訂的。請先用瀏覽器開啟網站，到「我的帳號」按「管理訂閱」取消，再回來刪除帳號——刪除帳號不會停止扣款。':'Your subscription was started on the web. Open the website in a browser, cancel it under “My account” → “Manage subscription”, then come back to delete your account — deleting the account does not stop billing.',
+      '你的網頁版訂閱還在續訂中。請先取消訂閱，再刪除帳號——刪除帳號不會停止扣款。':'Your web subscription is still renewing. Cancel it first, then delete your account — deleting the account does not stop billing.',
+      // —— 放掉認領、關閉風險的說明 ——
+      '放掉':'Release',
+      '要放掉「{0}」對「{1}」的認領嗎？之後任何人（或別的 agent）都可以接手。':'Release the claim of “{0}” on “{1}”? Anyone (or another agent) can then take it over.',
+      '已放掉「{0}」的認領':'Released the claim of “{0}”',
+      '附一句說明（選填）：怎麼排除的？':'Add a note (optional): how was it resolved?',
+      '關閉風險的說明（選填）':'Closing note for the risk (optional)',
+      // —— 夥伴卡、挑夥伴的面板（英文模式下不能有殘留的中文）——
+      '挑一隻夥伴':'Pick a companion', '換夥伴':'Change companion', '不要夥伴':'No companion', '還沒有夥伴':'No companion yet',
+      '每一格畫的是牠長大後的樣子。待辦全部完成那一刻，牠才真的成年。':'Each one shows how it looks fully grown. It only becomes an adult the moment every to-do is done.',
+      '挑一隻陪你把這個專案做完，待辦全部完成時牠就長大了。':'Pick a companion to keep you company through this project — it grows up once every to-do is done.',
+      '{0}／{1} 項待辦完成（{2}%）':'{0} of {1} to-dos done ({2}%)',
+      '成年':'Adult',
+      '小鹿':'Fawn', '公鹿':'Stag', '小鳥':'Chick', '老鷹':'Eagle', '小兔':'Bunny', '成兔':'Rabbit', '小貓':'Kitten', '大貓':'Cat',
+      '小狐狸':'Fox kit', '狐狸':'Fox', '小龜':'Hatchling', '大龜':'Tortoise', '小苗':'Sapling', '高冷杉':'Tall fir', '松樹':'Pine',
+      '長出葉子':'Sprouting leaves', '剛長大一點':'Just a little bigger', '小樹':'Small tree', '半大':'Half-grown',
+      '長高了':'Growing tall', '接近成年':'Nearly grown', '就快成林':'Almost a forest', '就快成年':'Almost grown',
       // —— 導覽與頁首 ——
       '工作排程確認系統':'Schedule Control Board',
       // —— 連續斷掉的信（F2）——
@@ -3387,6 +3447,13 @@
       '只顯示狀態：前置沒完成時這一列會標「待前置」，但不會自動移動任何日期，也不會擋住勾選。':
         'Status only: the row is flagged “Blocked” while a prerequisite is open. Nothing is rescheduled, and nothing is blocked from being checked off.',
       '（已刪除）':'(deleted)',
+      // —— 撞時間提醒與第一次登入的導覽 ——
+      '這個時間和 {0} 撞在一起':'This time clashes with {0}', '（還有 {0} 筆）':' ({0} more)',
+      '剛開始用？三件小事就上手':'Just getting started? Three small things',
+      '我知道了':'Got it', '新增第一件事':'Add your first item', '工作、會議、作業都可以':'Work, meetings or assignments all work',
+      '把日曆接到手機':'Put your calendar on your phone', '訂閱網址貼進 Google 或 Apple 行事曆':'Paste the subscription link into Google or Apple Calendar',
+      '把專案分享給同事':'Share a project with a teammate', '到「共享」頁，邀請對方一起看':'Go to Shared and invite them to look together',
+      '（已完成）':'(done)',
       '不在':'Away', '這天你不在':'You are away this day',
       '這天你標記為不在。逾期判斷不受影響。':'You marked yourself away this day. Overdue is judged the same way regardless.',
       '標記為不在':'Mark as away', '取消不在':'Clear away',
@@ -5243,6 +5310,9 @@
     document.getElementById('inputDelPw').value = '';
     pwEyeReset(delOverlay);
     setDelMsg('');
+    document.getElementById('btnDelManageSub').hidden = true;
+    // Apple 的訂閱停不了：刪帳號不會停止扣款，要到 iPhone 的設定取消（仍然可以刪，只是先講清楚）
+    document.getElementById('delAppleWarn').hidden = !(accountMe && accountMe.planSource === 'apple' && accountMe.plan === 'pro');
     delOverlay.classList.add('show');
     setTimeout(()=>document.getElementById('inputDelPw').focus(), 50);
   };
@@ -5257,6 +5327,17 @@
       const r = await fetch('/api/auth/account', { method:'DELETE', headers:{ 'content-type':'application/json' }, body: JSON.stringify({ password }) });
       if(r.status === 401){ sessionExpired(); return; }
       const d = await r.json().catch(()=>({}));
+      if(r.status === 409 && (d.reason === 'paddle_active' || d.reason === 'paddle_unknown')){
+        // 網頁版訂閱還在續訂（或問不到狀態）：伺服器擋下來，帳號一列都沒動。文字用前端的（英文也要看得懂），
+        // 不直接顯示伺服器的字。app 裡不出現任何網頁版付款的介面（Apple 3.1.1），只說到網站取消
+        if(d.reason === 'paddle_unknown') setDelMsg(tr('暫時無法確認訂閱狀態，請稍後再試。'), 'err');
+        else if(NATIVE) setDelMsg(tr('你的訂閱是在網頁版訂的。請先用瀏覽器開啟網站，到「我的帳號」按「管理訂閱」取消，再回來刪除帳號——刪除帳號不會停止扣款。'), 'err');
+        else{
+          setDelMsg(tr('你的網頁版訂閱還在續訂中。請先取消訂閱，再刪除帳號——刪除帳號不會停止扣款。'), 'err');
+          document.getElementById('btnDelManageSub').hidden = false;
+        }
+        return;
+      }
       if(!r.ok){ setDelMsg(d.error || ('HTTP ' + r.status), 'err'); return; }
       clearLocalData();
       if(NATIVE){ appToken = null; await nativeTokenClear(); location.reload(); return; }
@@ -5322,7 +5403,7 @@
     document.getElementById('btnIcs').style.display='';
     syncReminderBtn();
     fetch('/api/ics/status',{cache:'no-store'}).then(r=>r.ok?r.json():null)
-      .then(d=>{ if(d){ icsEnabled=d.enabled; } }).catch(()=>{});
+      .then(d=>{ if(d){ icsEnabled=d.enabled; onbRender(); } }).catch(()=>{});
     // 提醒狀態原本從來沒有被讀回來：reminderEnabled 永遠從 false 開始，所以重新
     // 整理之後按鈕一律顯示「開啟提醒」——即使那個人早就開著了。伺服器端的
     // handleReminderStatus 一直都在，只是沒有人呼叫它。
@@ -5399,6 +5480,9 @@
     cloudEnabled = on;
     updateStorageNote();
     if(currentView === 'account') renderAccountView();
+    // 導覽卡只在雲端模式出現。「本機有資料、版本對得上」那條啟動路徑結尾沒有 renderAll，
+    // 不在這裡補一次的話，卡片要等到使用者第一次操作才會出現
+    onbRender();
   }
 
   function updateStorageNote(){
@@ -6379,21 +6463,24 @@
       ? tr('訂閱會自動續訂，可隨時在這裡的「管理訂閱」取消。付款由 Paddle 代收。網頁版與 iPhone app 會一起變成 Pro。')
       : (canManage ? tr('取消、更換信用卡、看收據都在「管理訂閱」裡。取消後到期前仍可使用。') : '');
   }
+  /** 去 Paddle 的客戶頁（取消、換卡、收據）。「我的帳號」的「管理訂閱」與刪帳號被擋下時的「管理訂閱」共用這一支。 */
+  async function acctOpenPaddlePortal(btn, setNote){
+    btn.disabled = true;
+    try{
+      const r = await fetch('/api/plan/paddle/portal', { method: 'POST', credentials: 'same-origin' });
+      const d = await r.json().catch(()=>({}));
+      if(r.ok && d.url){ location.href = d.url; return; }
+      setNote((d && d.error) || tr('暫時打不開訂閱管理頁，請稍後再試'));
+    }catch(e){
+      console.error('paddle portal failed', e);
+      setNote(tr('打不開訂閱管理頁') + '：' + String((e && e.message) || e));
+    }finally{ btn.disabled = false; }
+  }
   {
     const btn = document.getElementById('btnWebSubManage');
-    if(btn) btn.onclick = async ()=>{
-      btn.disabled = true;
-      const note = document.getElementById('acctWebSubNote');
-      try{
-        const r = await fetch('/api/plan/paddle/portal', { method: 'POST', credentials: 'same-origin' });
-        const d = await r.json().catch(()=>({}));
-        if(r.ok && d.url){ location.href = d.url; return; }
-        note.textContent = (d && d.error) || tr('暫時打不開訂閱管理頁，請稍後再試');
-      }catch(e){
-        console.error('paddle portal failed', e);
-        note.textContent = tr('打不開訂閱管理頁') + '：' + String((e && e.message) || e);
-      }finally{ btn.disabled = false; }
-    };
+    if(btn) btn.onclick = ()=> acctOpenPaddlePortal(btn, t => { document.getElementById('acctWebSubNote').textContent = t; });
+    const delBtn = document.getElementById('btnDelManageSub');
+    if(delBtn) delBtn.onclick = ()=> acctOpenPaddlePortal(delBtn, t => setDelMsg(t, 'err'));
   }
 
   function acctRenderSub(){
@@ -7150,12 +7237,13 @@
   /** 給人看的階段名稱。動物與植物兩套語彙，中間四階共用 */
   function petStageLabel(speciesId, stage){
     const sp = petSpecies(speciesId); if(!sp) return '';
-    if(stage === 'baby') return sp.baby;
-    if(stage === 'adult') return sp.adult;
-    return { small: sp.plant ? '長出葉子' : '剛長大一點',
-             half:  sp.plant ? '小樹' : '半大',
-             big:   sp.plant ? '長高了' : '接近成年',
-             almost:sp.plant ? '就快成林' : '就快成年' }[stage] || sp.baby;
+    // 一律 tr()：中文原文就是字典的 key，英文模式下卡片與泡泡不能留中文
+    if(stage === 'baby') return tr(sp.baby);
+    if(stage === 'adult') return tr(sp.adult);
+    return tr({ small: sp.plant ? '長出葉子' : '剛長大一點',
+                half:  sp.plant ? '小樹' : '半大',
+                big:   sp.plant ? '長高了' : '接近成年',
+                almost:sp.plant ? '就快成林' : '就快成年' }[stage] || sp.baby);
   }
 
   const BADGE_LABEL = { first:'第一件', ten:'十件', fifty:'五十件', hundred:'一百件', streak7:'連續 7 天', streak14:'連續 14 天', streak30:'連續 30 天', perfectWeek:'完美的一週' };
@@ -9056,6 +9144,76 @@
   document.getElementById('selectMonthlyMode').onchange = updateRecurrenceExtra;
   document.getElementById('selectRecurrence').onchange = updateRecurrenceExtra;
 
+  /**
+   * modal 目前填的循環設定。儲存與撞時間預覽共用這一份：兩邊各寫一次，預覽看的
+   * 就可能不是真的會存進去的那個循環。一律經過 normalizeRecurrence：與 applySnapshot
+   * 產出完全相同的形狀，三方合併的比對才不會把欄位集差異誤判成「兩邊都改過」。
+   */
+  function modalFormRecurrence(){
+    const recurVal=document.getElementById('selectRecurrence').value;
+    return recurVal==='none' ? null : normalizeRecurrence({
+      freq: recurVal,
+      day: parseInt(document.getElementById('inputRecurDay').value)||1,
+      holidayRule: document.getElementById('selectHolidayRule').value,
+      until: document.getElementById('inputRecurUntil').value || null,
+      count: document.getElementById('inputRecurCount').value || null,
+      weekdays: [...modalWeekdays],
+      mode: document.getElementById('selectMonthlyMode').value,
+      nth: parseInt(document.getElementById('selectNth').value),
+      weekday: parseInt(document.getElementById('selectNthWeekday').value)
+    });
+  }
+
+  // ---- 撞時間提醒（〈衝突預覽〉接上畫面）----
+  // 只提示，**絕不擋存檔**；判斷全部交給 findConflictPreview，這裡不另寫一份。
+  // 目前的項目沒有「結束時間」欄位，所以引擎只會回 sameStart（同一天、同一個開始時間）；
+  // overlaps 的路徑也一起處理，日後加了結束時間不必回來改。
+  function cflOthers(){
+    const own = items.filter(x => x.id !== editingItemId);
+    let shared = [];
+    try{
+      shared = normalizeItems((shares.incoming || []).filter(sh => sh && sh.kind === 'item' && sh.resource).map(sh => sh.resource));
+    }catch(e){ console.error('conflict preview: shared items unreadable', e); }
+    return { own, shared };
+  }
+  function cflLines(){
+    const timeVal = document.getElementById('inputItemMeetingTime').value;
+    const dateVal = document.getElementById('inputItemDate').value;
+    if(modalType !== 'meeting' || !timeVal || !dateVal) return null;
+    if(document.getElementById('inputNoticeOnly').checked) return null;
+    if(isNaN(parseYMD(dateVal).getTime())) return null;
+    const orig = editingItemId ? items.find(x => x.id === editingItemId) : null;
+    const recurrence = modalFormRecurrence();
+    const sameFreq = orig && ((orig.recurrence ? orig.recurrence.freq : null) === (recurrence ? recurrence.freq : null));
+    const candidate = { id: editingItemId || '__modal_new__', title: '', type: 'meeting', meetingTime: timeVal,
+      noticeOnly: false, date: dateVal, endDate: null, recurrence, done: false, doneMap: {},
+      overrides: sameFreq ? (orig.overrides || {}) : {}, skipped: sameFreq ? (orig.skipped || {}) : {} };
+    const { own, shared } = cflOthers();
+    const r = findConflictPreview(candidate, { ownItems: own, sharedItems: shared, absences });
+    const hits = r.overlaps.concat(r.sameStart).sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+    if(!hits.length) return null;
+    const timeOf = {};
+    own.concat(shared).forEach(it => { timeOf[it.id] = it.meetingTime; });
+    return hits.map(h => '「' + h.otherTitle + '」（' + h.date.slice(5).replace('-', '/') + ' ' + (timeOf[h.otherId] || '') + '）');
+  }
+  function cflRefresh(){
+    const box = document.getElementById('itemConflictNote');
+    if(!box) return;
+    let lines = null;
+    try{ lines = cflLines(); }
+    catch(e){ console.error('conflict preview failed', e); }   // 提示壞了不該擋住儲存，但不能沉默
+    if(!lines){ box.textContent = ''; box.classList.add('off'); return; }
+    const shown = lines.slice(0, 3), more = lines.length - shown.length;
+    // 項目標題是使用者（或別人分享過來）的字：textContent
+    box.textContent = tf('這個時間和 {0} 撞在一起', shown.join('、')) + (more > 0 ? tf('（還有 {0} 筆）', more) : '');
+    box.classList.remove('off');
+  }
+  // 事件委派到整個 modal：改日期／時間／循環的任何欄位、點類型或星期鈕都重算。
+  // 按鈕自己的 onclick 先跑（改 modalType／modalWeekdays），冒泡到這裡時狀態已經是新的。
+  itemOverlay.addEventListener('input', cflRefresh);
+  itemOverlay.addEventListener('change', cflRefresh);
+  itemOverlay.addEventListener('click', e => { if(e.target.closest && e.target.closest('button')) cflRefresh(); });
+
   function openItemModal(existingItem, defaultDate, defaultEndDate){
     editingItemId = existingItem ? existingItem.id : null;
     editingOrigFreq = (existingItem && existingItem.recurrence) ? existingItem.recurrence.freq : null;
@@ -9112,6 +9270,7 @@
     renderModalSubtasks();
     renderModalDeps();
     updateRecurrenceExtra();
+    cflRefresh();
     itemOverlay.classList.add('show');
     setTimeout(()=>document.getElementById('inputItemTitle').focus(), 50);
   }
@@ -9167,19 +9326,7 @@
     // 只收 http(s)：javascript: 這類 scheme 進了 href 就是 XSS
     const link=/^https?:\/\//.test(linkRaw) ? linkRaw.slice(0,500) : null;
     const recurVal=document.getElementById('selectRecurrence').value;
-    // 一律經過 normalizeRecurrence：與 applySnapshot 產出完全相同的形狀，
-    // 三方合併的比對才不會把欄位集差異誤判成「兩邊都改過」
-    const recurrence = recurVal==='none' ? null : normalizeRecurrence({
-      freq: recurVal,
-      day: parseInt(document.getElementById('inputRecurDay').value)||1,
-      holidayRule: document.getElementById('selectHolidayRule').value,
-      until: document.getElementById('inputRecurUntil').value || null,
-      count: document.getElementById('inputRecurCount').value || null,
-      weekdays: [...modalWeekdays],
-      mode: document.getElementById('selectMonthlyMode').value,
-      nth: parseInt(document.getElementById('selectNth').value),
-      weekday: parseInt(document.getElementById('selectNthWeekday').value)
-    });
+    const recurrence = modalFormRecurrence();
     const recurNone = recurVal==='none';
     if(recurNone && endRaw && endRaw <= dateVal){
       alert(tr('結束日期需要晚於開始日期。')); return;
@@ -9759,7 +9906,7 @@
     const h = Math.round(PET_BASE_H * (PET_STAGE_SCALE[stage] || 1));
     btn.style.width = h + 'px'; btn.style.height = h + 'px';
     btn.dataset.state = 'idle'; btn.dataset.species = gp.pet; btn.dataset.stage = stage;
-    btn.setAttribute('aria-label', tf('{0}，目前是「{1}」。點一下跟牠打招呼', sp.adult, petStageLabel(gp.pet, stage)));
+    btn.setAttribute('aria-label', tf('{0}，目前是「{1}」。點一下跟牠打招呼', tr(sp.adult), petStageLabel(gp.pet, stage)));
     const old = petLives.get(gp.id); if(old) petLifeStop(old);     // 先停舊的（它會把位置存起來），再讀位置
     const frac = petLastPos.has(gp.id) ? petLastPos.get(gp.id) : .5;
     // 還沒接上畫面、量不到寬度時先用百分比擺好（left＋translate 抵掉自己的寬度）
@@ -9896,7 +10043,7 @@
       pa.appendChild(petArtEl(sp.id, 'adult'));
       cell.appendChild(pa);
       const cap = document.createElement('span'); cap.className = 'pet-pick-cap';
-      cap.textContent = sp.baby + ' → ' + sp.adult;
+      cap.textContent = tr(sp.baby) + ' → ' + tr(sp.adult);
       cell.appendChild(cap);
       cell.onclick = ()=> petChoose(sp.id);
       grid.appendChild(cell);
@@ -10362,7 +10509,75 @@
     else renderScheduleView();
     // 等你回覆（只在項目安排顯示，資料沒變不重畫）與「agent 剛更新了」那一條
     agentRenderInbox(false); agentSyncLive();
+    onbRender();
   }
+
+  // ================= 第一次登入的導覽 =================
+  // 項目安排頁上方的一張小卡，三步：新增第一件事／把日曆接到手機／把專案分享給同事。
+  // 不是 modal、沒有遮罩，不擋任何操作；「我知道了」或三步都做完就收起來。
+  //
+  // 只在**雲端模式且已登入**才出現：單機模式、app 的登入閘門、file:// 都沒有帳號，
+  // 「把日曆接到手機」「分享給同事」對它們沒有意義。
+  //
+  // 「做完了」的判斷：該步驟被按過，**或**資料裡看得出來已經做過（有項目、行事曆訂閱開著、
+  // 有分享出去的資源）——換了裝置的老使用者不必再被叫去做一次已經做過的事。
+  // 「看過了」記在 localStorage（顯示偏好，不進 snapshot()；同 agentCapsSeen），
+  // 讀寫都包 try/catch：寫不進去時這個工作階段內仍然有效，只是下次載入會再出現一次。
+  // 函式一律 onb 前綴（遮蔽事故）。
+  const ONB_SEEN_KEY = STORAGE_KEY + '.onboardSeen';
+  const ONB_STEPS_KEY = STORAGE_KEY + '.onboardSteps';
+  let onbSeenMem = null;
+  let onbClicked = null;
+  function onbSeen(){
+    if(onbSeenMem === null){ try{ onbSeenMem = localStorage.getItem(ONB_SEEN_KEY) === '1'; }catch(e){ onbSeenMem = false; } }
+    return onbSeenMem;
+  }
+  function onbMarkSeen(){
+    onbSeenMem = true;
+    try{ localStorage.setItem(ONB_SEEN_KEY, '1'); }catch(e){ /* 這個工作階段內仍然有效 */ }
+  }
+  function onbClickedSet(){
+    if(onbClicked === null){
+      onbClicked = new Set();
+      try{ const a = JSON.parse(localStorage.getItem(ONB_STEPS_KEY) || '[]'); if(Array.isArray(a)) a.forEach(x => onbClicked.add(String(x))); }catch(e){}
+    }
+    return onbClicked;
+  }
+  function onbClick(step){
+    onbClickedSet().add(step);
+    try{ localStorage.setItem(ONB_STEPS_KEY, JSON.stringify([...onbClicked])); }catch(e){}
+  }
+  function onbRender(){
+    try{ onbRenderUnsafe(); }
+    catch(e){ console.error('onboarding card failed', e); }   // 導覽卡壞了不該連累別的畫面，但不能沉默
+  }
+  function onbRenderUnsafe(){
+    const card = document.getElementById('onbCard');
+    if(!card) return;
+    if(!cloudEnabled || !currentUserEmail || onbSeen()){ card.classList.add('off'); return; }
+    const clicked = onbClickedSet();
+    const done = {
+      item: items.length > 0 || clicked.has('item'),
+      ics: icsEnabled || clicked.has('ics'),
+      share: ((shares && shares.outgoing) || []).length > 0 || clicked.has('share')
+    };
+    if(done.item && done.ics && done.share){ onbMarkSeen(); card.classList.add('off'); return; }
+    [['onbStepItem', 'item'], ['onbStepIcs', 'ics'], ['onbStepShare', 'share']].forEach(([id, key]) => {
+      const b = document.getElementById(id);
+      b.classList.toggle('done', done[key]);
+      const lab = b.querySelector('.onb-label');
+      b.setAttribute('aria-label', (lab ? lab.textContent : '') + (done[key] ? tr('（已完成）') : ''));
+    });
+    card.classList.remove('off');
+  }
+  document.getElementById('onbStepItem').onclick = () => {
+    onbClick('item');
+    document.getElementById('openItemModal').click();   // 走原本那顆按鈕：預設日期與各種檢查都一樣
+    onbRender();
+  };
+  document.getElementById('onbStepIcs').onclick = () => { onbClick('ics'); acctGotoSection('acctIcs'); };
+  document.getElementById('onbStepShare').onclick = () => { onbClick('share'); currentView = 'shared'; renderNav(); };
+  document.getElementById('onbDismiss').onclick = () => { onbMarkSeen(); onbRender(); };
 
   // ================= agent 工作區 =================
   // 設計文件：docs/superpowers/specs/2026-11-21-agent-workspace.md（第一批 1B）。
@@ -11216,6 +11431,16 @@
 
     const claim = agentEl('span', 'agent-claim');
     el.appendChild(claim);
+    // 放掉認領：擁有者隨時可以把 agent 的認領拿掉（agent 卡住不動、或不想讓它做這件事）。
+    // 純前端資料——assignee／claimedAt 本來就在 state 裡，走 withUndo（commit，六秒內可復原），不打任何新端點
+    const release = agentEl('button', 'qbtn agent-claim-release', tr('放掉'));
+    release.type = 'button';
+    release.onclick = ()=>{
+      if(!t.assignee) return;
+      if(!confirm(tf('要放掉「{0}」對「{1}」的認領嗎？之後任何人（或別的 agent）都可以接手。', t.assignee, t.name))) return;
+      withUndo(tf('已放掉「{0}」的認領', t.name), ()=>{ t.assignee = null; t.claimedAt = null; });
+    };
+    el.appendChild(release);
     el.appendChild(agentBuildTaskLinks(gp, t));
 
     function sync(){
@@ -11227,6 +11452,7 @@
         adopt.style.display = (late !== 0 && t.forecastEnd >= t.start) ? '' : 'none';
       }
       claim.style.display = t.assignee ? '' : 'none';
+      release.style.display = t.assignee ? '' : 'none';
       if(t.assignee){
         const idle = agentClaimIdleDays(t, Date.now());
         claim.textContent = tf('認領：{0}', t.assignee) + (idle !== null ? ' · ' + tf('{0} 天沒動靜', idle) : '');
@@ -11704,6 +11930,7 @@
     const gp = ganttProjects.find(g => g.id === gpId);
     if(gp) riskFill(box, gp);
   }
+  const RISK_NOTE_MAX = 500;      // 與伺服器 handleCloseRisk 的上限相同
   function riskFill(box, gp){
     const st = agentEvState(gp.id);
     box.textContent = '';
@@ -11722,10 +11949,16 @@
       const msg = agentEl('span', 'agent-msg');
       const b = agentEl('button', 'qbtn', tr('關閉這個風險')); b.type = 'button';
       b.title = tr('這個風險排除了：它會從清單拿掉，並留下一筆「擁有者關閉了」的紀錄。');
+      // 選填的一句說明（≤500 字、純文字）：寫了，結案那一筆的內文就是它；沒寫就維持「擁有者關閉了這個風險」
+      const note = document.createElement('input');
+      note.type = 'text'; note.className = 'agent-risk-note'; note.maxLength = RISK_NOTE_MAX;
+      note.placeholder = tr('附一句說明（選填）：怎麼排除的？');
+      note.setAttribute('aria-label', tr('關閉風險的說明（選填）'));
       b.onclick = async ()=>{
         b.disabled = true; msg.className = 'agent-msg'; msg.textContent = '';
         try{
-          await agentPost('/api/projects/events/' + encodeURIComponent(e.id) + '/close-risk');
+          const text = note.value.trim();
+          await agentPost('/api/projects/events/' + encodeURIComponent(e.id) + '/close-risk', text ? { note: text } : {});
           await agentLoadEvents(gp.id, true);
         }catch(err){
           if(err.expired) return;
@@ -11733,10 +11966,13 @@
           b.disabled = false; msg.className = 'agent-msg err'; msg.textContent = err.message || tr('關閉失敗，請稍後再試');
         }
       };
-      meta.append(msg, b);
+      meta.appendChild(msg);
       row.appendChild(meta);
       // 內文是 agent 寫的外部內容（被遮蔽的內文是空的）
       row.appendChild(agentEl('div', 'agent-risk-body', e.redactedAt ? tr('（內容已被遮蔽）') : e.body));
+      const foot = agentEl('div', 'agent-risk-foot');
+      foot.append(note, b);
+      row.appendChild(foot);
       box.appendChild(row);
     }
   }
@@ -11915,6 +12151,7 @@
       if(r.ok) activity = (await r.json()).activity || [];
     }catch(e){ /* 沿用舊資料 */ }
     updateSharedBadge();
+    onbRender();   // 「有分享出去的資源」是導覽卡第三步的偵測依據
   }
 
   function fmtActivityTime(ms){
@@ -12643,8 +12880,10 @@
    *
    * 用 hash 而不是查詢字串：它不會被送到伺服器，也不會進分享出去的網址。
    */
-  function acctGotoNotify(){
-    const sec = document.getElementById('acctReminder');
+  function acctGotoNotify(){ acctGotoSection('acctReminder'); }
+  // 切到帳號頁、捲到指定的那一區並標示（通知設定與第一次登入的導覽共用）
+  function acctGotoSection(secId){
+    const sec = document.getElementById(secId);
     if(!sec) return;
     // 切頁籤走既有的那兩行（navAccount 的 onclick 就是這樣做的）。
     // 不要另外包一個 setView()——這個檔案裡沒有那個東西。

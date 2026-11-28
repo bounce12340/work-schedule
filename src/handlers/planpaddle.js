@@ -65,6 +65,38 @@ async function paddleApi(env, method, path, body) {
   return data.data;
 }
 
+/**
+ * 刪帳號之前問一次：這個帳號有沒有一份**還在扣款**的網頁版訂閱。
+ *
+ * 刪帳號不會停止 Paddle 的扣款（我們沒有替他取消），所以有效的網頁訂閱必須先擋下來，
+ * 請他到客戶頁取消——否則他的帳號沒了、卡卻照扣。回傳：
+ *   null                        可以刪（不是網頁訂閱、已過寬限、或 Paddle 說已取消／已排定取消）
+ *   { reason: 'paddle_active' }   還在續訂，擋
+ *   { reason: 'paddle_unknown' }  問不到（沒設 API key、非 2xx、回應壞掉、沒有訂閱 id）——**也擋，不默默放行**
+ *
+ * 「有沒有排定取消」**刪除當下問 Paddle**，不信資料庫：取消是在 Paddle 的客戶頁做的，
+ * subscription.updated 的 webhook 可能還沒到。Paddle 的錯誤原文只進 console（paddleApi 已處理），
+ * 絕不轉給前端。admin 永久方案與 Apple 的訂閱不在這裡擋（Apple 的由前端在確認畫面警告）。
+ */
+export async function paddleDeletionGuard(env, userRow, nowMs = Date.now()) {
+  if (!userRow || userRow.plan_source !== 'paddle') return null;
+  if (planOf(userRow, nowMs) !== 'pro') return null;          // 已到期（含 3 天寬限）：不會再扣款
+  const subId = userRow.paddle_subscription_id;
+  if (!subId || !env.PADDLE_API_KEY) {
+    console.error('paddle deletion guard: cannot check subscription', subId ? 'no api key' : 'no subscription id');
+    return { reason: 'paddle_unknown' };
+  }
+  let sub = null;
+  try {
+    sub = await paddleApi(env, 'GET', `/subscriptions/${encodeURIComponent(subId)}`);
+  } catch (e) {
+    console.error('paddle deletion guard: request failed', e?.message || String(e));
+  }
+  if (!sub) return { reason: 'paddle_unknown' };
+  if (sub.status === 'canceled' || sub.scheduled_change?.action === 'cancel') return null;
+  return { reason: 'paddle_active' };
+}
+
 /** 同 planapple.js：寫失敗只 console.warn。去重是省事，不是正確性的前提。 */
 async function recordPlanEvent(env, ev) {
   try {
@@ -233,7 +265,17 @@ export async function handlePaddleWebhook(request, env) {
     if (seen) return json({ ok: true, duplicate: true });
   }
 
-  // 只處理訂閱事件；其餘（交易、客戶、退款調整）照樣記一筆，讓那筆錢在系統裡有痕跡
+  // 退款調整：只有「已核准的整筆退款」收回 Pro（見 applyPaddleRefund）；其餘一律只記一筆
+  if (type === 'adjustment.created' || type === 'adjustment.updated') {
+    const r = await handleAdjustment(env, sub, ev);
+    await recordPlanEvent(env, {
+      userId: r.userId, source: 'paddle', kind: r.applied ? 'refunded' : `skipped:${r.reason}`,
+      originalTxn: String(sub.subscription_id || ''), notificationUuid: eventId, detail: `${type} ${sub.action}/${sub.type}/${sub.status}`,
+    });
+    return json({ ok: true, applied: r.applied });
+  }
+
+  // 只處理訂閱事件；其餘（交易、客戶）照樣記一筆，讓那筆錢在系統裡有痕跡
   if (!type.startsWith('subscription.')) {
     await recordPlanEvent(env, { source: 'paddle', kind: type || 'unknown', notificationUuid: eventId, detail: sub.id || '' });
     return json({ ok: true, recorded: true });
@@ -275,6 +317,44 @@ export async function handlePaddleWebhook(request, env) {
     originalTxn: subId, notificationUuid: eventId, expiresAt: exp.expiresAt, detail: `${type} status=${sub.status}`,
   });
   return json({ ok: true, applied: result.applied });
+}
+
+/**
+ * 一則 adjustment（退款／信用額度／拒付）→ 該不該收回網頁版的 Pro。
+ *
+ * 全部成立才收回（缺一個就只記一筆）：
+ *   - action 是 refund 或 chargeback（credit 是折抵下一期的帳款，不是把錢還回去）
+ *   - status 是 approved（pending_approval 還沒定、rejected 被駁回了）
+ *   - **type 是 full**：部分退款（例如補償一個月的一部分）不代表使用者不該再有這一期。
+ *     這是刻意的選擇：寧可漏收一次部分退款（管理者在 /admin 看得到 plan_events），也不要
+ *     因為退了一點小錢就把付全額的人降級——前者看得見、可以補，後者使用者當場被鎖在外面
+ *   - 帶 subscription_id，而且就是這個帳號**現在**那一份網頁訂閱（plan_source=paddle）：
+ *     只結束網頁那一份——不是 paddle、訂閱 id 不同、admin 永久方案、Apple 那一份一律不動
+ * 收回＝plan_expires_at 往前寫成現在（planOf 仍有 3 天寬限，同其他結束類事件）。
+ * 冪等：已經過期的不再動（不會把到期日往後移）；同一則事件的重送由 event_id 去重擋掉。
+ * 比事件時間：比上一次處理的舊就不理（同 applyPaddle）。
+ */
+async function handleAdjustment(env, adj, ev) {
+  if (!['refund', 'chargeback'].includes(adj.action)) return { applied: false, reason: 'not_refund' };
+  if (adj.status !== 'approved') return { applied: false, reason: 'not_approved' };
+  if (adj.type !== 'full') return { applied: false, reason: 'partial' };
+  const subId = String(adj.subscription_id || '');
+  if (!subId) return { applied: false, reason: 'no_subscription' };
+  const row = await env.DB.prepare(
+    'SELECT id, plan_source, plan_expires_at, paddle_subscription_id, paddle_event_at FROM users WHERE paddle_subscription_id = ?'
+  ).bind(subId).first();
+  if (!row) return { applied: false, reason: 'unmatched' };
+  if (row.plan_source !== 'paddle') return { applied: false, userId: row.id, reason: 'not_this_subscription' };
+  const occurredAt = ms(ev.occurred_at) ?? Date.now();
+  if (row.paddle_event_at != null && occurredAt < row.paddle_event_at) return { applied: false, userId: row.id, reason: 'stale' };
+  const now = Date.now();
+  if (row.plan_expires_at != null && row.plan_expires_at <= now) return { applied: false, userId: row.id, reason: 'already_ended' };
+  // 單句帶條件：以我們讀到的那個到期日為準，中間被別的事件改走就不寫
+  const r = await env.DB.prepare(
+    `UPDATE users SET plan_expires_at = ?, paddle_event_at = ?
+      WHERE id = ? AND plan_source = 'paddle' AND paddle_subscription_id = ? AND plan_expires_at IS ?`
+  ).bind(now, occurredAt, row.id, subId, row.plan_expires_at).run();
+  return r.meta?.changes === 1 ? { applied: true, userId: row.id } : { applied: false, userId: row.id, reason: 'raced' };
 }
 
 /**
