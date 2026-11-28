@@ -415,6 +415,20 @@ for (const [theme, label, fixedTime] of PASSES) {
   await page.waitForTimeout(300);
   rows.push(...await page.evaluate(measure, IN_ACCOUNT));
 
+  // 刪帳號對話框裡的兩塊新東西：Apple 訂閱的警告、被擋下時的說明與「管理訂閱」。它們平時收著（要有 Apple 訂閱／
+  // 被伺服器擋下才出現），所以**主動造出來**：開對話框，再把那三塊露出來量。露出的方式與應用程式自己的一樣
+  // （hidden 屬性與 .msg-inline.err），smoke 另外用假後端走過真正的路徑。
+  // 這一輪沒有後端（單機模式），刪除帳號那顆按鈕是收著的：直接把對話框打開（它是 overlay，與按鈕可不可見無關）
+  await page.evaluate(() => document.getElementById('delOverlay').classList.add('show'));
+  await page.evaluate(() => {
+    document.getElementById('delAppleWarn').hidden = false;
+    document.getElementById('btnDelManageSub').hidden = false;
+    const m = document.getElementById('delMsg'); m.className = 'msg-inline err'; m.textContent = '你的網頁版訂閱還在續訂中。';
+  });
+  rows.push(...await page.evaluate(measure, [['#delAppleWarn', '刪帳號：Apple 訂閱的警告'], ['#delMsg', '刪帳號：被擋下的說明'], ['#btnDelManageSub', '刪帳號：「管理訂閱」']]));
+  await page.locator('#btnCancelDel').click();
+  await page.waitForTimeout(150);
+
   // 切到「專案」量夥伴卡。**「成年」那個記號要主動逼出來**：示範資料的待辦沒有
   // 全部完成，等它自然出現的話那一條永遠印「略過」——與沒有這一條一模一樣，而且
   // 還會給出「已經量過了」的錯覺。所以走應用程式自己的路徑把每一件待辦勾完
@@ -650,7 +664,7 @@ const AGENT_2B = [
   ['.agent-ms-chip:not(.risk):not(.ok)', '里程碑編輯器：趕得上'], ['.agent-ms-chip.risk', '里程碑編輯器：有風險'], ['.agent-ms-chip.ok', '里程碑編輯器：已達成'],
   ['.agent-ms-why', '里程碑編輯器：有風險的原因'], ['.agent-ms .agent-brief-hint', '里程碑的摘要（有風險時變紅字）'],
   ['.task-meta .task-field-label', '任務列：預估／實際／小時'], ['.agent-fc', '任務列：預測那一行'], ['.agent-fc .qbtn', '任務列：「採用預測」'],
-  ['.agent-claim:not(.stale)', '任務列：認領'], ['.agent-claim.stale', '任務列：認領（N 天沒動靜）'],
+  ['.agent-claim-release', '任務列：認領旁的「放掉」'], ['.agent-claim:not(.stale)', '任務列：認領'], ['.agent-claim.stale', '任務列：認領（N 天沒動靜）'],
   ['.agent-linkchip a', '任務列：證據連結'], ['.agent-linkchip button', '任務列：移除連結的 ✕'], ['.agent-links > .qbtn', '任務列：「＋ 連結」'],
   ['.agent-prs .agent-h', 'PR 看板標題'], ['.agent-pr-counts', 'PR 看板：計數'], ['.agent-pr-num', 'PR：編號'], ['.agent-pr-title', 'PR：標題'],
   ['.agent-pr-state:not(.merged)', 'PR：狀態'], ['.agent-pr-state.merged', 'PR：已合併'],
@@ -663,7 +677,7 @@ const AGENT_2B_ACCOUNT = [
 ];
 // 3B：專案頁的風險與分享連結、帳號頁的版本歷史／範圍／成績單／每週摘要
 const AGENT_3B_PROJECT = [
-  ['.agent-risks .agent-h', '風險：標題'], ['.agent-risk-meta', '風險：誰與多久前'], ['.agent-risk-body', '風險：內文'], ['.agent-risk .qbtn', '風險：「關閉這個風險」'],
+  ['.agent-risks .agent-h', '風險：標題'], ['.agent-risk-meta', '風險：誰與多久前'], ['.agent-risk-body', '風險：內文'], ['.agent-risk .qbtn', '風險：「關閉這個風險」'], ['.agent-risk-note', '風險：關閉時的說明輸入框'],
   ['.agent-share .agent-h', '分享連結：標題'], ['.agent-share [data-role=share-state]', '分享連結：公開了什麼'], ['.agent-share > .agent-line', '分享連結：勾選的說明'],
   ['.agent-share .acct-chk', '分享連結：勾選項目'], ['.agent-share .agent-send', '分享連結：「產生／重新產生」'], ['.agent-share .qbtn', '分享連結：「撤銷連結」'],
   ['.agent-share-url .agent-line', '分享連結：只顯示一次的說明（琥珀底）'], ['.agent-share-url .ghost-btn', '分享連結：複製／收起來'],

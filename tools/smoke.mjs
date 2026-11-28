@@ -151,6 +151,8 @@ function makeServer(loggedIn, plan = 'pro') {
     refId: null, status: null, options: null, defaultAfter: null, redactedAt: null, createdAt: T0 - (over.ago || 60000), ...over });
   const agent = {
     posts: [], eventsFail: false, statePuts: [],
+    // 刪帳號那一段（D）：GET /api/state 回的方案來源、DELETE /api/auth/account 的回覆、與打過的請求
+    planSource: null, deleteReply: null, deletes: [], portalPosts: 0,
     version: { updatedAt: 1, latestEventAt: 5000 },
     // ---- 2B：PR 看板與 GitHub 通知設定 ----
     // 開著的三個：測試失敗（78）、等你審（77）、一般的（79，標題是**惡意內文**：外部內容一律 textContent）；
@@ -284,7 +286,16 @@ function makeServer(loggedIn, plan = 'pro') {
           req.on('data', c => { raw += c; });
           return req.on('end', () => { agent.statePuts.push(raw); send(200, { ok: true, updatedAt: 1 }); });
         }
-        return send(200, { user: { ...ME, plan, planSource: plan === 'pro' ? 'admin' : null, planExpiresAt: null, webBilling: true }, state: null, updatedAt: null });
+        return send(200, { user: { ...ME, plan: agent.planSource ? 'pro' : plan, planSource: agent.planSource || (plan === 'pro' ? 'admin' : null), planExpiresAt: null, webBilling: true }, state: null, updatedAt: null });
+      }
+      if (url.pathname === '/api/auth/account' && req.method === 'DELETE') {
+        agent.deletes.push(true);
+        const r = agent.deleteReply || { status: 200, body: { ok: true } };
+        return send(r.status, r.body);
+      }
+      if (url.pathname === '/api/plan/paddle/portal' && req.method === 'POST') {
+        agent.portalPosts++;
+        return send(200, { url: '/portal-ok' });
       }
       // iOS app 的登入／驗證碼：回一個假 token，讓「app 外殼」那一輪走得完
       if (url.pathname === '/api/auth/app/login') return send(200, { ok: true, token: APP_TOKEN, expiresAt: 9e12, user: ME });
@@ -965,6 +976,35 @@ async function walk(page, log, plan = 'pro', server = null) {
     if (!claims[0] || claims[0].stale || /沒動靜|idle/.test(claims[0].text)) throw new Error('剛認領的任務不該標「沒動靜」：' + JSON.stringify(claims[0]));
     if (!claims[1] || !claims[1].stale || !/3 天沒動靜|idle for 3 d/.test(claims[1].text)) throw new Error('認領三天的任務該標「3 天沒動靜」：' + JSON.stringify(claims[1]));
     if (claims[2]) throw new Error('沒人認領的任務不該有認領的標示');
+    // ---- 放掉認領（A3）：要確認、清 assignee／claimedAt、走 commit（可復原）、不打任何 agent 端點 ----
+    step = '放掉認領：要確認、清掉兩個欄位、可復原、不打新端點';
+    {
+      const rel = i => block(i).locator('.agent-claim-release');
+      const hasBox = (i, sel) => block(i).locator(sel).evaluate(el => el.getClientRects().length);
+      if (!(await hasBox(1, '.agent-claim-release'))) throw new Error('有人認領的任務旁沒有「放掉」');
+      if (await hasBox(2, '.agent-claim-release')) throw new Error('沒人認領的任務卻有「放掉」');
+      const store = () => page.evaluate(() => { const t = JSON.parse(localStorage.getItem('workSchedule.v1')).ganttProjects[0].tasks[1]; return [t.assignee, t.claimedAt]; });
+      const posts0 = A.posts.length;
+      page.once('dialog', d => d.dismiss());
+      await rel(1).click();
+      await page.waitForTimeout(250);
+      if ((await store())[0] !== 'Smoke Agent') throw new Error('取消確認之後認領還是被清掉了');
+      // 先把前面留下來的復原提示收掉：不然「有提示」可能是舊的，換成 commit 也看不出來
+      await page.evaluate(() => document.getElementById('undoToast').classList.remove('show'));
+      page.once('dialog', d => d.accept());
+      await rel(1).click();
+      await page.waitForTimeout(400);
+      const after = await store();
+      if (after[0] !== null || after[1] !== null) throw new Error('放掉之後 assignee／claimedAt 沒有清成 null：' + JSON.stringify(after));
+      if (await hasBox(1, '.agent-claim')) throw new Error('放掉之後認領徽章還在');
+      if (!(await page.locator('#undoToast.show').count())) throw new Error('放掉之後沒有「復原」的提示（要走 withUndo）');
+      await page.click('#undoBtn');
+      await page.waitForTimeout(400);
+      const back = await store();
+      if (back[0] !== 'Smoke Agent' || typeof back[1] !== 'number') throw new Error('復原之後認領沒有回來：' + JSON.stringify(back));
+      if (A.posts.length !== posts0) throw new Error('放掉認領不該打任何 agent 端點');
+      checked.push('放掉認領(要確認/清兩個欄位/可復原/不打端點)');
+    }
     step = '預估與實際：改了存得進去，而且不重建表格';
     // 上面新增／刪除里程碑走了完整的 commit()（行數改變，該重建）——所以要重新做一次記號
     await page.evaluate(() => { document.querySelector('.task-row input[type=text]').dataset.keep = '1'; });
@@ -1077,11 +1117,17 @@ async function walk(page, log, plan = 'pro', server = null) {
     if (rk.imgs || rk.ran) throw new Error('風險的內文被當成 HTML 執行了：' + JSON.stringify(rk));
     if (!/<img src=x/.test(rk.text) || !/廠商可能來不及交件/.test(rk.text)) throw new Error('惡意內文應該原樣顯示成文字——斷言會變成空的');
     if (/已經排除的舊風險/.test(rk.text)) throw new Error('已經關閉的風險還在清單裡');
-    step = '風險：擁有者關閉';
+    step = '風險：擁有者關閉（附一句說明）';
+    const noteInp = page.locator('#agentRisks .agent-risk .agent-risk-note');
+    if (!(await noteInp.evaluate(el => el.getClientRects().length))) throw new Error('關閉風險旁沒有可填說明的輸入框');
+    if (await noteInp.getAttribute('maxlength') !== '500') throw new Error('說明的輸入框沒有 500 字上限');
+    await noteInp.fill('  已經請廠商補件了  ');
     await page.locator('#agentRisks .agent-risk .qbtn').click();
     await page.waitForFunction(() => document.querySelectorAll('#agentRisks .agent-risk').length === 0, null, { timeout: 5000 })
       .catch(() => { throw new Error('按了「關閉這個風險」，風險沒有從清單拿掉'); });
-    if (!A.posts.find(x => /\/projects\/events\/r1\/close-risk$/.test(x.path))) throw new Error('關閉風險沒有打到 close-risk 端點');
+    const closePost = A.posts.find(x => /\/projects\/events\/r1\/close-risk$/.test(x.path));
+    if (!closePost) throw new Error('關閉風險沒有打到 close-risk 端點');
+    if (JSON.stringify(closePost.body) !== JSON.stringify({ note: '已經請廠商補件了' })) throw new Error('關閉風險送出的說明不對（要去頭尾空白）：' + JSON.stringify(closePost.body));
     checked.push('風險(只列開著的/惡意內文/關閉)');
 
     // ===== 公開的分享連結 =====
@@ -1143,6 +1189,40 @@ async function walk(page, log, plan = 'pro', server = null) {
   {
     step = '專案的夥伴';
     await need('.pet-card', '夥伴卡');
+    const lang = await page.evaluate(() => localStorage.getItem('workSchedule.v1.lang'));
+    // 英文模式下夥伴相關的畫面不能有任何殘留的中文（A1）：文字節點與 title／aria-label／alt／placeholder 都掃
+    const noCjk = async (where, sel) => {
+      if (lang !== 'en') return;
+      const found = await page.evaluate((q) => {
+        const out = [];
+        for (const root of document.querySelectorAll(q)) {
+          const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+          for (let n = w.nextNode(); n; n = w.nextNode()) if (/[\u3400-\u9fff\uff00-\uffef]/.test(n.nodeValue)) out.push(n.nodeValue.trim());
+          for (const el of [root, ...root.querySelectorAll('*')]) {
+            for (const a of ['title', 'aria-label', 'alt', 'placeholder']) {
+              const v = el.getAttribute && el.getAttribute(a);
+              if (v && /[\u3400-\u9fff\uff00-\uffef]/.test(v)) out.push(a + '=' + v);
+            }
+          }
+        }
+        return out;
+      }, sel);
+      if (found.length) throw new Error(`英文模式下「${where}」殘留中文：${found.slice(0, 5).join(' ｜ ')}`);
+    };
+    await noCjk('夥伴卡', '.pet-card');
+    if (lang === 'en') {
+      // 泡泡的話是隨機挑的，掃一次抓不全：靜態比對——每一種夥伴的每一句口頭禪、八種夥伴的兩個名字、
+      // 階段名稱都必須是 I18N.en 的 key（取來源碼，不是複製一份）
+      const src = readFileSync(PUBLIC + 'index.html', 'utf8');
+      const en = src.slice(src.indexOf('const I18N = {'), src.indexOf('const I18N = {') + 200000);
+      const hasKey = k => en.includes(`'${k}':`);
+      const lines = [...src.slice(src.indexOf('const PET_LINES = {'), src.indexOf('const petLives')).matchAll(/'([^']+)'/g)].map(m => m[1]).filter(t => /[\u4e00-\u9fff]/.test(t));
+      const species = [...src.slice(src.indexOf('const PET_SPECIES = ['), src.indexOf('const PET_IDS')).matchAll(/(?:baby|adult):'([^']+)'/g)].map(m => m[1]);
+      const stages = ['長出葉子', '剛長大一點', '小樹', '半大', '長高了', '接近成年', '就快成林', '就快成年', '成年'];
+      if (lines.length < 24 || species.length < 16) throw new Error('沒有從原始碼讀到夥伴的口頭禪與名稱，這條斷言是空的');
+      const missing = [...lines, ...species, ...stages].filter(k => !hasKey(k));
+      if (missing.length) throw new Error('I18N.en 缺這些夥伴字串：' + [...new Set(missing)].join('、'));
+    }
     // 示範資料給了一隻鹿，所以卡上要有圖與進度文字——沒選夥伴時那一格是空的，
     // 只斷言「卡片在」會讓「圖畫不出來」照樣綠
     // 示範的鹿也是 AI 畫的圖，而且站在小院子裡的按鈕上（不是手繪 SVG）
@@ -1153,6 +1233,7 @@ async function walk(page, log, plan = 'pro', server = null) {
     await click('.pet-card-pick', '打開挑夥伴的面板');
     await page.waitForTimeout(260);
     await need('#petOverlay.show', '挑夥伴的面板');
+    await noCjk('挑夥伴的面板', '#petOverlay');
     const cells = await page.locator('#petGrid .pet-pick').count();
     if (cells !== 8) throw new Error(`挑夥伴的面板應該有 8 格，實際 ${cells} 格`);
     // 每一格畫的是**長大後的樣子**：八格都要有圖，缺一個代表那個物種的畫皮沒接上
@@ -1198,6 +1279,7 @@ async function walk(page, log, plan = 'pro', server = null) {
       await page.waitForTimeout(150);
       const bubbles = await page.locator('.pet-bubble').count();
       const text = (await page.locator('.pet-bubble').first().textContent() || '').trim();
+      await noCjk('夥伴的泡泡', '.pet-bubble');
       if (bubbles !== 1) throw new Error('連點兩次之後泡泡應該只有一個，實際 ' + bubbles);
       if (!text) throw new Error('泡泡是空的');
       await page.waitForFunction(() => document.querySelectorAll('.pet-bubble').length === 0, null, { timeout: 5000 })
@@ -1267,6 +1349,7 @@ async function walk(page, log, plan = 'pro', server = null) {
     }
     await page.waitForTimeout(260);
     await need('.pet-card-adult', '「成年」的記號');
+    await noCjk('成年的夥伴卡', '.pet-card');
     const stageAfter = await page.locator('.pet-card-name').textContent();
     if (stageBefore === stageAfter) {
       throw new Error(`待辦全部勾完了，夥伴卡還停在「${stageAfter}」——refreshGanttChart 有換掉夥伴卡嗎？`);
@@ -1667,9 +1750,83 @@ async function walk(page, log, plan = 'pro', server = null) {
   if (dangerShown) {
     await click('#btnDeleteAccount', '打開刪除帳號對話框');
     await need('#delOverlay.show', '刪除帳號對話框');
+    // 不是 Apple 訂閱的人看不到那一段警告（D4 的另一半：多顯示等於嚇人）；管理訂閱的鈕也是收著的
+    if (await page.evaluate(() => document.getElementById('delAppleWarn').getClientRects().length + document.getElementById('btnDelManageSub').getClientRects().length)) {
+      throw new Error('不是 Apple 訂閱的帳號，刪除對話框卻顯示了 Apple 的警告或「管理訂閱」');
+    }
     await click('#btnCancelDel', '取消刪除');
     await page.waitForTimeout(100);
     if (await page.locator('#delOverlay.show').count()) throw new Error('刪除帳號對話框取消後沒有關閉');
+  }
+
+  // ---- 訂閱中不能刪帳號（D）：另開一頁走四條路，假後端決定 /api/state 回的方案與 DELETE 的回覆 ----
+  if (dangerShown && server) {
+    step = '刪帳號：訂閱的擋與警告';
+    const A = server.agent;
+    const en = (await page.evaluate(() => localStorage.getItem('workSchedule.v1.lang'))) === 'en';
+    const origin = new URL(page.url()).origin;
+    const lang = en ? 'en' : 'zh';
+    const open = async (planSource, reply) => {
+      A.planSource = planSource; A.deleteReply = reply; A.deletes.length = 0; A.portalPosts = 0;
+      // 另開一個 context：刪帳號成功那條路會 clearLocalData()，共用 localStorage 會把主頁的資料一起清掉
+      const ctx3 = await page.context().browser().newContext({ viewport: { width: 1280, height: 950 }, locale: 'zh-TW' });
+      const p3 = await ctx3.newPage();
+      p3.ctx3 = ctx3;
+      await p3.route('**://fonts.*/**', r => r.abort());
+      await p3.addInitScript(([sd, l]) => {
+        localStorage.setItem('workSchedule.v1', JSON.stringify(sd));
+        localStorage.setItem('workSchedule.v1.lang', l);
+      }, [seed(), lang]);
+      await p3.goto(origin + '/', { waitUntil: 'domcontentloaded' });
+      await p3.waitForSelector('#navAccount');
+      await p3.evaluate(() => { const b = document.querySelector('.boot-sakura'); if (b) b.click(); });
+      // 等同步完成：accountMe 是同步時才拿到的，開得太早會看不到方案
+      await p3.waitForFunction(() => /已同步|同步|synced|sync/i.test(document.body.innerText), null, { timeout: 8000 }).catch(() => {});
+      await p3.waitForTimeout(600);
+      await p3.evaluate(() => document.getElementById('navAccount').click());
+      await p3.evaluate(() => document.getElementById('btnDeleteAccount').click());
+      await p3.waitForSelector('#delOverlay.show');
+      return p3;
+    };
+    const boxes = (p3, id) => p3.evaluate((i) => document.getElementById(i).getClientRects().length, id);
+    const submit = async (p3) => {
+      await p3.fill('#inputDelPw', 'whatever-password');
+      p3.once('dialog', d => d.accept());
+      await p3.click('#btnConfirmDel');
+      await p3.waitForTimeout(500);
+    };
+    try {
+      // Apple 有效訂閱：仍可刪，但確認畫面多一段警告（寫著 iPhone 設定取消、刪帳號不會停止扣款）
+      let p3 = await open('apple', null);
+      if (!(await boxes(p3, 'delAppleWarn'))) throw new Error('Apple 訂閱的帳號，刪除對話框沒有顯示「刪除帳號不會停止扣款」的警告');
+      const warn = await p3.locator('#delAppleWarn').textContent();
+      if (!/Apple ID/.test(warn) || !/不會停止扣款|does not stop billing/.test(warn)) throw new Error('警告沒有講清楚：' + warn);
+      await submit(p3);
+      if (A.deletes.length !== 1) throw new Error('Apple 訂閱的帳號應該照樣能刪（打到 DELETE 一次），實際 ' + A.deletes.length);
+      await p3.ctx3.close();
+
+      // 網頁訂閱還在續訂：伺服器 409 → 畫面說清楚、給「管理訂閱」、帳號沒被當成刪掉（本機資料還在）
+      p3 = await open(null, { status: 409, body: { error: 'SERVER-RAW-TEXT', reason: 'paddle_active' } });
+      if (await boxes(p3, 'delAppleWarn')) throw new Error('不是 Apple 訂閱的帳號卻顯示了 Apple 的警告');
+      await submit(p3);
+      const msg = await p3.locator('#delMsg').textContent();
+      if (!/取消訂閱|cancel/i.test(msg) || /SERVER-RAW-TEXT/.test(msg)) throw new Error('被擋下時的說明不對（要用前端的文字、不是伺服器的原文）：' + msg);
+      if (!(await boxes(p3, 'btnDelManageSub'))) throw new Error('被擋下時沒有「管理訂閱」按鈕（或沒有盒子）');
+      if (!(await p3.evaluate(() => localStorage.getItem('workSchedule.v1')))) throw new Error('被擋下時本機資料被清掉了——不該有任何東西被刪');
+      await p3.click('#btnDelManageSub');
+      await p3.waitForTimeout(400);
+      if (A.portalPosts !== 1) throw new Error('「管理訂閱」沒有打到 Paddle 客戶頁的端點');
+      await p3.ctx3.close();
+
+      // 問不到 Paddle：也擋，說「暫時無法確認」，而且沒有「管理訂閱」（那不是使用者能解的）
+      p3 = await open(null, { status: 409, body: { error: 'SERVER-RAW-TEXT', reason: 'paddle_unknown' } });
+      await submit(p3);
+      const msg2 = await p3.locator('#delMsg').textContent();
+      if (!/無法確認|cannot confirm/i.test(msg2) || /SERVER-RAW-TEXT/.test(msg2)) throw new Error('問不到 Paddle 時的說明不對：' + msg2);
+      if (await boxes(p3, 'btnDelManageSub')) throw new Error('問不到 Paddle 時不該出現「管理訂閱」');
+      await p3.ctx3.close();
+    } finally { A.planSource = null; A.deleteReply = null; }
+    checked.push('刪帳號(Apple 警告/網頁訂閱被擋＋管理訂閱/問不到也擋)');
   }
 
   // 主題與語言現在只有這一頁能切，所以在這裡按一次——順便確認搬家之後

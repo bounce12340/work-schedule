@@ -657,6 +657,29 @@ test('風險：擁有者也能關（寫一筆結案說明）；別人的風險 4
   assert.equal((await call(env, t, 'add_project_event', { projectId: 'gp_1', kind: 'risk', body: 'x', closesEventId: r2.data.eventId })).isError, true);
 });
 
+test('風險：擁有者關閉時可附一句說明（去頭尾空白、純文字、≤500 字）；沒給就維持原句；太長 400 且不動', async () => {
+  const { env, u } = setup();
+  const t = await keyFor(env, u, 'Claude');
+  const closing = id => env.DB.prepare("SELECT body FROM project_events WHERE actor = 'user' AND kind = 'risk' AND status = 'closed' AND ref_id = ?").bind(id).first();
+  const r1 = await call(env, t, 'add_project_event', { projectId: 'gp_1', kind: 'risk', body: '風險一' });
+  assert.equal((await handleCloseRisk(env, u, r1.data.eventId, post({ note: '  已經請廠商補件了\n  ' }))).status, 200);
+  assert.equal(closing(r1.data.eventId).body, '已經請廠商補件了');
+  const r2 = await call(env, t, 'add_project_event', { projectId: 'gp_1', kind: 'risk', body: '風險二' });
+  assert.equal((await handleCloseRisk(env, u, r2.data.eventId, post({}))).status, 200);
+  assert.equal(closing(r2.data.eventId).body, '擁有者關閉了這個風險', '沒給 note');
+  const r3 = await call(env, t, 'add_project_event', { projectId: 'gp_1', kind: 'risk', body: '風險三' });
+  assert.equal((await handleCloseRisk(env, u, r3.data.eventId, post({ note: '   ' }))).status, 200);
+  assert.equal(closing(r3.data.eventId).body, '擁有者關閉了這個風險', '全是空白當作沒給');
+  const r4 = await call(env, t, 'add_project_event', { projectId: 'gp_1', kind: 'risk', body: '風險四' });
+  assert.equal((await handleCloseRisk(env, u, r4.data.eventId, post({ note: 'x'.repeat(501) }))).status, 400);
+  assert.equal(env.DB.prepare("SELECT status FROM project_events WHERE id = ?").bind(r4.data.eventId).first().status, 'open', '太長不動任何東西');
+  assert.equal((await handleCloseRisk(env, u, r4.data.eventId, post({ note: 'x'.repeat(500) }))).status, 200, '剛好 500 可以');
+  // 說明是純文字：原樣存（前端 textContent），不被解讀
+  const r5 = await call(env, t, 'add_project_event', { projectId: 'gp_1', kind: 'risk', body: '風險五' });
+  await handleCloseRisk(env, u, r5.data.eventId, post({ note: '<img src=x onerror=alert(1)>' }));
+  assert.equal(closing(r5.data.eventId).body, '<img src=x onerror=alert(1)>');
+});
+
 // ============================================================ 4. 唯讀分享連結
 
 function addEvent(env, over) {

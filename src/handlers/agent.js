@@ -176,12 +176,21 @@ export async function handleRedactEvent(env, user, id) {
  * 與 agent 用 add_project_event(kind=risk, closesEventId) 關閉走同一個規則：單句帶條件的 UPDATE 領走、
  * 再寫一筆 status=closed 的結案說明（ref_id 指向被關的那一筆）。
  */
-export async function handleCloseRisk(env, user, id) {
+const RISK_NOTE_MAX = 500;
+export async function handleCloseRisk(env, user, id, request = null) {
+  // 選填的說明 {note}：去頭尾空白、純文字、≤500 字；沒給（或空白）就維持原本那一句。
+  // 一個壞掉的 body 不擋關閉（那是沒有說明，不是沒有關閉）；太長才回 400，且在動任何東西之前。
+  let note = '';
+  if (request) {
+    const body = await readJson(request);
+    note = cleanText(body && body.note);
+    if (note.length > RISK_NOTE_MAX) return json({ error: `說明最多 ${RISK_NOTE_MAX} 字` }, 400);
+  }
   const r = await env.DB.prepare("SELECT id, project_id, task_id FROM project_events WHERE id = ? AND user_id = ? AND kind = 'risk'").bind(id, user.id).first();
   if (!r) return json({ error: '找不到這個風險' }, 404);
   const claim = await env.DB.prepare("UPDATE project_events SET status = 'closed' WHERE id = ? AND user_id = ? AND kind = 'risk' AND status = 'open'").bind(id, user.id).run();
   if (claim.meta?.changes !== 1) return json({ error: '這個風險已經不是「還開著」的狀態了' }, 409);
-  await insertEvent(env, { userId: user.id, projectId: r.project_id, taskId: r.task_id, kind: 'risk', actor: 'user', body: '擁有者關閉了這個風險', refId: r.id, status: 'closed' })
+  await insertEvent(env, { userId: user.id, projectId: r.project_id, taskId: r.task_id, kind: 'risk', actor: 'user', body: note || '擁有者關閉了這個風險', refId: r.id, status: 'closed' })
     .catch(e => console.warn('close risk event write failed', e?.message || String(e)));
   return json({ ok: true });
 }

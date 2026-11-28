@@ -23,6 +23,7 @@ import { verifyAppOAuth, linkOAuthIdentity, revokeAppleCredential } from '../oau
 import { json, adminEmails } from './auth.js';
 import { logAdminAction } from './backup.js';
 import { deleteAllVersions } from '../mcp/history.js';
+import { paddleDeletionGuard } from './planpaddle.js';
 
 /** 上架用的 Bundle ID。一旦上架就不能改，所以寫死在這裡而不是環境變數。 */
 export const APP_BUNDLE_ID = 'com.bounceto.workschedule';
@@ -274,6 +275,23 @@ export async function handleAppOAuth(request, env) {
 export async function handleDeleteAccount(request, env, user) {
   const body = await readJson(request);
   if (!body) return json({ error: '請求格式錯誤' }, 400);
+
+  // 有效的網頁版訂閱要先取消：刪帳號停不了 Paddle 的扣款。**放在驗證之前**，擋下時不燒掉
+  // Apple 的單次授權碼；擋下時一列都不動、不留 admin_activity。問不到也擋（說「暫時無法確認」）。
+  {
+    const prow = await env.DB.prepare(
+      'SELECT plan_source, plan_expires_at, paddle_subscription_id FROM users WHERE id = ?'
+    ).bind(user.id).first();
+    const blocked = await paddleDeletionGuard(env, prow);
+    if (blocked) {
+      return json({
+        error: blocked.reason === 'paddle_active'
+          ? '你的網頁版訂閱還在續訂中。請先到「管理訂閱」取消，再刪除帳號——刪除帳號不會停止扣款。'
+          : '暫時無法確認訂閱狀態，請稍後再試。',
+        reason: blocked.reason,
+      }, 409);
+    }
+  }
 
   let freshAppleToken = null;
   if (body.provider) {
